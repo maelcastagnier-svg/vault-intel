@@ -36,6 +36,13 @@ function SetupForm() {
     if (signUpError) { setError(signUpError.message); setLoading(false); return }
 
     await supabase.from('subscriptions').update({ username }).eq('email', email)
+
+    await fetch('/api/send-confirmation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, username })
+    })
+
     router.push('/confirm-email')
   }
 
