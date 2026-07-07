@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
       payment_method_types: ['card'],
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${req.headers.get('origin')}/dashboard?success=true`,
+      success_url: `${req.headers.get('origin')}/setup-account?email={CHECKOUT_SESSION_ID}`,
       cancel_url: `${req.headers.get('origin')}/#pricing`,
     })
 
