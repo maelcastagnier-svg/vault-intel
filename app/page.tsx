@@ -1,4 +1,15 @@
+'use client'
 import Link from "next/link";
+
+async function handleCheckout(priceId: string) {
+  const res = await fetch('/api/checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ priceId, email: '' })
+  })
+  const { url } = await res.json()
+  window.location.href = url
+}
 
 export default function Home() {
   return (
@@ -47,8 +58,9 @@ export default function Home() {
         .plan-features { list-style: none; margin-bottom: 1.75rem; }
         .plan-features li { font-size: 0.85rem; color: var(--text); padding: 0.35rem 0; display: flex; gap: 0.6rem; }
         .plan-features li::before { content: '→'; color: var(--gold); flex-shrink: 0; }
-        .plan-cta { display: block; text-align: center; padding: 0.7rem; border-radius: 4px; font-size: 0.875rem; font-weight: 600; text-decoration: none; border: 1px solid var(--border); color: var(--text); transition: all 0.2s; }
+        .plan-cta { display: block; width: 100%; text-align: center; padding: 0.7rem; border-radius: 4px; font-size: 0.875rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border); color: var(--text); background: transparent; font-family: 'Space Grotesk', sans-serif; transition: all 0.2s; }
         .plan.featured .plan-cta { background: var(--gold); color: var(--black); border-color: var(--gold); }
+        .plan-cta:hover { opacity: 0.85; }
         .cap-note { text-align: center; font-size: 0.8rem; color: var(--muted); margin-top: 1.5rem; }
         .cap-note strong { color: var(--gold); }
         .channels-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 2.5rem; }
@@ -81,22 +93,10 @@ export default function Home() {
       </section>
 
       <div className="proof-bar">
-        <div className="proof-item">
-          <div className="proof-num">4,624</div>
-          <div className="proof-label">Items tracked</div>
-        </div>
-        <div className="proof-item">
-          <div className="proof-num">112K+</div>
-          <div className="proof-label">Price data points</div>
-        </div>
-        <div className="proof-item">
-          <div className="proof-num">8,412</div>
-          <div className="proof-label">Game items indexed</div>
-        </div>
-        <div className="proof-item">
-          <div className="proof-num">24/7</div>
-          <div className="proof-label">AI monitoring</div>
-        </div>
+        <div className="proof-item"><div className="proof-num">4,624</div><div className="proof-label">Items tracked</div></div>
+        <div className="proof-item"><div className="proof-num">112K+</div><div className="proof-label">Price data points</div></div>
+        <div className="proof-item"><div className="proof-num">8,412</div><div className="proof-label">Game items indexed</div></div>
+        <div className="proof-item"><div className="proof-num">24/7</div><div className="proof-label">AI monitoring</div></div>
       </div>
 
       <section className="section" id="how-it-works">
@@ -131,7 +131,7 @@ export default function Home() {
               <li>#patch-analysis</li>
               <li>Real-time price anomalies</li>
             </ul>
-            <Link href="/login" className="plan-cta">Get started</Link>
+            <button className="plan-cta" onClick={() => handleCheckout('price_1TqXC5BmtpUo4AHWVzbSPY0e')}>Get started</button>
           </div>
           <div className="plan featured">
             <div className="plan-badge">Most popular</div>
@@ -144,7 +144,7 @@ export default function Home() {
               <li>#investment-radar</li>
               <li>#ah-sniper</li>
             </ul>
-            <Link href="/login" className="plan-cta">Get started</Link>
+            <button className="plan-cta" onClick={() => handleCheckout('price_1TqXCeBmtpUo4AHWZrM2Su0c')}>Get started</button>
           </div>
           <div className="plan">
             <div className="plan-name">Elite</div>
@@ -156,7 +156,7 @@ export default function Home() {
               <li>AI-generated unique methods</li>
               <li>Priority access to all games</li>
             </ul>
-            <Link href="/login" className="plan-cta">Get started</Link>
+            <button className="plan-cta" onClick={() => handleCheckout('price_1TqXD7BmtpUo4AHWQXkRdCK1')}>Get started</button>
           </div>
         </div>
         <p className="cap-note">Maximum <strong>500 members</strong> per game to preserve the competitive edge of every analysis.</p>
