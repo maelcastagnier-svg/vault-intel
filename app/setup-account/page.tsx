@@ -26,13 +26,17 @@ function SetupForm() {
     if (password.length < 8) { setError('Password must be at least 8 characters'); return }
     if (!username.trim()) { setError('Username is required'); return }
     setLoading(true)
+
     const { error: signUpError } = await supabase.auth.signUp({
-      email, password,
+      email,
+      password,
       options: { data: { username } }
     })
+
     if (signUpError) { setError(signUpError.message); setLoading(false); return }
+
     await supabase.from('subscriptions').update({ username }).eq('email', email)
-    router.push('/dashboard')
+    router.push('/confirm-email')
   }
 
   return (
