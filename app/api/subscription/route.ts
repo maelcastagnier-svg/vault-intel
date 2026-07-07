@@ -8,10 +8,15 @@ const supabase = createClient(
 
 export async function POST(req: NextRequest) {
   const { email } = await req.json()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('subscriptions')
     .select('plan, username')
     .eq('email', email)
     .single()
+  
+  if (error) {
+    return NextResponse.json({ plan: 'free', username: '', debug_error: error.message })
+  }
+  
   return NextResponse.json(data || { plan: 'free', username: '' })
 }
