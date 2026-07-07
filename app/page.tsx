@@ -1,14 +1,28 @@
 'use client'
 import Link from "next/link";
 
+const PRICES = {
+  alert: 'price_1TqY7aBngq0kxKkEbZqcwFZu',
+  pro: 'price_1TqY7mBngq0kxKkE2SBQjygJ',
+  elite: 'price_1TqY86Bngq0kxKkEdD00nNtx',
+}
+
 async function handleCheckout(priceId: string) {
-  const res = await fetch('/api/checkout', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ priceId })
-  })
-  const { url } = await res.json()
-  window.location.href = url
+  try {
+    const res = await fetch('/api/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ priceId })
+    })
+    const data = await res.json()
+    if (data.url) {
+      window.location.href = data.url
+    } else {
+      alert('Error: ' + (data.error || 'Unknown error'))
+    }
+  } catch (err) {
+    alert('Connection error — please try again')
+  }
 }
 
 export default function Home() {
@@ -18,8 +32,7 @@ export default function Home() {
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
         :root {
           --black: #0a0a0a; --white: #f5f4f0; --gold: #c9a84c;
-          --gold-dim: #8a6e2f; --gold-glow: rgba(201,168,76,0.12);
-          --surface: #111110; --surface2: #1a1917;
+          --gold-dim: #8a6e2f; --surface: #111110; --surface2: #1a1917;
           --border: rgba(201,168,76,0.18); --muted: #6b6960; --text: #e8e6df;
         }
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -60,6 +73,7 @@ export default function Home() {
         .plan-features li::before { content: '→'; color: var(--gold); flex-shrink: 0; }
         .plan-cta { display: block; width: 100%; text-align: center; padding: 0.7rem; border-radius: 4px; font-size: 0.875rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border); color: var(--text); background: transparent; font-family: 'Space Grotesk', sans-serif; transition: all 0.2s; }
         .plan.featured .plan-cta { background: var(--gold); color: var(--black); border-color: var(--gold); }
+        .plan-cta:hover { opacity: 0.85; }
         .cap-note { text-align: center; font-size: 0.8rem; color: var(--muted); margin-top: 1.5rem; }
         .cap-note strong { color: var(--gold); }
         .channels-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 2.5rem; }
@@ -130,7 +144,7 @@ export default function Home() {
               <li>#patch-analysis</li>
               <li>Real-time price anomalies</li>
             </ul>
-            <button className="plan-cta" onClick={() => handleCheckout('price_1TqY7aBngq0kxKkEbZqcwFZu')}>Get started</button>
+            <button className="plan-cta" onClick={() => handleCheckout(PRICES.alert)}>Get started</button>
           </div>
           <div className="plan featured">
             <div className="plan-badge">Most popular</div>
@@ -143,7 +157,7 @@ export default function Home() {
               <li>#investment-radar</li>
               <li>#ah-sniper</li>
             </ul>
-            <button className="plan-cta" onClick={() => handleCheckout('price_1TqY7mBngq0kxKkE2SBQjygJ')}>Get started</button>
+            <button className="plan-cta" onClick={() => handleCheckout(PRICES.pro)}>Get started</button>
           </div>
           <div className="plan">
             <div className="plan-name">Elite</div>
@@ -155,7 +169,7 @@ export default function Home() {
               <li>AI-generated unique methods</li>
               <li>Priority access to all games</li>
             </ul>
-            <button className="plan-cta" onClick={() => handleCheckout('price_1TqY86Bngq0kxKkEdD00nNtx')}>Get started</button>
+            <button className="plan-cta" onClick={() => handleCheckout(PRICES.elite)}>Get started</button>
           </div>
         </div>
         <p className="cap-note">Maximum <strong>500 members</strong> per game to preserve the competitive edge of every analysis.</p>
