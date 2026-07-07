@@ -12,10 +12,11 @@ const supabase = createClient(
 )
 
 const PLAN_MAP: Record<string, string> = {
-  'price_1TqXC5BmtpUo4AHWVzbSPY0e': 'alert',
-  'price_1TqXCeBmtpUo4AHWZrM2Su0c': 'pro',
-  'price_1TqXD7BmtpUo4AHWQXkRdCK1': 'elite',
+  'price_1TqY7aBngq0kxKkEbZqcwFZu': 'alert',
+  'price_1TqY7mBngq0kxKkE2SBQjygJ': 'pro',
+  'price_1TqY86Bngq0kxKkEdD00nNtx': 'elite',
 }
+
 
 export async function POST(req: NextRequest) {
   const body = await req.text()
