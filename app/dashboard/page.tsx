@@ -105,6 +105,7 @@ export default function Dashboard() {
           <span className="plan-badge" style={{ color: PLAN_COLORS[plan], borderColor: PLAN_COLORS[plan] + '66', background: PLAN_COLORS[plan] + '15' }}>
             {plan}
           </span>
+          <Link href="/profile" style={{ fontSize: '0.8rem', color: '#6b6960', textDecoration: 'none' }}>My profile</Link>
           <button className="logout-btn" onClick={handleLogout}>Sign out</button>
         </div>
       </nav>
