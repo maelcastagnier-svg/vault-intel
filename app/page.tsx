@@ -5,7 +5,7 @@ async function handleCheckout(priceId: string) {
   const res = await fetch('/api/checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ priceId, email: '' })
+    body: JSON.stringify({ priceId })
   })
   const { url } = await res.json()
   window.location.href = url
@@ -60,7 +60,6 @@ export default function Home() {
         .plan-features li::before { content: '→'; color: var(--gold); flex-shrink: 0; }
         .plan-cta { display: block; width: 100%; text-align: center; padding: 0.7rem; border-radius: 4px; font-size: 0.875rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border); color: var(--text); background: transparent; font-family: 'Space Grotesk', sans-serif; transition: all 0.2s; }
         .plan.featured .plan-cta { background: var(--gold); color: var(--black); border-color: var(--gold); }
-        .plan-cta:hover { opacity: 0.85; }
         .cap-note { text-align: center; font-size: 0.8rem; color: var(--muted); margin-top: 1.5rem; }
         .cap-note strong { color: var(--gold); }
         .channels-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 2.5rem; }
@@ -131,7 +130,7 @@ export default function Home() {
               <li>#patch-analysis</li>
               <li>Real-time price anomalies</li>
             </ul>
-            <button className="plan-cta" onClick={() => handleCheckout('price_1TqXC5BmtpUo4AHWVzbSPY0e')}>Get started</button>
+            <button className="plan-cta" onClick={() => handleCheckout('price_1TqY7aBngq0kxKkEbZqcwFZu')}>Get started</button>
           </div>
           <div className="plan featured">
             <div className="plan-badge">Most popular</div>
@@ -144,7 +143,7 @@ export default function Home() {
               <li>#investment-radar</li>
               <li>#ah-sniper</li>
             </ul>
-            <button className="plan-cta" onClick={() => handleCheckout('price_1TqXCeBmtpUo4AHWZrM2Su0c')}>Get started</button>
+            <button className="plan-cta" onClick={() => handleCheckout('price_1TqY7mBngq0kxKkE2SBQjygJ')}>Get started</button>
           </div>
           <div className="plan">
             <div className="plan-name">Elite</div>
@@ -156,7 +155,7 @@ export default function Home() {
               <li>AI-generated unique methods</li>
               <li>Priority access to all games</li>
             </ul>
-            <button className="plan-cta" onClick={() => handleCheckout('price_1TqXD7BmtpUo4AHWQXkRdCK1')}>Get started</button>
+            <button className="plan-cta" onClick={() => handleCheckout('price_1TqY86Bngq0kxKkEdD00nNtx')}>Get started</button>
           </div>
         </div>
         <p className="cap-note">Maximum <strong>500 members</strong> per game to preserve the competitive edge of every analysis.</p>
