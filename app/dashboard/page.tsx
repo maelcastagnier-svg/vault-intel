@@ -17,6 +17,20 @@ function parsePatchItems(text: string): string[] {
   return cleaned.split(/\n(?=[-•*]\s|\d+\.\s)/).map(s => s.trim()).filter(s => s.length > 5)
 }
 
+const MONTH_MAP: Record<string, number> = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 }
+
+function extractPatchDate(text: string): number {
+  const match = text.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2})/i)
+  if (!match) return 0
+  const month = MONTH_MAP[match[1].toLowerCase().slice(0, 3)] ?? 0
+  const day = parseInt(match[2], 10)
+  return month * 31 + day
+}
+
+function sortPatchesNewestFirst(items: string[]): string[] {
+  return [...items].sort((a, b) => extractPatchDate(b) - extractPatchDate(a))
+}
+
 function parseTable(text: string): Record<string, string>[] {
   const lines = text.split('\n').filter(l => l.trim().startsWith('|') && l.includes('|'))
   if (lines.length < 3) return []
@@ -113,6 +127,8 @@ export default function Dashboard() {
   const [tab, setTab] = useState(0)
   const [loading, setLoading] = useState(true)
   const [marketData, setMarketData] = useState<Record<string, string>>({})
+  const [insights, setInsights] = useState<any[]>([])
+  const [activeInsight, setActiveInsight] = useState<any | null>(null)
   const [dataLoading, setDataLoading] = useState(true)
   const [mmTier, setMmTier] = useState('early')
   const [setupItem, setSetupItem] = useState<Record<string, string> | null>(null)
@@ -138,6 +154,7 @@ export default function Dashboard() {
       const res = await fetch('/api/market-data')
       const data = await res.json()
       setMarketData(data)
+      setInsights(data.insights || [])
       setLastUpdate(new Date())
       setDataLoading(false)
     }
@@ -167,6 +184,14 @@ export default function Dashboard() {
   ]
 
   const hasAccess = (plans: string[]) => plans.includes(plan)
+
+  const findInsightForPatch = (patchTitle: string) => {
+    const cleanTitle = patchTitle.toLowerCase().replace(/[^a-z0-9]/g, '')
+    return insights.find(ins => {
+      const t = (ins.patch_title || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+      return t.length > 4 && (cleanTitle.includes(t) || t.includes(cleanTitle))
+    })
+  }
 
   // Parse flash alerts
   const flashText = marketData['flash_alerts'] || ''
@@ -349,14 +374,25 @@ export default function Dashboard() {
                   <div className="section-label" style={{ color: '#1baf7a', marginBottom: 10 }}>✅ Live Patches</div>
                   <div className="patch-list">
                     {dataLoading ? <div className="loading-data">Loading...</div> :
-                      parsePatchItems(patchLive).map((item, i) => {
+                      sortPatchesNewestFirst(parsePatchItems(patchLive)).map((item, i) => {
                         const parts = item.split(' — ')
                         const title = parts[0] || item
                         const body = parts.slice(1).join(' — ')
+                        const insight = findInsightForPatch(title)
                         return (
                           <div key={i} className="patch-item">
-                            <div className="patch-item-title">📋 {title.replace(/\*\*/g, '').slice(0, 90)}</div>
-                            {body && <div className="patch-item-body">{body.replace(/\*\*/g, '')}</div>}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                              <div className="patch-item-title" style={{ marginBottom: 0 }}>📋 {title.replace(/\*\*/g, '').slice(0, 90)}</div>
+                              {insight && (
+                                <button
+                                  onClick={() => setActiveInsight(insight)}
+                                  style={{ flexShrink: 0, background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.3)', color: '#c9a84c', fontSize: 10, fontFamily: 'Space Mono, monospace', padding: '3px 9px', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}
+                                >
+                                  MORE →
+                                </button>
+                              )}
+                            </div>
+                            {body && <div className="patch-item-body" style={{ marginTop: 8 }}>{body.replace(/\*\*/g, '')}</div>}
                           </div>
                         )
                       })}
@@ -431,6 +467,68 @@ export default function Dashboard() {
             </div>
             <div style={{ marginTop: 16, padding: '0.75rem', background: 'rgba(201,168,76,0.05)', border: '1px solid rgba(201,168,76,0.12)', borderRadius: 6, fontSize: 11, color: '#6b6960' }}>
               💡 Full gear recommendations coming with Evolve
+            </div>
+          </div>
+        </div>
+      )}
+      {activeInsight && (
+        <div className="setup-overlay" onClick={() => setActiveInsight(null)}>
+          <div className="setup-card" onClick={e => e.stopPropagation()}>
+            <button className="setup-close" onClick={() => setActiveInsight(null)}>✕</button>
+            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '0.7rem', color: '#c9a84c', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>📋 Patch Deep-Dive</div>
+            <div className="gold-title" style={{ fontSize: 16, marginBottom: 14, lineHeight: 1.4 }}>{activeInsight.patch_title} {activeInsight.patch_date && <span style={{ color: '#6b6960', fontSize: 11, fontFamily: 'Space Mono, monospace' }}>· {activeInsight.patch_date}</span>}</div>
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, padding: '3px 9px', borderRadius: 4, fontFamily: 'Space Mono, monospace', fontWeight: 700, background: 'rgba(201,168,76,0.12)', color: '#c9a84c', border: '1px solid rgba(201,168,76,0.3)' }}>
+                {activeInsight.action_signal}
+              </span>
+              <span style={{ fontSize: 10, padding: '3px 9px', borderRadius: 4, fontFamily: 'Space Mono, monospace', fontWeight: 700,
+                background: activeInsight.confirmed === 'confirmed' ? 'rgba(27,175,122,0.12)' : activeInsight.confirmed === 'contradicted' ? 'rgba(227,73,72,0.12)' : 'rgba(107,105,96,0.12)',
+                color: activeInsight.confirmed === 'confirmed' ? '#1baf7a' : activeInsight.confirmed === 'contradicted' ? '#e34948' : '#6b6960',
+                border: '1px solid ' + (activeInsight.confirmed === 'confirmed' ? 'rgba(27,175,122,0.3)' : activeInsight.confirmed === 'contradicted' ? 'rgba(227,73,72,0.3)' : 'rgba(107,105,96,0.3)') }}>
+                {activeInsight.confirmed === 'confirmed' ? '✓ Confirmed' : activeInsight.confirmed === 'contradicted' ? '✗ Contradicted' : '⏳ Pending'}
+              </span>
+              {activeInsight.is_alpha && (
+                <span style={{ fontSize: 10, padding: '3px 9px', borderRadius: 4, fontFamily: 'Space Mono, monospace', fontWeight: 700, background: 'rgba(237,161,0,0.12)', color: '#eda100', border: '1px solid rgba(237,161,0,0.3)' }}>ALPHA</span>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {activeInsight.items_affected && activeInsight.items_affected.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 10, color: '#c9a84c', fontFamily: 'Space Mono, monospace', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Items Affected</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {activeInsight.items_affected.map((it: string, i: number) => (
+                      <span key={i} style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', padding: '3px 8px', background: '#111110', border: '1px solid rgba(201,168,76,0.15)', borderRadius: 4, color: '#e8e6df' }}>{it}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeInsight.price_prediction && (
+                <div style={{ borderBottom: '0.5px solid rgba(201,168,76,0.1)', paddingBottom: 12 }}>
+                  <div style={{ fontSize: 10, color: '#c9a84c', fontFamily: 'Space Mono, monospace', marginBottom: 4, textTransform: 'uppercase' }}>Prediction</div>
+                  <div style={{ fontSize: 13, color: '#e8e6df', lineHeight: 1.5 }}>{activeInsight.price_prediction}</div>
+                </div>
+              )}
+
+              {activeInsight.direct_impact && (
+                <div style={{ borderBottom: '0.5px solid rgba(201,168,76,0.1)', paddingBottom: 12 }}>
+                  <div style={{ fontSize: 10, color: '#1baf7a', fontFamily: 'Space Mono, monospace', marginBottom: 4, textTransform: 'uppercase' }}>🎯 Direct Impact</div>
+                  <div style={{ fontSize: 13, color: '#e8e6df', lineHeight: 1.5 }}>{activeInsight.direct_impact}</div>
+                </div>
+              )}
+
+              {activeInsight.unexpected_impact && (
+                <div>
+                  <div style={{ fontSize: 10, color: '#9b59b6', fontFamily: 'Space Mono, monospace', marginBottom: 4, textTransform: 'uppercase' }}>🔮 Unexpected Impact</div>
+                  <div style={{ fontSize: 13, color: '#e8e6df', lineHeight: 1.5 }}>{activeInsight.unexpected_impact}</div>
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: 16, padding: '0.6rem 0.75rem', background: 'rgba(201,168,76,0.05)', border: '1px solid rgba(201,168,76,0.12)', borderRadius: 6, fontSize: 10.5, color: '#6b6960', fontFamily: 'Space Mono, monospace' }}>
+              Vault tracks this prediction and self-corrects on next analysis.
             </div>
           </div>
         </div>
