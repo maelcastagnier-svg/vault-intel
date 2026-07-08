@@ -10,13 +10,24 @@ function SetupForm() {
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [fetching, setFetching] = useState(true)
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = createClient()
 
   useEffect(() => {
-    const emailParam = searchParams.get('email')
-    if (emailParam) setEmail(emailParam)
+    async function getSession() {
+      const sessionId = searchParams.get('session_id')
+      if (sessionId) {
+        try {
+          const res = await fetch('/api/get-session?session_id=' + sessionId)
+          const data = await res.json()
+          if (data.email) setEmail(data.email)
+        } catch {}
+      }
+      setFetching(false)
+    }
+    getSession()
   }, [searchParams])
 
   async function handleSetup(e: React.FormEvent) {
@@ -25,6 +36,7 @@ function SetupForm() {
     if (password !== confirm) { setError('Passwords do not match'); return }
     if (password.length < 8) { setError('Password must be at least 8 characters'); return }
     if (!username.trim()) { setError('Username is required'); return }
+    if (username.length < 3 || username.length > 20) { setError('Username must be 3-20 characters'); return }
     setLoading(true)
 
     const { error: signUpError } = await supabase.auth.signUp({
@@ -40,17 +52,50 @@ function SetupForm() {
     router.push('/confirm-email')
   }
 
+  if (fetching) return (
+    <div style={{ textAlign: 'center', color: '#6b6960', padding: '2rem', fontFamily: 'Space Mono, monospace', fontSize: '0.85rem' }}>
+      Loading your account...
+    </div>
+  )
+
   return (
     <form onSubmit={handleSetup}>
       <label>Email</label>
-      <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@email.com" required />
+      <input
+        type="email"
+        value={email}
+        onChange={e => setEmail(e.target.value)}
+        placeholder="you@email.com"
+        required
+      />
       <label>Username</label>
-      <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="your_username" required minLength={3} maxLength={20} />
+      <input
+        type="text"
+        value={username}
+        onChange={e => setUsername(e.target.value)}
+        placeholder="your_username"
+        required
+        minLength={3}
+        maxLength={20}
+      />
       <p className="hint">3–20 characters, visible in your profile</p>
       <label>Password</label>
-      <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={8} />
+      <input
+        type="password"
+        value={password}
+        onChange={e => setPassword(e.target.value)}
+        placeholder="••••••••"
+        required
+        minLength={8}
+      />
       <label>Confirm password</label>
-      <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="••••••••" required />
+      <input
+        type="password"
+        value={confirm}
+        onChange={e => setConfirm(e.target.value)}
+        placeholder="••••••••"
+        required
+      />
       <div className="requirements">
         <ul>
           <li>Minimum 8 characters</li>
