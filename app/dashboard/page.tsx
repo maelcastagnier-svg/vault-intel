@@ -4,6 +4,19 @@ import { createClient } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
+function parsePatchItems(text: string): string[] {
+  const cleaned = text.replace(/^#+\s*Live Patches\s*/i, '').trim()
+  const lines = cleaned.split('\n')
+  const tableRows = lines.filter(l => l.trim().startsWith('|') && !l.includes('---'))
+  if (tableRows.length > 1) {
+    return tableRows.slice(1).map(row => {
+      const cells = row.split('|').map(c => c.trim()).filter(Boolean)
+      return cells.join(' — ')
+    }).filter(Boolean)
+  }
+  return cleaned.split(/\n(?=[-•*]\s|\d+\.\s)/).map(s => s.trim()).filter(s => s.length > 5)
+}
+
 function parseTable(text: string): Record<string, string>[] {
   const lines = text.split('\n').filter(l => l.trim().startsWith('|') && l.includes('|'))
   if (lines.length < 3) return []
@@ -225,6 +238,11 @@ export default function Dashboard() {
         .ticker { font-family: 'Space Mono', monospace; font-size: 0.65rem; color: #6b6960; margin-bottom: 12px; letter-spacing: 0.08em; }
         .gold-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; background: linear-gradient(135deg, #f0d68a 0%, #c9a84c 50%, #a5822f 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
         .plain-content { background: #111110; border: 0.5px solid rgba(201,168,76,0.15); border-radius: 10px; padding: 1.25rem; font-size: 12px; color: #9b9b8f; line-height: 1.7; white-space: pre-wrap; max-height: 600px; overflow-y: auto; }
+        .patch-list { display: flex; flex-direction: column; gap: 14px; max-height: 600px; overflow-y: auto; padding-right: 4px; }
+        .patch-item { background: #111110; border: 0.5px solid rgba(201,168,76,0.15); border-left: 3px solid #c9a84c; border-radius: 8px; padding: 14px 16px; }
+        .patch-item-title { font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 700; color: #f0d68a; text-shadow: 0 0 10px rgba(201,168,76,0.35); margin-bottom: 8px; line-height: 1.4; }
+        .patch-item-body { font-size: 11.5px; color: #9b9b8f; line-height: 1.7; }
+        .patch-alpha-item { background: #111110; border: 0.5px solid rgba(237,161,0,0.2); border-left: 3px solid #eda100; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; font-size: 11.5px; color: #b8b6ad; line-height: 1.7; }
       `}</style>
 
       <nav>
@@ -329,11 +347,30 @@ export default function Dashboard() {
               <div className="two-col">
                 <div>
                   <div className="section-label" style={{ color: '#1baf7a', marginBottom: 10 }}>✅ Live Patches</div>
-                  <div className="plain-content">{dataLoading ? 'Loading...' : (patchLive || 'No patch data').replace(/\*\*/g, '')}</div>
+                  <div className="patch-list">
+                    {dataLoading ? <div className="loading-data">Loading...</div> :
+                      parsePatchItems(patchLive).map((item, i) => {
+                        const parts = item.split(' — ')
+                        const title = parts[0] || item
+                        const body = parts.slice(1).join(' — ')
+                        return (
+                          <div key={i} className="patch-item">
+                            <div className="patch-item-title">📋 {title.replace(/\*\*/g, '').slice(0, 90)}</div>
+                            {body && <div className="patch-item-body">{body.replace(/\*\*/g, '')}</div>}
+                          </div>
+                        )
+                      })}
+                  </div>
                 </div>
                 <div>
                   <div className="section-label" style={{ color: '#eda100', marginBottom: 10 }}>⚠️ Alpha — Upcoming</div>
-                  <div className="plain-content">{dataLoading ? 'Loading...' : (patchAlpha || 'No alpha data yet — monitoring Hypixel Alpha Network.').replace(/\*\*/g, '')}</div>
+                  <div className="patch-list">
+                    {dataLoading ? <div className="loading-data">Loading...</div> :
+                      patchAlpha.split(/\n(?=[-•*]\s)/).filter(s => s.trim().length > 5).map((item, i) => (
+                        <div key={i} className="patch-alpha-item">⚡ {item.replace(/^[-•*]\s*/, '').replace(/\*\*/g, '')}</div>
+                      ))}
+                    {!dataLoading && !patchAlpha && <div className="patch-alpha-item">Monitoring Hypixel Alpha Network for upcoming changes.</div>}
+                  </div>
                 </div>
               </div>
             )}
