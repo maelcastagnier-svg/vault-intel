@@ -17,9 +17,18 @@ function parseTable(text: string): Record<string, string>[] {
 }
 
 function extractSection(text: string, keyword: string): string {
-  const regex = new RegExp('#+\\s*' + keyword + '[\\s\\S]*?(?=#+\\s|$)', 'i')
-  const match = text.match(regex)
-  return match ? match[0] : ''
+  const lines = text.split('\n')
+  let start = -1
+  let end = lines.length
+  for (let i = 0; i < lines.length; i++) {
+    if (start === -1 && lines[i].match(new RegExp('^#+\\s*' + keyword, 'i'))) {
+      start = i
+    } else if (start !== -1 && i > start && lines[i].match(/^#+\s/) && !lines[i].match(new RegExp('^#+\\s*' + keyword, 'i'))) {
+      end = i
+      break
+    }
+  }
+  return start === -1 ? '' : lines.slice(start, end).join('\n')
 }
 
 function ItemIcon({ name, color }: { name: string, color: string }) {
