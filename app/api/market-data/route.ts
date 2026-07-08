@@ -7,9 +7,12 @@ const supabase = createClient(
 )
 
 export async function GET() {
-  const sections = ['flash_alerts', 'money_making', 'patch_analysis', 'radar', 'ah_sniper']
+  const sections = [
+    'flash_alerts', 'ah_sniper', 'patch_analysis', 'radar',
+    'money_making_early', 'money_making_mid',
+    'money_making_end', 'money_making_late'
+  ]
   const result: Record<string, string> = {}
-
   for (const section of sections) {
     const { data } = await supabase
       .from('claude_analysis')
@@ -20,6 +23,5 @@ export async function GET() {
       .single()
     result[section] = data?.content || ''
   }
-
   return NextResponse.json(result)
 }
