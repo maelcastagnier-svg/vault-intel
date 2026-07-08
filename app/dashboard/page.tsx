@@ -17,7 +17,7 @@ function parseTable(text: string): Record<string, string>[] {
 }
 
 function extractSection(text: string, keyword: string): string {
-  const regex = new RegExp('####\\s*' + keyword + '[\\s\\S]*?(?=####|###\\s*[^#]|$)', 'i')
+  const regex = new RegExp('#+\\s*' + keyword + '[\\s\\S]*?(?=#+\\s|$)', 'i')
   const match = text.match(regex)
   return match ? match[0] : ''
 }
