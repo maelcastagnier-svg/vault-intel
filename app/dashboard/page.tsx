@@ -172,6 +172,12 @@ export default function Dashboard() {
 
   const currentTier = MM_TIERS.find(t => t.key === mmTier) || MM_TIERS[0]
 
+  // Parse patch analysis
+  const patchText = marketData['patch_analysis'] || ''
+  const patchSplit = patchText.split(/#+\s*Alpha\s*Upcoming/i)
+  const patchLive = (patchSplit[0] || '').replace(/^#+\s*Live Patches\s*/i, '').trim()
+  const patchAlpha = (patchSplit[1] || '').trim()
+
   if (loading) return (
     <div style={{ background: '#0a0a0a', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#c9a84c', fontFamily: 'Space Mono, monospace' }}>
       Loading Vault...
@@ -185,7 +191,7 @@ export default function Dashboard() {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: #0a0a0a; color: #e8e6df; font-family: 'Space Grotesk', sans-serif; min-height: 100vh; }
         nav { display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 2rem; border-bottom: 1px solid rgba(201,168,76,0.15); background: rgba(8,8,8,0.98); position: sticky; top: 0; z-index: 100; backdrop-filter: blur(10px); }
-        .logo { font-family: 'Space Mono', monospace; font-size: 0.95rem; font-weight: 700; color: #c9a84c; letter-spacing: 0.15em; }
+        .logo { font-family: 'Space Mono', monospace; font-size: 0.98rem; font-weight: 700; color: #c9a84c; letter-spacing: 0.18em; text-shadow: 0 0 16px rgba(201,168,76,0.5); }
         .nav-right { display: flex; align-items: center; gap: 0.65rem; }
         .plan-badge { font-family: 'Space Mono', monospace; font-size: 0.6rem; padding: 0.18rem 0.55rem; border-radius: 3px; text-transform: uppercase; font-weight: 700; border: 1px solid; }
         .nav-link { font-size: 0.78rem; color: #6b6960; text-decoration: none; }
@@ -201,13 +207,13 @@ export default function Dashboard() {
         .col-scroll { max-height: 520px; overflow-y: auto; padding-right: 4px; scrollbar-width: thin; scrollbar-color: rgba(201,168,76,0.15) transparent; }
         .col-scroll::-webkit-scrollbar { width: 3px; }
         .col-scroll::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.15); border-radius: 2px; }
-        .section-label { font-family: 'Space Mono', monospace; font-size: 0.6rem; letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 10px; }
+        .section-label { font-family: 'Space Mono', monospace; font-size: 0.66rem; letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 12px; font-weight: 700; text-shadow: 0 0 12px currentColor; opacity: 0.95; }
         .mm-tabs { display: flex; gap: 4px; margin-bottom: 14px; flex-wrap: wrap; }
         .mm-tab { padding: 0.35rem 0.85rem; border-radius: 5px; font-size: 0.78rem; border: 1px solid rgba(201,168,76,0.15); background: #0f0f0e; color: #6b6960; cursor: pointer; font-family: 'Space Grotesk', sans-serif; }
         .four-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         @media (max-width: 650px) { .four-grid { grid-template-columns: 1fr; } }
         .sub-card { background: #111110; border: 0.5px solid rgba(201,168,76,0.12); border-radius: 8px; padding: 12px; }
-        .sub-label { font-family: 'Space Mono', monospace; font-size: 0.58rem; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 8px; }
+        .sub-label { font-family: 'Space Mono', monospace; font-size: 0.62rem; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 10px; font-weight: 700; text-shadow: 0 0 8px currentColor; opacity: 0.9; }
         .locked-msg { background: #111110; border: 1px solid rgba(201,168,76,0.15); border-radius: 12px; padding: 3rem; text-align: center; }
         .locked-msg h3 { color: #c9a84c; font-size: 1.1rem; margin-bottom: 0.5rem; }
         .locked-msg p { color: #6b6960; font-size: 0.85rem; margin-bottom: 1.5rem; }
@@ -216,7 +222,8 @@ export default function Dashboard() {
         .setup-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 2rem; }
         .setup-card { background: #111110; border: 1px solid rgba(201,168,76,0.25); border-radius: 12px; padding: 1.75rem; max-width: 480px; width: 100%; }
         .setup-close { float: right; background: transparent; border: none; color: #6b6960; cursor: pointer; font-size: 1.1rem; }
-        .ticker { font-family: 'Space Mono', monospace; font-size: 0.65rem; color: #6b6960; margin-bottom: 12px; }
+        .ticker { font-family: 'Space Mono', monospace; font-size: 0.65rem; color: #6b6960; margin-bottom: 12px; letter-spacing: 0.08em; }
+        .gold-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; background: linear-gradient(135deg, #f0d68a 0%, #c9a84c 50%, #a5822f 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
         .plain-content { background: #111110; border: 0.5px solid rgba(201,168,76,0.15); border-radius: 10px; padding: 1.25rem; font-size: 12px; color: #9b9b8f; line-height: 1.7; white-space: pre-wrap; max-height: 600px; overflow-y: auto; }
       `}</style>
 
@@ -322,13 +329,11 @@ export default function Dashboard() {
               <div className="two-col">
                 <div>
                   <div className="section-label" style={{ color: '#1baf7a', marginBottom: 10 }}>✅ Live Patches</div>
-                  <div className="plain-content">{dataLoading ? 'Loading...' : (marketData['patch_analysis'] || 'No patch data').replace(/\*\*/g, '')}</div>
+                  <div className="plain-content">{dataLoading ? 'Loading...' : (patchLive || 'No patch data').replace(/\*\*/g, '')}</div>
                 </div>
                 <div>
                   <div className="section-label" style={{ color: '#eda100', marginBottom: 10 }}>⚠️ Alpha — Upcoming</div>
-                  <div style={{ background: '#111110', border: '0.5px solid rgba(237,161,0,0.2)', borderLeft: '3px solid #eda100', borderRadius: 8, padding: '14px 16px', fontSize: 12, color: '#6b6960', lineHeight: 1.6 }}>
-                    Alpha patch tracking — monitoring Hypixel Alpha Network for upcoming changes.
-                  </div>
+                  <div className="plain-content">{dataLoading ? 'Loading...' : (patchAlpha || 'No alpha data yet — monitoring Hypixel Alpha Network.').replace(/\*\*/g, '')}</div>
                 </div>
               </div>
             )}
