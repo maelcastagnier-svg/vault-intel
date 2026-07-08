@@ -47,7 +47,11 @@ function SetupForm() {
 
     if (signUpError) { setError(signUpError.message); setLoading(false); return }
 
-    await supabase.from('subscriptions').update({ username }).eq('email', email)
+    await fetch('/api/update-username', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, username })
+    })
 
     router.push('/confirm-email')
   }
@@ -61,41 +65,14 @@ function SetupForm() {
   return (
     <form onSubmit={handleSetup}>
       <label>Email</label>
-      <input
-        type="email"
-        value={email}
-        onChange={e => setEmail(e.target.value)}
-        placeholder="you@email.com"
-        required
-      />
+      <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@email.com" required />
       <label>Username</label>
-      <input
-        type="text"
-        value={username}
-        onChange={e => setUsername(e.target.value)}
-        placeholder="your_username"
-        required
-        minLength={3}
-        maxLength={20}
-      />
+      <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="your_username" required minLength={3} maxLength={20} />
       <p className="hint">3–20 characters, visible in your profile</p>
       <label>Password</label>
-      <input
-        type="password"
-        value={password}
-        onChange={e => setPassword(e.target.value)}
-        placeholder="••••••••"
-        required
-        minLength={8}
-      />
+      <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={8} />
       <label>Confirm password</label>
-      <input
-        type="password"
-        value={confirm}
-        onChange={e => setConfirm(e.target.value)}
-        placeholder="••••••••"
-        required
-      />
+      <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="••••••••" required />
       <div className="requirements">
         <ul>
           <li>Minimum 8 characters</li>
