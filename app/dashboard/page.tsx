@@ -21,9 +21,9 @@ function extractSection(text: string, keyword: string): string {
   let start = -1
   let end = lines.length
   for (let i = 0; i < lines.length; i++) {
-    if (start === -1 && lines[i].match(new RegExp('^#+\\s*' + keyword, 'i'))) {
+    if (start === -1 && lines[i].match(new RegExp('^#+\\s*(' + keyword + ')', 'i'))) {
       start = i
-    } else if (start !== -1 && i > start && lines[i].match(/^#+\s/) && !lines[i].match(new RegExp('^#+\\s*' + keyword, 'i'))) {
+    } else if (start !== -1 && i > start && lines[i].match(/^#+\s/)) {
       end = i
       break
     }
@@ -167,7 +167,7 @@ export default function Dashboard() {
   const tierText = marketData[tierKey] || ''
   const bazaarFlips = parseTable(extractSection(tierText, 'Bazaar Flip'))
   const ahFlips = parseTable(extractSection(tierText, 'AH Flip'))
-  const farmMethods = parseTable(extractSection(tierText, 'Farming'))
+  const farmMethods = parseTable(extractSection(tierText, 'Farming|Slayer Farming|Farm'))
   const vaultExclusive = parseTable(extractSection(tierText, 'Vault Exclusive'))
 
   const currentTier = MM_TIERS.find(t => t.key === mmTier) || MM_TIERS[0]
