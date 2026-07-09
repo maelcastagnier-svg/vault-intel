@@ -37,11 +37,20 @@ export async function POST(req: Request) {
     let skycryptData: any
     try {
       const res = await fetch('https://sky.shiiyu.moe/api/v2/profile/' + encodeURIComponent(username), {
-        headers: { 'User-Agent': 'VaultApp/1.0' }
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json'
+        }
       })
       if (!res.ok) {
         const errText = await res.text()
-        return NextResponse.json({ error: 'SkyCrypt returned ' + res.status + ' — check the username spelling' }, { status: 502 })
+        if (res.status === 403) {
+          return NextResponse.json({ error: 'SkyCrypt blocked this request (403) — their server may be rate-limiting or blocking automated access. Try again in a moment.' }, { status: 502 })
+        }
+        if (res.status === 404) {
+          return NextResponse.json({ error: 'Username not found on SkyCrypt — double check the spelling' }, { status: 404 })
+        }
+        return NextResponse.json({ error: 'SkyCrypt returned ' + res.status }, { status: 502 })
       }
       skycryptData = await res.json()
     } catch (e: any) {
