@@ -33,20 +33,17 @@ export async function POST(req: Request) {
   }
 
   // Fetch SkyCrypt
-  let skycryptData: any
-  try {
-    const res = await fetch('https://sky.shiiyu.moe/api/v2/profile/' + encodeURIComponent(username))
-    if (!res.ok) throw new Error('SkyCrypt lookup failed — check username')
-    skycryptData = await res.json()
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Could not reach SkyCrypt' }, { status: 502 })
+ let skycryptData: any
+try {
+  const res = await fetch('https://sky.shiiyu.moe/api/v2/profile/' + encodeURIComponent(username))
+  if (!res.ok) {
+    const errText = await res.text()
+    throw new Error('SkyCrypt returned ' + res.status + ': ' + errText.substring(0, 200))
   }
-
-  const profileKey = Object.keys(skycryptData.profiles || {})[0]
-  const profile = skycryptData.profiles?.[profileKey]
-  if (!profile) {
-    return NextResponse.json({ error: 'No SkyBlock profile found for this username' }, { status: 404 })
-  }
+  skycryptData = await res.json()
+} catch (e: any) {
+  return NextResponse.json({ error: e.message || 'Could not reach SkyCrypt' }, { status: 502 })
+}
 
   const networth = profile.networth?.networth || 0
   const skills = profile.levels || {}
