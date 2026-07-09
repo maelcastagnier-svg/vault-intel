@@ -216,6 +216,12 @@ export default function Dashboard() {
   const patchLive = (patchSplit[0] || '').replace(/^#+\s*Live Patches\s*/i, '').trim()
   const patchAlpha = (patchSplit[1] || '').trim()
 
+  // Parse radar mid/long term
+  const radarText = marketData['radar'] || ''
+  const radarSplit = radarText.split(/#+\s*Long-Term/i)
+  const radarMid = parseTable(radarSplit[0] || '')
+  const radarLong = parseTable(radarSplit[1] ? '### Long-Term' + radarSplit[1] : '')
+
   if (loading) return (
     <div style={{ background: '#0a0a0a', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#c9a84c', fontFamily: 'Space Mono, monospace' }}>
       Loading Vault...
@@ -416,7 +422,22 @@ export default function Dashboard() {
               <div>
                 <div className="section-label" style={{ color: '#c9a84c', marginBottom: 10 }}>Mid/Long term market intelligence</div>
                 {dataLoading ? <div className="loading-data">Loading...</div> : (
-                  <div className="plain-content">{(marketData['radar'] || 'No radar data').replace(/\*\*/g, '')}</div>
+                  <div className="two-col">
+                    <div>
+                      <div className="section-label" style={{ color: '#2a78d6' }}>📅 Mid-Term (1-2 weeks)</div>
+                      <div className="col-scroll">
+                        {radarMid.length > 0 ? radarMid.map((item, i) => <FlashCard key={i} item={item} color="#2a78d6" type="MID" />) :
+                          <div className="loading-data">No mid-term data</div>}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="section-label" style={{ color: '#9b59b6' }}>🔮 Long-Term (1+ month)</div>
+                      <div className="col-scroll">
+                        {radarLong.length > 0 ? radarLong.map((item, i) => <FlashCard key={i} item={item} color="#9b59b6" type="LONG" />) :
+                          <div className="loading-data">No long-term data</div>}
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
             )}
