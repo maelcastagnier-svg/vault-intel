@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import EvolveSection from './EvolveSection'
 
 function parsePatchItems(text: string): string[] {
   const cleaned = text.replace(/^#+\s*Live Patches\s*/i, '').trim()
@@ -458,16 +459,7 @@ export default function Dashboard() {
 
             {/* EVOLVE */}
             {tab === 5 && (
-              <div style={{ background: 'rgba(155,89,182,0.06)', border: '1px solid rgba(155,89,182,0.2)', borderRadius: 12, padding: '2.5rem', textAlign: 'center' }}>
-                <div style={{ fontSize: 40, marginBottom: 16 }}>🧬</div>
-                <h3 style={{ color: '#9b59b6', fontSize: '1.1rem', fontWeight: 600, marginBottom: 10 }}>Evolve — Personal AI Coach</h3>
-                <p style={{ color: '#6b6960', fontSize: 13, lineHeight: 1.7, maxWidth: 400, margin: '0 auto 20px' }}>
-                  Connect your Hypixel account to get personalized recommendations based on your gear, skills, and networth.
-                </p>
-                <div style={{ background: 'rgba(155,89,182,0.08)', border: '1px solid rgba(155,89,182,0.2)', borderRadius: 8, padding: '1rem', fontSize: 12, color: '#6b6960', maxWidth: 400, margin: '0 auto' }}>
-                  🔗 SkyCrypt integration coming soon
-                </div>
-              </div>
+              <EvolveSection plan={plan} userId={user?.id} />
             )}
           </>
         )}
