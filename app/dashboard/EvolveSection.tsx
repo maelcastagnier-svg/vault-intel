@@ -78,7 +78,7 @@ export default function EvolveSection({ plan, userId }: { plan: string, userId: 
   const skillsDetailed = rawProfile.skills_detailed || {}
   const personalizedMoney = rawProfile.personalized_money_making || []
   const setupRoute = rawProfile.setup_route || []
-  const priorityActions = profile?.priority_actions || []
+  const priorityActionsByCategory = rawProfile.priority_actions_by_category || []
   const nextTierRoute = profile?.next_tier_route || []
 
   const SUB_TABS = [
@@ -195,13 +195,20 @@ export default function EvolveSection({ plan, userId }: { plan: string, userId: 
               )}
               <div className="section-label" style={{ color: '#9b59b6' }}>⚡ Do This Now</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {priorityActions.length > 0 ? priorityActions.map((action: any, i: number) => (
-                  <div key={i} style={{ background: '#0d0d0c', border: '0.5px solid rgba(155,89,182,0.2)', borderLeft: '2px solid #9b59b6', borderRadius: 6, padding: '14px 16px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                      <div style={{ fontSize: 13.5, fontWeight: 700, color: '#e8e6df' }}>{i+1}. {action.title}</div>
-                      {action.impact && <span style={{ fontSize: 10, color: '#9b59b6', fontFamily: 'Space Mono, monospace', whiteSpace: 'nowrap' }}>{action.impact}</span>}
+                {priorityActionsByCategory.length > 0 ? priorityActionsByCategory.map((cat: any, ci: number) => (
+                  <div key={ci} style={{ marginBottom: 18 }}>
+                    <div style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#9b59b6', marginBottom: 8, fontWeight: 700 }}>{cat.category}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {(cat.actions || []).map((action: any, i: number) => (
+                        <div key={i} style={{ background: '#0d0d0c', border: '0.5px solid rgba(155,89,182,0.2)', borderLeft: '2px solid #9b59b6', borderRadius: 6, padding: '12px 14px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: '#e8e6df' }}>{action.title}</div>
+                            {action.impact && <span style={{ fontSize: 10, color: '#9b59b6', fontFamily: 'Space Mono, monospace', whiteSpace: 'nowrap' }}>{action.impact}</span>}
+                          </div>
+                          {action.reason && <div style={{ fontSize: 11.5, color: '#9b9b8f', marginTop: 4, lineHeight: 1.5 }}>{action.reason}</div>}
+                        </div>
+                      ))}
                     </div>
-                    {action.reason && <div style={{ fontSize: 12, color: '#9b9b8f', marginTop: 6, lineHeight: 1.5 }}>{action.reason}</div>}
                   </div>
                 )) : <div style={{ color: '#6b6960', fontSize: 12 }}>No recommendations yet — try re-syncing.</div>}
               </div>
