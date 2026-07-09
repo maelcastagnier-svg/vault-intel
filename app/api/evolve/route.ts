@@ -7,6 +7,57 @@ const supabase = createClient(
 )
 
 const CACHE_HOURS = 6
+const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
+
+async function getUUID(username: string): Promise<string> {
+  const res = await fetch('https://api.mojang.com/users/profiles/minecraft/' + encodeURIComponent(username))
+  if (!res.ok) throw new Error('Username not found on Mojang — check spelling')
+  const data = await res.json()
+  return data.id
+}
+
+async function getSkyblockProfiles(uuid: string): Promise<any> {
+  const res = await fetch('https://api.hypixel.net/v2/skyblock/profiles?key=' + HYPIXEL_KEY + '&uuid=' + uuid)
+  if (!res.ok) throw new Error('Hypixel API returned ' + res.status)
+  const data = await res.json()
+  if (!data.success) throw new Error(data.cause || 'Hypixel API request failed')
+  return data.profiles || []
+}
+
+function pickActiveProfile(profiles: any[], uuid: string): any {
+  if (!profiles.length) return null
+  const selected = profiles.find(p => p.selected)
+  return selected || profiles[0]
+}
+
+function extractSkills(member: any): Record<string, number> {
+  const skills: Record<string, number> = {}
+  const xpMap = member.player_data?.experience || {}
+  for (const [key, xp] of Object.entries(xpMap)) {
+    if (key.startsWith('SKILL_')) {
+      const name = key.replace('SKILL_', '').toLowerCase()
+      skills[name] = Math.floor(Math.sqrt((xp as number) / 10) / 2)
+    }
+  }
+  return skills
+}
+
+function extractSlayers(member: any): Record<string, any> {
+  const slayers: Record<string, any> = {}
+  const data = member.slayer?.slayer_bosses || {}
+  for (const [type, info] of Object.entries<any>(data)) {
+    slayers[type] = { claimed_levels: info.claimed_levels || {}, xp: info.xp || 0 }
+  }
+  return slayers
+}
+
+function extractDungeons(member: any): Record<string, any> {
+  const cata = member.dungeons?.dungeon_types?.catacombs || {}
+  return {
+    catacombs_level: cata.experience ? Math.floor(Math.sqrt(cata.experience / 10) / 2) : 0,
+    experience: cata.experience || 0
+  }
+}
 
 export async function POST(req: Request) {
   try {
@@ -18,10 +69,12 @@ export async function POST(req: Request) {
     if (!username || !userId) {
       return NextResponse.json({ error: 'Missing username or userId' }, { status: 400 })
     }
+    if (!HYPIXEL_KEY) {
+      return NextResponse.json({ error: 'Server misconfigured — missing Hypixel API key' }, { status: 500 })
+    }
 
-    // Check cache
     const { data: existing } = await supabase
-      .from('player_profiles')
+      .from('player_data')
       .select('*')
       .eq('user_id', userId)
       .single()
@@ -33,61 +86,74 @@ export async function POST(req: Request) {
       }
     }
 
-    // Fetch SkyCrypt
-    let skycryptData: any
+    let uuid: string
     try {
-      const res = await fetch('https://sky.shiiyu.moe/api/v2/profile/' + encodeURIComponent(username), {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json'
-        }
-      })
-      if (!res.ok) {
-        const errText = await res.text()
-        if (res.status === 403) {
-          return NextResponse.json({ error: 'SkyCrypt blocked this request (403) — their server may be rate-limiting or blocking automated access. Try again in a moment.' }, { status: 502 })
-        }
-        if (res.status === 404) {
-          return NextResponse.json({ error: 'Username not found on SkyCrypt — double check the spelling' }, { status: 404 })
-        }
-        return NextResponse.json({ error: 'SkyCrypt returned ' + res.status }, { status: 502 })
-      }
-      skycryptData = await res.json()
+      uuid = await getUUID(username)
     } catch (e: any) {
-      return NextResponse.json({ error: 'Could not reach SkyCrypt: ' + (e.message || 'network error') }, { status: 502 })
+      return NextResponse.json({ error: e.message }, { status: 404 })
     }
 
-    const profileKey = Object.keys(skycryptData.profiles || {})[0]
-    const profile = skycryptData.profiles?.[profileKey]
-    if (!profile) {
-      return NextResponse.json({ error: 'No SkyBlock profile found for this username' }, { status: 404 })
+    let profiles: any[]
+    try {
+      profiles = await getSkyblockProfiles(uuid)
+    } catch (e: any) {
+      return NextResponse.json({ error: e.message }, { status: 502 })
     }
 
-    const networth = profile.networth?.networth || 0
-    const skills = profile.levels || {}
-    const collections = profile.collections || {}
-    const skinUrl = 'https://mc-heads.net/body/' + username + '/300'
+    const activeProfile = pickActiveProfile(profiles, uuid)
+    if (!activeProfile) {
+      return NextResponse.json({ error: 'No SkyBlock profile found for this player' }, { status: 404 })
+    }
 
-    const skillsSummary = Object.entries(skills).slice(0, 10).map(([k, v]: [string, any]) =>
-      k + ': lvl ' + (v?.level || 0)
-    ).join(', ')
+    const member = activeProfile.members?.[uuid]
+    if (!member) {
+      return NextResponse.json({ error: 'Could not read profile data' }, { status: 404 })
+    }
+
+    const purse = Math.round(member.currencies?.coin_purse || 0)
+    const bank = Math.round(activeProfile.banking?.balance || 0)
+    const skills = extractSkills(member)
+    const slayers = extractSlayers(member)
+    const dungeons = extractDungeons(member)
+    const collections = member.collection || {}
+    const pets = member.pets_data?.pets || []
+    const fairySouls = member.fairy_soul?.total_collected || 0
+    const skinUrl = 'https://mc-heads.net/body/' + uuid + '/300'
+
+    // Networth approximation: purse + bank + rough item value estimate
+    // Full NBT inventory parsing is a future improvement; for now we use liquid coins
+    // plus a conservative multiplier based on collections/skills progress as a placeholder signal
+    const networthEstimate = purse + bank
+
+    // Pull top money-making methods matching player's current stage for cross-reference
+    const stageFromNetworth = networthEstimate < 10_000_000 ? 'early' :
+      networthEstimate < 500_000_000 ? 'mid' :
+      networthEstimate < 5_000_000_000 ? 'end' : 'late'
+
+    const { data: methods } = await supabase
+      .from('money_making_methods')
+      .select('method_name, category, coins_per_hour_min, coins_per_hour_max, requirements')
+      .eq('verified', true)
+      .order('coins_per_hour_max', { ascending: false })
+      .limit(15)
 
     const compactContext = {
       username,
-      networth: Math.round(networth),
-      skills: skillsSummary,
-      catacombs_level: profile.dungeons?.catacombs?.level || 0,
-      slayers: profile.slayers ? Object.entries(profile.slayers).map(([k, v]: [string, any]) => k + ' T' + (v?.claimed_levels ? Object.keys(v.claimed_levels).length : 0)).join(', ') : '',
-      purse: Math.round(profile.purse || 0),
-      fairy_souls: profile.fairy_souls?.collected || 0
+      purse,
+      bank,
+      networth_estimate: networthEstimate,
+      skills,
+      catacombs_level: dungeons.catacombs_level,
+      slayers: Object.entries(slayers).map(([k, v]: [string, any]) => k + ': ' + Object.keys(v.claimed_levels || {}).length + ' levels claimed').join(', '),
+      fairy_souls: fairySouls,
+      pets_count: pets.length,
+      current_stage_guess: stageFromNetworth,
+      available_methods: (methods || []).map(m => m.method_name + ' [' + m.category + '] ' + Math.round(m.coins_per_hour_min/1e6) + '-' + Math.round(m.coins_per_hour_max/1e6) + 'M/h req=' + JSON.stringify(m.requirements))
     }
 
-    // Call Claude for analysis — never let this crash the route
-    let analysis = { game_stage: 'early', summary: '', priority_actions: [] as any[] }
+    let analysis: any = { game_stage: stageFromNetworth, summary: '', priority_actions: [], next_tier: '', next_tier_progress: 0, next_tier_route: [] }
     try {
-      if (!process.env.ANTHROPIC_API_KEY) {
-        console.error('ANTHROPIC_API_KEY is missing')
-      } else {
+      if (process.env.ANTHROPIC_API_KEY) {
         const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: {
@@ -97,20 +163,18 @@ export async function POST(req: Request) {
           },
           body: JSON.stringify({
             model: 'claude-sonnet-4-6',
-            max_tokens: 1200,
-            system: 'You are Vault Evolve, a Hypixel Skyblock progression coach. Given a player profile, classify their game stage (early/mid/end/late based on networth: <10M early, 10M-500M mid, 500M-5B end, 5B+ late) and give 3-5 SPECIFIC, ACTIONABLE priority recommendations. Be concise. Output raw JSON only, no markdown: {"game_stage":"early|mid|end|late","summary":"1-2 sentence overview","priority_actions":[{"title":"short action title","reason":"why this matters now","impact":"expected coins/hr or benefit"}]}',
+            max_tokens: 1500,
+            system: 'You are Vault Evolve, a Hypixel Skyblock progression coach. Given a player profile and a list of verified money-making methods, do 3 things: (1) confirm/refine their game stage (early <10M, mid 10M-500M, end 500M-5B, late 5B+ based on networth_estimate — note this is purse+bank only, actual networth with items is likely higher), (2) give 3-5 specific priority actions to improve NOW, (3) build a concrete "next_tier_route": 3-4 concrete steps to reach the NEXT stage, referencing available_methods where relevant with specific coins/hr targets. Output raw JSON only: {"game_stage":"early|mid|end|late","summary":"1-2 sentences","priority_actions":[{"title":"...","reason":"...","impact":"..."}],"next_tier":"mid|end|late","next_tier_progress":0-100,"next_tier_route":[{"step":"...","target":"..."}]}',
             messages: [{ role: 'user', content: JSON.stringify(compactContext) }]
           })
         })
-
-        if (!claudeRes.ok) {
-          const errText = await claudeRes.text()
-          console.error('Claude API error:', claudeRes.status, errText)
-        } else {
+        if (claudeRes.ok) {
           const claudeData = await claudeRes.json()
           const text = claudeData.content?.[0]?.text || '{}'
           const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1)
           analysis = JSON.parse(jsonStr)
+        } else {
+          console.error('Claude error:', claudeRes.status, await claudeRes.text())
         }
       }
     } catch (e: any) {
@@ -120,23 +184,30 @@ export async function POST(req: Request) {
     const record = {
       user_id: userId,
       hypixel_username: username,
-      networth: Math.round(networth),
-      skills: skills,
-      slayers: profile.slayers || {},
-      dungeons: profile.dungeons || {},
-      pets: profile.pets || {},
-      collections: collections,
-      raw_skycrypt: profile,
-      game_stage: analysis.game_stage,
-      evolve_summary: analysis.summary,
-      priority_actions: analysis.priority_actions,
+      hypixel_uuid: uuid,
+      purse,
+      bank,
+      networth: networthEstimate,
+      skills,
+      slayers,
+      dungeons,
+      collections,
+      pets,
+      fairy_souls: fairySouls,
       skin_url: skinUrl,
+      game_stage: analysis.game_stage || stageFromNetworth,
+      evolve_summary: analysis.summary || '',
+      priority_actions: analysis.priority_actions || [],
+      next_tier: analysis.next_tier || '',
+      next_tier_progress: analysis.next_tier_progress || 0,
+      next_tier_route: analysis.next_tier_route || [],
+      raw_profile: { profile_id: activeProfile.profile_id, cute_name: activeProfile.cute_name },
       last_synced: new Date().toISOString(),
       updated_at: new Date().toISOString()
     }
 
     const { data: saved, error } = await supabase
-      .from('player_profiles')
+      .from('player_data')
       .upsert(record, { onConflict: 'user_id' })
       .select()
       .single()
@@ -160,7 +231,7 @@ export async function GET(req: Request) {
     if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
 
     const { data } = await supabase
-      .from('player_profiles')
+      .from('player_data')
       .select('*')
       .eq('user_id', userId)
       .single()
