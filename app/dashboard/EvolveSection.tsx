@@ -35,6 +35,7 @@ export default function EvolveSection({ plan, userId }: { plan: string, userId: 
   const [username, setUsername] = useState('')
   const [subTab, setSubTab] = useState(0)
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null)
+  const [selectedMoney, setSelectedMoney] = useState<any | null>(null)
   const [hoveredMilestone, setHoveredMilestone] = useState<number | null>(null)
 
   useEffect(() => {
@@ -135,7 +136,40 @@ export default function EvolveSection({ plan, userId }: { plan: string, userId: 
       {error && <div style={{ color: '#e34948', fontSize: 12, marginBottom: 14 }}>⚠️ {error}</div>}
 
       {profile && (
-        <>
+        <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 20, alignItems: 'flex-start' }}>
+          {/* LEFT — persistent character frame */}
+          <div style={{ position: 'sticky', top: 16 }}>
+            <div style={{ background: '#111110', border: '0.5px solid rgba(201,168,76,0.15)', borderRadius: 10, padding: 16, textAlign: 'center' }}>
+              {profile.skin_url && (
+                <img src={profile.skin_url} alt={profile.hypixel_username} style={{ width: '100%', maxWidth: 150, imageRendering: 'pixelated', margin: '0 auto', display: 'block' }} />
+              )}
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#e8e6df', marginTop: 10 }}>{profile.hypixel_username}</div>
+              {profile.game_stage && (
+                <div style={{
+                  display: 'inline-block', marginTop: 8, fontSize: 10, padding: '4px 10px', borderRadius: 5,
+                  background: (STAGE_COLORS[profile.game_stage] || '#6b6960') + '18',
+                  color: STAGE_COLORS[profile.game_stage] || '#6b6960',
+                  border: '1px solid ' + (STAGE_COLORS[profile.game_stage] || '#6b6960') + '40',
+                  fontFamily: 'Space Mono, monospace', fontWeight: 700
+                }}>
+                  {STAGE_LABELS[profile.game_stage] || profile.game_stage}
+                </div>
+              )}
+            </div>
+
+            <div style={{ background: '#111110', border: '0.5px solid rgba(201,168,76,0.15)', borderRadius: 10, padding: 14, marginTop: 10 }}>
+              <div style={{ fontSize: 9.5, color: '#c9a84c', fontFamily: 'Space Mono, monospace', textTransform: 'uppercase', marginBottom: 4 }}>Networth (est.)</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#f0d68a' }}>{fmtCoins(profile.networth || 0)}</div>
+            </div>
+
+            <button onClick={() => handleSync(undefined, true)} disabled={loading}
+              style={{ width: '100%', marginTop: 10, background: 'transparent', border: '1px solid rgba(155,89,182,0.3)', color: '#9b59b6', padding: '0.5rem', borderRadius: 6, fontSize: 11, cursor: loading ? 'wait' : 'pointer', fontFamily: 'Space Mono, monospace' }}>
+              {loading ? 'Syncing...' : '↻ Re-sync'}
+            </button>
+          </div>
+
+          {/* RIGHT — sub-tabs and content */}
+          <div>
           <div style={{ display: 'flex', gap: 3, marginBottom: 16, flexWrap: 'wrap' }}>
             {SUB_TABS.map((t, i) => (
               <button key={i} onClick={() => setSubTab(i)}
@@ -215,86 +249,55 @@ export default function EvolveSection({ plan, userId }: { plan: string, userId: 
             </div>
           )}
 
-          {/* SKILLS — vertical list with click detail */}
+          {/* SKILLS — click opens modal detail instead of inline panel */}
           {subTab === 2 && (
-            <div style={{ display: 'grid', gridTemplateColumns: selectedSkill ? '1fr 280px' : '1fr', gap: 16 }}>
-              <div>
-                <div className="section-label" style={{ color: '#2a78d6' }}>📊 All Skills</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {ALL_SKILLS.map(s => {
-                    const detail = skillsDetailed[s.key]
-                    const level = detail?.level ?? profile.skills?.[s.key] ?? 0
-                    const progress = detail?.progress ?? 0
-                    const isSelected = selectedSkill === s.key
-                    return (
-                      <div key={s.key} onClick={() => setSelectedSkill(isSelected ? null : s.key)}
-                        style={{
-                          background: isSelected ? 'rgba(42,120,214,0.08)' : '#0d0d0c',
-                          border: '0.5px solid ' + (isSelected ? 'rgba(42,120,214,0.4)' : 'rgba(201,168,76,0.12)'),
-                          borderRadius: 8, padding: '10px 14px', cursor: 'pointer', transition: 'all 0.15s'
-                        }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                          <span style={{ fontSize: 13, color: '#e8e6df' }}>{s.icon} {s.label}</span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: '#2a78d6', fontFamily: 'Space Mono, monospace' }}>Lvl {level}<span style={{ color: '#6b6960', fontWeight: 400 }}>/{s.cap}</span></span>
-                        </div>
-                        <div style={{ background: '#0a0a0a', borderRadius: 4, height: 6, overflow: 'hidden' }}>
-                          <div style={{ width: Math.min(100, (level / s.cap) * 100) + '%', height: '100%', background: '#2a78d6' }} />
-                        </div>
+            <div>
+              <div className="section-label" style={{ color: '#2a78d6' }}>📊 All Skills — click for details</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {ALL_SKILLS.map(s => {
+                  const detail = skillsDetailed[s.key]
+                  const level = detail?.level ?? profile.skills?.[s.key] ?? 0
+                  return (
+                    <div key={s.key} onClick={() => setSelectedSkill(s.key)}
+                      style={{ background: '#0d0d0c', border: '0.5px solid rgba(201,168,76,0.12)', borderRadius: 8, padding: '10px 14px', cursor: 'pointer' }}
+                      onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(42,120,214,0.4)')}
+                      onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(201,168,76,0.12)')}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <span style={{ fontSize: 13, color: '#e8e6df' }}>{s.icon} {s.label}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#2a78d6', fontFamily: 'Space Mono, monospace' }}>Lvl {level}<span style={{ color: '#6b6960', fontWeight: 400 }}>/{s.cap}</span></span>
                       </div>
-                    )
-                  })}
-                </div>
+                      <div style={{ background: '#0a0a0a', borderRadius: 4, height: 6, overflow: 'hidden' }}>
+                        <div style={{ width: Math.min(100, (level / s.cap) * 100) + '%', height: '100%', background: '#2a78d6' }} />
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-
-              {selectedSkill && (
-                <div style={{ background: '#111110', border: '0.5px solid rgba(42,120,214,0.25)', borderRadius: 10, padding: 16, alignSelf: 'flex-start' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#2a78d6', marginBottom: 4 }}>
-                    {ALL_SKILLS.find(s => s.key === selectedSkill)?.icon} {ALL_SKILLS.find(s => s.key === selectedSkill)?.label}
-                  </div>
-                  <div style={{ fontSize: 11, color: '#6b6960', marginBottom: 12 }}>
-                    Level {skillsDetailed[selectedSkill]?.level ?? profile.skills?.[selectedSkill] ?? 0} · {skillsDetailed[selectedSkill]?.progress ?? 0}% to next
-                  </div>
-                  <div style={{ fontSize: 10, color: '#c9a84c', fontFamily: 'Space Mono, monospace', textTransform: 'uppercase', marginBottom: 8 }}>Recommended Setup</div>
-                  {(() => {
-                    const matchingMethod = personalizedMoney.find((m: any) => (m.method || '').toLowerCase().includes(selectedSkill))
-                    return matchingMethod ? (
-                      <div style={{ fontSize: 12, color: '#e8e6df', lineHeight: 1.6 }}>{matchingMethod.setup_needed}</div>
-                    ) : (
-                      <div style={{ fontSize: 11.5, color: '#6b6960', lineHeight: 1.6 }}>No specific setup match found for this skill yet. Check the Money tab for related methods.</div>
-                    )
-                  })()}
-                  <div style={{ marginTop: 12, fontSize: 10, color: '#6b6960', fontStyle: 'italic' }}>
-                    Live inventory comparison (worn armor/wardrobe) coming soon
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
-          {/* MONEY — personalized */}
+          {/* MONEY — click opens modal detail */}
           {subTab === 3 && (
             <div>
-              <div className="section-label" style={{ color: '#1baf7a' }}>💰 Personalized For You</div>
-              <div style={{ fontSize: 11, color: '#6b6960', marginBottom: 14 }}>Based on your current levels, networth, and unlocked content</div>
+              <div className="section-label" style={{ color: '#1baf7a' }}>💰 Personalized For You — click for setup</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {personalizedMoney.length > 0 ? personalizedMoney.map((m: any, i: number) => (
-                  <div key={i} style={{ background: '#0d0d0c', border: '0.5px solid rgba(27,175,122,0.2)', borderLeft: '2px solid #1baf7a', borderRadius: 6, padding: '14px 16px' }}>
+                  <div key={i} onClick={() => setSelectedMoney(m)}
+                    style={{ background: '#0d0d0c', border: '0.5px solid rgba(27,175,122,0.2)', borderLeft: '2px solid #1baf7a', borderRadius: 6, padding: '14px 16px', cursor: 'pointer' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(27,175,122,0.05)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = '#0d0d0c')}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
                       <div style={{ fontSize: 13.5, fontWeight: 700, color: '#e8e6df' }}>{m.method}</div>
                       {m.coins_per_hour && <span style={{ fontSize: 11, color: '#1baf7a', fontFamily: 'Space Mono, monospace', fontWeight: 700, whiteSpace: 'nowrap' }}>{m.coins_per_hour}</span>}
                     </div>
                     {m.why_now && <div style={{ fontSize: 12, color: '#9b9b8f', marginTop: 6, lineHeight: 1.5 }}>{m.why_now}</div>}
-                    {m.setup_needed && (
-                      <div style={{ fontSize: 11, color: '#6b6960', marginTop: 6, paddingTop: 6, borderTop: '0.5px solid rgba(201,168,76,0.1)' }}>
-                        <span style={{ color: '#c9a84c' }}>Setup: </span>{m.setup_needed}
-                      </div>
-                    )}
                   </div>
                 )) : <div style={{ color: '#6b6960', fontSize: 12 }}>No personalized methods yet — try re-syncing.</div>}
               </div>
             </div>
           )}
-        </>
+          </div>
+        </div>
       )}
 
       {plan !== 'elite' && profile && (
