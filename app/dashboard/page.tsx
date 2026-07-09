@@ -160,8 +160,18 @@ export default function Dashboard() {
       setDataLoading(false)
     }
     loadData()
-    const interval = setInterval(loadData, 5 * 60 * 1000)
-    return () => clearInterval(interval)
+
+    const channel = supabase
+      .channel('claude_analysis_live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'claude_analysis' }, () => {
+        loadData()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'insight_patch' }, () => {
+        loadData()
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
   }, [])
 
   async function handleLogout() { await supabase.auth.signOut(); router.push('/') }

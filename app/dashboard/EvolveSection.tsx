@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { createClient } from '../../lib/supabase'
 
 const STAGE_COLORS: Record<string, string> = { early: '#1baf7a', mid: '#c9a84c', end: '#e34948', late: '#9b59b6' }
 const STAGE_LABELS: Record<string, string> = { early: '🌱 Early Game', mid: '⚔️ Mid Game', end: '🔥 End Game', late: '👑 Late Game' }
@@ -50,6 +51,19 @@ export default function EvolveSection({ plan, userId }: { plan: string, userId: 
       setInitialLoad(false)
     }
     loadExisting()
+
+    const supabase = createClient()
+    const channel = supabase
+      .channel('player_data_live_' + userId)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'player_data', filter: 'user_id=eq.' + userId }, (payload: any) => {
+        if (payload.new) {
+          setProfile(payload.new)
+          setShowManualInput(false)
+        }
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
   }, [userId])
 
   async function handleSync(overrideUsername?: string, forceRefresh = false) {
