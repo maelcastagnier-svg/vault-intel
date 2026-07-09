@@ -66,13 +66,42 @@ export async function POST(req: Request) {
     const bank = Math.round(activeProfile.banking?.balance || 0)
     const networthEstimate = purse + bank
 
-    // Skills
+    // Skills — real Hypixel XP thresholds per skill (cumulative), not an approximation
+    // Standard skills cap at level 50, Farming/Mining/Fishing extend to 60 with bonus levels
+    const SKILL_XP_TABLE_50 = [
+      0, 50, 175, 375, 675, 1175, 1925, 2925, 4425, 6425, 9925, 14925, 22425, 32425, 47425,
+      67425, 97425, 147425, 222425, 322425, 522425, 822425, 1222425, 1722425, 2322425,
+      3022425, 3822425, 4722425, 5722425, 6822425, 8022425, 9322425, 10722425, 12222425,
+      13822425, 15522425, 17322425, 19222425, 21222425, 23322425, 25522425, 27822425,
+      30222425, 32722425, 35322425, 38072425, 40972425, 44072425, 47472425, 51372425
+    ]
+    const SKILL_XP_TABLE_60 = SKILL_XP_TABLE_50.concat([
+      55172425, 59472425, 64472425, 70472425, 77472425, 85472425, 93472425, 101472425, 110472425
+    ])
+    const SKILLS_WITH_60_CAP = new Set(['farming', 'mining', 'fishing'])
+
+    function skillXpDetail(xp: number, skillName: string): { level: number, progress: number, currentXp: number, nextLevelXp: number | null } {
+      const table = SKILLS_WITH_60_CAP.has(skillName) ? SKILL_XP_TABLE_60 : SKILL_XP_TABLE_50
+      let level = 0
+      for (let i = 0; i < table.length; i++) {
+        if (xp >= table[i]) level = i
+        else break
+      }
+      const currentThreshold = table[level] || 0
+      const nextThreshold = table[level + 1]
+      const progress = nextThreshold ? Math.round(((xp - currentThreshold) / (nextThreshold - currentThreshold)) * 100) : 100
+      return { level, progress, currentXp: Math.round(xp), nextLevelXp: nextThreshold || null }
+    }
+
     const skills: Record<string, number> = {}
+    const skillsDetailed: Record<string, any> = {}
     const xpMap = member.player_data?.experience || {}
     for (const [key, xp] of Object.entries(xpMap)) {
       if (key.startsWith('SKILL_')) {
         const name = key.replace('SKILL_', '').toLowerCase()
-        skills[name] = Math.floor(Math.sqrt((xp as number) / 10) / 2)
+        const detail = skillXpDetail(xp as number, name)
+        skills[name] = detail.level
+        skillsDetailed[name] = detail
       }
     }
 
@@ -83,9 +112,26 @@ export async function POST(req: Request) {
       slayers[type] = { claimed_levels: info.claimed_levels || {}, xp: info.xp || 0 }
     }
 
-    // Dungeons
+    // Dungeons — real Hypixel catacombs XP thresholds (cumulative), not an approximation
+    const CATACOMBS_XP_TABLE = [
+      0, 50, 125, 235, 395, 625, 955, 1425, 2095, 3045, 4385, 6275, 8940, 12700, 17960,
+      25340, 35640, 50040, 70040, 97640, 135640, 188140, 259640, 356640, 488640, 668640,
+      911640, 1239640, 1684640, 2284640, 3084640, 4149640, 5559640, 7459640, 9959640,
+      13259640, 17559640, 23159640, 30359640, 39559640, 51559640, 66559640, 85559640,
+      109559640, 139559640, 177559640, 225559640, 285559640, 360559640, 453559640, 569809640
+    ]
+
+    function xpToLevel(xp: number): number {
+      let level = 0
+      for (let i = 0; i < CATACOMBS_XP_TABLE.length; i++) {
+        if (xp >= CATACOMBS_XP_TABLE[i]) level = i
+        else break
+      }
+      return level
+    }
+
     const cataXp = member.dungeons?.dungeon_types?.catacombs?.experience || 0
-    const catacombsLevel = cataXp ? Math.floor(Math.sqrt(cataXp / 10) / 2) : 0
+    const catacombsLevel = xpToLevel(cataXp)
 
     const fairySouls = member.fairy_soul?.total_collected || 0
     const skinUrl = 'https://mc-heads.net/body/' + uuid + '/300'
