@@ -44,6 +44,38 @@ function skillDetail(xp: number, skillName: string) {
   return { level, progress, xp: Math.round(xp) }
 }
 
+async function callClaude(anthropicKey: string, systemPrompt: string, userContent: string, maxTokens: number): Promise<any> {
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: maxTokens,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userContent }]
+      })
+    })
+    if (!res.ok) {
+      console.error('Claude error:', res.status, await res.text())
+      return null
+    }
+    const data = await res.json()
+    const text = data.content?.[0]?.text || '{}'
+    const startIdx = text.indexOf('{')
+    const endIdx = text.lastIndexOf('}')
+    if (startIdx === -1 || endIdx === -1) return null
+    return JSON.parse(text.substring(startIdx, endIdx + 1))
+  } catch (e: any) {
+    console.error('callClaude failed:', e.message)
+    return null
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY
@@ -107,7 +139,6 @@ export async function POST(req: Request) {
     const bank = Math.round(activeProfile.banking?.balance || 0)
     const networthEstimate = purse + bank
 
-    // Skills with precise progress
     const skills: Record<string, number> = {}
     const skillsDetailed: Record<string, any> = {}
     const xpMap = member.player_data?.experience || {}
@@ -120,37 +151,28 @@ export async function POST(req: Request) {
       }
     }
 
-    // Dungeons — real xp table
     const cataXp = member.dungeons?.dungeon_types?.catacombs?.experience || 0
     const catacombsLevel = xpToLevel(cataXp, CATACOMBS_XP_TABLE)
 
-    // Slayers
     const slayers: Record<string, any> = {}
     const slayerData = member.slayer?.slayer_bosses || {}
     for (const [type, info] of Object.entries<any>(slayerData)) {
       slayers[type] = { claimed_levels: Object.keys(info.claimed_levels || {}).length, xp: info.xp || 0 }
     }
 
-    // Mining core / HOTM
     const miningCore = member.mining_core || {}
     const hotmLevel = miningCore.experience ? xpToLevel(miningCore.experience, [0, 200, 700, 1500, 3000, 6000, 10000, 15000, 22000, 30000]) : 0
-    const powderMithril = miningCore.powder_mithril || 0
-    const powderGemstone = miningCore.powder_gemstone || 0
 
-    // Garden — separate endpoint, profile-level not member-level
     let gardenLevel = 0
-    let gardenXp = 0
     try {
       const gardenRes = await fetch('https://api.hypixel.net/v2/skyblock/garden?key=' + HYPIXEL_KEY + '&profile=' + activeProfile.profile_id)
       const gardenData = await gardenRes.json()
       if (gardenData.success && gardenData.garden) {
-        gardenXp = gardenData.garden.garden_experience || 0
-        gardenLevel = xpToLevel(gardenXp, GARDEN_XP_TABLE)
+        gardenLevel = xpToLevel(gardenData.garden.garden_experience || 0, GARDEN_XP_TABLE)
       }
     } catch (e) {}
 
     const collections = member.collection || {}
-    const collectionTiers = member.unlocked_coll_tiers || []
     const fairySouls = member.fairy_soul?.total_collected || 0
     const skinUrl = 'https://mc-heads.net/body/' + uuid + '/300'
 
@@ -158,7 +180,6 @@ export async function POST(req: Request) {
       networthEstimate < 500_000_000 ? 'mid' :
       networthEstimate < 5_000_000_000 ? 'end' : 'late'
 
-    // Pull ALL verified methods, then filter to ones the player can realistically access now
     let allMethods: any[] = []
     try {
       const { data: methodsData } = await supabase
@@ -172,75 +193,49 @@ export async function POST(req: Request) {
 
     function meetsRequirement(reqKey: string, reqVal: any): boolean {
       const skillMap: Record<string, number> = { ...skills, catacombs: catacombsLevel, hotm: hotmLevel, garden: gardenLevel }
-      if (reqKey.includes('level') || reqKey.includes('_level')) {
+      if (reqKey.includes('level')) {
         const skillName = reqKey.replace('_level', '').replace('level', '').toLowerCase() || Object.keys(skillMap).find(k => reqKey.toLowerCase().includes(k)) || ''
         const playerLevel = skillMap[skillName] ?? 0
         return playerLevel >= (typeof reqVal === 'number' ? reqVal : 0)
       }
       if (reqKey === 'capital') return purse + bank >= reqVal
-      return true // unknown requirement types default to "assume met" rather than hiding
+      return true
     }
 
     const unlockedMethods = allMethods.filter(m => {
       const reqs = m.requirements || {}
       return Object.entries(reqs).every(([k, v]) => meetsRequirement(k, v))
     })
-    const lockedMethods = allMethods.filter(m => !unlockedMethods.includes(m)).slice(0, 8)
 
-    const compactContext = {
+    const baseContext = {
       username,
       networth_estimate: networthEstimate,
-      purse,
-      bank,
-      skills: Object.fromEntries(Object.entries(skillsDetailed).map(([k, v]: [string, any]) => [k, v.level + ' (' + v.progress + '% to next)'])),
+      skills: Object.fromEntries(Object.entries(skillsDetailed).map(([k, v]: [string, any]) => [k, v.level])),
       catacombs_level: catacombsLevel,
       hotm_level: hotmLevel,
       garden_level: gardenLevel,
-      slayers: Object.entries(slayers).map(([k, v]: [string, any]) => k + ': T' + v.claimed_levels).join(', '),
+      slayers: Object.entries(slayers).map(([k, v]: [string, any]) => k + ':T' + v.claimed_levels).join(', '),
       fairy_souls: fairySouls,
-      collection_tiers_unlocked: collectionTiers.length,
-      current_stage_guess: stageFromNetworth,
-      methods_currently_accessible: unlockedMethods.map(m => m.method_name + ' [' + m.category + '] ' + Math.round(m.coins_per_hour_min/1e6) + '-' + Math.round(m.coins_per_hour_max/1e6) + 'M/h setup=' + JSON.stringify(m.setup)),
-      methods_locked_soon: lockedMethods.map(m => m.method_name + ' req=' + JSON.stringify(m.requirements))
+      current_stage_guess: stageFromNetworth
     }
 
-    let analysis: any = {
-      game_stage: stageFromNetworth, summary: '', priority_actions: [],
-      next_tier: '', next_tier_progress: 0, next_tier_route: [],
-      personalized_money_making: [], setup_route: []
+    // APPEL 1 — Priority Actions + Next Tier Route (fast, high priority — always attempted)
+    const call1Prompt = 'You are Vault Evolve. Output ONLY raw JSON, no markdown: {"game_stage":"early|mid|end|late","summary":"1 sentence","priority_actions":[{"title":"...","reason":"...","impact":"..."}] (exactly 3, most impactful first),"next_tier":"mid|end|late","next_tier_progress":0-100,"next_tier_route":[{"step":"...","target":"..."}] (exactly 3 concrete milestones)}. Base everything on the real stats given. Keep fields under 100 chars.'
+    const analysis1 = await callClaude(ANTHROPIC_KEY!, call1Prompt, JSON.stringify(baseContext), 900) || {
+      game_stage: stageFromNetworth, summary: '', priority_actions: [], next_tier: '', next_tier_progress: 0, next_tier_route: []
     }
 
-    if (ANTHROPIC_KEY) {
-      try {
-        const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'x-api-key': ANTHROPIC_KEY,
-            'anthropic-version': '2023-06-01',
-            'content-type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
-            max_tokens: 2200,
-            system: 'You are Vault Evolve, a Hypixel Skyblock progression coach. Given a real player profile (skills, garden, mining, slayers, currently-accessible money methods, locked methods with their requirements), produce a complete progression plan. Be specific, use the real levels given, never invent stats. Output raw JSON only, no markdown: {"game_stage":"early|mid|end|late","summary":"1-2 sentences on overall state","priority_actions":[{"title":"...","reason":"...","impact":"..."}] (3-5 items, most impactful first),"next_tier":"mid|end|late","next_tier_progress":0-100,"next_tier_route":[{"step":"...","target":"..."}] (3-4 concrete milestones to reach next tier),"personalized_money_making":[{"method":"...","coins_per_hour":"...","why_now":"1 sentence why this fits their CURRENT skills/unlocks","setup_needed":"gear/pet/tool needed if any"}] (pick 3-5 from methods_currently_accessible only, ranked by coins/hr),"setup_route":[{"skill_or_area":"e.g. Mining, Farming, Combat","current_level":X,"next_milestone_level":Y,"unlocks_at_milestone":"what becomes available","priority":"high|medium|low"}] (cover 4-6 key skill areas: farming, mining, combat, garden, dungeoneering, fishing based on what data is available)}',
-            messages: [{ role: 'user', content: JSON.stringify(compactContext) }]
-          })
-        })
-        if (claudeRes.ok) {
-          const claudeData = await claudeRes.json()
-          const text = claudeData.content?.[0]?.text || '{}'
-          const startIdx = text.indexOf('{')
-          const endIdx = text.lastIndexOf('}')
-          if (startIdx !== -1 && endIdx !== -1) {
-            analysis = JSON.parse(text.substring(startIdx, endIdx + 1))
-          }
-        } else {
-          console.error('Claude API error:', claudeRes.status, await claudeRes.text())
-        }
-      } catch (e: any) {
-        console.error('Claude call failed:', e.message)
-      }
+    // APPEL 2 — Personalized Money Making (only methods player can actually access now)
+    const call2Context = {
+      ...baseContext,
+      methods_currently_accessible: unlockedMethods.slice(0, 15).map(m => m.method_name + ' [' + m.category + '] ' + Math.round(m.coins_per_hour_min/1e6) + '-' + Math.round(m.coins_per_hour_max/1e6) + 'M/h setup=' + JSON.stringify(m.setup))
     }
+    const call2Prompt = 'You are Vault Evolve. Output ONLY raw JSON, no markdown: {"personalized_money_making":[{"method":"...","coins_per_hour":"...","why_now":"1 sentence, based on their actual level","setup_needed":"..."}]} — pick exactly 4 from methods_currently_accessible, ranked by coins/hr descending. Keep fields under 100 chars.'
+    const analysis2 = await callClaude(ANTHROPIC_KEY!, call2Prompt, JSON.stringify(call2Context), 700) || { personalized_money_making: [] }
+
+    // APPEL 3 — Setup Route (skill-by-skill progression milestones)
+    const call3Prompt = 'You are Vault Evolve. Output ONLY raw JSON, no markdown: {"setup_route":[{"skill_or_area":"...","current_level":0,"next_milestone_level":0,"unlocks_at_milestone":"...","priority":"high|medium|low"}]} — cover exactly 5 areas from: farming, mining, combat, garden, dungeoneering, fishing, based on the real levels given. Use actual current levels as current_level. Keep fields under 90 chars.'
+    const analysis3 = await callClaude(ANTHROPIC_KEY!, call3Prompt, JSON.stringify(baseContext), 700) || { setup_route: [] }
 
     const record = {
       user_id: userId,
@@ -256,20 +251,20 @@ export async function POST(req: Request) {
       pets: member.pets_data?.pets || [],
       fairy_souls: fairySouls,
       skin_url: skinUrl,
-      game_stage: analysis.game_stage || stageFromNetworth,
-      evolve_summary: analysis.summary || '',
-      priority_actions: analysis.priority_actions || [],
-      next_tier: analysis.next_tier || '',
-      next_tier_progress: analysis.next_tier_progress || 0,
-      next_tier_route: analysis.next_tier_route || [],
+      game_stage: analysis1.game_stage || stageFromNetworth,
+      evolve_summary: analysis1.summary || '',
+      priority_actions: analysis1.priority_actions || [],
+      next_tier: analysis1.next_tier || '',
+      next_tier_progress: analysis1.next_tier_progress || 0,
+      next_tier_route: analysis1.next_tier_route || [],
       raw_profile: {
         profile_id: activeProfile.profile_id,
         cute_name: activeProfile.cute_name,
         skills_detailed: skillsDetailed,
         hotm_level: hotmLevel,
         garden_level: gardenLevel,
-        personalized_money_making: analysis.personalized_money_making || [],
-        setup_route: analysis.setup_route || []
+        personalized_money_making: analysis2.personalized_money_making || [],
+        setup_route: analysis3.setup_route || []
       },
       last_synced: new Date().toISOString(),
       updated_at: new Date().toISOString()
