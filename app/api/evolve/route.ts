@@ -14,7 +14,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Server misconfigured — missing env vars' }, { status: 500 })
     }
 
-    const { userId, username, plan } = await req.json()
+    const { userId, username, plan, force } = await req.json()
 
     if (!['pro', 'elite'].includes(plan)) {
       return NextResponse.json({ error: 'Evolve requires Pro or Elite plan' }, { status: 403 })
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
       .eq('user_id', userId)
       .single()
 
-    if (existing && existing.updated_at) {
+    if (!force && existing && existing.updated_at) {
       const ageHours = (Date.now() - new Date(existing.updated_at).getTime()) / 3600000
       if (ageHours < CACHE_HOURS) {
         return NextResponse.json({ profile: existing, cached: true })
