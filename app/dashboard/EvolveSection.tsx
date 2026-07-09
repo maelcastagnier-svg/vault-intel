@@ -39,7 +39,7 @@ export default function EvolveSection({ plan, userId }: { plan: string, userId: 
     loadExisting()
   }, [userId])
 
-  async function handleSync(overrideUsername?: string) {
+  async function handleSync(overrideUsername?: string, forceRefresh = false) {
     const nameToUse = overrideUsername || username || profile?.hypixel_username
     if (!nameToUse?.trim()) { setError('Enter your Hypixel username'); return }
     setLoading(true)
@@ -48,7 +48,7 @@ export default function EvolveSection({ plan, userId }: { plan: string, userId: 
       const res = await fetch('/api/evolve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, username: nameToUse.trim(), plan })
+        body: JSON.stringify({ userId, username: nameToUse.trim(), plan, force: forceRefresh })
       })
       const data = await res.json()
       if (data.error) { setError(data.error) } else { setProfile(data.profile); setShowManualInput(false) }
@@ -72,7 +72,7 @@ export default function EvolveSection({ plan, userId }: { plan: string, userId: 
             <span style={{ fontSize: 12.5, color: '#e8e6df' }}>Connected as <b style={{ color: '#9b59b6' }}>{profile.hypixel_username}</b></span>
           </div>
           <button
-            onClick={() => handleSync()}
+            onClick={() => handleSync(undefined, true)}
             disabled={loading}
             style={{ background: 'transparent', border: '1px solid rgba(155,89,182,0.3)', color: '#9b59b6', padding: '0.35rem 0.8rem', borderRadius: 5, fontSize: 11, cursor: loading ? 'wait' : 'pointer', fontFamily: 'Space Mono, monospace' }}
           >
