@@ -368,7 +368,7 @@ export default function Dashboard() {
             {tab === 0 && (
               <div>
                 <div style={{ marginBottom: 20 }}>
-                  <LiveFlipTicker />
+                  <LiveFlipTicker type="AH" />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
                 <div>
