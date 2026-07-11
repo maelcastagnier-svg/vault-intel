@@ -214,11 +214,21 @@ export default function Dashboard() {
     { key: 'late', label: '👑 Late', target: '70M+/h', color: '#9b59b6' },
   ]
 
+  const normalizeItemName = (raw: string) => {
+    return raw
+      .toLowerCase()
+      .replace(/lvl_?\d+_?/gi, '')
+      .replace(/^_+|_+$/g, '')
+      .replace(/[^a-z0-9]/g, '')
+  }
+
   const findAuctionUuid = (itemName: string) => {
-    const clean = itemName.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const clean = normalizeItemName(itemName)
+    if (clean.length < 3) return undefined
     const match = ahAuctionData.find(a => {
-      const aName = (a.item_id || a.item_name || '').toLowerCase().replace(/[^a-z0-9]/g, '')
-      return aName.length > 3 && (clean.includes(aName) || aName.includes(clean))
+      const aName = normalizeItemName(a.item_id || a.item_name || '')
+      if (aName.length < 3) return false
+      return clean.includes(aName) || aName.includes(clean)
     })
     return match?.best_auction_uuid
   }
@@ -370,7 +380,7 @@ export default function Dashboard() {
                   <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>SNIPE NOW</div>
                   <div className="col-scroll">
                     {dataLoading ? <div className="loading-data">Loading...</div> :
-                      ahShortItems.length > 0 ? ahShortItems.map((item, i) => <FlashCard key={i} item={item} color="#2a78d6" type="AH" auctionUuid={findAuctionUuid(item['Item'] || Object.values(item)[0] || '')} />) :
+                      ahShortItems.length > 0 ? ahShortItems.map((item, i) => <FlashCard key={i} item={item} color="#2a78d6" type="AH" auctionUuid={item['UUID'] && item['UUID'] !== 'none' ? item['UUID'] : findAuctionUuid(item['Item'] || Object.values(item)[0] || '')} />) :
                       <div className="loading-data">Scanning AH...</div>}
                   </div>
                 </div>
@@ -379,7 +389,7 @@ export default function Dashboard() {
                   <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>DAYS-WEEKS HORIZON</div>
                   <div className="col-scroll">
                     {dataLoading ? <div className="loading-data">Loading...</div> :
-                      ahMidItems.length > 0 ? ahMidItems.map((item, i) => <FlashCard key={i} item={item} color="#9b59b6" type="AH" auctionUuid={findAuctionUuid(item['Item'] || Object.values(item)[0] || '')} />) :
+                      ahMidItems.length > 0 ? ahMidItems.map((item, i) => <FlashCard key={i} item={item} color="#9b59b6" type="AH" auctionUuid={item['UUID'] && item['UUID'] !== 'none' ? item['UUID'] : findAuctionUuid(item['Item'] || Object.values(item)[0] || '')} />) :
                       <div className="loading-data">Scanning trends...</div>}
                   </div>
                 </div>
