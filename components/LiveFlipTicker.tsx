@@ -1,5 +1,6 @@
-// components/LiveFlipTicker.tsx
-// Carrousel live des meilleurs flips AH — lit directement ah_4h, ZERO Claude, vraiment live
+// components/LiveScrollFeed.tsx
+// Flux vivant defilant vers le haut — items entrent par le bas, sortent par le haut quand vendus/depasses
+// ZERO Claude — pur calcul mathematique sur les donnees deja collectees
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
@@ -9,125 +10,153 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-interface FlipItem {
+interface FeedItem {
+  key: string
   item_id: string
   item_name: string
-  min_price: number
-  avg_price: number
-  best_auction_uuid: string
+  min_price?: number
+  avg_price?: number
+  buy_price?: number
+  sell_price?: number
   spread_pct: number
+  best_auction_uuid?: string
+  isNew?: boolean
 }
 
-export default function LiveFlipTicker() {
-  const [flips, setFlips] = useState<FlipItem[]>([])
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [visible, setVisible] = useState(true)
-  const [copied, setCopied] = useState(false)
+export default function LiveScrollFeed({ type, maxItems = 10 }: { type: 'AH' | 'BAZAAR', maxItems?: number }) {
+  const [items, setItems] = useState<FeedItem[]>([])
+  const [exiting, setExiting] = useState<Set<string>>(new Set())
+  const prevKeysRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
-    async function loadFlips() {
-      const { data } = await supabase
-        .from('ah_4h')
-        .select('item_id, item_name, min_price, avg_price, best_auction_uuid')
-        .not('best_auction_uuid', 'is', null)
-        .order('avg_price', { ascending: false })
+    async function loadFeed() {
+      let newItems: FeedItem[] = []
 
-      if (data) {
-        const withSpread = data
-          .map(d => ({
-            ...d,
-            spread_pct: d.avg_price > 0 ? Math.round(((d.avg_price - d.min_price) / d.avg_price) * 100) : 0
-          }))
-          .filter(d => d.spread_pct >= 30 && d.min_price > 5000) // seuil pur mathematique, zero Claude
-          .sort((a, b) => b.spread_pct - a.spread_pct)
+      if (type === 'AH') {
+        const { data } = await supabase
+          .from('ah_4h')
+          .select('item_id, item_name, min_price, avg_price, best_auction_uuid')
+          .not('best_auction_uuid', 'is', null)
 
-        setFlips(withSpread)
+        if (data) {
+          newItems = data
+            .map(d => ({
+              key: d.best_auction_uuid,
+              item_id: d.item_id,
+              item_name: d.item_name || d.item_id,
+              min_price: d.min_price,
+              avg_price: d.avg_price,
+              best_auction_uuid: d.best_auction_uuid,
+              spread_pct: d.avg_price > 0 ? Math.round(((d.avg_price - d.min_price) / d.avg_price) * 100) : 0
+            }))
+            .filter(d => d.spread_pct >= 25 && d.min_price! > 5000)
+            .sort((a, b) => b.spread_pct - a.spread_pct)
+            .slice(0, maxItems)
+        }
+      } else {
+        const { data } = await supabase
+          .from('bazaar_1h')
+          .select('item_id, buy_price, sell_price, spread_pct')
+
+        if (data) {
+          newItems = data
+            .map(d => ({
+              key: d.item_id,
+              item_id: d.item_id,
+              item_name: d.item_id.replace(/_/g, ' '),
+              buy_price: d.buy_price,
+              sell_price: d.sell_price,
+              spread_pct: d.spread_pct
+            }))
+            .sort((a, b) => b.spread_pct - a.spread_pct)
+            .slice(0, maxItems)
+        }
       }
+
+      const newKeys = new Set(newItems.map(i => i.key))
+      const oldKeys = prevKeysRef.current
+      const disappeared = [...oldKeys].filter(k => !newKeys.has(k))
+
+      if (disappeared.length > 0) {
+        setExiting(new Set(disappeared))
+        setTimeout(() => setExiting(new Set()), 500)
+      }
+
+      const withNewFlags = newItems.map(item => ({
+        ...item,
+        isNew: !oldKeys.has(item.key)
+      }))
+
+      setItems(withNewFlags)
+      prevKeysRef.current = newKeys
     }
 
-    loadFlips()
+    loadFeed()
 
-    // Realtime — recharge des que ah_4h change (toutes les 5 min via le Cron)
+    const table = type === 'AH' ? 'ah_4h' : 'bazaar_1h'
     const channel = supabase
-      .channel('ah_4h_live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ah_4h' }, () => loadFlips())
+      .channel(`${table}_live_feed`)
+      .on('postgres_changes', { event: '*', schema: 'public', table }, () => loadFeed())
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [])
+  }, [type, maxItems])
 
-  useEffect(() => {
-    if (flips.length === 0) return
-    const interval = setInterval(() => {
-      setVisible(false)
-      setTimeout(() => {
-        setCurrentIndex(prev => (prev + 1) % flips.length)
-        setVisible(true)
-      }, 400) // duree du fade-out avant de changer d'item
-    }, 30000) // 30 secondes par item
-
-    return () => clearInterval(interval)
-  }, [flips])
-
-  const current = flips[currentIndex]
-
-  const handleCopy = () => {
-    if (!current) return
-    navigator.clipboard.writeText(`/viewauction ${current.best_auction_uuid}`)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
-
-  if (!current) {
-    return <div style={{ padding: 20, color: '#6b6960', fontFamily: 'Space Mono, monospace', fontSize: 12 }}>Scanning live AH for flips...</div>
-  }
+  const color = type === 'AH' ? '#2a78d6' : '#1baf7a'
 
   return (
-    <div style={{
-      background: '#111110',
-      border: '1px solid #2a78d640',
-      borderLeft: '4px solid #2a78d6',
-      borderRadius: 10,
-      padding: '16px 20px',
-      opacity: visible ? 1 : 0,
-      transition: 'opacity 0.4s ease',
-      minHeight: 90
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <div style={{ fontSize: 10, color: '#2a78d6', textTransform: 'uppercase', letterSpacing: '0.1em', fontFamily: 'Space Mono, monospace' }}>
-          🔴 LIVE — AH Sniper Feed
-        </div>
-        <div style={{ fontSize: 9, color: '#6b6960', fontFamily: 'Space Mono, monospace' }}>
-          {currentIndex + 1}/{flips.length}
-        </div>
-      </div>
+    <div style={{ position: 'relative', overflow: 'hidden', maxHeight: 600 }}>
+      <style>{`
+        @keyframes slideInFromBottom {
+          from { transform: translateY(20px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes slideOutToTop {
+          from { transform: translateY(0); opacity: 1; max-height: 70px; }
+          to { transform: translateY(-20px); opacity: 0; max-height: 0; }
+        }
+        .feed-item-enter { animation: slideInFromBottom 0.5s ease-out; }
+        .feed-item-exit { animation: slideOutToTop 0.5s ease-in forwards; }
+      `}</style>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#e8e6df', fontFamily: 'Space Mono, monospace' }}>
-            {current.item_name || current.item_id}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {items.map((item) => (
+          <div
+            key={item.key}
+            className={item.isNew ? 'feed-item-enter' : ''}
+            style={{
+              background: '#111110',
+              border: `0.5px solid ${color}30`,
+              borderLeft: `3px solid ${color}`,
+              borderRadius: 8,
+              padding: '10px 14px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              transition: 'all 0.3s ease'
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#e8e6df', fontFamily: 'Space Mono, monospace' }}>
+                {item.item_name.slice(0, 30)}
+              </div>
+              <div style={{ fontSize: 10, color: '#6b6960', fontFamily: 'Space Mono, monospace', marginTop: 2 }}>
+                {type === 'AH'
+                  ? `Min: ${item.min_price?.toLocaleString()} → Avg: ${item.avg_price?.toLocaleString()}`
+                  : `Buy: ${item.buy_price?.toFixed(1)} → Sell: ${item.sell_price?.toFixed(1)}`}
+              </div>
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color, fontFamily: 'Space Mono, monospace' }}>
+              +{item.spread_pct}%
+            </div>
           </div>
-          <div style={{ fontSize: 11, color: '#c8c6bf', fontFamily: 'Space Mono, monospace', marginTop: 4 }}>
-            Min: {current.min_price.toLocaleString()} → Avg: {current.avg_price.toLocaleString()}
-            <span style={{ color: '#1baf7a', marginLeft: 8, fontWeight: 700 }}>+{current.spread_pct}%</span>
+        ))}
+
+        {items.length === 0 && (
+          <div style={{ padding: 20, color: '#6b6960', fontFamily: 'Space Mono, monospace', fontSize: 11 }}>
+            Scanning for {type === 'AH' ? 'AH flips' : 'Bazaar flips'}...
           </div>
-        </div>
-        <button
-          onClick={handleCopy}
-          style={{
-            background: copied ? '#2a78d630' : 'transparent',
-            border: '1px solid #2a78d660',
-            color: '#2a78d6',
-            fontSize: 11,
-            fontFamily: 'Space Mono, monospace',
-            padding: '8px 14px',
-            borderRadius: 6,
-            cursor: 'pointer',
-            fontWeight: 700
-          }}
-        >
-          {copied ? '✓ Copied' : '🎯 /viewauction'}
-        </button>
+        )}
       </div>
     </div>
   )

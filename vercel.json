@@ -1,7 +1,7 @@
 {
   "crons": [
     { "path": "/api/cron/bazaar-collect", "schedule": "*/5 * * * *" },
-    { "path": "/api/cron/ah-collect", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/ah-collect", "schedule": "*/1 * * * *" },
     { "path": "/api/cron/patch-collect", "schedule": "0 0 * * *" },
     { "path": "/api/cron/flash-alerts-agent", "schedule": "0 */4 * * *" },
     { "path": "/api/cron/money-making-agent", "schedule": "0 0,12 * * *" },
