@@ -110,16 +110,16 @@ export async function POST(req: NextRequest) {
 
     // 3. Prepare les lignes valides
     const rows = data
-      .filter((point: any) => point.buy != null && point.sell != null && point.timestamp)
+      .filter((point: any) => point.buyPrice != null && point.sellPrice != null && point.timeStamp)
       .map((point: any) => ({
         item_id: tag,
         item_name: tag.replace(/_/g, ' '),
         source: 'BAZAAR_SKYCOFL_HISTORIC',
-        buy_price: point.buy,
-        sell_price: point.sell,
-        avg_price: (point.buy + point.sell) / 2,
+        buy_price: point.buyPrice,
+        sell_price: point.sellPrice,
+        avg_price: (point.buyPrice + point.sellPrice) / 2,
         volume: (point.buyVolume || 0) + (point.sellVolume || 0),
-        timestamp: point.timestamp,
+        timestamp: point.timeStamp,
       }));
 
     if (rows.length === 0) {
