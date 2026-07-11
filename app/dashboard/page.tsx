@@ -4,6 +4,7 @@ import { createClient } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import EvolveSection from './EvolveSection'
+import LiveFlipTicker from '../../components/LiveFlipTicker'
 
 function parsePatchItems(text: string): string[] {
   const cleaned = text.replace(/^#+\s*Live Patches\s*/i, '').trim()
@@ -365,7 +366,11 @@ export default function Dashboard() {
           <>
             {/* FLASH ALERTS */}
             {tab === 0 && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+              <div>
+                <div style={{ marginBottom: 20 }}>
+                  <LiveFlipTicker />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
                 <div>
                   <div className="section-label" style={{ color: '#1baf7a' }}>⚡ Bazaar Flip</div>
                   <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>ACT NOW</div>
@@ -392,6 +397,7 @@ export default function Dashboard() {
                       ahMidItems.length > 0 ? ahMidItems.map((item, i) => <FlashCard key={i} item={item} color="#9b59b6" type="AH" auctionUuid={item['UUID'] && item['UUID'] !== 'none' ? item['UUID'] : findAuctionUuid(item['Item'] || Object.values(item)[0] || '')} />) :
                       <div className="loading-data">Scanning trends...</div>}
                   </div>
+                </div>
                 </div>
               </div>
             )}
