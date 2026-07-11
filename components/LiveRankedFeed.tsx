@@ -3,12 +3,9 @@
 // quand leur rang change, entrent par le bas, sortent par le haut si elimines
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '../lib/supabase'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+const supabase = createClient()
 
 interface RankedItem {
   key: string
