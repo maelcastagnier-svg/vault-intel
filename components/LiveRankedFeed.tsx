@@ -28,11 +28,13 @@ const GAP = 6
 export default function LiveRankedFeed({
   type,
   maxItems = 10,
-  minSpread = 20
+  minSpread = 20,
+  instanceKey
 }: {
   type: 'AH' | 'BAZAAR'
   maxItems?: number
   minSpread?: number
+  instanceKey?: string
 }) {
   const [items, setItems] = useState<RankedItem[]>([])
   const [enteringKeys, setEnteringKeys] = useState<Set<string>>(new Set())
@@ -106,13 +108,14 @@ export default function LiveRankedFeed({
     loadFeed()
 
     const table = type === 'AH' ? 'ah_4h' : 'bazaar_1h'
+    const uniqueId = instanceKey || `${type}_${maxItems}_${minSpread}`
     const channel = supabase
-      .channel(`${table}_ranked_${type}`)
+      .channel(`${table}_ranked_${uniqueId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table }, () => loadFeed())
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [type, maxItems, minSpread])
+  }, [type, maxItems, minSpread, instanceKey])
 
   const color = type === 'AH' ? '#2a78d6' : '#1baf7a'
 
