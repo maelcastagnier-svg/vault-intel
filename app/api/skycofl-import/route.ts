@@ -138,14 +138,19 @@ export async function POST(req: NextRequest) {
 
     // 5. Insere par batch
     let inserted = 0;
+    let insertErrors: any[] = [];
     const chunkSize = 500;
     for (let i = 0; i < dedupedRows.length; i += chunkSize) {
       const chunk = dedupedRows.slice(i, i + chunkSize);
       const { error } = await supabase.from('price_history').insert(chunk);
-      if (!error) inserted += chunk.length;
+      if (!error) {
+        inserted += chunk.length;
+      } else if (insertErrors.length < 3) {
+        insertErrors.push(error.message);
+      }
     }
 
-    return NextResponse.json({ status: 'done', tag, totalPoints: rows.length, inserted, skipped: rows.length - dedupedRows.length });
+    return NextResponse.json({ status: 'done', tag, totalPoints: rows.length, inserted, skipped: rows.length - dedupedRows.length, insertErrors });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
