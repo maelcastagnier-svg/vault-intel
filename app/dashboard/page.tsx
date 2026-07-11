@@ -74,6 +74,16 @@ function ItemIcon({ name, color }: { name: string, color: string }) {
 function FlashCard({ item, color, type }: { item: Record<string, string>, color: string, type: string }) {
   const name = item['Item'] || Object.values(item)[0] || 'Unknown'
   const entries = Object.entries(item).filter(([k]) => k !== 'Item').slice(0, 4)
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const cleanName = name.replace(/\*\*/g, '').trim()
+    navigator.clipboard.writeText(cleanName)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
   return (
     <div style={{ background: '#111110', border: '0.5px solid ' + color + '30', borderLeft: '3px solid ' + color, borderRadius: 8, padding: '12px 14px', marginBottom: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
@@ -82,6 +92,15 @@ function FlashCard({ item, color, type }: { item: Record<string, string>, color:
           <div style={{ fontSize: 12, fontWeight: 600, fontFamily: 'Space Mono, monospace', color: '#e8e6df', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name.slice(0, 35)}</div>
           <div style={{ fontSize: 9, color, marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{type}</div>
         </div>
+        {type === 'AH' && (
+          <button
+            onClick={handleCopy}
+            title="Copy item name for /ah search"
+            style={{ flexShrink: 0, background: copied ? color + '30' : 'transparent', border: '1px solid ' + color + '40', color, fontSize: 9, fontFamily: 'Space Mono, monospace', padding: '3px 7px', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}
+          >
+            {copied ? '✓ Copied' : '📋 Copy'}
+          </button>
+        )}
         <div style={{ fontSize: 9, padding: '2px 7px', borderRadius: 3, background: color + '18', color, fontWeight: 700, fontFamily: 'Space Mono, monospace' }}>
           {type === 'BAZAAR' ? 'FLIP' : 'SNIPE'}
         </div>
