@@ -15,14 +15,34 @@ const supabase = createClient(
 );
 
 function extractJsonFromZip(buffer: Buffer): { compressionMethod: number; compressedData: Buffer } {
-  const sig = buffer.indexOf(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
-  if (sig === -1) throw new Error('Not a valid ZIP');
+  // Cherche le End of Central Directory record (EOCD) : signature PK\x05\x06
+  const eocdSig = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
+  let eocdOffset = -1;
+  for (let i = buffer.length - 22; i >= 0; i--) {
+    if (buffer.slice(i, i + 4).equals(eocdSig)) {
+      eocdOffset = i;
+      break;
+    }
+  }
+  if (eocdOffset === -1) throw new Error('EOCD not found - not a valid ZIP');
 
-  const compressionMethod = buffer.readUInt16LE(sig + 8);
-  const compressedSize = buffer.readUInt32LE(sig + 18);
-  const fileNameLength = buffer.readUInt16LE(sig + 26);
-  const extraFieldLength = buffer.readUInt16LE(sig + 28);
-  const dataStart = sig + 30 + fileNameLength + extraFieldLength;
+  const centralDirOffset = buffer.readUInt32LE(eocdOffset + 16);
+
+  // Lit la premiere entree du Central Directory : signature PK\x01\x02
+  const cdSig = buffer.slice(centralDirOffset, centralDirOffset + 4);
+  if (!cdSig.equals(Buffer.from([0x50, 0x4b, 0x01, 0x02]))) {
+    throw new Error('Central Directory signature mismatch');
+  }
+
+  const compressionMethod = buffer.readUInt16LE(centralDirOffset + 10);
+  const compressedSize = buffer.readUInt32LE(centralDirOffset + 20);
+  const fileNameLength = buffer.readUInt16LE(centralDirOffset + 28);
+  const localHeaderOffset = buffer.readUInt32LE(centralDirOffset + 42);
+
+  // Utilise l'offset du Local Header pour trouver le debut des donnees, mais la taille du Central Directory (fiable)
+  const localFileNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
+  const localExtraFieldLength = buffer.readUInt16LE(localHeaderOffset + 28);
+  const dataStart = localHeaderOffset + 30 + localFileNameLength + localExtraFieldLength;
   const compressedData = buffer.slice(dataStart, dataStart + compressedSize);
 
   return { compressionMethod, compressedData };
