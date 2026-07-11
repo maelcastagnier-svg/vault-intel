@@ -181,7 +181,6 @@ export default function Dashboard() {
     { label: '💰 Money Making', key: 'money', plans: ['pro', 'elite'] },
     { label: '🔧 Patches', key: 'patch', plans: ['alert', 'pro', 'elite'] },
     { label: '📈 Radar', key: 'radar', plans: ['pro', 'elite'] },
-    { label: '🎯 AH Sniper', key: 'ah', plans: ['pro', 'elite'] },
     { label: '🧬 Evolve', key: 'evolve', plans: ['elite'] },
   ]
 
@@ -204,12 +203,15 @@ export default function Dashboard() {
     })
   }
 
-  // Parse flash alerts
+  // Parse flash alerts — 3 sous-sections : Bazaar / AH Short Term / AH Mid Term
   const flashText = marketData['flash_alerts'] || ''
-  const bazaarSection = flashText.split(/### AH\b/i)[0] || flashText
-  const ahFlashSection = flashText.split(/### AH\b/i)[1] || ''
+  const bazaarSection = flashText.split(/###\s*AH FLIP/i)[0] || flashText
+  const afterBazaar = flashText.split(/###\s*AH FLIP/i).slice(1).join('### AH FLIP')
+  const ahShortSection = afterBazaar.split(/###\s*AH FLIP\s*—?\s*MID/i)[0] || ''
+  const ahMidSection = afterBazaar.split(/###\s*AH FLIP\s*—?\s*MID/i)[1] || ''
   const bazaarItems = parseTable(bazaarSection)
-  const ahFlashItems = parseTable(ahFlashSection)
+  const ahShortItems = parseTable(ahShortSection)
+  const ahMidItems = parseTable(ahMidSection)
 
   // Parse money making
   const tierKey = 'money_making_' + mmTier
@@ -323,9 +325,10 @@ export default function Dashboard() {
           <>
             {/* FLASH ALERTS */}
             {tab === 0 && (
-              <div className="two-col">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
                 <div>
-                  <div className="section-label" style={{ color: '#1baf7a' }}>⚡ Bazaar opportunities</div>
+                  <div className="section-label" style={{ color: '#1baf7a' }}>⚡ Bazaar Flip</div>
+                  <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>ACT NOW</div>
                   <div className="col-scroll">
                     {dataLoading ? <div className="loading-data">Loading...</div> :
                       bazaarItems.length > 0 ? bazaarItems.map((item, i) => <FlashCard key={i} item={item} color="#1baf7a" type="BAZAAR" />) :
@@ -333,11 +336,21 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div>
-                  <div className="section-label" style={{ color: '#2a78d6' }}>🎯 AH opportunities</div>
+                  <div className="section-label" style={{ color: '#2a78d6' }}>🎯 AH Flip — Short Term</div>
+                  <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>SNIPE NOW</div>
                   <div className="col-scroll">
                     {dataLoading ? <div className="loading-data">Loading...</div> :
-                      ahFlashItems.length > 0 ? ahFlashItems.map((item, i) => <FlashCard key={i} item={item} color="#2a78d6" type="AH" />) :
+                      ahShortItems.length > 0 ? ahShortItems.map((item, i) => <FlashCard key={i} item={item} color="#2a78d6" type="AH" />) :
                       <div className="loading-data">Scanning AH...</div>}
+                  </div>
+                </div>
+                <div>
+                  <div className="section-label" style={{ color: '#9b59b6' }}>📈 AH Flip — Mid Term</div>
+                  <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>DAYS-WEEKS HORIZON</div>
+                  <div className="col-scroll">
+                    {dataLoading ? <div className="loading-data">Loading...</div> :
+                      ahMidItems.length > 0 ? ahMidItems.map((item, i) => <FlashCard key={i} item={item} color="#9b59b6" type="AH" />) :
+                      <div className="loading-data">Scanning trends...</div>}
                   </div>
                 </div>
               </div>
@@ -453,22 +466,8 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* AH SNIPER */}
-            {tab === 4 && (
-              <div>
-                <div className="section-label" style={{ color: '#2a78d6', marginBottom: 10 }}>Top AH targets — Mid term</div>
-                <div className="col-scroll" style={{ maxHeight: 600 }}>
-                  {dataLoading ? <div className="loading-data">Loading...</div> :
-                    parseTable(marketData['ah_sniper'] || '').slice(0, 20).map((item, i) => <FlashCard key={i} item={item} color="#2a78d6" type="AH" />) }
-                  {!dataLoading && parseTable(marketData['ah_sniper'] || '').length === 0 && (
-                    <div className="plain-content">{(marketData['ah_sniper'] || 'No data').replace(/\*\*/g, '')}</div>
-                  )}
-                </div>
-              </div>
-            )}
-
             {/* EVOLVE */}
-            {tab === 5 && (
+            {tab === 4 && (
               <EvolveSection plan={plan} userId={user?.id} />
             )}
           </>
