@@ -36,8 +36,17 @@ export default function LiveRankedFeed({
   const [items, setItems] = useState<RankedItem[]>([])
   const [enteringKeys, setEnteringKeys] = useState<Set<string>>(new Set())
   const [exitingItems, setExitingItems] = useState<RankedItem[]>([])
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const prevKeysRef = useRef<Set<string>>(new Set())
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [, forceTick] = useState(0)
+
+  useEffect(() => {
+    const tick = setInterval(() => forceTick(n => n + 1), 1000)
+    return () => clearInterval(tick)
+  }, [])
+
+  const secondsAgo = lastUpdate ? Math.floor((Date.now() - lastUpdate.getTime()) / 1000) : null
 
   useEffect(() => {
     async function loadFeed() {
@@ -52,7 +61,7 @@ export default function LiveRankedFeed({
         if (data) {
           newItems = data
             .map(d => ({
-              key: d.best_auction_uuid,
+              key: d.item_id,
               item_id: d.item_id,
               item_name: d.item_name || d.item_id,
               min_price: d.min_price,
@@ -100,6 +109,7 @@ export default function LiveRankedFeed({
 
       setItems(newItems)
       prevKeysRef.current = newKeys
+      setLastUpdate(new Date())
     }
 
     loadFeed()
@@ -142,7 +152,7 @@ export default function LiveRankedFeed({
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        transition: isExiting ? 'transform 0.5s ease, opacity 0.5s ease' : 'top 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease',
+        transition: isExiting ? 'transform 0.6s ease, opacity 0.6s ease' : 'top 0.8s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.5s ease',
         transform: isExiting ? 'translateX(40px)' : enteringKeys.has(item.key) ? undefined : undefined,
         opacity: isExiting ? 0 : 1,
         animation: enteringKeys.has(item.key) ? 'slideUpFadeIn 0.5s ease-out' : undefined,
@@ -167,20 +177,26 @@ export default function LiveRankedFeed({
   )
 
   return (
-    <div style={{ position: 'relative', height: containerHeight, overflow: 'hidden' }}>
-      <style>{`
-        @keyframes slideUpFadeIn {
-          from { transform: translateY(30px); opacity: 0; }
-          to { transform: translateY(0); opacity: 1; }
-        }
-      `}</style>
-      {items.map((item, i) => renderCard(item, i, false))}
-      {exitingItems.map((item) => renderCard(item, items.findIndex(x => x.key === item.key) === -1 ? maxItems : 0, true))}
-      {items.length === 0 && (
-        <div style={{ padding: 20, color: '#6b6960', fontFamily: 'Space Mono, monospace', fontSize: 11 }}>
-          Scanning...
-        </div>
-      )}
+    <div>
+      <div style={{ fontSize: 9, color: secondsAgo !== null && secondsAgo < 15 ? '#1baf7a' : '#6b6960', fontFamily: 'Space Mono, monospace', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: secondsAgo !== null && secondsAgo < 15 ? '#1baf7a' : '#6b6960', display: 'inline-block' }} />
+        {secondsAgo === null ? 'Waiting for data...' : secondsAgo < 60 ? `Updated ${secondsAgo}s ago` : `Updated ${Math.floor(secondsAgo / 60)}m ago`}
+      </div>
+      <div style={{ position: 'relative', height: containerHeight, overflow: 'hidden' }}>
+        <style>{`
+          @keyframes slideUpFadeIn {
+            from { transform: translateY(30px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+          }
+        `}</style>
+        {items.map((item, i) => renderCard(item, i, false))}
+        {exitingItems.map((item) => renderCard(item, items.findIndex(x => x.key === item.key) === -1 ? maxItems : 0, true))}
+        {items.length === 0 && (
+          <div style={{ padding: 20, color: '#6b6960', fontFamily: 'Space Mono, monospace', fontSize: 11 }}>
+            Scanning...
+          </div>
+        )}
+      </div>
     </div>
   )
 }
