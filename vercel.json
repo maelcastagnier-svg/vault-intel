@@ -1,0 +1,13 @@
+{
+  "crons": [
+    { "path": "/api/cron/bazaar-collect", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/ah-collect", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/patch-collect", "schedule": "0 0 * * *" },
+    { "path": "/api/cron/flash-alerts-agent", "schedule": "0 */4 * * *" },
+    { "path": "/api/cron/money-making-agent", "schedule": "0 0,12 * * *" },
+    { "path": "/api/cron/patch-analysis-agent", "schedule": "0 6 * * *" },
+    { "path": "/api/cron/historic-import", "schedule": "*/10 * * * *" }
+    { "path": "/api/cron/evolve-sync", "schedule": "0 */6 * * *" }
+    {  "path": "/api/cron/historic-import","schedule": "*/10 * * * *"}
+  ]
+}

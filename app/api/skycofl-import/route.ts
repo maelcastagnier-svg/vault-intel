@@ -7,6 +7,8 @@ import { createClient } from '@supabase/supabase-js';
 import zlib from 'zlib';
 import { promisify } from 'util';
 
+export const maxDuration = 300; // 5 minutes, necessite Vercel Pro
+
 const inflateRaw = promisify(zlib.inflateRaw);
 
 const supabase = createClient(
@@ -50,19 +52,20 @@ function extractJsonFromZip(buffer: Buffer): { compressionMethod: number; compre
 
 export async function POST(req: NextRequest) {
   try {
-    const { tag, accountToken, startDate, endDate } = await req.json();
+    const { tag, accountToken, startDate, endDate, granularity } = await req.json();
 
     if (!tag || !accountToken) {
       return NextResponse.json({ error: 'Missing tag or accountToken' }, { status: 400 });
     }
 
-    const start = startDate || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const gran = granularity === 'monthly' ? 'monthly' : 'daily';
+    const start = startDate || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
     const end = endDate || new Date().toISOString();
 
-    // 1. Telecharge le ZIP
+    // 1. Telecharge le ZIP (start/end peuvent couvrir une tres longue periode)
     const exportRes = await fetch(
       `https://sky.coflnet.com/api/bazaar/${tag}/export?start=${start}&end=${end}`,
-      { headers: { Authorization: `Bearer ${accountToken}` } }
+      { headers: { Authorization: `Bearer ${accountToken}` }, signal: AbortSignal.timeout(280000) }
     );
 
     if (!exportRes.ok) {
@@ -108,19 +111,31 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 3. Prepare les lignes valides
-    const rows = data
-      .filter((point: any) => point.buyPrice != null && point.sellPrice != null && point.timeStamp)
-      .map((point: any) => ({
-        item_id: tag,
-        item_name: tag.replace(/_/g, ' '),
-        source: 'BAZAAR_SKYCOFL_HISTORIC',
-        buy_price: point.buyPrice,
-        sell_price: point.sellPrice,
-        avg_price: (point.buyPrice + point.sellPrice) / 2,
-        volume: (point.buyVolume || 0) + (point.sellVolume || 0),
-        timestamp: point.timeStamp,
-      }));
+    // 3. Agrege par jour ou par mois selon la granularite demandee
+    const dailyBuckets: Record<string, { buySum: number; sellSum: number; volSum: number; count: number }> = {};
+
+    for (const point of data) {
+      if (point.buyPrice == null || point.sellPrice == null || !point.timeStamp) continue;
+      const bucketKey = gran === 'monthly' ? point.timeStamp.substring(0, 7) : point.timeStamp.substring(0, 10);
+      if (!dailyBuckets[bucketKey]) {
+        dailyBuckets[bucketKey] = { buySum: 0, sellSum: 0, volSum: 0, count: 0 };
+      }
+      dailyBuckets[bucketKey].buySum += point.buyPrice;
+      dailyBuckets[bucketKey].sellSum += point.sellPrice;
+      dailyBuckets[bucketKey].volSum += (point.buyVolume || 0) + (point.sellVolume || 0);
+      dailyBuckets[bucketKey].count += 1;
+    }
+
+    const rows = Object.entries(dailyBuckets).map(([bucket, agg]) => ({
+      item_id: tag,
+      item_name: tag.replace(/_/g, ' '),
+      source: gran === 'monthly' ? 'BAZAAR_SKYCOFL_MONTHLY' : 'BAZAAR_SKYCOFL_HISTORIC',
+      buy_price: agg.buySum / agg.count,
+      sell_price: agg.sellSum / agg.count,
+      avg_price: (agg.buySum / agg.count + agg.sellSum / agg.count) / 2,
+      volume: agg.volSum,
+      timestamp: (gran === 'monthly' ? bucket + '-01' : bucket) + 'T12:00:00.000Z',
+    }));
 
     if (rows.length === 0) {
       return NextResponse.json({ status: 'done', inserted: 0, reason: 'no valid rows' });
