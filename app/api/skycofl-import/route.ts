@@ -100,6 +100,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unexpected data format', preview: jsonText.substring(0, 200) }, { status: 500 });
     }
 
+    if (req.nextUrl.searchParams.get('debug2') === 'true') {
+      return NextResponse.json({
+        dataLength: data.length,
+        firstItem: data[0] || null,
+        sampleKeys: data[0] ? Object.keys(data[0]) : []
+      });
+    }
+
     // 3. Prepare les lignes valides
     const rows = data
       .filter((point: any) => point.buy != null && point.sell != null && point.timestamp)
