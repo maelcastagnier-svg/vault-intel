@@ -24,8 +24,8 @@ export async function GET(req: NextRequest) {
     const itemBlocks = rssRes.split('<item>').slice(1);
 
     for (const block of itemBlocks.slice(0, 10)) {
-      const titleMatch = block.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/s) || block.match(/<title>(.*?)<\/title>/s);
-      const descMatch = block.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/s) || block.match(/<description>(.*?)<\/description>/s);
+      const titleMatch = block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/) || block.match(/<title>([\s\S]*?)<\/title>/);
+      const descMatch = block.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/) || block.match(/<description>([\s\S]*?)<\/description>/);
       const linkMatch = block.match(/<link>(.*?)<\/link>/);
       const pubDateMatch = block.match(/<pubDate>(.*?)<\/pubDate>/);
 
