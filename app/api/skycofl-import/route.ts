@@ -52,6 +52,16 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await exportRes.arrayBuffer();
     const zipBuffer = Buffer.from(arrayBuffer);
 
+    // DEBUG temporaire
+    if (req.nextUrl.searchParams.get('debug') === 'true') {
+      return NextResponse.json({
+        bufferLength: zipBuffer.length,
+        first20Bytes: Array.from(zipBuffer.slice(0, 20)),
+        contentType: exportRes.headers.get('content-type'),
+        first100AsString: zipBuffer.slice(0, 100).toString('utf8').replace(/[^\x20-\x7E]/g, '?')
+      });
+    }
+
     // 2. Dezippe avec zlib natif
     const { compressionMethod, compressedData } = extractJsonFromZip(zipBuffer);
     let jsonText: string;
