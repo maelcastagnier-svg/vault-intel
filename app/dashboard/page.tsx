@@ -4,7 +4,7 @@ import { createClient } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import EvolveSection from './EvolveSection'
-import LiveFlipTicker from '../../components/LiveFlipTicker'
+import LiveRankedFeed from '../../components/LiveRankedFeed'
 
 function parsePatchItems(text: string): string[] {
   const cleaned = text.replace(/^#+\s*Live Patches\s*/i, '').trim()
@@ -366,38 +366,21 @@ export default function Dashboard() {
           <>
             {/* FLASH ALERTS */}
             {tab === 0 && (
-              <div>
-                <div style={{ marginBottom: 20 }}>
-                  <LiveFlipTicker type="AH" />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20 }}>
                 <div>
-                  <div className="section-label" style={{ color: '#1baf7a' }}>⚡ Bazaar Flip</div>
-                  <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>ACT NOW</div>
-                  <div className="col-scroll">
-                    {dataLoading ? <div className="loading-data">Loading...</div> :
-                      bazaarItems.length > 0 ? bazaarItems.map((item, i) => <FlashCard key={i} item={item} color="#1baf7a" type="BAZAAR" />) :
-                      <div className="loading-data">Scanning market...</div>}
-                  </div>
+                  <div className="section-label" style={{ color: '#1baf7a' }}>💰 Top 10 Bazaar</div>
+                  <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>LIVE · REFRESH 5MIN</div>
+                  <LiveRankedFeed type="BAZAAR" maxItems={10} />
                 </div>
                 <div>
-                  <div className="section-label" style={{ color: '#2a78d6' }}>🎯 AH Flip — Short Term</div>
-                  <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>SNIPE NOW</div>
-                  <div className="col-scroll">
-                    {dataLoading ? <div className="loading-data">Loading...</div> :
-                      ahShortItems.length > 0 ? ahShortItems.map((item, i) => <FlashCard key={i} item={item} color="#2a78d6" type="AH" auctionUuid={item['UUID'] && item['UUID'] !== 'none' ? item['UUID'] : findAuctionUuid(item['Item'] || Object.values(item)[0] || '')} />) :
-                      <div className="loading-data">Scanning AH...</div>}
-                  </div>
+                  <div className="section-label" style={{ color: '#2a78d6' }}>🎯 AH Flip — Live</div>
+                  <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>LIVE · REFRESH ~30S</div>
+                  <LiveRankedFeed type="AH" maxItems={10} minSpread={25} />
                 </div>
                 <div>
-                  <div className="section-label" style={{ color: '#9b59b6' }}>📈 AH Flip — Mid Term</div>
+                  <div className="section-label" style={{ color: '#9b59b6' }}>📈 AH — Long Terme</div>
                   <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>DAYS-WEEKS HORIZON</div>
-                  <div className="col-scroll">
-                    {dataLoading ? <div className="loading-data">Loading...</div> :
-                      ahMidItems.length > 0 ? ahMidItems.map((item, i) => <FlashCard key={i} item={item} color="#9b59b6" type="AH" auctionUuid={item['UUID'] && item['UUID'] !== 'none' ? item['UUID'] : findAuctionUuid(item['Item'] || Object.values(item)[0] || '')} />) :
-                      <div className="loading-data">Scanning trends...</div>}
-                  </div>
-                </div>
+                  <LiveRankedFeed type="AH" maxItems={10} minSpread={15} />
                 </div>
               </div>
             )}
