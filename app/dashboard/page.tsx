@@ -71,15 +71,15 @@ function ItemIcon({ name, color }: { name: string, color: string }) {
   )
 }
 
-function FlashCard({ item, color, type }: { item: Record<string, string>, color: string, type: string }) {
+function FlashCard({ item, color, type, auctionUuid }: { item: Record<string, string>, color: string, type: string, auctionUuid?: string }) {
   const name = item['Item'] || Object.values(item)[0] || 'Unknown'
   const entries = Object.entries(item).filter(([k]) => k !== 'Item').slice(0, 4)
   const [copied, setCopied] = useState(false)
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation()
-    const cleanName = name.replace(/\*\*/g, '').trim()
-    navigator.clipboard.writeText(cleanName)
+    const textToCopy = auctionUuid ? '/viewauction ' + auctionUuid : name.replace(/\*\*/g, '').trim()
+    navigator.clipboard.writeText(textToCopy)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
@@ -95,10 +95,10 @@ function FlashCard({ item, color, type }: { item: Record<string, string>, color:
         {type === 'AH' && (
           <button
             onClick={handleCopy}
-            title="Copy item name for /ah search"
+            title={auctionUuid ? 'Copy /viewauction command' : 'Copy item name for /ah search'}
             style={{ flexShrink: 0, background: copied ? color + '30' : 'transparent', border: '1px solid ' + color + '40', color, fontSize: 9, fontFamily: 'Space Mono, monospace', padding: '3px 7px', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}
           >
-            {copied ? '✓ Copied' : '📋 Copy'}
+            {copied ? '✓ Copied' : auctionUuid ? '🎯 /viewauction' : '📋 Copy'}
           </button>
         )}
         <div style={{ fontSize: 9, padding: '2px 7px', borderRadius: 3, background: color + '18', color, fontWeight: 700, fontFamily: 'Space Mono, monospace' }}>
@@ -148,6 +148,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [marketData, setMarketData] = useState<Record<string, string>>({})
   const [insights, setInsights] = useState<any[]>([])
+  const [ahAuctionData, setAhAuctionData] = useState<any[]>([])
   const [activeInsight, setActiveInsight] = useState<any | null>(null)
   const [dataLoading, setDataLoading] = useState(true)
   const [mmTier, setMmTier] = useState('early')
@@ -175,6 +176,7 @@ export default function Dashboard() {
       const data = await res.json()
       setMarketData(data)
       setInsights(data.insights || [])
+      setAhAuctionData(data.ah_live || [])
       setLastUpdate(new Date())
       setDataLoading(false)
     }
@@ -211,6 +213,15 @@ export default function Dashboard() {
     { key: 'end', label: '🔥 End', target: '35-70M/h', color: '#e34948' },
     { key: 'late', label: '👑 Late', target: '70M+/h', color: '#9b59b6' },
   ]
+
+  const findAuctionUuid = (itemName: string) => {
+    const clean = itemName.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const match = ahAuctionData.find(a => {
+      const aName = (a.item_id || a.item_name || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+      return aName.length > 3 && (clean.includes(aName) || aName.includes(clean))
+    })
+    return match?.best_auction_uuid
+  }
 
   const hasAccess = (plans: string[]) => plans.includes(plan)
 
@@ -359,7 +370,7 @@ export default function Dashboard() {
                   <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>SNIPE NOW</div>
                   <div className="col-scroll">
                     {dataLoading ? <div className="loading-data">Loading...</div> :
-                      ahShortItems.length > 0 ? ahShortItems.map((item, i) => <FlashCard key={i} item={item} color="#2a78d6" type="AH" />) :
+                      ahShortItems.length > 0 ? ahShortItems.map((item, i) => <FlashCard key={i} item={item} color="#2a78d6" type="AH" auctionUuid={findAuctionUuid(item['Item'] || Object.values(item)[0] || '')} />) :
                       <div className="loading-data">Scanning AH...</div>}
                   </div>
                 </div>
@@ -368,7 +379,7 @@ export default function Dashboard() {
                   <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>DAYS-WEEKS HORIZON</div>
                   <div className="col-scroll">
                     {dataLoading ? <div className="loading-data">Loading...</div> :
-                      ahMidItems.length > 0 ? ahMidItems.map((item, i) => <FlashCard key={i} item={item} color="#9b59b6" type="AH" />) :
+                      ahMidItems.length > 0 ? ahMidItems.map((item, i) => <FlashCard key={i} item={item} color="#9b59b6" type="AH" auctionUuid={findAuctionUuid(item['Item'] || Object.values(item)[0] || '')} />) :
                       <div className="loading-data">Scanning trends...</div>}
                   </div>
                 </div>
