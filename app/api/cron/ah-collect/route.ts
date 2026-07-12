@@ -95,17 +95,21 @@ async function scanAndSave() {
   const rows: any[] = [];
   const priceHistoryRows: any[] = [];
 
-  // Recupere les moyennes 1j/semaine/mois pour tous les items en une seule requete
-  const { data: bulkAverages } = await supabase.rpc('get_bulk_price_averages');
-  const avgMap: Record<string, { value: number; points: number; timeframe: string }> = {};
-  for (const a of (bulkAverages || [])) {
-    // Priorise le mois (plus stable) si assez de points, sinon semaine, sinon jour
-    if (a.avg_month && a.points_month >= 15) {
-      avgMap[a.item_id] = { value: a.avg_month, points: a.points_month, timeframe: 'month' };
-    } else if (a.avg_week && a.points_week >= 8) {
-      avgMap[a.item_id] = { value: a.avg_week, points: a.points_week, timeframe: 'week' };
-    } else if (a.avg_1d && a.points_1d >= 3) {
-      avgMap[a.item_id] = { value: a.avg_1d, points: a.points_1d, timeframe: 'day' };
+  // Recupere les stats precises PAR VARIANTE (base_item_id + variant_key) — bien plus fiable
+  // que les anciennes moyennes brutes qui melangeaient toutes les variantes ensemble
+  const { data: variantStats } = await supabase
+    .from('item_variant_price_stats')
+    .select('*');
+
+  const avgMap: Record<string, { value: number; points: number }> = {};
+  for (const s of (variantStats || [])) {
+    const key = `${s.base_item_id}__${s.variant_key}`;
+    if (s.avg_buy_month && s.points_month >= 15) {
+      avgMap[key] = { value: s.avg_buy_month, points: s.points_month };
+    } else if (s.avg_buy_week && s.points_week >= 8) {
+      avgMap[key] = { value: s.avg_buy_week, points: s.points_week };
+    } else if (s.avg_buy_1d && s.points_1d >= 3) {
+      avgMap[key] = { value: s.avg_buy_1d, points: s.points_1d };
     }
   }
 
