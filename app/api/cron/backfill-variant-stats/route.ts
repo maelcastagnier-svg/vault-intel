@@ -1,17 +1,17 @@
 // app/api/cron/backfill-variant-stats/route.ts
-// Rediecompose TOUTES les entrees existantes de price_history par variante, retroactivement
-// A executer une fois manuellement (pas un vrai cron recurrent), traite par lots pour eviter le timeout
-
+// Version paginee — traite un lot d'items a chaque appel, resumable via offset
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { extractVariantFromName } from '../../../../lib/text-variant-extractor';
 
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+const BATCH_SIZE = 50000; // lignes traitees par appel
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
@@ -19,30 +19,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const offset = parseInt(req.nextUrl.searchParams.get('offset') || '0');
+
   try {
-    // Recupere TOUTES les lignes AH de price_history (avec pagination pour eviter les limites Supabase)
-    let allRows: any[] = [];
-    let from = 0;
-    const pageSize = 1000;
+    const { data: allRows, error } = await supabase
+      .from('price_history')
+      .select('item_name, buy_price, sell_price, timestamp')
+      .eq('source', 'AH')
+      .range(offset, offset + BATCH_SIZE - 1);
 
-    while (true) {
-      const { data, error } = await supabase
-        .from('price_history')
-        .select('item_name, buy_price, sell_price, timestamp')
-        .eq('source', 'AH')
-        .range(from, from + pageSize - 1);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-      if (error || !data || data.length === 0) break;
-      allRows = allRows.concat(data);
-      if (data.length < pageSize) break;
-      from += pageSize;
+    if (!allRows || allRows.length === 0) {
+      return NextResponse.json({ status: 'all_done', message: 'No more rows to process', offset });
     }
 
-    if (allRows.length === 0) {
-      return NextResponse.json({ status: 'no_data', message: 'No AH price_history rows found' });
-    }
-
-    // Re-parse chaque ligne avec la vraie extraction de variante depuis item_name
     const buckets: Record<string, {
       base_item_id: string; variant_key: string;
       buys_1d: number[]; sells_1d: number[];
@@ -100,17 +91,31 @@ export async function GET(req: NextRequest) {
     let upserted = 0;
     for (let i = 0; i < statsRows.length; i += 200) {
       const chunk = statsRows.slice(i, i + 200);
-      const { error } = await supabase
+      const { error: upsertError } = await supabase
         .from('item_variant_price_stats')
         .upsert(chunk, { onConflict: 'base_item_id,variant_key' });
-      if (!error) upserted += chunk.length;
+      if (!upsertError) upserted += chunk.length;
+    }
+
+    const nextOffset = offset + allRows.length;
+    const isDone = allRows.length < BATCH_SIZE;
+
+    // Auto-declenche le prochain lot si pas encore termine (fire-and-forget, ne bloque pas la reponse actuelle)
+    if (!isDone) {
+      const nextUrl = new URL(req.url);
+      nextUrl.searchParams.set('offset', nextOffset.toString());
+      fetch(nextUrl.toString(), {
+        headers: { 'Authorization': `Bearer ${process.env.CRON_SECRET}` }
+      }).catch(() => {}); // ne pas attendre la reponse, laisse tourner en fond
     }
 
     return NextResponse.json({
-      status: 'done',
-      totalRowsProcessed: allRows.length,
-      uniqueVariantsFound: statsRows.length,
-      upserted
+      status: isDone ? 'ALL_DONE' : 'processing_next_batch_automatically',
+      rowsProcessedThisBatch: allRows.length,
+      uniqueVariantsThisBatch: statsRows.length,
+      upserted,
+      currentOffset: offset,
+      nextOffset: isDone ? null : nextOffset
     });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
