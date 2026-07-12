@@ -11,7 +11,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const BATCH_SIZE = 50000; // lignes traitees par appel
+const BATCH_SIZE = 50000;
+const SUB_BATCH = 1000; // taille reelle par requete Supabase (respecte la limite API par defaut)
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
@@ -22,15 +23,27 @@ export async function GET(req: NextRequest) {
   const offset = parseInt(req.nextUrl.searchParams.get('offset') || '0');
 
   try {
-    const { data: allRows, error } = await supabase
-      .from('price_history')
-      .select('item_name, buy_price, sell_price, timestamp')
-      .eq('source', 'AH')
-      .range(offset, offset + BATCH_SIZE - 1);
+    // Boucle interne pour vraiment accumuler BATCH_SIZE lignes, en respectant la limite Supabase par requete
+    let allRows: any[] = [];
+    let subOffset = offset;
+    let hitEnd = false;
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    while (allRows.length < BATCH_SIZE) {
+      const { data: chunk, error } = await supabase
+        .from('price_history')
+        .select('item_name, buy_price, sell_price, timestamp')
+        .eq('source', 'AH')
+        .range(subOffset, subOffset + SUB_BATCH - 1);
 
-    if (!allRows || allRows.length === 0) {
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (!chunk || chunk.length === 0) { hitEnd = true; break; }
+
+      allRows = allRows.concat(chunk);
+      subOffset += chunk.length;
+      if (chunk.length < SUB_BATCH) { hitEnd = true; break; }
+    }
+
+    if (allRows.length === 0) {
       return NextResponse.json({ status: 'all_done', message: 'No more rows to process', offset });
     }
 
@@ -97,8 +110,8 @@ export async function GET(req: NextRequest) {
       if (!upsertError) upserted += chunk.length;
     }
 
-    const nextOffset = offset + allRows.length;
-    const isDone = allRows.length < BATCH_SIZE;
+    const nextOffset = subOffset;
+    const isDone = hitEnd;
 
     // Auto-declenche le prochain lot si pas encore termine (fire-and-forget, ne bloque pas la reponse actuelle)
     if (!isDone) {
@@ -106,7 +119,7 @@ export async function GET(req: NextRequest) {
       nextUrl.searchParams.set('offset', nextOffset.toString());
       fetch(nextUrl.toString(), {
         headers: { 'Authorization': `Bearer ${process.env.CRON_SECRET}` }
-      }).catch(() => {}); // ne pas attendre la reponse, laisse tourner en fond
+      }).catch(() => {});
     }
 
     return NextResponse.json({
