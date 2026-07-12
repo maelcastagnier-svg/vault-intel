@@ -1,5 +1,5 @@
 // app/api/cron/backfill-variant-stats/route.ts
-// Version paginee — traite un lot d'items a chaque appel, resumable via offset
+// Version Cron reelle — utilise cron_locks pour stocker la progression, se relance via Vercel Cron
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { extractVariantFromName } from '../../../../lib/text-variant-extractor';
@@ -12,7 +12,7 @@ const supabase = createClient(
 );
 
 const BATCH_SIZE = 50000;
-const SUB_BATCH = 1000; // taille reelle par requete Supabase (respecte la limite API par defaut)
+const SUB_BATCH = 1000;
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
@@ -20,10 +20,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const offset = parseInt(req.nextUrl.searchParams.get('offset') || '0');
+  // Lit la progression stockee (au lieu de dependre d'un parametre offset dans l'URL)
+  const { data: progressRow } = await supabase
+    .from('cron_locks')
+    .select('*')
+    .eq('job_name', 'backfill_variant_offset')
+    .single();
+
+  const offset = progressRow?.locked_until ? parseInt(progressRow.locked_until) : 0;
+
+  // Si deja marque termine, ne fait plus rien
+  if (offset === -1) {
+    return NextResponse.json({ status: 'already_completed' });
+  }
 
   try {
-    // Boucle interne pour vraiment accumuler BATCH_SIZE lignes, en respectant la limite Supabase par requete
     let allRows: any[] = [];
     let subOffset = offset;
     let hitEnd = false;
@@ -44,7 +55,8 @@ export async function GET(req: NextRequest) {
     }
 
     if (allRows.length === 0) {
-      return NextResponse.json({ status: 'all_done', message: 'No more rows to process', offset });
+      await supabase.from('cron_locks').upsert({ job_name: 'backfill_variant_offset', locked_until: '-1' });
+      return NextResponse.json({ status: 'ALL_DONE', offset });
     }
 
     const buckets: Record<string, {
@@ -75,25 +87,15 @@ export async function GET(req: NextRequest) {
       const rowTime = new Date(row.timestamp).getTime();
       const ageMs = now - rowTime;
 
-      if (ageMs <= 30 * DAY) {
-        buckets[bucketKey].buys_month.push(row.buy_price);
-        buckets[bucketKey].sells_month.push(row.sell_price);
-      }
-      if (ageMs <= 7 * DAY) {
-        buckets[bucketKey].buys_week.push(row.buy_price);
-        buckets[bucketKey].sells_week.push(row.sell_price);
-      }
-      if (ageMs <= 1 * DAY) {
-        buckets[bucketKey].buys_1d.push(row.buy_price);
-        buckets[bucketKey].sells_1d.push(row.sell_price);
-      }
+      if (ageMs <= 30 * DAY) { buckets[bucketKey].buys_month.push(row.buy_price); buckets[bucketKey].sells_month.push(row.sell_price); }
+      if (ageMs <= 7 * DAY) { buckets[bucketKey].buys_week.push(row.buy_price); buckets[bucketKey].sells_week.push(row.sell_price); }
+      if (ageMs <= 1 * DAY) { buckets[bucketKey].buys_1d.push(row.buy_price); buckets[bucketKey].sells_1d.push(row.sell_price); }
     }
 
     const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
 
     const statsRows = Object.values(buckets).map(b => ({
-      base_item_id: b.base_item_id,
-      variant_key: b.variant_key,
+      base_item_id: b.base_item_id, variant_key: b.variant_key,
       avg_buy_1d: avg(b.buys_1d), avg_sell_1d: avg(b.sells_1d),
       avg_buy_week: avg(b.buys_week), avg_sell_week: avg(b.sells_week),
       avg_buy_month: avg(b.buys_month), avg_sell_month: avg(b.sells_month),
@@ -113,17 +115,14 @@ export async function GET(req: NextRequest) {
     const nextOffset = subOffset;
     const isDone = hitEnd;
 
-    // Auto-declenche le prochain lot si pas encore termine (fire-and-forget, ne bloque pas la reponse actuelle)
-    if (!isDone) {
-      const nextUrl = new URL(req.url);
-      nextUrl.searchParams.set('offset', nextOffset.toString());
-      fetch(nextUrl.toString(), {
-        headers: { 'Authorization': `Bearer ${process.env.CRON_SECRET}` }
-      }).catch(() => {});
-    }
+    // Sauvegarde la progression en base, pas dans l'URL
+    await supabase.from('cron_locks').upsert({
+      job_name: 'backfill_variant_offset',
+      locked_until: isDone ? '-1' : nextOffset.toString()
+    });
 
     return NextResponse.json({
-      status: isDone ? 'ALL_DONE' : 'processing_next_batch_automatically',
+      status: isDone ? 'ALL_DONE' : 'batch_saved_waiting_next_cron',
       rowsProcessedThisBatch: allRows.length,
       uniqueVariantsThisBatch: statsRows.length,
       upserted,
