@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import EvolveSection from './EvolveSection'
 import LiveRankedFeed from '../../components/LiveRankedFeed'
+import FlashAlertsPage from '../../components/FlashAlertsPage'
 
 function parsePatchItems(text: string): string[] {
   const cleaned = text.replace(/^#+\s*Live Patches\s*/i, '').trim()
@@ -364,26 +365,8 @@ export default function Dashboard() {
           </div>
         ) : (
           <>
-            {/* FLASH ALERTS */}
-            {tab === 0 && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20 }}>
-                <div>
-                  <div className="section-label" style={{ color: '#1baf7a' }}>💰 Top 10 Bazaar</div>
-                  <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>LIVE · REFRESH 5MIN</div>
-                  <LiveRankedFeed type="BAZAAR" maxItems={10} instanceKey="bazaar_main" />
-                </div>
-                <div>
-                  <div className="section-label" style={{ color: '#2a78d6' }}>🎯 AH Flip — Live</div>
-                  <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>LIVE · REFRESH ~30S</div>
-                  <LiveRankedFeed type="AH" maxItems={10} minSpread={25} instanceKey="ah_short" />
-                </div>
-                <div>
-                  <div className="section-label" style={{ color: '#9b59b6' }}>📈 AH — Long Terme</div>
-                  <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>DAYS-WEEKS HORIZON</div>
-                  <LiveRankedFeed type="AH" maxItems={10} minSpread={15} instanceKey="ah_long" />
-                </div>
-              </div>
-            )}
+            {/* FLASH ALERTS — sidebar categories dynamiques + Bazaar Top 25 */}
+            {tab === 0 && <FlashAlertsPage />}
 
             {/* MONEY MAKING */}
             {tab === 1 && (

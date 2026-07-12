@@ -51,7 +51,7 @@ async function scanAndSave() {
   const totalPages = Math.min(firstPage.totalPages || 1, 50);
   const nowIso = new Date().toISOString();
 
-  const itemGroups: Record<string, { prices: number[]; displayName: string; bestUuid: string; bestPrice: number; baseItemId: string; variantKey: string; totalStars: number; recombobulated: boolean }> = {};
+  const itemGroups: Record<string, { prices: number[]; displayName: string; bestUuid: string; bestPrice: number; baseItemId: string; variantKey: string; totalStars: number; recombobulated: boolean; category: string }> = {};
 
   const processPage = (pageData: any) => {
     for (const auc of (pageData.auctions || [])) {
@@ -68,7 +68,8 @@ async function scanAndSave() {
       if (!itemGroups[groupKey]) {
         itemGroups[groupKey] = {
           prices: [], displayName: auc.item_name, bestUuid: auc.uuid, bestPrice: auc.starting_bid,
-          baseItemId: cleanBaseName, variantKey: variant.variantKey, totalStars: variant.totalStars, recombobulated: variant.recombobulated
+          baseItemId: cleanBaseName, variantKey: variant.variantKey, totalStars: variant.totalStars, recombobulated: variant.recombobulated,
+          category: auc.category || 'MISC'
         };
       }
       itemGroups[groupKey].prices.push(auc.starting_bid);
@@ -145,7 +146,8 @@ async function scanAndSave() {
       best_auction_uuid: group.bestUuid,
       base_item_id: group.baseItemId,
       variant_key: group.variantKey,
-      total_stars: group.totalStars
+      total_stars: group.totalStars,
+      category: group.category
     });
   }
 

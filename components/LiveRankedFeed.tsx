@@ -26,12 +26,18 @@ export default function LiveRankedFeed({
   type,
   maxItems = 10,
   minSpread = 20,
-  instanceKey
+  instanceKey,
+  category,
+  minPrice,
+  maxPrice
 }: {
   type: 'AH' | 'BAZAAR'
   maxItems?: number
   minSpread?: number
   instanceKey?: string
+  category?: string
+  minPrice?: number
+  maxPrice?: number
 }) {
   const [items, setItems] = useState<RankedItem[]>([])
   const [enteringKeys, setEnteringKeys] = useState<Set<string>>(new Set())
@@ -53,10 +59,16 @@ export default function LiveRankedFeed({
       let newItems: RankedItem[] = []
 
       if (type === 'AH') {
-        const { data } = await supabase
+        let query = supabase
           .from('ah_4h')
-          .select('item_id, item_name, min_price, avg_price, best_auction_uuid')
+          .select('item_id, item_name, min_price, avg_price, best_auction_uuid, category')
           .not('best_auction_uuid', 'is', null)
+
+        if (category) query = query.eq('category', category)
+        if (minPrice !== undefined) query = query.gte('min_price', minPrice)
+        if (maxPrice !== undefined) query = query.lte('min_price', maxPrice)
+
+        const { data } = await query
 
         if (data) {
           newItems = data
