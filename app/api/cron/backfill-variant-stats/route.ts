@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     .eq('job_name', 'backfill_variant_offset')
     .single();
 
-  const offset = progressRow?.locked_until ? parseInt(progressRow.locked_until) : 0;
+  const offset = progressRow?.progress_offset ?? 0;
 
   // Si deja marque termine, ne fait plus rien
   if (offset === -1) {
@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (allRows.length === 0) {
-      await supabase.from('cron_locks').upsert({ job_name: 'backfill_variant_offset', locked_until: '-1' });
+      await supabase.from('cron_locks').upsert({ job_name: 'backfill_variant_offset', progress_offset: -1 });
       return NextResponse.json({ status: 'ALL_DONE', offset });
     }
 
@@ -118,7 +118,7 @@ export async function GET(req: NextRequest) {
     // Sauvegarde la progression en base, pas dans l'URL
     await supabase.from('cron_locks').upsert({
       job_name: 'backfill_variant_offset',
-      locked_until: isDone ? '-1' : nextOffset.toString()
+      progress_offset: isDone ? -1 : nextOffset
     });
 
     return NextResponse.json({
