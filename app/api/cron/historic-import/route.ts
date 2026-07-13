@@ -17,7 +17,7 @@ const supabase = createClient(
 );
 
 const ACCOUNT_TOKEN = process.env.SKYCOFL_ACCOUNT_TOKEN!;
-const YEARS_TARGET = 4;
+const YEARS_TARGET = 2; // reduit de 4 a 2 ans — largement suffisant pour la precision visee, extensible plus tard
 const TIME_BUDGET_MS = 270000; // s'arrete a 4min30 pour laisser une marge avant le maxDuration
 
 function extractJsonFromZip(buffer: Buffer): { compressionMethod: number; compressedData: Buffer } {
