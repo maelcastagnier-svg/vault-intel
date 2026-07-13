@@ -7,8 +7,6 @@
     { "path": "/api/cron/money-making-agent", "schedule": "0 0,12 * * *" },
     { "path": "/api/cron/patch-analysis-agent", "schedule": "0 6 * * *" },
     { "path": "/api/cron/evolve-sync", "schedule": "0 */6 * * *" },
-    { "path": "/api/cron/historic-import", "schedule": "*/15 * * * *" },
-    { "path": "/api/cron/refresh-variant-stats", "schedule": "0 */3 * * *" },
-    { "path": "/api/cron/backfill-variant-stats", "schedule": "*/5 * * * *" }
+    { "path": "/api/cron/historic-import", "schedule": "*/15 * * * *" }
   ]
 }
