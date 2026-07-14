@@ -1,188 +1,258 @@
-// app/api/cron/historic-import/route.ts
-// Route autonome pilotee par Vercel Cron — aucune dependance a n8n pour cette tache
-// Traite plusieurs items par execution, dans la limite de temps disponible (maxDuration)
+import { createClient } from '@supabase/supabase-js'
+import { NextResponse } from 'next/server'
+import zlib from 'zlib'
+import { promisify } from 'util'
+import { extractVariant } from '@/lib/text-variant-extractor'
 
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import zlib from 'zlib';
-import { promisify } from 'util';
-
-export const maxDuration = 300; // 5 min sur Pro, sera plafonne a 60s sur Hobby automatiquement
-
-const inflateRaw = promisify(zlib.inflateRaw);
+const inflateRaw = promisify(zlib.inflateRaw)
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+)
 
-const ACCOUNT_TOKEN = process.env.SKYCOFL_ACCOUNT_TOKEN!;
-const YEARS_TARGET = 3; // reduit de 4 a 2 ans — largement suffisant pour la precision visee, extensible plus tard
-const TIME_BUDGET_MS = 270000; // s'arrete a 4min30 pour laisser une marge avant le maxDuration
+const YEARS_TARGET    = 3
+const SKYCOFL_TOKEN   = process.env.SKYCOFL_ACCOUNT_TOKEN!
+const SKYCOFL_HEADERS = {
+  'Authorization': `Bearer ${SKYCOFL_TOKEN}`,
+  'Accept': 'application/json'
+}
 
-function extractJsonFromZip(buffer: Buffer): { compressionMethod: number; compressedData: Buffer } {
-  const eocdSig = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
-  let eocdOffset = -1;
+// ============================================================
+// ZIP PARSER — Central Directory (zlib natif Node.js)
+// ============================================================
+async function parseZipBuffer(buffer: Buffer): Promise<{ name: string; data: Buffer }[]> {
+  const files: { name: string; data: Buffer }[] = []
+  const EOCD_SIG = 0x06054b50
+  const CD_SIG   = 0x02014b50
+
+  // Trouve l'End of Central Directory
+  let eocdOffset = -1
   for (let i = buffer.length - 22; i >= 0; i--) {
-    if (buffer.slice(i, i + 4).equals(eocdSig)) { eocdOffset = i; break; }
+    if (buffer.readUInt32LE(i) === EOCD_SIG) { eocdOffset = i; break }
   }
-  if (eocdOffset === -1) throw new Error('EOCD not found');
-  const centralDirOffset = buffer.readUInt32LE(eocdOffset + 16);
-  const compressionMethod = buffer.readUInt16LE(centralDirOffset + 10);
-  const compressedSize = buffer.readUInt32LE(centralDirOffset + 20);
-  const localHeaderOffset = buffer.readUInt32LE(centralDirOffset + 42);
-  const localFileNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
-  const localExtraFieldLength = buffer.readUInt16LE(localHeaderOffset + 28);
-  const dataStart = localHeaderOffset + 30 + localFileNameLength + localExtraFieldLength;
-  const compressedData = buffer.slice(dataStart, dataStart + compressedSize);
-  return { compressionMethod, compressedData };
+  if (eocdOffset === -1) throw new Error('Invalid ZIP: EOCD not found')
+
+  const cdOffset = buffer.readUInt32LE(eocdOffset + 16)
+  const cdSize   = buffer.readUInt32LE(eocdOffset + 12)
+
+  let offset = cdOffset
+  while (offset < cdOffset + cdSize) {
+    if (buffer.readUInt32LE(offset) !== CD_SIG) break
+
+    const compression  = buffer.readUInt16LE(offset + 10)
+    const fileNameLen  = buffer.readUInt16LE(offset + 28)
+    const extraLen     = buffer.readUInt16LE(offset + 30)
+    const commentLen   = buffer.readUInt16LE(offset + 32)
+    const lfhOffset    = buffer.readUInt32LE(offset + 42)
+    const fileName     = buffer.toString('utf8', offset + 46, offset + 46 + fileNameLen)
+    const compSize     = buffer.readUInt32LE(offset + 20)
+
+    const lfhFileNameLen = buffer.readUInt16LE(lfhOffset + 26)
+    const lfhExtraLen    = buffer.readUInt16LE(lfhOffset + 28)
+    const dataOffset     = lfhOffset + 30 + lfhFileNameLen + lfhExtraLen
+
+    const compressed = buffer.slice(dataOffset, dataOffset + compSize)
+    const fileData   = compression === 0
+      ? compressed
+      : compression === 8
+        ? await inflateRaw(compressed) as Buffer
+        : (() => { throw new Error(`Unsupported ZIP compression: ${compression}`) })()
+
+    files.push({ name: fileName, data: fileData })
+    offset += 46 + fileNameLen + extraLen + commentLen
+  }
+
+  return files
 }
 
-async function processBazaarItem(tag: string, startDate: string, endDate: string, granularity: 'daily' | 'monthly') {
-  const exportRes = await fetch(
-    `https://sky.coflnet.com/api/bazaar/${tag}/export?start=${startDate}&end=${endDate}`,
-    { headers: { Authorization: `Bearer ${ACCOUNT_TOKEN}` } }
-  );
-  if (!exportRes.ok) throw new Error(`Bazaar export failed: ${exportRes.status}`);
-
-  const zipBuffer = Buffer.from(await exportRes.arrayBuffer());
-  const { compressionMethod, compressedData } = extractJsonFromZip(zipBuffer);
-  const jsonText = compressionMethod === 0 ? compressedData.toString('utf8') : (await inflateRaw(compressedData)).toString('utf8');
-  const data = JSON.parse(jsonText);
-  if (!Array.isArray(data)) throw new Error('Unexpected format');
-
-  const buckets: Record<string, { buySum: number; sellSum: number; volSum: number; count: number }> = {};
-  for (const point of data) {
-    if (point.buyPrice == null || point.sellPrice == null || !point.timeStamp) continue;
-    const key = granularity === 'monthly' ? point.timeStamp.substring(0, 7) : point.timeStamp.substring(0, 10);
-    if (!buckets[key]) buckets[key] = { buySum: 0, sellSum: 0, volSum: 0, count: 0 };
-    buckets[key].buySum += point.buyPrice;
-    buckets[key].sellSum += point.sellPrice;
-    buckets[key].volSum += (point.buyVolume || 0) + (point.sellVolume || 0);
-    buckets[key].count += 1;
-  }
-
-  const rows = Object.entries(buckets).map(([bucket, agg]) => ({
-    item_id: tag, item_name: tag.replace(/_/g, ' '),
-    source: granularity === 'monthly' ? 'BAZAAR_SKYCOFL_MONTHLY' : 'BAZAAR_SKYCOFL_HISTORIC',
-    buy_price: agg.buySum / agg.count, sell_price: agg.sellSum / agg.count,
-    avg_price: (agg.buySum / agg.count + agg.sellSum / agg.count) / 2,
-    volume: agg.volSum, timestamp: (granularity === 'monthly' ? bucket + '-01' : bucket) + 'T12:00:00.000Z',
-  }));
-
-  const { data: existing } = await supabase.from('price_history').select('timestamp')
-    .eq('item_id', tag).eq('source', rows[0]?.source || 'BAZAAR_SKYCOFL_HISTORIC');
-  const existingTs = new Set((existing || []).map((r) => r.timestamp));
-  const deduped = rows.filter((r) => !existingTs.has(r.timestamp));
-
-  let inserted = 0;
-  for (let i = 0; i < deduped.length; i += 500) {
-    const chunk = deduped.slice(i, i + 500);
-    const { error } = await supabase.from('price_history').insert(chunk);
-    if (!error) inserted += chunk.length;
-  }
-  return inserted;
+// ============================================================
+// HELPERS TEMPORELS
+// ============================================================
+function getDateBoundary(yearsAgo: number): Date {
+  const d = new Date()
+  d.setUTCFullYear(d.getUTCFullYear() - yearsAgo)
+  return d
 }
 
-async function processAHItem(tag: string, startUnix: number, endUnix: number) {
-  const archiveRes = await fetch(
-    `https://sky.coflnet.com/api/auctions/tag/${tag}/archive/overview?EndAfter=${startUnix}&EndBefore=${endUnix}`,
-    { headers: { Authorization: `Bearer ${ACCOUNT_TOKEN}` } }
-  );
-  if (!archiveRes.ok) throw new Error(`AH archive failed: ${archiveRes.status}`);
-
-  const data = await archiveRes.json();
-  const auctions = data.auctions || [];
-  if (auctions.length === 0) return 0;
-
-  const buckets: Record<string, { prices: number[] }> = {};
-  for (const auc of auctions) {
-    if (!auc.price || !auc.end) continue;
-    const day = auc.end.substring(0, 10);
-    if (!buckets[day]) buckets[day] = { prices: [] };
-    buckets[day].prices.push(auc.price);
-  }
-
-  const rows = Object.entries(buckets).map(([day, b]) => {
-    const avg = b.prices.reduce((a, c) => a + c, 0) / b.prices.length;
-    return {
-      item_id: tag, item_name: tag.replace(/_/g, ' '), source: 'AH_SKYCOFL_HISTORIC',
-      buy_price: Math.min(...b.prices), sell_price: Math.max(...b.prices), avg_price: avg,
-      volume: b.prices.length, timestamp: day + 'T12:00:00.000Z',
-    };
-  });
-
-  const { data: existing } = await supabase.from('price_history').select('timestamp')
-    .eq('item_id', tag).eq('source', 'AH_SKYCOFL_HISTORIC');
-  const existingTs = new Set((existing || []).map((r) => r.timestamp));
-  const deduped = rows.filter((r) => !existingTs.has(r.timestamp));
-
-  let inserted = 0;
-  for (let i = 0; i < deduped.length; i += 500) {
-    const chunk = deduped.slice(i, i + 500);
-    const { error } = await supabase.from('price_history').insert(chunk);
-    if (!error) inserted += chunk.length;
-  }
-  return inserted;
+function getDailyBucket(ts: Date): string {
+  return ts.toISOString().split('T')[0]
 }
 
-export async function GET(req: NextRequest) {
-  // Securite : verifie le secret Cron de Vercel
-  const authHeader = req.headers.get('authorization');
+function getMonthlyBucket(ts: Date): string {
+  return `${ts.getUTCFullYear()}-${String(ts.getUTCMonth() + 1).padStart(2, '0')}-01`
+}
+
+// ============================================================
+// IMPORT BAZAAR — SkyCofl ZIP → price_history
+// ============================================================
+async function importBazaar(item_id: string, fromDate: Date, toDate: Date): Promise<number> {
+  const res = await fetch(
+    `https://sky.coflnet.com/api/item/price/${item_id}/history`,
+    { headers: { ...SKYCOFL_HEADERS, 'Accept': 'application/zip' } }
+  )
+  if (!res.ok) throw new Error(`SkyCofl Bazaar ${res.status} for ${item_id}`)
+
+  const buffer = Buffer.from(await res.arrayBuffer())
+  const files  = await parseZipBuffer(buffer)
+  const json   = files.find(f => f.name.endsWith('.json'))
+  if (!json) throw new Error(`No JSON in ZIP for ${item_id}`)
+
+  const points: { timestamp: string; avg: number; min: number; max: number; volume: number }[] =
+    JSON.parse(json.data.toString('utf8'))
+
+  const filtered = points.filter(p => {
+    const ts = new Date(p.timestamp)
+    return ts >= fromDate && ts <= toDate
+  })
+
+  // Batch RPC par 20
+  const calls = filtered.map(p => {
+    const ts = new Date(p.timestamp)
+    return supabase.rpc('upsert_bazaar_price_bucket', {
+      p_item_id:     item_id,
+      p_item_name:   item_id.replace(/_/g, ' '),
+      p_buy_price:   p.max,
+      p_sell_price:  p.min,
+      p_avg_price:   p.avg,
+      p_volume:      p.volume ?? 0,
+      p_bucket_date: getDailyBucket(ts)
+    })
+  })
+
+  for (let i = 0; i < calls.length; i += 20) {
+    await Promise.all(calls.slice(i, i + 20))
+  }
+
+  return filtered.length
+}
+
+// ============================================================
+// IMPORT AH — SkyCofl JSON → price_history_ah
+// Timestamps Unix secondes, pas de variante détectable
+// (l'API SkyCofl retourne des agrégats, pas des noms d'items individuels)
+// ============================================================
+async function importAH(
+  item_id: string,
+  liquidity: 'HIGH' | 'LOW',
+  fromDate: Date,
+  toDate: Date
+): Promise<number> {
+  const res = await fetch(
+    `https://sky.coflnet.com/api/item/price/${item_id}/history/overview`,
+    { headers: SKYCOFL_HEADERS }
+  )
+  if (!res.ok) throw new Error(`SkyCofl AH ${res.status} for ${item_id}`)
+
+  const points: { time: number; avg: number; min: number; max: number; volume?: number }[] =
+    await res.json()
+
+  const isHigh   = liquidity === 'HIGH'
+  const filtered = points.filter(p => {
+    const ts = new Date(p.time * 1000) // Unix secondes → ms
+    return ts >= fromDate && ts <= toDate
+  })
+
+  const calls = filtered.map(p => {
+    const ts          = new Date(p.time * 1000)
+    const granularity = isHigh ? 'DAILY' : 'MONTHLY'
+    const bucketDate  = isHigh ? getDailyBucket(ts) : getMonthlyBucket(ts)
+
+    // SkyCofl historique = agrégats sans nom individuel
+    // On stocke en variante "base" — les variantes fines viennent du scan live ah-collect
+    return supabase.rpc('upsert_ah_price_bucket', {
+      p_base_item_id: item_id,
+      p_variant_key:  'base_0star_norecomb',
+      p_item_name:    item_id.replace(/_/g, ' '),
+      p_total_stars:  0,
+      p_is_recomb:    false,
+      p_reforge:      null,
+      p_has_dye:      false,
+      p_buy_price:    p.max,
+      p_sell_price:   p.min,
+      p_avg_price:    p.avg,
+      p_volume:       p.volume ?? 0,
+      p_granularity:  granularity,
+      p_bucket_date:  bucketDate
+    })
+  })
+
+  for (let i = 0; i < calls.length; i += 20) {
+    await Promise.all(calls.slice(i, i + 20))
+  }
+
+  return filtered.length
+}
+
+// ============================================================
+// HANDLER PRINCIPAL
+// ============================================================
+export async function GET(request: Request) {
+  const authHeader = request.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const startTime = Date.now();
-  const processed: any[] = [];
-
-  while (Date.now() - startTime < TIME_BUDGET_MS) {
-    const { data: batch } = await supabase
+  try {
+    // Récupère le prochain item à traiter (le moins avancé en priorité)
+    const { data: nextItem, error } = await supabase
       .from('historic_import_progress')
-      .select('*')
+      .select('item_id, item_type, liquidity, years_completed')
       .eq('status', 'pending')
+      .lt('years_completed', YEARS_TARGET)
       .order('years_completed', { ascending: true })
-      .limit(1);
+      .order('item_id',         { ascending: true })
+      .limit(1)
+      .single()
 
-    if (!batch || batch.length === 0) {
-      return NextResponse.json({ status: 'all_done', processed });
+    if (error || !nextItem) {
+      return NextResponse.json({ message: 'Nothing to import — all items done or at target' })
     }
 
-    const entry = batch[0];
-    const yearToProcess = entry.years_completed;
-    const endDate = new Date();
-    endDate.setFullYear(endDate.getFullYear() - yearToProcess);
-    const startDate = new Date(endDate);
-    startDate.setFullYear(startDate.getFullYear() - 1);
-    const granularity = entry.liquidity === 'HIGH' ? 'daily' : 'monthly';
+    const { item_id, item_type, liquidity, years_completed } = nextItem
 
-    try {
-      let inserted = 0;
-      if (entry.item_type === 'BAZAAR') {
-        inserted = await processBazaarItem(entry.item_id, startDate.toISOString(), endDate.toISOString(), granularity);
-      } else {
-        inserted = await processAHItem(entry.item_id, Math.floor(startDate.getTime()/1000), Math.floor(endDate.getTime()/1000));
-      }
+    // Fenêtre temporelle de cette exécution (1 an par run)
+    const toDate   = getDateBoundary(years_completed)
+    const fromDate = getDateBoundary(years_completed + 1)
 
-      const newYears = yearToProcess + 1;
-      await supabase.from('historic_import_progress').update({
-        years_completed: newYears,
-        status: newYears >= YEARS_TARGET ? 'done' : 'pending',
-        last_processed_at: new Date().toISOString()
-      }).eq('id', entry.id);
+    // Cap à 3 ans max (ne jamais importer au delà)
+    const hardLimit    = getDateBoundary(YEARS_TARGET)
+    const effectiveFrom = fromDate < hardLimit ? hardLimit : fromDate
 
-      processed.push({ item: entry.item_id, year: yearToProcess, inserted });
-    } catch (e: any) {
-      processed.push({ item: entry.item_id, year: yearToProcess, error: e.message });
-      // Marque quand meme comme tente pour eviter de bloquer sur un item qui echoue systematiquement
-      await supabase.from('historic_import_progress').update({
-        last_processed_at: new Date().toISOString()
-      }).eq('id', entry.id);
+    // Import selon le type d'item
+    let rowsInserted = 0
+
+    if (item_type === 'BAZAAR') {
+      rowsInserted = await importBazaar(item_id, effectiveFrom, toDate)
+    } else {
+      rowsInserted = await importAH(item_id, liquidity as 'HIGH' | 'LOW', effectiveFrom, toDate)
     }
 
-    // Petite pause pour respecter le rate limit SkyCofl (5 unites/5min)
-    await new Promise(r => setTimeout(r, 15000)); // 15s entre chaque item = ~4/min, sous la limite
+    // Met à jour la progression
+    const newYearsCompleted = years_completed + 1
+    const isDone            = newYearsCompleted >= YEARS_TARGET
+
+    await supabase
+      .from('historic_import_progress')
+      .update({
+        years_completed: newYearsCompleted,
+        status:          isDone ? 'done' : 'pending'
+      })
+      .eq('item_id', item_id)
+
+    return NextResponse.json({
+      success:          true,
+      item_id,
+      item_type,
+      liquidity,
+      year_window:      `${effectiveFrom.toISOString().split('T')[0]} → ${toDate.toISOString().split('T')[0]}`,
+      years_completed:  newYearsCompleted,
+      rows_inserted:    rowsInserted,
+      status:           isDone ? 'done' : 'pending'
+    })
+
+  } catch (error: any) {
+    console.error('historic-import error:', error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
-
-  return NextResponse.json({ status: 'batch_done', processed });
 }

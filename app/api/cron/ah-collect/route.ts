@@ -1,172 +1,225 @@
-// app/api/cron/ah-collect/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { extractVariantFromName } from '../../../../lib/text-variant-extractor';
-
-export const maxDuration = 60;
+import { createClient } from '@supabase/supabase-js'
+import { NextResponse } from 'next/server'
+import { extractVariant } from '@/lib/text-variant-extractor'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+)
 
-export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+const HYPIXEL_AH_URL = 'https://api.hypixel.net/v2/skyblock/auctions'
+const TOP_ITEMS = 50
 
-  // Protection anti-chevauchement
-  const { data: lock } = await supabase.from('cron_locks').select('*').eq('job_name', 'ah_collect').single();
-  if (lock && lock.locked_until && new Date(lock.locked_until) > new Date()) {
-    return NextResponse.json({ status: 'skipped', reason: 'already running' });
-  }
-  await supabase.from('cron_locks').upsert({
-    job_name: 'ah_collect',
-    locked_until: new Date(Date.now() + 55000).toISOString()
-  });
-
-  const runs: any[] = [];
-
-  try {
-    // PASSE 1 — scan immediat
-    runs.push(await scanAndSave());
-
-    // Attend 30s pour un vrai rafraichissement dans la meme execution
-    await new Promise(r => setTimeout(r, 30000));
-
-    // PASSE 2 — deuxieme scan, 30s plus frais
-    runs.push(await scanAndSave());
-
-    await supabase.from('cron_locks').update({ locked_until: null }).eq('job_name', 'ah_collect');
-    return NextResponse.json({ status: 'done', runs });
-  } catch (e: any) {
-    await supabase.from('cron_locks').update({ locked_until: null }).eq('job_name', 'ah_collect');
-    return NextResponse.json({ error: e.message }, { status: 500 });
-  }
+// Helpers buckets
+function getDailyBucket(): string {
+  return new Date().toISOString().split('T')[0]
+}
+function getWeeklyBucket(): string {
+  const d = new Date()
+  const day = d.getUTCDay()
+  const monday = new Date(d)
+  monday.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1))
+  return monday.toISOString().split('T')[0]
+}
+function getMonthlyBucket(): string {
+  const d = new Date()
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`
 }
 
-async function scanAndSave() {
-  const firstPage = await fetch('https://api.hypixel.net/v2/skyblock/auctions?page=0').then(r => r.json());
-  const totalPages = Math.min(firstPage.totalPages || 1, 50);
-  const nowIso = new Date().toISOString();
+export async function GET(request: Request) {
+  const authHeader = request.headers.get('authorization')
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
-  const itemGroups: Record<string, { prices: number[]; displayName: string; bestUuid: string; bestPrice: number; baseItemId: string; variantKey: string; totalStars: number; recombobulated: boolean; category: string }> = {};
+  // Verrou anti-chevauchement
+  const lockKey = 'ah_collect'
+  const { data: lock } = await supabase
+    .from('cron_locks')
+    .select('locked_at')
+    .eq('key', lockKey)
+    .single()
 
-  const processPage = (pageData: any) => {
-    for (const auc of (pageData.auctions || [])) {
-      if (auc.bin !== true) continue;
-      if (!auc.starting_bid || auc.starting_bid <= 0) continue;
-      if (!auc.item_name || !auc.uuid) continue;
+  if (lock) {
+    const lockedAt = new Date(lock.locked_at)
+    const elapsed = Date.now() - lockedAt.getTime()
+    if (elapsed < 90_000) {
+      return NextResponse.json({ message: 'Already running' })
+    }
+  }
 
-      const variant = extractVariantFromName(auc.item_name);
-      const cleanBaseName = variant.baseName.toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '');
-      if (!cleanBaseName) continue;
+  await supabase.from('cron_locks').upsert({ key: lockKey, locked_at: new Date().toISOString() })
 
-      const groupKey = `${cleanBaseName}__${variant.variantKey}`;
+  try {
+    // Récupère la liquidité depuis historic_import_progress
+    const { data: liquidityData } = await supabase
+      .from('historic_import_progress')
+      .select('item_id, liquidity')
 
-      if (!itemGroups[groupKey]) {
-        itemGroups[groupKey] = {
-          prices: [], displayName: auc.item_name, bestUuid: auc.uuid, bestPrice: auc.starting_bid,
-          baseItemId: cleanBaseName, variantKey: variant.variantKey, totalStars: variant.totalStars, recombobulated: variant.recombobulated,
-          category: auc.category || 'MISC'
-        };
+    const liquidityMap = Object.fromEntries(
+      (liquidityData || []).map(r => [r.item_id, r.liquidity as 'HIGH' | 'LOW'])
+    )
+
+    // Fetch toutes les pages AH Hypixel
+    const firstRes = await fetch(HYPIXEL_AH_URL)
+    const firstPage = await firstRes.json()
+    const totalPages: number = firstPage.totalPages
+
+    let allAuctions: any[] = [...firstPage.auctions]
+
+    // Fetch pages restantes en parallèle (par batch de 10)
+    const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 1)
+    for (let i = 0; i < remainingPages.length; i += 10) {
+      const batch = remainingPages.slice(i, i + 10)
+      const results = await Promise.all(
+        batch.map(p => fetch(`${HYPIXEL_AH_URL}?page=${p}`).then(r => r.json()))
+      )
+      results.forEach(r => { allAuctions = allAuctions.concat(r.auctions) })
+    }
+
+    // Filtre BIN uniquement + enchères actives
+    const binAuctions = allAuctions.filter(a => a.bin && !a.claimed)
+
+    // Groupe par base_item_id + variant_key pour calculer meilleur prix
+    type AggItem = {
+      base_item_id: string
+      variant_key: string
+      item_name: string
+      total_stars: number
+      is_recomb: boolean
+      reforge: string | null
+      has_dye: boolean
+      category: string | null
+      best_price: number
+      best_uuid: string
+      prices: number[]
+      volume: number
+    }
+
+    const grouped = new Map<string, AggItem>()
+
+    for (const auc of binAuctions) {
+      const variant = extractVariant(auc.item_name)
+      const key = `${variant.base_item_id}::${variant.variant_key}`
+
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          base_item_id: variant.base_item_id,
+          variant_key: variant.variant_key,
+          item_name: auc.item_name,
+          total_stars: variant.total_stars,
+          is_recomb: variant.is_recomb,
+          reforge: variant.reforge ?? null,
+          has_dye: variant.has_dye ?? false,
+          category: auc.category ?? null,
+          best_price: auc.starting_bid,
+          best_uuid: auc.uuid,
+          prices: [auc.starting_bid],
+          volume: 1
+        })
+      } else {
+        const existing = grouped.get(key)!
+        existing.prices.push(auc.starting_bid)
+        existing.volume++
+        if (auc.starting_bid < existing.best_price) {
+          existing.best_price = auc.starting_bid
+          existing.best_uuid = auc.uuid
+        }
       }
-      itemGroups[groupKey].prices.push(auc.starting_bid);
-      if (auc.starting_bid < itemGroups[groupKey].bestPrice) {
-        itemGroups[groupKey].bestUuid = auc.uuid;
-        itemGroups[groupKey].bestPrice = auc.starting_bid;
+    }
+
+    // Sélectionne top 50 par volume
+    const topItems = Array.from(grouped.values())
+      .sort((a, b) => b.volume - a.volume)
+      .slice(0, TOP_ITEMS)
+      .map(item => {
+        const sorted = [...item.prices].sort((a, b) => a - b)
+        const median = sorted[Math.floor(sorted.length / 2)]
+        const avg = sorted.reduce((s, p) => s + p, 0) / sorted.length
+        return { ...item, avg_price: avg, sell_price: item.best_price, buy_price: median }
+      })
+
+    // 1. Mise à jour ah_live (snapshot temps réel — DELETE + INSERT)
+    await supabase.from('ah_live').delete().neq('base_item_id', '')
+
+    await supabase.from('ah_live').insert(
+      topItems.map(item => ({
+        base_item_id:     item.base_item_id,
+        variant_key:      item.variant_key,
+        item_name:        item.item_name,
+        total_stars:      item.total_stars,
+        is_recomb:        item.is_recomb,
+        reforge:          item.reforge,
+        has_dye:          item.has_dye,
+        category:         item.category,
+        best_price:       item.best_price,
+        best_auction_uuid: item.best_uuid,
+        avg_price:        item.avg_price,
+        volume:           item.volume,
+        scanned_at:       new Date().toISOString()
+      }))
+    )
+
+    // 2. Upsert dans price_history_ah (buckets agrégés)
+    const dailyBucket   = getDailyBucket()
+    const weeklyBucket  = getWeeklyBucket()
+    const monthlyBucket = getMonthlyBucket()
+
+    const rpcCalls: Promise<any>[] = []
+
+    for (const item of topItems) {
+      const liquidity = liquidityMap[item.base_item_id] ?? 'LOW'
+      const isHigh = liquidity === 'HIGH'
+
+      const buckets = isHigh
+        ? [
+            { granularity: 'DAILY',   bucket_date: dailyBucket },
+            { granularity: 'WEEKLY',  bucket_date: weeklyBucket }
+          ]
+        : [
+            { granularity: 'MONTHLY', bucket_date: monthlyBucket }
+          ]
+
+      for (const bucket of buckets) {
+        rpcCalls.push(
+          supabase.rpc('upsert_ah_price_bucket', {
+            p_base_item_id: item.base_item_id,
+            p_variant_key:  item.variant_key,
+            p_item_name:    item.item_name,
+            p_total_stars:  item.total_stars,
+            p_is_recomb:    item.is_recomb,
+            p_reforge:      item.reforge,
+            p_has_dye:      item.has_dye,
+            p_buy_price:    item.buy_price,
+            p_sell_price:   item.sell_price,
+            p_avg_price:    item.avg_price,
+            p_volume:       item.volume,
+            p_granularity:  bucket.granularity,
+            p_bucket_date:  bucket.bucket_date
+          })
+        )
       }
     }
-  };
 
-  processPage(firstPage);
-
-  const BATCH = 8;
-  for (let start = 1; start < totalPages; start += BATCH) {
-    const end = Math.min(start + BATCH, totalPages);
-    const promises = [];
-    for (let i = start; i < end; i++) {
-      promises.push(fetch(`https://api.hypixel.net/v2/skyblock/auctions?page=${i}`).then(r => r.json()).catch(() => null));
+    // Batch par 20 pour ne pas saturer Supabase
+    for (let i = 0; i < rpcCalls.length; i += 20) {
+      await Promise.all(rpcCalls.slice(i, i + 20))
     }
-    const results = await Promise.all(promises);
-    for (const pageData of results) if (pageData) processPage(pageData);
+
+    // Libère le verrou
+    await supabase.from('cron_locks').delete().eq('key', lockKey)
+
+    return NextResponse.json({
+      success: true,
+      total_auctions: allAuctions.length,
+      bin_auctions: binAuctions.length,
+      top_items: topItems.length,
+      buckets_written: rpcCalls.length
+    })
+
+  } catch (error: any) {
+    await supabase.from('cron_locks').delete().eq('key', lockKey)
+    console.error('ah-collect error:', error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
-
-  const rows: any[] = [];
-  const priceHistoryRows: any[] = [];
-
-  // Recupere les stats precises PAR VARIANTE (base_item_id + variant_key) — bien plus fiable
-  // que les anciennes moyennes brutes qui melangeaient toutes les variantes ensemble
-  const { data: variantStats } = await supabase
-    .from('item_variant_price_stats')
-    .select('*');
-
-  const avgMap: Record<string, { value: number; points: number }> = {};
-  for (const s of (variantStats || [])) {
-    const key = `${s.base_item_id}__${s.variant_key}`;
-    if (s.avg_buy_month && s.points_month >= 15) {
-      avgMap[key] = { value: s.avg_buy_month, points: s.points_month };
-    } else if (s.avg_buy_week && s.points_week >= 8) {
-      avgMap[key] = { value: s.avg_buy_week, points: s.points_week };
-    } else if (s.avg_buy_1d && s.points_1d >= 3) {
-      avgMap[key] = { value: s.avg_buy_1d, points: s.points_1d };
-    }
-  }
-
-  for (const [groupKey, group] of Object.entries(itemGroups)) {
-    if (group.prices.length < 3) continue;
-
-    const sorted = [...group.prices].sort((a, b) => a - b);
-    const liveMedian = sorted.length % 2 === 0
-      ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
-      : sorted[Math.floor(sorted.length / 2)];
-    const min = sorted[0];
-    const max = sorted[sorted.length - 1];
-
-    if (isNaN(min) || isNaN(max) || isNaN(liveMedian) || liveMedian <= 0) continue;
-
-    // Reference intemporelle basee sur le groupe complet (base item + variante), pas juste le nom brut
-    const ref = avgMap[groupKey];
-    const reference = ref ? ref.value : liveMedian;
-
-    const spreadPct = ((reference - min) / reference) * 100;
-    if (spreadPct > 150 || spreadPct < 5) continue;
-
-    priceHistoryRows.push({
-      item_id: groupKey, item_name: group.displayName, source: 'AH',
-      buy_price: min, sell_price: max, avg_price: Math.round(reference),
-      volume: group.prices.length, timestamp: nowIso
-    });
-
-    rows.push({
-      item_id: groupKey, item_name: group.displayName,
-      min_price: min, avg_price: Math.round(reference), max_price: max,
-      volume: group.prices.length, timestamp: nowIso, created_at: nowIso,
-      best_auction_uuid: group.bestUuid,
-      base_item_id: group.baseItemId,
-      variant_key: group.variantKey,
-      total_stars: group.totalStars,
-      category: group.category
-    });
-  }
-
-  rows.sort((a, b) => (b.avg_price - b.min_price) - (a.avg_price - a.min_price));
-  const top50 = rows.slice(0, 50);
-
-  await supabase.from('ah_4h').delete().not('item_id', 'is', null);
-  let inserted = 0;
-  if (top50.length > 0) {
-    const { error } = await supabase.from('ah_4h').insert(top50);
-    if (!error) inserted = top50.length;
-  }
-
-  let phInserted = 0;
-  for (let i = 0; i < priceHistoryRows.length; i += 500) {
-    const chunk = priceHistoryRows.slice(i, i + 500);
-    const { error } = await supabase.from('price_history').insert(chunk);
-    if (!error) phInserted += chunk.length;
-  }
-
-  return { ah_4h_inserted: inserted, price_history_inserted: phInserted, pagesScanned: totalPages, timestamp: nowIso };
 }
