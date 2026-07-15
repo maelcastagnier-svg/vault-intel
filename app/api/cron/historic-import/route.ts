@@ -12,6 +12,7 @@ const supabase = createClient(
 )
 
 const YEARS_TARGET    = 3
+const ITEMS_PER_RUN   = 5
 const SKYCOFL_TOKEN   = process.env.SKYCOFL_ACCOUNT_TOKEN!
 const SKYCOFL_HEADERS = {
   'Authorization': `Bearer ${SKYCOFL_TOKEN}`,
@@ -19,7 +20,7 @@ const SKYCOFL_HEADERS = {
 }
 
 // ============================================================
-// ZIP PARSER — Central Directory (zlib natif Node.js)
+// ZIP PARSER
 // ============================================================
 async function parseZipBuffer(buffer: Buffer): Promise<{ name: string; data: Buffer }[]> {
   const files: { name: string; data: Buffer }[] = []
@@ -154,7 +155,6 @@ async function importAH(
     return ts >= fromDate && ts <= toDate
   })
 
-  // Tente d'extraire les variantes depuis le nom de l'item
   const v            = extractVariantFromName(item_name)
   const base_item_id = toBaseItemId(v.baseName) || item_id
 
@@ -197,61 +197,76 @@ export async function GET(request: Request) {
   }
 
   try {
-    const { data: nextItem, error } = await supabase
+    // Récupère les 5 prochains items à traiter
+    const { data: nextItems, error } = await supabase
       .from('historic_import_progress')
       .select('item_id, item_name, item_type, liquidity, years_completed')
       .eq('status', 'pending')
       .lt('years_completed', YEARS_TARGET)
       .order('years_completed', { ascending: true })
       .order('item_id',         { ascending: true })
-      .limit(1)
-      .single()
+      .limit(ITEMS_PER_RUN)
 
-    if (error || !nextItem) {
+    if (error || !nextItems || nextItems.length === 0) {
       return NextResponse.json({ message: 'Nothing to import — all items done or at target' })
     }
 
-    const { item_id, item_name, item_type, liquidity, years_completed } = nextItem
+    // Traite les 5 items en parallèle
+    const results = await Promise.all(
+      nextItems.map(async item => {
+        const { item_id, item_name, item_type, liquidity, years_completed } = item
 
-    const toDate        = getDateBoundary(years_completed)
-    const fromDate      = getDateBoundary(years_completed + 1)
-    const hardLimit     = getDateBoundary(YEARS_TARGET)
-    const effectiveFrom = fromDate < hardLimit ? hardLimit : fromDate
+        const toDate        = getDateBoundary(years_completed)
+        const fromDate      = getDateBoundary(years_completed + 1)
+        const hardLimit     = getDateBoundary(YEARS_TARGET)
+        const effectiveFrom = fromDate < hardLimit ? hardLimit : fromDate
 
-    let rowsInserted = 0
+        let rowsInserted = 0
 
-    if (item_type === 'BAZAAR') {
-      rowsInserted = await importBazaar(item_id, effectiveFrom, toDate)
-    } else {
-      rowsInserted = await importAH(
-        item_id,
-        item_name ?? item_id.replace(/_/g, ' '),
-        liquidity as 'HIGH' | 'LOW',
-        effectiveFrom,
-        toDate
-      )
-    }
+        try {
+          if (item_type === 'BAZAAR') {
+            rowsInserted = await importBazaar(item_id, effectiveFrom, toDate)
+          } else {
+            rowsInserted = await importAH(
+              item_id,
+              item_name ?? item_id.replace(/_/g, ' '),
+              liquidity as 'HIGH' | 'LOW',
+              effectiveFrom,
+              toDate
+            )
+          }
 
-    const newYearsCompleted = years_completed + 1
-    const isDone            = newYearsCompleted >= YEARS_TARGET
+          const newYearsCompleted = years_completed + 1
+          const isDone            = newYearsCompleted >= YEARS_TARGET
 
-    await supabase
-      .from('historic_import_progress')
-      .update({
-        years_completed: newYearsCompleted,
-        status:          isDone ? 'done' : 'pending'
+          await supabase
+            .from('historic_import_progress')
+            .update({
+              years_completed:   newYearsCompleted,
+              status:            isDone ? 'done' : 'pending',
+              last_processed_at: new Date().toISOString()
+            })
+            .eq('item_id', item_id)
+
+          return {
+            item_id,
+            item_type,
+            rows_inserted: rowsInserted,
+            years_completed: newYearsCompleted,
+            status: isDone ? 'done' : 'pending'
+          }
+
+        } catch (err: any) {
+          console.error(`historic-import error for ${item_id}:`, err.message)
+          return { item_id, item_type, rows_inserted: 0, error: err.message }
+        }
       })
-      .eq('item_id', item_id)
+    )
 
     return NextResponse.json({
       success:         true,
-      item_id,
-      item_type,
-      liquidity,
-      year_window:     `${effectiveFrom.toISOString().split('T')[0]} → ${toDate.toISOString().split('T')[0]}`,
-      years_completed: newYearsCompleted,
-      rows_inserted:   rowsInserted,
-      status:          isDone ? 'done' : 'pending'
+      items_processed: results.length,
+      results
     })
 
   } catch (error: any) {
