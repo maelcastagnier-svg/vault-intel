@@ -8,7 +8,7 @@ const supabase = createClient(
 )
 
 const HYPIXEL_AH_URL = 'https://api.hypixel.net/v2/skyblock/auctions'
-const TOP_ITEMS      = 200
+const TOP_ITEMS      = 300
 
 function toBaseItemId(baseName: string): string {
   return baseName.toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '')
@@ -85,7 +85,7 @@ export async function GET(request: Request) {
     for (const auc of binAuctions) {
       const v            = extractVariantFromName(auc.item_name)
       const base_item_id = toBaseItemId(v.baseName)
-      if (!base_item_id) continue // Skip items sans base_item_id valide
+      if (!base_item_id) continue
 
       const key = `${base_item_id}::${v.variantKey}`
 
@@ -138,7 +138,7 @@ export async function GET(request: Request) {
       }
     })
 
-    // 4. Historique
+    // 4. Historique depuis price_history_ah (7 derniers jours)
     const baseItemIds = [...new Set(allItems.map(i => i.base_item_id))]
     const variantKeys = [...new Set(allItems.map(i => i.variant_key))]
 
@@ -163,7 +163,7 @@ export async function GET(request: Request) {
       }
     }
 
-    // 5. Score
+    // 5. Score combiné discount + spread
     const scoredItems = allItems.map(item => {
       const hKey         = `${item.base_item_id}::${item.variant_key}`
       const historical   = historicalMap.get(hKey) ?? 0
@@ -176,12 +176,36 @@ export async function GET(request: Request) {
       return { ...item, historical_avg: historical, discount_pct, spread_pct }
     })
 
-    const topItems = scoredItems
-      .filter(i => i.best_price > 10_000)
-      .sort((a, b) => (b.discount_pct * 0.6 + b.spread_pct * 0.4) - (a.discount_pct * 0.6 + a.spread_pct * 0.4))
+    // 6. Top 300 — priorité au discount historique, sinon spread
+    // Sélection équilibrée par catégorie pour couvrir tout le dashboard
+    const byCategory = new Map<string, typeof scoredItems>()
+    for (const item of scoredItems) {
+      const cat = item.category ?? 'other'
+      if (!byCategory.has(cat)) byCategory.set(cat, [])
+      byCategory.get(cat)!.push(item)
+    }
+
+    // Trie chaque catégorie par score
+    const topItems: typeof scoredItems = []
+    for (const [, catItems] of byCategory) {
+      const sorted = catItems
+        .sort((a, b) =>
+          (b.discount_pct * 0.6 + b.spread_pct * 0.4) -
+          (a.discount_pct * 0.6 + a.spread_pct * 0.4)
+        )
+        .slice(0, 50) // Max 50 items par catégorie
+      topItems.push(...sorted)
+    }
+
+    // Cap global à TOP_ITEMS
+    const finalItems = topItems
+      .sort((a, b) =>
+        (b.discount_pct * 0.6 + b.spread_pct * 0.4) -
+        (a.discount_pct * 0.6 + a.spread_pct * 0.4)
+      )
       .slice(0, TOP_ITEMS)
 
-    // 6. DELETE
+    // 7. DELETE + INSERT
     const { error: deleteError } = await supabase
       .from('ah_live')
       .delete()
@@ -189,48 +213,37 @@ export async function GET(request: Request) {
 
     if (deleteError) throw new Error(`DELETE failed: ${deleteError.message}`)
 
-    // 7. INSERT par batch de 10 pour isoler l'erreur
-    const rows = topItems.map(item => ({
+    const rows = finalItems.map(item => ({
       item_id:           item.base_item_id,
       base_item_id:      item.base_item_id,
       variant_key:       item.variant_key,
       item_name:         item.item_name?.slice(0, 299) ?? '',
-      total_stars:       item.total_stars ?? 0,
-      is_recomb:         item.is_recomb ?? false,
-      reforge:           item.reforge ?? null,
-      has_dye:           item.has_dye ?? false,
-      category:          item.category ?? null,
-      best_price:        item.best_price ?? 0,
-      best_auction_uuid: item.best_uuid ?? null,
-      buy_price:         item.buy_price ?? 0,
-      sell_price:        item.sell_price ?? 0,
-      avg_price:         item.avg_price ?? 0,
-      min_price:         item.min_price ?? 0,
-      max_price:         item.max_price ?? 0,
+      total_stars:       item.total_stars  ?? 0,
+      is_recomb:         item.is_recomb    ?? false,
+      reforge:           item.reforge      ?? null,
+      has_dye:           item.has_dye      ?? false,
+      category:          item.category     ?? null,
+      best_price:        item.best_price   ?? 0,
+      best_auction_uuid: item.best_uuid    ?? null,
+      buy_price:         item.buy_price    ?? 0,
+      sell_price:        item.sell_price   ?? 0,
+      avg_price:         item.avg_price    ?? 0,
+      min_price:         item.min_price    ?? 0,
+      max_price:         item.max_price    ?? 0,
       historical_avg:    item.historical_avg ?? 0,
-      discount_pct:      item.discount_pct ?? 0,
-      spread_pct:        item.spread_pct ?? 0,
-      volume:            item.volume ?? 0,
+      discount_pct:      item.discount_pct   ?? 0,
+      spread_pct:        item.spread_pct     ?? 0,
+      volume:            item.volume         ?? 0,
       timestamp:         new Date().toISOString(),
       scanned_at:        new Date().toISOString()
     }))
 
-    let insertedCount = 0
-    let firstError: string | null = null
-
-    for (let i = 0; i < rows.length; i += 10) {
-      const batch = rows.slice(i, i + 10)
-      const { error: insertError, data: inserted } = await supabase
+    // Insert par batch de 50
+    for (let i = 0; i < rows.length; i += 50) {
+      const { error: insertError } = await supabase
         .from('ah_live')
-        .insert(batch)
-        .select('id')
-
-      if (insertError) {
-        firstError = `Batch ${i}-${i+10}: ${insertError.message} | Sample item_id: ${batch[0]?.item_id}`
-        console.error('INSERT ERROR:', firstError)
-        break
-      }
-      insertedCount += inserted?.length ?? 0
+        .insert(rows.slice(i, i + 50))
+      if (insertError) throw new Error(`INSERT failed batch ${i}: ${insertError.message}`)
     }
 
     await supabase
@@ -239,13 +252,13 @@ export async function GET(request: Request) {
       .eq('job_name', 'ah_collect')
 
     return NextResponse.json({
-      success:        !firstError,
-      total_auctions: allAuctions.length,
-      bin_auctions:   binAuctions.length,
-      total_variants: allItems.length,
-      top_items:      topItems.length,
-      inserted:       insertedCount,
-      error:          firstError ?? null
+      success:          true,
+      total_auctions:   allAuctions.length,
+      bin_auctions:     binAuctions.length,
+      total_variants:   allItems.length,
+      top_items:        finalItems.length,
+      with_history:     finalItems.filter(i => i.historical_avg > 0).length,
+      categories:       [...byCategory.keys()]
     })
 
   } catch (error: any) {
