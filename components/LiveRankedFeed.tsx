@@ -16,7 +16,6 @@ interface AHItem {
   best_auction_uuid: string | null
   category:          string | null
   volume:            number
-  sold:              boolean
 }
 
 interface BazaarItem {
@@ -64,16 +63,6 @@ export default function LiveRankedFeed({
     ? Math.floor((Date.now() - lastUpdate.getTime()) / 1000)
     : null
 
-  const checkAuctionActive = useCallback(async (uuid: string): Promise<boolean> => {
-    try {
-      const res  = await fetch(`https://api.hypixel.net/v2/skyblock/auction?uuid=${uuid}`)
-      const data = await res.json()
-      return data.success && data.auctions?.length > 0 && !data.auctions[0].claimed
-    } catch {
-      return true
-    }
-  }, [])
-
   const loadAH = useCallback(async () => {
     if (loadingRef.current) return
     loadingRef.current = true
@@ -83,7 +72,7 @@ export default function LiveRankedFeed({
         .from('ah_live')
         .select('id, base_item_id, item_name, best_price, avg_price, historical_avg, discount_pct, spread_pct, best_auction_uuid, category, volume')
         .order('discount_pct', { ascending: false })
-        .limit(maxItems * 2)
+        .limit(maxItems)
 
       if (category) query = query.eq('category', category)
 
@@ -101,33 +90,22 @@ export default function LiveRankedFeed({
         setFadingOut(new Set())
       }
 
-      const verified: AHItem[] = []
-      for (const d of data) {
-        const isActive = d.best_auction_uuid
-          ? await checkAuctionActive(d.best_auction_uuid)
-          : true
+      const items: AHItem[] = data.map(d => ({
+        id:                String(d.id),
+        base_item_id:      d.base_item_id,
+        item_name:         d.item_name,
+        best_price:        d.best_price,
+        avg_price:         d.avg_price,
+        historical_avg:    d.historical_avg ?? 0,
+        discount_pct:      d.discount_pct   ?? 0,
+        spread_pct:        d.spread_pct     ?? 0,
+        best_auction_uuid: d.best_auction_uuid,
+        category:          d.category,
+        volume:            d.volume
+      }))
 
-        verified.push({
-          id:                String(d.id),
-          base_item_id:      d.base_item_id,
-          item_name:         d.item_name,
-          best_price:        d.best_price,
-          avg_price:         d.avg_price,
-          historical_avg:    d.historical_avg ?? 0,
-          discount_pct:      d.discount_pct   ?? 0,
-          spread_pct:        d.spread_pct     ?? 0,
-          best_auction_uuid: d.best_auction_uuid,
-          category:          d.category,
-          volume:            d.volume,
-          sold:              !isActive
-        })
-
-        if (verified.filter(i => !i.sold).length >= maxItems) break
-      }
-
-      const finalItems = verified.slice(0, maxItems)
-      setAhItems(finalItems)
-      prevIdsRef.current = new Set(finalItems.map(i => i.id))
+      setAhItems(items)
+      prevIdsRef.current = newIds
 
       if (added.length > 0) {
         setFadingIn(new Set(added))
@@ -138,7 +116,7 @@ export default function LiveRankedFeed({
     } finally {
       loadingRef.current = false
     }
-  }, [category, maxItems, checkAuctionActive])
+  }, [category, maxItems])
 
   const loadBazaar = useCallback(async () => {
     if (loadingRef.current) return
@@ -212,7 +190,7 @@ export default function LiveRankedFeed({
   const color = type === 'AH' ? '#2a78d6' : '#1baf7a'
 
   const handleCopy = (item: AHItem) => {
-    if (item.sold || !item.best_auction_uuid) return
+    if (!item.best_auction_uuid) return
     navigator.clipboard.writeText(`/viewauction ${item.best_auction_uuid}`)
     setCopiedId(item.id)
     setTimeout(() => setCopiedId(null), 1500)
@@ -221,7 +199,6 @@ export default function LiveRankedFeed({
   const renderAHCard = (item: AHItem, idx: number) => {
     const isFadingOut = fadingOut.has(item.id)
     const isFadingIn  = fadingIn.has(item.id)
-    const isSold      = item.sold
     const isCopied    = copiedId === item.id
 
     return (
@@ -230,35 +207,34 @@ export default function LiveRankedFeed({
         style={{
           height:         ITEM_H,
           marginBottom:   ITEM_GAP,
-          background:     isSold ? '#0d0d0c' : '#111110',
-          border:         `0.5px solid ${isSold ? '#3a3a38' : color + '30'}`,
-          borderLeft:     `3px solid ${isSold ? '#3a3a38' : color}`,
+          background:     '#111110',
+          border:         `0.5px solid ${color}30`,
+          borderLeft:     `3px solid ${color}`,
           borderRadius:   8,
           padding:        '8px 12px',
           display:        'flex',
           justifyContent: 'space-between',
           alignItems:     'center',
-          cursor:         isSold ? 'not-allowed' : 'pointer',
-          opacity:        isFadingOut ? 0 : isSold ? 0.4 : 1,
+          cursor:         'pointer',
+          opacity:        isFadingOut ? 0 : 1,
           transition:     `opacity ${FADE_MS}ms ease`,
           animation:      isFadingIn ? `fadeIn ${FADE_MS}ms ease forwards` : undefined
         }}
-        onClick={() => !isSold && handleCopy(item)}
+        onClick={() => handleCopy(item)}
       >
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{
             fontSize:     11,
             fontWeight:   600,
-            color:        isSold ? '#4a4a48' : '#e8e6df',
+            color:        '#e8e6df',
             fontFamily:   'Space Mono, monospace',
             overflow:     'hidden',
             textOverflow: 'ellipsis',
             whiteSpace:   'nowrap'
           }}>
-            {!isSold && idx === 0 && '🥇 '}
-            {!isSold && idx === 1 && '🥈 '}
-            {!isSold && idx === 2 && '🥉 '}
-            {isSold && '🚫 '}
+            {idx === 0 && '🥇 '}
+            {idx === 1 && '🥈 '}
+            {idx === 2 && '🥉 '}
             {item.item_name.slice(0, 28)}
           </div>
           <div style={{
@@ -267,29 +243,25 @@ export default function LiveRankedFeed({
             fontFamily: 'Space Mono, monospace',
             marginTop:  2
           }}>
-            {isSold
-              ? 'SOLD — replacing soon'
-              : item.historical_avg > 0
-                ? `${item.best_price.toLocaleString()} → hist. ${item.historical_avg.toLocaleString()}`
-                : `best: ${item.best_price.toLocaleString()} · avg: ${item.avg_price.toLocaleString()}`
+            {item.historical_avg > 0
+              ? `${item.best_price.toLocaleString()} → hist. ${item.historical_avg.toLocaleString()}`
+              : `best: ${item.best_price.toLocaleString()} · avg: ${item.avg_price.toLocaleString()}`
             }
           </div>
         </div>
         <div style={{
           fontSize:   12,
           fontWeight: 700,
-          color:      isSold ? '#3a3a38' : color,
+          color,
           fontFamily: 'Space Mono, monospace',
           flexShrink: 0,
           marginLeft: 8
         }}>
-          {isSold
-            ? 'SOLD'
-            : isCopied
-              ? '✓'
-              : item.discount_pct > 0
-                ? `-${item.discount_pct}%`
-                : `+${item.spread_pct}%`
+          {isCopied
+            ? '✓'
+            : item.discount_pct > 0
+              ? `-${item.discount_pct}%`
+              : `+${item.spread_pct}%`
           }
         </div>
       </div>
