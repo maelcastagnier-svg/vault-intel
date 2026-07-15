@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import zlib from 'zlib'
 import { promisify } from 'util'
-import { extractVariant } from '@/lib/text-variant-extractor'
+import { extractVariantFromName } from '@/lib/text-variant-extractor'
 
 const inflateRaw = promisify(zlib.inflateRaw)
 
@@ -15,7 +15,7 @@ const YEARS_TARGET    = 3
 const SKYCOFL_TOKEN   = process.env.SKYCOFL_ACCOUNT_TOKEN!
 const SKYCOFL_HEADERS = {
   'Authorization': `Bearer ${SKYCOFL_TOKEN}`,
-  'Accept': 'application/json'
+  'Accept':        'application/json'
 }
 
 // ============================================================
@@ -26,7 +26,6 @@ async function parseZipBuffer(buffer: Buffer): Promise<{ name: string; data: Buf
   const EOCD_SIG = 0x06054b50
   const CD_SIG   = 0x02014b50
 
-  // Trouve l'End of Central Directory
   let eocdOffset = -1
   for (let i = buffer.length - 22; i >= 0; i--) {
     if (buffer.readUInt32LE(i) === EOCD_SIG) { eocdOffset = i; break }
@@ -40,13 +39,13 @@ async function parseZipBuffer(buffer: Buffer): Promise<{ name: string; data: Buf
   while (offset < cdOffset + cdSize) {
     if (buffer.readUInt32LE(offset) !== CD_SIG) break
 
-    const compression  = buffer.readUInt16LE(offset + 10)
-    const fileNameLen  = buffer.readUInt16LE(offset + 28)
-    const extraLen     = buffer.readUInt16LE(offset + 30)
-    const commentLen   = buffer.readUInt16LE(offset + 32)
-    const lfhOffset    = buffer.readUInt32LE(offset + 42)
-    const fileName     = buffer.toString('utf8', offset + 46, offset + 46 + fileNameLen)
-    const compSize     = buffer.readUInt32LE(offset + 20)
+    const compression    = buffer.readUInt16LE(offset + 10)
+    const fileNameLen    = buffer.readUInt16LE(offset + 28)
+    const extraLen       = buffer.readUInt16LE(offset + 30)
+    const commentLen     = buffer.readUInt16LE(offset + 32)
+    const lfhOffset      = buffer.readUInt32LE(offset + 42)
+    const fileName       = buffer.toString('utf8', offset + 46, offset + 46 + fileNameLen)
+    const compSize       = buffer.readUInt32LE(offset + 20)
 
     const lfhFileNameLen = buffer.readUInt16LE(lfhOffset + 26)
     const lfhExtraLen    = buffer.readUInt16LE(lfhOffset + 28)
@@ -83,6 +82,10 @@ function getMonthlyBucket(ts: Date): string {
   return `${ts.getUTCFullYear()}-${String(ts.getUTCMonth() + 1).padStart(2, '0')}-01`
 }
 
+function toBaseItemId(baseName: string): string {
+  return baseName.toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '')
+}
+
 // ============================================================
 // IMPORT BAZAAR — SkyCofl ZIP → price_history
 // ============================================================
@@ -106,22 +109,21 @@ async function importBazaar(item_id: string, fromDate: Date, toDate: Date): Prom
     return ts >= fromDate && ts <= toDate
   })
 
-  // Batch RPC par 20
-  const calls = filtered.map(p => {
-    const ts = new Date(p.timestamp)
-    return supabase.rpc('upsert_bazaar_price_bucket', {
-      p_item_id:     item_id,
-      p_item_name:   item_id.replace(/_/g, ' '),
-      p_buy_price:   p.max,
-      p_sell_price:  p.min,
-      p_avg_price:   p.avg,
-      p_volume:      p.volume ?? 0,
-      p_bucket_date: getDailyBucket(ts)
-    })
-  })
-
-  for (let i = 0; i < calls.length; i += 20) {
-    await Promise.all(calls.slice(i, i + 20))
+  for (let i = 0; i < filtered.length; i += 20) {
+    await Promise.all(
+      filtered.slice(i, i + 20).map(p => {
+        const ts = new Date(p.timestamp)
+        return supabase.rpc('upsert_bazaar_price_bucket', {
+          p_item_id:     item_id,
+          p_item_name:   item_id.replace(/_/g, ' '),
+          p_buy_price:   p.max,
+          p_sell_price:  p.min,
+          p_avg_price:   p.avg,
+          p_volume:      p.volume ?? 0,
+          p_bucket_date: getDailyBucket(ts)
+        }).then()
+      })
+    )
   }
 
   return filtered.length
@@ -129,14 +131,13 @@ async function importBazaar(item_id: string, fromDate: Date, toDate: Date): Prom
 
 // ============================================================
 // IMPORT AH — SkyCofl JSON → price_history_ah
-// Timestamps Unix secondes, pas de variante détectable
-// (l'API SkyCofl retourne des agrégats, pas des noms d'items individuels)
 // ============================================================
 async function importAH(
-  item_id: string,
+  item_id:   string,
+  item_name: string,
   liquidity: 'HIGH' | 'LOW',
-  fromDate: Date,
-  toDate: Date
+  fromDate:  Date,
+  toDate:    Date
 ): Promise<number> {
   const res = await fetch(
     `https://sky.coflnet.com/api/item/price/${item_id}/history/overview`,
@@ -149,36 +150,38 @@ async function importAH(
 
   const isHigh   = liquidity === 'HIGH'
   const filtered = points.filter(p => {
-    const ts = new Date(p.time * 1000) // Unix secondes → ms
+    const ts = new Date(p.time * 1000)
     return ts >= fromDate && ts <= toDate
   })
 
-  const calls = filtered.map(p => {
-    const ts          = new Date(p.time * 1000)
-    const granularity = isHigh ? 'DAILY' : 'MONTHLY'
-    const bucketDate  = isHigh ? getDailyBucket(ts) : getMonthlyBucket(ts)
+  // Tente d'extraire les variantes depuis le nom de l'item
+  const v            = extractVariantFromName(item_name)
+  const base_item_id = toBaseItemId(v.baseName) || item_id
 
-    // SkyCofl historique = agrégats sans nom individuel
-    // On stocke en variante "base" — les variantes fines viennent du scan live ah-collect
-    return supabase.rpc('upsert_ah_price_bucket', {
-      p_base_item_id: item_id,
-      p_variant_key:  'base_0star_norecomb',
-      p_item_name:    item_id.replace(/_/g, ' '),
-      p_total_stars:  0,
-      p_is_recomb:    false,
-      p_reforge:      null,
-      p_has_dye:      false,
-      p_buy_price:    p.max,
-      p_sell_price:   p.min,
-      p_avg_price:    p.avg,
-      p_volume:       p.volume ?? 0,
-      p_granularity:  granularity,
-      p_bucket_date:  bucketDate
-    })
-  })
+  for (let i = 0; i < filtered.length; i += 20) {
+    await Promise.all(
+      filtered.slice(i, i + 20).map(p => {
+        const ts          = new Date(p.time * 1000)
+        const granularity = isHigh ? 'DAILY' : 'MONTHLY'
+        const bucketDate  = isHigh ? getDailyBucket(ts) : getMonthlyBucket(ts)
 
-  for (let i = 0; i < calls.length; i += 20) {
-    await Promise.all(calls.slice(i, i + 20))
+        return supabase.rpc('upsert_ah_price_bucket', {
+          p_base_item_id: base_item_id,
+          p_variant_key:  v.variantKey,
+          p_item_name:    item_name,
+          p_total_stars:  v.totalStars,
+          p_is_recomb:    v.recombobulated,
+          p_reforge:      v.reforge ?? null,
+          p_has_dye:      v.hasDye,
+          p_buy_price:    p.max,
+          p_sell_price:   p.min,
+          p_avg_price:    p.avg,
+          p_volume:       p.volume ?? 0,
+          p_granularity:  granularity,
+          p_bucket_date:  bucketDate
+        }).then()
+      })
+    )
   }
 
   return filtered.length
@@ -194,10 +197,9 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Récupère le prochain item à traiter (le moins avancé en priorité)
     const { data: nextItem, error } = await supabase
       .from('historic_import_progress')
-      .select('item_id, item_type, liquidity, years_completed')
+      .select('item_id, item_name, item_type, liquidity, years_completed')
       .eq('status', 'pending')
       .lt('years_completed', YEARS_TARGET)
       .order('years_completed', { ascending: true })
@@ -209,26 +211,27 @@ export async function GET(request: Request) {
       return NextResponse.json({ message: 'Nothing to import — all items done or at target' })
     }
 
-    const { item_id, item_type, liquidity, years_completed } = nextItem
+    const { item_id, item_name, item_type, liquidity, years_completed } = nextItem
 
-    // Fenêtre temporelle de cette exécution (1 an par run)
-    const toDate   = getDateBoundary(years_completed)
-    const fromDate = getDateBoundary(years_completed + 1)
-
-    // Cap à 3 ans max (ne jamais importer au delà)
-    const hardLimit    = getDateBoundary(YEARS_TARGET)
+    const toDate        = getDateBoundary(years_completed)
+    const fromDate      = getDateBoundary(years_completed + 1)
+    const hardLimit     = getDateBoundary(YEARS_TARGET)
     const effectiveFrom = fromDate < hardLimit ? hardLimit : fromDate
 
-    // Import selon le type d'item
     let rowsInserted = 0
 
     if (item_type === 'BAZAAR') {
       rowsInserted = await importBazaar(item_id, effectiveFrom, toDate)
     } else {
-      rowsInserted = await importAH(item_id, liquidity as 'HIGH' | 'LOW', effectiveFrom, toDate)
+      rowsInserted = await importAH(
+        item_id,
+        item_name ?? item_id.replace(/_/g, ' '),
+        liquidity as 'HIGH' | 'LOW',
+        effectiveFrom,
+        toDate
+      )
     }
 
-    // Met à jour la progression
     const newYearsCompleted = years_completed + 1
     const isDone            = newYearsCompleted >= YEARS_TARGET
 
@@ -241,14 +244,14 @@ export async function GET(request: Request) {
       .eq('item_id', item_id)
 
     return NextResponse.json({
-      success:          true,
+      success:         true,
       item_id,
       item_type,
       liquidity,
-      year_window:      `${effectiveFrom.toISOString().split('T')[0]} → ${toDate.toISOString().split('T')[0]}`,
-      years_completed:  newYearsCompleted,
-      rows_inserted:    rowsInserted,
-      status:           isDone ? 'done' : 'pending'
+      year_window:     `${effectiveFrom.toISOString().split('T')[0]} → ${toDate.toISOString().split('T')[0]}`,
+      years_completed: newYearsCompleted,
+      rows_inserted:   rowsInserted,
+      status:          isDone ? 'done' : 'pending'
     })
 
   } catch (error: any) {
