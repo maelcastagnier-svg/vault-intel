@@ -4,7 +4,6 @@ import { createClient } from '../lib/supabase'
 import LiveRankedFeed from './LiveRankedFeed'
 
 const supabase = createClient()
-
 const TRANSITION_MS = 250
 
 export default function FlashAlertsPage() {
@@ -40,13 +39,10 @@ export default function FlashAlertsPage() {
     return () => { supabase.removeChannel(channel) }
   }, [])
 
-  // Transition fondu au changement de panel
   const switchTo = (category: string | null, bazaar: boolean) => {
     if (bazaar === showBazaar && category === selectedCategory) return
-
     pendingRef.current = { category, bazaar }
     setPanelVisible(false)
-
     setTimeout(() => {
       if (pendingRef.current) {
         setSelectedCategory(pendingRef.current.category)
@@ -65,17 +61,17 @@ export default function FlashAlertsPage() {
         <div
           onClick={() => switchTo(null, true)}
           style={{
-            padding:    '10px 14px',
+            padding:      '10px 14px',
             marginBottom: 6,
             borderRadius: 8,
-            cursor:     'pointer',
-            fontFamily: 'Space Mono, monospace',
-            fontSize:   12,
-            fontWeight: showBazaar ? 700 : 400,
-            background: showBazaar ? '#1baf7a20' : 'transparent',
-            border:     `1px solid ${showBazaar ? '#1baf7a' : '#2a2a28'}`,
-            color:      showBazaar ? '#1baf7a' : '#c8c6bf',
-            transition: 'all 0.2s ease'
+            cursor:       'pointer',
+            fontFamily:   'Space Mono, monospace',
+            fontSize:     12,
+            fontWeight:   showBazaar ? 700 : 400,
+            background:   showBazaar ? '#1baf7a20' : 'transparent',
+            border:       `1px solid ${showBazaar ? '#1baf7a' : '#2a2a28'}`,
+            color:        showBazaar ? '#1baf7a' : '#c8c6bf',
+            transition:   'all 0.2s ease'
           }}
         >
           💰 Bazaar Top 25
@@ -105,17 +101,17 @@ export default function FlashAlertsPage() {
               key={cat}
               onClick={() => switchTo(cat, false)}
               style={{
-                padding:    '10px 14px',
-                marginBottom: 6,
-                borderRadius: 8,
-                cursor:     'pointer',
-                fontFamily: 'Space Mono, monospace',
-                fontSize:   12,
-                fontWeight: isActive ? 700 : 400,
-                background: isActive ? '#2a78d620' : 'transparent',
-                border:     `1px solid ${isActive ? '#2a78d6' : '#2a2a28'}`,
-                color:      isActive ? '#2a78d6' : '#c8c6bf',
-                transition: 'all 0.2s ease',
+                padding:       '10px 14px',
+                marginBottom:  6,
+                borderRadius:  8,
+                cursor:        'pointer',
+                fontFamily:    'Space Mono, monospace',
+                fontSize:      12,
+                fontWeight:    isActive ? 700 : 400,
+                background:    isActive ? '#2a78d620' : 'transparent',
+                border:        `1px solid ${isActive ? '#2a78d6' : '#2a2a28'}`,
+                color:         isActive ? '#2a78d6' : '#c8c6bf',
+                transition:    'all 0.2s ease',
                 textTransform: 'capitalize'
               }}
             >
@@ -125,7 +121,7 @@ export default function FlashAlertsPage() {
         })}
       </div>
 
-      {/* MAIN PANEL avec fondu */}
+      {/* MAIN PANEL */}
       <div style={{
         opacity:    panelVisible ? 1 : 0,
         transition: `opacity ${TRANSITION_MS}ms ease`,
