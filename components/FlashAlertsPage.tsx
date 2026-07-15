@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '../lib/supabase'
 import LiveRankedFeed from './LiveRankedFeed'
 
@@ -11,47 +11,70 @@ export default function FlashAlertsPage() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [showBazaar,       setShowBazaar]       = useState(true)
   const [panelVisible,     setPanelVisible]     = useState(true)
-  const pendingRef = useRef<{ category: string | null; bazaar: boolean } | null>(null)
+
+  // Refs pour éviter les stale closures dans les callbacks Realtime
+  const selectedCategoryRef = useRef<string | null>(null)
+  const initializedRef      = useRef(false)
+  const pendingRef          = useRef<{ category: string | null; bazaar: boolean } | null>(null)
+
+  // Sync ref avec state
+  useEffect(() => {
+    selectedCategoryRef.current = selectedCategory
+  }, [selectedCategory])
+
+  const loadCategories = useCallback(async () => {
+    const { data } = await supabase
+      .from('ah_live')
+      .select('category')
+      .not('category', 'is', null)
+
+    if (!data) return
+
+    const unique = Array.from(
+      new Set(data.map((d: any) => d.category).filter(Boolean))
+    ).sort() as string[]
+
+    setCategories(unique)
+
+    // Initialise la catégorie seulement au premier chargement
+    // Ne jamais reset si l'utilisateur a déjà sélectionné quelque chose
+    if (!initializedRef.current && unique.length > 0) {
+      initializedRef.current = true
+      setSelectedCategory(unique[0])
+      selectedCategoryRef.current = unique[0]
+    }
+  }, [])
 
   useEffect(() => {
-    async function loadCategories() {
-      const { data } = await supabase
-        .from('ah_live')
-        .select('category')
-        .not('category', 'is', null)
-
-      if (data) {
-        const unique = Array.from(
-          new Set(data.map((d: any) => d.category).filter(Boolean))
-        ).sort() as string[]
-        setCategories(unique)
-        if (unique.length > 0 && !selectedCategory) setSelectedCategory(unique[0])
-      }
-    }
-
     loadCategories()
 
+    // Realtime — ne déclenche que loadCategories, jamais de reset de catégorie
     const channel = supabase
       .channel('ah_live_cats')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ah_live' }, loadCategories)
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [])
+  }, [loadCategories])
 
-  const switchTo = (category: string | null, bazaar: boolean) => {
-    if (bazaar === showBazaar && category === selectedCategory) return
+  // Transition fondu propre au changement de catégorie
+  const switchTo = useCallback((category: string | null, bazaar: boolean) => {
+    // Évite le double-trigger si on clique sur la catégorie déjà active
+    if (bazaar === (pendingRef.current?.bazaar ?? true) &&
+        category === (pendingRef.current?.category ?? selectedCategoryRef.current)) return
+
     pendingRef.current = { category, bazaar }
     setPanelVisible(false)
+
     setTimeout(() => {
-      if (pendingRef.current) {
-        setSelectedCategory(pendingRef.current.category)
-        setShowBazaar(pendingRef.current.bazaar)
-        pendingRef.current = null
-      }
+      if (!pendingRef.current) return
+      setSelectedCategory(pendingRef.current.category)
+      selectedCategoryRef.current = pendingRef.current.category
+      setShowBazaar(pendingRef.current.bazaar)
+      pendingRef.current = null
       setPanelVisible(true)
     }, TRANSITION_MS)
-  }
+  }, [])
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 20 }}>
@@ -121,7 +144,7 @@ export default function FlashAlertsPage() {
         })}
       </div>
 
-      {/* MAIN PANEL */}
+      {/* MAIN PANEL avec fondu propre */}
       <div style={{
         opacity:    panelVisible ? 1 : 0,
         transition: `opacity ${TRANSITION_MS}ms ease`,
@@ -133,7 +156,7 @@ export default function FlashAlertsPage() {
               💰 Top 25 Bazaar Flips
             </div>
             <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>
-              LIVE · REFRESH 5MIN
+              LIVE · REFRESH 60S
             </div>
             <LiveRankedFeed
               type="BAZAAR"
@@ -147,7 +170,7 @@ export default function FlashAlertsPage() {
               🎯 {selectedCategory} — Top 25
             </div>
             <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>
-              LIVE · REFRESH 1MIN · SOLD ITEMS REPLACED AUTO
+              LIVE · REFRESH 60S · VS HISTORICAL AVG
             </div>
             <LiveRankedFeed
               type="AH"
