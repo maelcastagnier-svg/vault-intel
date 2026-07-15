@@ -8,33 +8,33 @@ const supabase = createClient(
 )
 
 const HYPIXEL_AH_URL = 'https://api.hypixel.net/v2/skyblock/auctions'
-const TOP_ITEMS      = 200 // Plus d'items pour couvrir toutes les catégories
+const TOP_ITEMS      = 200
 
 function toBaseItemId(baseName: string): string {
   return baseName.toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '')
 }
 
 type ScannedItem = {
-  base_item_id:      string
-  variant_key:       string
-  item_name:         string
-  total_stars:       number
-  is_recomb:         boolean
-  reforge:           string | null
-  has_dye:           boolean
-  category:          string | null
-  best_price:        number
-  best_uuid:         string
-  prices:            number[]
-  volume:            number
-  avg_price:         number
-  sell_price:        number
-  buy_price:         number
-  min_price:         number
-  max_price:         number
-  historical_avg:    number
-  discount_pct:      number
-  spread_pct:        number
+  base_item_id:   string
+  variant_key:    string
+  item_name:      string
+  total_stars:    number
+  is_recomb:      boolean
+  reforge:        string | null
+  has_dye:        boolean
+  category:       string | null
+  best_price:     number
+  best_uuid:      string
+  prices:         number[]
+  volume:         number
+  avg_price:      number
+  sell_price:     number
+  buy_price:      number
+  min_price:      number
+  max_price:      number
+  historical_avg: number
+  discount_pct:   number
+  spread_pct:     number
 }
 
 export async function GET(request: Request) {
@@ -43,7 +43,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Verrou anti-chevauchement
   const { data: lock } = await supabase
     .from('cron_locks')
     .select('locked_until')
@@ -62,7 +61,7 @@ export async function GET(request: Request) {
     }, { onConflict: 'job_name' })
 
   try {
-    // 1. Fetch toutes les pages AH Hypixel
+    // 1. Fetch AH Hypixel
     const firstRes   = await fetch(HYPIXEL_AH_URL)
     const firstPage  = await firstRes.json()
     const totalPages = firstPage.totalPages as number
@@ -78,16 +77,17 @@ export async function GET(request: Request) {
       results.forEach(r => { allAuctions = allAuctions.concat(r.auctions) })
     }
 
-    // BIN uniquement + actives
     const binAuctions = allAuctions.filter(a => a.bin && !a.claimed)
 
-    // 2. Groupe par base_item_id + variant_key
+    // 2. Groupe par variante
     const grouped = new Map<string, ScannedItem>()
 
     for (const auc of binAuctions) {
       const v            = extractVariantFromName(auc.item_name)
       const base_item_id = toBaseItemId(v.baseName)
-      const key          = `${base_item_id}::${v.variantKey}`
+      if (!base_item_id) continue // Skip items sans base_item_id valide
+
+      const key = `${base_item_id}::${v.variantKey}`
 
       if (!grouped.has(key)) {
         grouped.set(key, {
@@ -123,11 +123,11 @@ export async function GET(request: Request) {
       }
     }
 
-    // 3. Calcule les prix pour chaque groupe
+    // 3. Calcule prix
     const allItems = Array.from(grouped.values()).map(item => {
-      const sorted   = [...item.prices].sort((a, b) => a - b)
-      const median   = sorted[Math.floor(sorted.length / 2)]
-      const avg      = sorted.reduce((s, p) => s + p, 0) / sorted.length
+      const sorted = [...item.prices].sort((a, b) => a - b)
+      const median = sorted[Math.floor(sorted.length / 2)]
+      const avg    = sorted.reduce((s, p) => s + p, 0) / sorted.length
       return {
         ...item,
         avg_price:  avg,
@@ -138,116 +138,114 @@ export async function GET(request: Request) {
       }
     })
 
-    // 4. Récupère les moyennes historiques depuis price_history_ah
-    const variantKeys   = allItems.map(i => i.variant_key)
-    const baseItemIds   = allItems.map(i => i.base_item_id)
+    // 4. Historique
+    const baseItemIds = [...new Set(allItems.map(i => i.base_item_id))]
+    const variantKeys = [...new Set(allItems.map(i => i.variant_key))]
 
     const { data: historicalData } = await supabase
       .from('price_history_ah')
-      .select('base_item_id, variant_key, avg_price, data_points')
+      .select('base_item_id, variant_key, avg_price')
       .in('base_item_id', baseItemIds)
       .in('variant_key', variantKeys)
       .eq('granularity', 'DAILY')
       .gte('bucket_date', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
 
-    // Map historique par base_item_id::variant_key
     const historicalMap = new Map<string, number>()
     if (historicalData) {
-      // Groupe et moyenne par variante sur 7 jours
       const grouped7d = new Map<string, number[]>()
       for (const h of historicalData) {
         const k = `${h.base_item_id}::${h.variant_key}`
         if (!grouped7d.has(k)) grouped7d.set(k, [])
-        grouped7d.get(k)!.push(h.avg_price)
+        grouped7d.get(k)!.push(Number(h.avg_price))
       }
       for (const [k, prices] of grouped7d) {
         historicalMap.set(k, prices.reduce((s, p) => s + p, 0) / prices.length)
       }
     }
 
-    // 5. Calcule discount_pct et spread_pct pour chaque item
+    // 5. Score
     const scoredItems = allItems.map(item => {
-      const hKey          = `${item.base_item_id}::${item.variant_key}`
-      const historical    = historicalMap.get(hKey) ?? 0
-      const discount_pct  = historical > 0
+      const hKey         = `${item.base_item_id}::${item.variant_key}`
+      const historical   = historicalMap.get(hKey) ?? 0
+      const discount_pct = historical > 0
         ? Math.round(((historical - item.best_price) / historical) * 100)
         : 0
-      const spread_pct    = item.avg_price > 0
+      const spread_pct   = item.avg_price > 0
         ? Math.round(((item.avg_price - item.best_price) / item.avg_price) * 100)
         : 0
-
-      return {
-        ...item,
-        historical_avg: historical,
-        discount_pct,
-        spread_pct
-      }
+      return { ...item, historical_avg: historical, discount_pct, spread_pct }
     })
 
-    // 6. Sélectionne TOP 200 — mix discount + spread + volume
-    //    Priorité aux items avec un historique connu (discount > 0)
     const topItems = scoredItems
-      .filter(i => i.best_price > 10_000) // Filtre les items trop cheap
-      .sort((a, b) => {
-        // Score combiné : discount historique (60%) + spread actuel (40%)
-        const scoreA = (a.discount_pct * 0.6) + (a.spread_pct * 0.4)
-        const scoreB = (b.discount_pct * 0.6) + (b.spread_pct * 0.4)
-        return scoreB - scoreA
-      })
+      .filter(i => i.best_price > 10_000)
+      .sort((a, b) => (b.discount_pct * 0.6 + b.spread_pct * 0.4) - (a.discount_pct * 0.6 + a.spread_pct * 0.4))
       .slice(0, TOP_ITEMS)
 
-    // 7. Snapshot ah_live (DELETE + INSERT)
+    // 6. DELETE
     const { error: deleteError } = await supabase
       .from('ah_live')
       .delete()
       .gte('id', 0)
 
-    if (deleteError) throw new Error(`ah_live delete failed: ${deleteError.message}`)
+    if (deleteError) throw new Error(`DELETE failed: ${deleteError.message}`)
 
-    const { error: insertError } = await supabase
-      .from('ah_live')
-      .insert(
-        topItems.map(item => ({
-          item_id:           item.base_item_id,
-          base_item_id:      item.base_item_id,
-          variant_key:       item.variant_key,
-          item_name:         item.item_name,
-          total_stars:       item.total_stars,
-          is_recomb:         item.is_recomb,
-          reforge:           item.reforge,
-          has_dye:           item.has_dye,
-          category:          item.category,
-          best_price:        item.best_price,
-          best_auction_uuid: item.best_uuid,
-          buy_price:         item.buy_price,
-          sell_price:        item.sell_price,
-          avg_price:         item.avg_price,
-          min_price:         item.min_price,
-          max_price:         item.max_price,
-          historical_avg:    item.historical_avg,
-          discount_pct:      item.discount_pct,
-          spread_pct:        item.spread_pct,
-          volume:            item.volume,
-          timestamp:         new Date().toISOString(),
-          scanned_at:        new Date().toISOString()
-        }))
-      )
+    // 7. INSERT par batch de 10 pour isoler l'erreur
+    const rows = topItems.map(item => ({
+      item_id:           item.base_item_id,
+      base_item_id:      item.base_item_id,
+      variant_key:       item.variant_key,
+      item_name:         item.item_name?.slice(0, 299) ?? '',
+      total_stars:       item.total_stars ?? 0,
+      is_recomb:         item.is_recomb ?? false,
+      reforge:           item.reforge ?? null,
+      has_dye:           item.has_dye ?? false,
+      category:          item.category ?? null,
+      best_price:        item.best_price ?? 0,
+      best_auction_uuid: item.best_uuid ?? null,
+      buy_price:         item.buy_price ?? 0,
+      sell_price:        item.sell_price ?? 0,
+      avg_price:         item.avg_price ?? 0,
+      min_price:         item.min_price ?? 0,
+      max_price:         item.max_price ?? 0,
+      historical_avg:    item.historical_avg ?? 0,
+      discount_pct:      item.discount_pct ?? 0,
+      spread_pct:        item.spread_pct ?? 0,
+      volume:            item.volume ?? 0,
+      timestamp:         new Date().toISOString(),
+      scanned_at:        new Date().toISOString()
+    }))
 
-    if (insertError) throw new Error(`ah_live insert failed: ${insertError.message}`)
+    let insertedCount = 0
+    let firstError: string | null = null
 
-    // Libère le verrou
+    for (let i = 0; i < rows.length; i += 10) {
+      const batch = rows.slice(i, i + 10)
+      const { error: insertError, data: inserted } = await supabase
+        .from('ah_live')
+        .insert(batch)
+        .select('id')
+
+      if (insertError) {
+        firstError = `Batch ${i}-${i+10}: ${insertError.message} | Sample item_id: ${batch[0]?.item_id}`
+        console.error('INSERT ERROR:', firstError)
+        break
+      }
+      insertedCount += inserted?.length ?? 0
+    }
+
     await supabase
       .from('cron_locks')
       .update({ locked_until: null })
       .eq('job_name', 'ah_collect')
 
     return NextResponse.json({
-      success:        true,
+      success:        !firstError,
       total_auctions: allAuctions.length,
       bin_auctions:   binAuctions.length,
       total_variants: allItems.length,
       top_items:      topItems.length,
-      with_history:   topItems.filter(i => i.historical_avg > 0).length
+      inserted:       insertedCount,
+      error:          firstError ?? null
     })
 
   } catch (error: any) {
