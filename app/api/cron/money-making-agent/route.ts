@@ -96,26 +96,22 @@ export async function GET(req: NextRequest) {
     // 1. Contexte global via get_full_context()
     const { data: ctx } = await supabase.rpc('get_full_context')
 
-    // 2. Données gear requêtées directement (non incluses dans get_full_context)
+    // 2. Données gear + AH requêtées directement
     const [
       { data: accessories },
       { data: accessoryPowers },
       { data: reforges },
-      { data: reforgeStones },
       { data: gemstones },
-      { data: ahLive },
-      { data: priceHistoryAh }
+      { data: ahLive }
     ] = await Promise.all([
       supabase.from('accessories').select('name, ability, magical_power, rarity').limit(150),
       supabase.from('accessory_powers').select('power_name, stats, description').limit(50),
       supabase.from('reforges').select('name, type, stats').limit(100),
-      supabase.from('reforge_stones').select('name, reforge_name, item_type').limit(100),
       supabase.from('gemstones').select('name, type, stats, slot_type').limit(100),
-      supabase.from('ah_live').select('base_item_id, item_name, best_price, avg_price, historical_avg, discount_pct, spread_pct, category, variant_key').order('discount_pct', { ascending: false }).limit(100),
-      supabase.from('price_history_ah').select('base_item_id, variant_key, avg_price, granularity').eq('granularity', 'DAILY').order('bucket_date', { ascending: false }).limit(200)
+      supabase.from('ah_live').select('base_item_id, item_name, best_price, avg_price, historical_avg, discount_pct, spread_pct, category, variant_key').order('discount_pct', { ascending: false }).limit(100)
     ])
 
-    // 3. Formate les données contextuelles
+    // 3. Formate les données
     const bz = (ctx?.bazaar_live || [])
       .map((i: any) => i.item_id + ' buy=' + i.buy_price + ' sell=' + i.sell_price + ' spread=' + i.spread_pct + '%')
       .join('\n')
@@ -163,13 +159,13 @@ export async function GET(req: NextRequest) {
       '\n\nDUNGEONS:\n' + dungeons +
       '\n\nKUUDRA:\n' + kuudra +
       '\n\nKNOWN MONEY METHODS:\n' + moneyMethods +
-      '\n\nACCESSORIES (real data):\n' + accessoriesFormatted +
+      '\n\nACCESSORIES:\n' + accessoriesFormatted +
       '\n\nREFORGES:\n' + reforgesFormatted +
       '\n\nGEMSTONES:\n' + gemstonesFormatted +
       '\n\nACCESSORY POWERS:\n' + powersFormatted
     )
 
-    // 4. 4 appels Claude en parallèle — 1 par tier
+    // 4. 4 appels Claude en parallèle
     const tierPromises = Object.entries(TIER_CONFIG).map(async ([tier, config]) => {
       const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
         method:  'POST',
@@ -197,7 +193,7 @@ export async function GET(req: NextRequest) {
 
     const results = await Promise.all(tierPromises)
 
-    // 5. Sauvegarde dans claude_analysis avec archivage
+    // 5. Sauvegarde dans claude_analysis
     for (const result of results) {
       if ('error' in result) continue
 
@@ -218,11 +214,15 @@ export async function GET(req: NextRequest) {
         })
       }
 
-      // Upsert la nouvelle
+      // Upsert avec updated_at
       await supabase
         .from('claude_analysis')
         .upsert(
-          { section, content: result.content, updated_at: new Date().toISOString() },
+          {
+            section,
+            content:    result.content,
+            updated_at: new Date().toISOString()
+          },
           { onConflict: 'section' }
         )
     }
