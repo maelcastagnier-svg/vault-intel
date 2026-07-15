@@ -11,9 +11,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const YEARS_TARGET  = 3
-const ITEMS_PER_RUN = 10
-const SKYCOFL_TOKEN = process.env.SKYCOFL_ACCOUNT_TOKEN!
+const YEARS_TARGET    = 3
+const ITEMS_PER_RUN   = 10
+const SKYCOFL_TOKEN   = process.env.SKYCOFL_ACCOUNT_TOKEN!
 const SKYCOFL_HEADERS = {
   'Authorization': `Bearer ${SKYCOFL_TOKEN}`,
   'Accept':        'application/json'
@@ -87,8 +87,17 @@ function toBaseItemId(baseName: string): string {
   return baseName.toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '')
 }
 
+// Erreurs qui indiquent que l'item n'existe pas sur SkyCofl
+// → marquer done immédiatement, pas la peine de retenter
+function isDeadError(msg: string): boolean {
+  return msg.includes('404') ||
+         msg.includes('No JSON') ||
+         msg.includes('403') ||
+         msg.includes('No data')
+}
+
 // ============================================================
-// IMPORT BAZAAR — SkyCofl ZIP → price_history
+// IMPORT BAZAAR
 // ============================================================
 async function importBazaar(item_id: string, fromDate: Date, toDate: Date): Promise<number> {
   const res = await fetch(
@@ -131,7 +140,7 @@ async function importBazaar(item_id: string, fromDate: Date, toDate: Date): Prom
 }
 
 // ============================================================
-// IMPORT AH — SkyCofl JSON → price_history_ah
+// IMPORT AH
 // ============================================================
 async function importAH(
   item_id:   string,
@@ -148,9 +157,14 @@ async function importAH(
   const points: { time: number; avg: number; min: number; max: number; volume?: number }[] =
     await res.json()
 
-  const isHigh      = liquidity === 'HIGH'
-  const item_name   = item_id.replace(/_/g, ' ')
-  const filtered    = points.filter(p => {
+  // Pas de data = item sans historique sur SkyCofl
+  if (!Array.isArray(points) || points.length === 0) {
+    throw new Error(`No data for ${item_id}`)
+  }
+
+  const isHigh    = liquidity === 'HIGH'
+  const item_name = item_id.replace(/_/g, ' ')
+  const filtered  = points.filter(p => {
     const ts = new Date(p.time * 1000)
     return ts >= fromDate && ts <= toDate
   })
@@ -209,12 +223,7 @@ async function processItem(item: {
     if (item_type === 'BAZAAR') {
       rowsInserted = await importBazaar(item_id, effectiveFrom, toDate)
     } else {
-      rowsInserted = await importAH(
-        item_id,
-        liquidity as 'HIGH' | 'LOW',
-        effectiveFrom,
-        toDate
-      )
+      rowsInserted = await importAH(item_id, liquidity as 'HIGH' | 'LOW', effectiveFrom, toDate)
     }
 
     const newYearsCompleted = years_completed + 1
@@ -232,16 +241,20 @@ async function processItem(item: {
     return { item_id, rows: rowsInserted, status: isDone ? 'done' : 'pending' }
 
   } catch (err: any) {
-    // En cas d'erreur — reste en pending pour être retraité au prochain run
-    // NE PAS marquer done — l'item doit être retenté
-    console.error(`historic-import error for ${item_id}:`, err.message)
+    const errMsg = err.message as string
+    const dead   = isDeadError(errMsg)
 
+    // 404 / No data → item sans historique SkyCofl → done définitivement
+    // Autre erreur (timeout, réseau) → reste pending pour être retenté
     await supabase
       .from('historic_import_progress')
-      .update({ last_processed_at: new Date().toISOString() })
+      .update({
+        status:            dead ? 'done' : 'pending',
+        last_processed_at: new Date().toISOString()
+      })
       .eq('item_id', item_id)
 
-    return { item_id, rows: 0, error: err.message, status: 'pending' }
+    return { item_id, rows: 0, error: errMsg, status: dead ? 'done' : 'pending' }
   }
 }
 
@@ -280,16 +293,17 @@ export async function GET(request: Request) {
     }
 
     const successful = results.filter(r => !r.error).length
-    const errors     = results.filter(r => r.error)
+    const dead       = results.filter(r => r.status === 'done' && r.error).length
+    const retryLater = results.filter(r => r.status === 'pending' && r.error).length
     const totalRows  = results.reduce((s, r) => s + r.rows, 0)
 
     return NextResponse.json({
       success:         true,
       items_processed: results.length,
       successful,
-      errors_count:    errors.length,
+      dead_items:      dead,
+      retry_later:     retryLater,
       total_rows:      totalRows,
-      first_error:     errors[0]?.error ?? null,
       results
     })
 
