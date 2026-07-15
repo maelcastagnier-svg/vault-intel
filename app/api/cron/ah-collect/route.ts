@@ -59,20 +59,21 @@ export async function GET(request: Request) {
   const lockKey        = 'ah_collect'
   const { data: lock } = await supabase
     .from('cron_locks')
-    .select('locked_at')
-    .eq('key', lockKey)
+    .select('locked_until')
+    .eq('job_name', lockKey)
     .single()
 
-  if (lock) {
-    const elapsed = Date.now() - new Date(lock.locked_at).getTime()
-    if (elapsed < 90_000) {
-      return NextResponse.json({ message: 'Already running' })
-    }
+  if (lock?.locked_until && new Date(lock.locked_until) > new Date()) {
+    return NextResponse.json({ message: 'Already running' })
   }
 
+  // Pose le verrou pour 90 secondes
   await supabase
     .from('cron_locks')
-    .upsert({ key: lockKey, locked_at: new Date().toISOString() })
+    .upsert({
+      job_name:     lockKey,
+      locked_until: new Date(Date.now() + 90_000).toISOString()
+    }, { onConflict: 'job_name' })
 
   try {
     // Liquidité depuis historic_import_progress
@@ -153,7 +154,7 @@ export async function GET(request: Request) {
       })
 
     // 1. Snapshot ah_live (DELETE + INSERT)
-    await supabase.from('ah_live').delete().neq('base_item_id', '')
+    await supabase.from('ah_live').delete().neq('item_id', '')
     await supabase.from('ah_live').insert(
       topItems.map(item => ({
         item_id:           item.base_item_id,
@@ -222,7 +223,11 @@ export async function GET(request: Request) {
       )
     }
 
-    await supabase.from('cron_locks').delete().eq('key', lockKey)
+    // Libère le verrou
+    await supabase
+      .from('cron_locks')
+      .update({ locked_until: null })
+      .eq('job_name', lockKey)
 
     return NextResponse.json({
       success:         true,
@@ -233,7 +238,11 @@ export async function GET(request: Request) {
     })
 
   } catch (error: any) {
-    await supabase.from('cron_locks').delete().eq('key', lockKey)
+    // Libère le verrou même en cas d'erreur
+    await supabase
+      .from('cron_locks')
+      .update({ locked_until: null })
+      .eq('job_name', lockKey)
     console.error('ah-collect error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
