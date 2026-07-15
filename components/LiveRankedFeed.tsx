@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '../lib/supabase'
+import { useGlobalRefresh, useRefreshCountdown } from '../lib/useGlobalRefresh'
 
 const supabase = createClient()
 
@@ -34,7 +35,7 @@ interface LiveRankedFeedProps {
   category?:    string
 }
 
-const FADE_MS  = 350
+const FADE_MS  = 300
 const ITEM_H   = 64
 const ITEM_GAP = 6
 
@@ -48,20 +49,15 @@ export default function LiveRankedFeed({
   const [bazaarItems, setBazaarItems] = useState<BazaarItem[]>([])
   const [fadingOut,   setFadingOut]   = useState<Set<string>>(new Set())
   const [fadingIn,    setFadingIn]    = useState<Set<string>>(new Set())
-  const [lastUpdate,  setLastUpdate]  = useState<Date | null>(null)
   const [copiedId,    setCopiedId]    = useState<string | null>(null)
-  const [, tick]                      = useState(0)
   const prevIdsRef                    = useRef<Set<string>>(new Set())
   const loadingRef                    = useRef(false)
 
-  useEffect(() => {
-    const t = setInterval(() => tick(n => n + 1), 1000)
-    return () => clearInterval(t)
-  }, [])
+  // Timer global partagé — même tick pour tous les feeds
+  const globalTick      = useGlobalRefresh()
+  const countdown       = useRefreshCountdown()
 
-  const secondsAgo = lastUpdate
-    ? Math.floor((Date.now() - lastUpdate.getTime()) / 1000)
-    : null
+  const color = type === 'AH' ? '#2a78d6' : '#1baf7a'
 
   const loadAH = useCallback(async () => {
     if (loadingRef.current) return
@@ -111,8 +107,6 @@ export default function LiveRankedFeed({
         setFadingIn(new Set(added))
         setTimeout(() => setFadingIn(new Set()), FADE_MS)
       }
-
-      setLastUpdate(new Date())
     } finally {
       loadingRef.current = false
     }
@@ -158,13 +152,12 @@ export default function LiveRankedFeed({
         setFadingIn(new Set(added))
         setTimeout(() => setFadingIn(new Set()), FADE_MS)
       }
-
-      setLastUpdate(new Date())
     } finally {
       loadingRef.current = false
     }
   }, [maxItems])
 
+  // Chargement initial + reset au changement de catégorie
   useEffect(() => {
     setAhItems([])
     setBazaarItems([])
@@ -173,21 +166,15 @@ export default function LiveRankedFeed({
 
     if (type === 'AH') loadAH()
     else loadBazaar()
+  }, [type, category, maxItems, instanceKey])
 
-    const table   = type === 'AH' ? 'ah_live' : 'bazaar_1h'
-    const uid     = instanceKey || `${type}_${category || 'all'}_${maxItems}`
-    const channel = supabase
-      .channel(`feed_${uid}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table }, () => {
-        if (type === 'AH') loadAH()
-        else loadBazaar()
-      })
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [type, category, maxItems, instanceKey, loadAH, loadBazaar])
-
-  const color = type === 'AH' ? '#2a78d6' : '#1baf7a'
+  // Refresh global synchronisé — même tick pour tous les feeds
+  useEffect(() => {
+    if (globalTick === 0) return // Skip le tick initial
+    loadingRef.current = false
+    if (type === 'AH') loadAH()
+    else loadBazaar()
+  }, [globalTick])
 
   const handleCopy = (item: AHItem) => {
     if (!item.best_auction_uuid) return
@@ -328,34 +315,38 @@ export default function LiveRankedFeed({
 
   return (
     <div>
+      {/* Status bar avec countdown global */}
       <div style={{
         fontSize:     9,
-        color:        secondsAgo !== null && secondsAgo < 90 ? '#1baf7a' : '#6b6960',
+        color:        '#6b6960',
         fontFamily:   'Space Mono, monospace',
         marginBottom: 8,
         display:      'flex',
         alignItems:   'center',
-        gap:          4
+        gap:          6
       }}>
         <span style={{
           width:        6,
           height:       6,
           borderRadius: '50%',
-          background:   secondsAgo !== null && secondsAgo < 90 ? '#1baf7a' : '#6b6960',
-          display:      'inline-block'
+          background:   '#1baf7a',
+          display:      'inline-block',
+          animation:    countdown <= 3 ? 'pulse 0.5s ease infinite' : undefined
         }} />
-        {secondsAgo === null
-          ? 'Waiting for data...'
-          : secondsAgo < 60
-            ? `Updated ${secondsAgo}s ago`
-            : `Updated ${Math.floor(secondsAgo / 60)}m ago`
-        }
+        <span>LIVE</span>
+        <span style={{ color: '#3a3a38' }}>·</span>
+        <span>next refresh in {countdown}s</span>
       </div>
+
       <div style={{ minHeight: containerH }}>
         <style>{`
           @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(8px); }
+            from { opacity: 0; transform: translateY(6px); }
             to   { opacity: 1; transform: translateY(0);   }
+          }
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50%       { opacity: 0.3; }
           }
         `}</style>
         {type === 'AH'
