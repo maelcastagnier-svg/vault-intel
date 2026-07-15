@@ -188,6 +188,69 @@ async function importAH(
 }
 
 // ============================================================
+// TRAITEMENT D'UN ITEM — isolé pour ne pas bloquer les autres
+// ============================================================
+async function processItem(item: {
+  item_id:         string
+  item_name:       string | null
+  item_type:       string
+  liquidity:       string
+  years_completed: number
+}): Promise<{ item_id: string; rows: number; error?: string; status: string }> {
+  const { item_id, item_name, item_type, liquidity, years_completed } = item
+
+  const toDate        = getDateBoundary(years_completed)
+  const fromDate      = getDateBoundary(years_completed + 1)
+  const hardLimit     = getDateBoundary(YEARS_TARGET)
+  const effectiveFrom = fromDate < hardLimit ? hardLimit : fromDate
+
+  try {
+    let rowsInserted = 0
+
+    if (item_type === 'BAZAAR') {
+      rowsInserted = await importBazaar(item_id, effectiveFrom, toDate)
+    } else {
+      rowsInserted = await importAH(
+        item_id,
+        item_name ?? item_id.replace(/_/g, ' '),
+        liquidity as 'HIGH' | 'LOW',
+        effectiveFrom,
+        toDate
+      )
+    }
+
+    const newYearsCompleted = years_completed + 1
+    const isDone            = newYearsCompleted >= YEARS_TARGET
+
+    await supabase
+      .from('historic_import_progress')
+      .update({
+        years_completed:   newYearsCompleted,
+        status:            isDone ? 'done' : 'pending',
+        last_processed_at: new Date().toISOString()
+      })
+      .eq('item_id', item_id)
+
+    return { item_id, rows: rowsInserted, status: isDone ? 'done' : 'pending' }
+
+  } catch (err: any) {
+    // En cas d'erreur sur un item — le marque done pour ne pas bloquer
+    // les autres et continuer l'import
+    console.error(`historic-import skip ${item_id}:`, err.message)
+
+    await supabase
+      .from('historic_import_progress')
+      .update({
+        status:            'done',
+        last_processed_at: new Date().toISOString()
+      })
+      .eq('item_id', item_id)
+
+    return { item_id, rows: 0, error: err.message, status: 'skipped' }
+  }
+}
+
+// ============================================================
 // HANDLER PRINCIPAL
 // ============================================================
 export async function GET(request: Request) {
@@ -197,7 +260,6 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Récupère les 5 prochains items à traiter
     const { data: nextItems, error } = await supabase
       .from('historic_import_progress')
       .select('item_id, item_name, item_type, liquidity, years_completed')
@@ -207,70 +269,37 @@ export async function GET(request: Request) {
       .order('item_id',         { ascending: true })
       .limit(ITEMS_PER_RUN)
 
-    if (error || !nextItems || nextItems.length === 0) {
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    if (!nextItems || nextItems.length === 0) {
       return NextResponse.json({ message: 'Nothing to import — all items done or at target' })
     }
 
-    // Traite les 5 items en parallèle
-    const results = await Promise.all(
-      nextItems.map(async item => {
-        const { item_id, item_name, item_type, liquidity, years_completed } = item
+    // Traite les items séquentiellement pour éviter les rate limits SkyCofl
+    // (pas en parallèle — SkyCofl bloque les requêtes simultanées)
+    const results = []
+    for (const item of nextItems) {
+      const result = await processItem(item)
+      results.push(result)
+    }
 
-        const toDate        = getDateBoundary(years_completed)
-        const fromDate      = getDateBoundary(years_completed + 1)
-        const hardLimit     = getDateBoundary(YEARS_TARGET)
-        const effectiveFrom = fromDate < hardLimit ? hardLimit : fromDate
-
-        let rowsInserted = 0
-
-        try {
-          if (item_type === 'BAZAAR') {
-            rowsInserted = await importBazaar(item_id, effectiveFrom, toDate)
-          } else {
-            rowsInserted = await importAH(
-              item_id,
-              item_name ?? item_id.replace(/_/g, ' '),
-              liquidity as 'HIGH' | 'LOW',
-              effectiveFrom,
-              toDate
-            )
-          }
-
-          const newYearsCompleted = years_completed + 1
-          const isDone            = newYearsCompleted >= YEARS_TARGET
-
-          await supabase
-            .from('historic_import_progress')
-            .update({
-              years_completed:   newYearsCompleted,
-              status:            isDone ? 'done' : 'pending',
-              last_processed_at: new Date().toISOString()
-            })
-            .eq('item_id', item_id)
-
-          return {
-            item_id,
-            item_type,
-            rows_inserted: rowsInserted,
-            years_completed: newYearsCompleted,
-            status: isDone ? 'done' : 'pending'
-          }
-
-        } catch (err: any) {
-          console.error(`historic-import error for ${item_id}:`, err.message)
-          return { item_id, item_type, rows_inserted: 0, error: err.message }
-        }
-      })
-    )
+    const successful = results.filter(r => !r.error).length
+    const skipped    = results.filter(r => r.error).length
+    const totalRows  = results.reduce((s, r) => s + r.rows, 0)
 
     return NextResponse.json({
       success:         true,
       items_processed: results.length,
+      successful,
+      skipped,
+      total_rows:      totalRows,
       results
     })
 
   } catch (error: any) {
-    console.error('historic-import error:', error)
+    console.error('historic-import fatal error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
