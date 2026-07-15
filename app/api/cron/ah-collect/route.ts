@@ -67,7 +67,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ message: 'Already running' })
   }
 
-  // Pose le verrou pour 90 secondes
   await supabase
     .from('cron_locks')
     .upsert({
@@ -150,11 +149,18 @@ export async function GET(request: Request) {
         const sorted = [...item.prices].sort((a, b) => a - b)
         const median = sorted[Math.floor(sorted.length / 2)]
         const avg    = sorted.reduce((s, p) => s + p, 0) / sorted.length
-        return { ...item, avg_price: avg, sell_price: item.best_price, buy_price: median }
+        return {
+          ...item,
+          avg_price:  avg,
+          sell_price: item.best_price,  // meilleur prix = prix de vente
+          buy_price:  median,           // médiane = prix d'achat estimé
+          min_price:  sorted[0],
+          max_price:  sorted[sorted.length - 1]
+        }
       })
 
     // 1. Snapshot ah_live (DELETE + INSERT)
-    await supabase.from('ah_live').delete().neq('item_id', '')
+    await supabase.from('ah_live').delete().neq('id', 0)
     await supabase.from('ah_live').insert(
       topItems.map(item => ({
         item_id:           item.base_item_id,
@@ -238,7 +244,6 @@ export async function GET(request: Request) {
     })
 
   } catch (error: any) {
-    // Libère le verrou même en cas d'erreur
     await supabase
       .from('cron_locks')
       .update({ locked_until: null })
