@@ -1,6 +1,5 @@
 // app/api/cron/money-making-agent/route.ts
 // 4 appels Claude parallèles — 1 par tier (early/mid/end/late)
-// Claude croise mécaniques de jeu + données économiques pour générer des money-making réels
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -18,30 +17,34 @@ const TIER_CONFIG = {
   early: {
     label:          'EARLY',
     networth:       '0-10M',
-    coins_per_hour: '10M',
-    capital_max:    '500K',
-    description:    'Joueur débutant, peu de capital, accès limité aux contenus end-game'
+    coins_target:   10_000_000,
+    capital_max:    500_000,
+    access:         'Slayer T1-T2, Dungeon F1-F3, no Kuudra, basic minions, no Garden',
+    forbidden:      'M1-M7, Kuudra T3+, Slayer T5, Crystal Hollows mining advanced'
   },
   mid: {
     label:          'MID',
     networth:       '10M-500M',
-    coins_per_hour: '25M',
-    capital_max:    '50M',
-    description:    'Joueur intermédiaire, accès donjons F1-F5, slayers T3-T4, Kuudra T1-T2'
+    coins_target:   25_000_000,
+    capital_max:    50_000_000,
+    access:         'Slayer T3-T4, Dungeon F4-F6, Kuudra T1-T2, Crystal Hollows, Garden basic',
+    forbidden:      'M4-M7, Kuudra T5, Slayer T5 Vampire/Inferno'
   },
   end: {
     label:          'END',
     networth:       '500M-5B',
-    coins_per_hour: '50M',
-    capital_max:    '500M',
-    description:    'Joueur avancé, accès donjons F7/M1-M4, slayers T5, Kuudra T3-T5'
+    coins_target:   50_000_000,
+    capital_max:    500_000_000,
+    access:         'Slayer T5 all, Dungeon M1-M4, Kuudra T3-T5, Pest Farming Advanced, Thunder Fishing',
+    forbidden:      'M6-M7 (unless catacombs 35+)'
   },
   late: {
     label:          'LATE',
     networth:       '5B+',
-    coins_per_hour: '70M+',
-    capital_max:    '2B',
-    description:    'Joueur whale, accès Master Mode, tout le contenu débloqué'
+    coins_target:   70_000_000,
+    capital_max:    2_000_000_000,
+    access:         'Everything — M6-M7, all Kuudra, all Slayers, Bazaar Advanced Flipping, all content',
+    forbidden:      'Nothing'
   }
 }
 
@@ -49,51 +52,59 @@ const TIER_CONFIG = {
 // SYSTEM PROMPT
 // ============================================================
 function buildSystemPrompt(tier: string, config: typeof TIER_CONFIG.early): string {
-  return `You are Vault, the ultimate Hypixel Skyblock economic intelligence agent.
+  const target = (config.coins_target / 1_000_000) + 'M'
+  const capital = config.capital_max >= 1_000_000_000
+    ? (config.capital_max / 1_000_000_000) + 'B'
+    : (config.capital_max / 1_000_000) + 'M'
 
-Your task: Generate a complete money-making guide for the ${config.label} tier (networth ${config.networth}).
-STRICT TARGET: Every method MUST generate at least ${config.coins_per_hour} coins/hour.
-CAPITAL LIMIT: Maximum ${config.capital_max} available capital.
-PLAYER PROFILE: ${config.description}
+  return `You are Vault, the elite Hypixel Skyblock economic intelligence system.
 
-HYPIXEL PRICE CONVENTIONS (critical — never confuse these):
-- buy_price = instant-buy price (you pay this to buy immediately)
-- sell_price = instant-sell price (you receive this when selling immediately)
-- Bazaar flip profit = sell_price - buy_price - 1.25% tax
-- volume = daily trading volume (higher = more liquid, easier to flip)
+TIER: ${config.label} | Networth: ${config.networth} | Target: ${target} coins/hour minimum | Max capital: ${capital}
+ACCESSIBLE CONTENT: ${config.access}
+FORBIDDEN (player cannot access yet): ${config.forbidden}
 
-YOUR ANALYSIS METHOD:
-1. For Bazaar flips: Use provided buy_price, sell_price, volume. Compute real profit per flip and coins/hour based on flip cycle time (typically 10-30min per cycle with order management).
-2. For AH flips: Use provided best_price, historical_avg, discount_pct. Real profit = historical_avg - best_price - AH tax (1%). Only suggest flips where discount_pct > 15% AND historical_avg is available.
-3. For Farming: Cross-reference drop rates from loot_tables/slayer_data/dungeon_data with current sell prices from bazaar_live to compute REAL coins/hour. Formula: drops_per_hour × item_sell_price = coins/hour.
-4. For Vault Exclusive: Innovate by finding non-obvious correlations between game mechanics and current market prices that other players miss. These must be real, computable methods.
+YOUR JOB: Generate the 3 best methods in each of 4 categories that meet the ${target}/h target for THIS tier.
+
+PRICE CONVENTIONS (critical):
+- buy_price = instant-buy price (what you PAY to buy now)  
+- sell_price = instant-sell price (what you GET when selling now)
+- Bazaar flip profit per unit = sell_price - buy_price — never reverse this
+- Bazaar tax = 1.25% on sell side
+- AH tax = 1% on sale
+
+METHODOLOGY:
+1. BAZAAR FLIP: profit/cycle = (sell_price - buy_price) × units - tax. Cycles/hour = 60min / cycle_time. Use provided volume to assess liquidity.
+2. AH FLIP: only suggest items where discount_pct > 15% AND historical_avg exists. profit = historical_avg × 0.99 - best_price.
+3. ACTIVE GRIND (combat/mining/fishing/slayer/dungeon — NOT farming skill): Use provided verified methods as base. Cross with current bazaar sell prices to compute real coins/hour. Show the math.
+4. VAULT EXCLUSIVE: Original methods Claude discovers by cross-referencing game mechanics with current market data. Must be computable.
 
 CRITICAL RULES:
-- Every coins/hour figure must be mathematically derivable from provided data
-- If you cannot compute a real number, state the formula and mark as ESTIMATE
-- Never suggest a method that requires more capital than the tier limit
-- Never suggest content the tier player cannot access
-- Farming setups must list ONLY real gear from provided accessories/reforges/gemstones data
+- NEVER suggest methods forbidden for this tier
+- NEVER invent drop rates — use only provided loot_tables and slayer_data
+- NEVER invent item names for setups — use only provided accessories/reforges
+- If coins/hour cannot reach ${target}/h, say so honestly and explain what IS achievable
+- Bazaar flip: sell_price is ALWAYS lower than buy_price in Hypixel (sell order < buy order)
+- Mark confidence: HIGH (data confirms target), MED (estimate based on data), LOW (insufficient data)
 
-Output ONLY the following structure, no extra text:
+Output ONLY this structure, no extra text outside it:
 
 [MONEY_MAKING_${tier.toUpperCase()}]
 
 ### BAZAAR FLIP
-| Item | Buy Price | Sell Price | Spread % | Volume/Day | Capital | Coins/Hour | How |
-3 rows. Each flip must reach ${config.coins_per_hour}/h target. Show the math briefly in "How" column.
+| Item | Sell Price | Buy Price | Spread % | Volume/Day | Capital | Coins/Hour | Math |
+3 rows. sell_price < buy_price always. Show: (buy_price - sell_price - tax) × units/cycle × cycles/hour.
 
 ### AH FLIP
-| Item | Variant | Best Price | Hist. Avg | Discount % | Capital | Est. Profit | Confidence |
-3 rows. Only items with discount_pct > 15% from provided data. If no AH data available, state why clearly.
+| Item | Variant | Best Price | Hist. Avg | Discount % | Capital | Profit/Flip | Confidence |
+3 rows. Skip if no items with discount_pct > 15% — write "Insufficient AH history data for ${config.label} tier" instead.
 
-### FARMING
-| Method | Coins/Hour | How It Works | Full Setup | Requirements |
-3 rows. "How It Works" = drop_rate × price formula. "Full Setup" = specific gear from provided data.
+### ACTIVE GRIND
+| Method | Category | Coins/Hour | Key Drops + Prices | Full Setup (real gear only) | Requirements | Confidence |
+3 rows. Category = combat/mining/fishing/slayer/dungeon. Coins/hour from: drops/hour × bazaar_sell_price. Full Setup uses ONLY gear from provided accessories and reforges data.
 
 ### VAULT EXCLUSIVE
-| Method | Coins/Hour | The Insight | Full Setup | Why Others Miss It |
-3 rows. These are original methods discovered by cross-referencing provided mechanics + market data. Must be computable, not generic advice.`
+| Method | Category | Coins/Hour | The Edge | Setup | Confidence |
+3 rows. Cross-reference game mechanics with current prices to find non-obvious opportunities others miss. Must be computable from provided data.`
 }
 
 // ============================================================
@@ -109,121 +120,117 @@ export async function GET(req: NextRequest) {
     // 1. Contexte global
     const { data: ctx } = await supabase.rpc('get_full_context')
 
-    // 2. Données gear + AH
+    // 2. Données additionnelles
     const [
       { data: accessories },
       { data: reforges },
       { data: gemstones },
-      { data: accessoryPowers },
       { data: ahLive },
       { data: lootTables },
-      { data: minions }
+      { data: minions },
+      { data: gameContextArmor }
     ] = await Promise.all([
-      supabase.from('accessories').select('name, ability, magical_power, rarity').limit(150),
-      supabase.from('reforges').select('name, type, stats').limit(100),
-      supabase.from('gemstones').select('name, type, stats, slot_type').limit(80),
-      supabase.from('accessory_powers').select('power_name, description').limit(30),
-      supabase.from('ah_live')
-        .select('base_item_id, item_name, best_price, historical_avg, discount_pct, spread_pct, category, variant_key')
-        .gt('discount_pct', 10)
-        .order('discount_pct', { ascending: false })
+      supabase.from('accessories')
+        .select('name, ability, magical_power, rarity')
+        .order('magical_power', { ascending: false })
+        .limit(100),
+      supabase.from('reforges')
+        .select('name, type, stats')
         .limit(80),
+      supabase.from('gemstones')
+        .select('name, type, stats, slot_type')
+        .limit(60),
+      supabase.from('ah_live')
+        .select('base_item_id, item_name, best_price, historical_avg, discount_pct, category, variant_key')
+        .gt('discount_pct', 10)
+        .not('historical_avg', 'is', null)
+        .gt('historical_avg', 0)
+        .order('discount_pct', { ascending: false })
+        .limit(60),
       supabase.from('loot_tables')
         .select('source_type, source_name, item_id, drop_chance, quantity_min, quantity_max')
         .order('drop_chance', { ascending: false })
-        .limit(80),
-      supabase.from('minions').select('name, resource, coins_per_hour, upgrade_cost').limit(30)
+        .limit(60),
+      supabase.from('minions')
+        .select('name, resource, coins_per_hour, upgrade_cost')
+        .limit(25),
+      supabase.from('game_context')
+        .select('title, content')
+        .or('title.ilike.%armor%,title.ilike.%helmet%,title.ilike.%sword%,title.ilike.%bow%,title.ilike.%wand%,title.ilike.%staff%')
+        .limit(40)
     ])
 
-    // 3. Formate contexte
+    // 3. Formate le contexte
+    // Bazaar — sell_price < buy_price (convention Hypixel)
     const bz = (ctx?.bazaar_live || [])
-      .map((i: any) =>
-        i.item_id +
-        ' | buy=' + Number(i.buy_price).toFixed(1) +
-        ' sell=' + Number(i.sell_price).toFixed(1) +
-        ' spread=' + i.spread_pct + '%' +
-        ' vol=' + (i.volume ? Number(i.volume).toLocaleString() : 'N/A')
-      ).join('\n')
+      .map((i: any) => {
+        const sellP  = Number(i.sell_price).toFixed(1)
+        const buyP   = Number(i.buy_price).toFixed(1)
+        const spread = Number(i.spread_pct).toFixed(1)
+        const vol    = i.volume ? Number(i.volume).toLocaleString() : 'N/A'
+        return `${i.item_id} | SELL=${sellP} BUY=${buyP} spread=${spread}% vol/day=${vol}`
+      }).join('\n')
 
-    const ahFormatted = (ahLive || [])
-      .map((i: any) =>
-        i.base_item_id +
-        ' [' + i.variant_key + ']' +
-        ' best=' + Number(i.best_price).toLocaleString() +
-        ' hist_avg=' + (i.historical_avg ? Number(i.historical_avg).toLocaleString() : 'NO_HISTORY') +
-        ' discount=' + (i.discount_pct || 0) + '%'
-      ).join('\n')
+    const ahFormatted = (ahLive || []).length > 0
+      ? (ahLive || []).map((i: any) =>
+          `${i.base_item_id} [${i.variant_key}] | best=${Number(i.best_price).toLocaleString()} hist_avg=${Number(i.historical_avg).toLocaleString()} discount=${i.discount_pct}% cat=${i.category}`
+        ).join('\n')
+      : 'No AH items with >10% discount and known historical average currently'
 
     const slayers = (ctx?.slayers || [])
       .map((s: any) =>
-        s.slayer_type + ' T' + s.tier +
-        ': cost=' + s.coin_cost +
-        ' drops=' + JSON.stringify(s.drops) +
-        ' kill_time=' + s.avg_kill_time_seconds + 's'
+        `${s.slayer_type} T${s.tier}: coin_cost=${s.coin_cost} kill_time=${s.avg_kill_time_seconds}s drops=${JSON.stringify(s.drops)}`
       ).join('\n')
 
     const dungeons = (ctx?.dungeons || [])
       .map((d: any) =>
-        d.floor + ' ' + d.mode +
-        ' boss=' + d.boss_name +
-        ' loot=' + JSON.stringify(d.chest_loot) +
-        ' time=' + d.avg_run_time_seconds + 's'
+        `${d.floor} ${d.mode}: run_time=${d.avg_run_time_seconds}s loot=${JSON.stringify(d.chest_loot)}`
       ).join('\n')
 
     const kuudra = (ctx?.kuudra || [])
       .map((k: any) =>
-        'T' + k.tier +
-        ': coins=' + k.avg_coins_per_run +
-        ' requirements=' + JSON.stringify(k.requirements)
+        `T${k.tier}: avg_coins=${k.avg_coins_per_run} req=${JSON.stringify(k.requirements)}`
       ).join('\n')
 
-    const moneyMethods = (ctx?.money_methods || [])
+    const verifiedMethods = (ctx?.money_methods || [])
       .map((m: any) =>
-        m.method_name + ' (' + m.category + ')' +
-        ': ' + m.coins_per_hour_min + '-' + m.coins_per_hour_max + '/h' +
-        ' req=' + m.requirements
+        `${m.method_name} [${m.category}]: ${(m.coins_per_hour_min/1e6).toFixed(0)}M-${(m.coins_per_hour_max/1e6).toFixed(0)}M/h | req=${JSON.stringify(m.requirements)}`
       ).join('\n')
 
     const lootFormatted = (lootTables || [])
       .map((l: any) =>
-        l.source_name + ' [' + l.source_type + ']' +
-        ' drops ' + l.item_id +
-        ' chance=' + l.drop_chance + '%' +
-        ' qty=' + l.quantity_min + '-' + l.quantity_max
+        `${l.source_name} [${l.source_type}] → ${l.item_id} | chance=${l.drop_chance}% qty=${l.quantity_min}-${l.quantity_max}`
       ).join('\n')
 
     const accessoriesFormatted = (accessories || [])
       .map((a: any) =>
-        a.name + ' [' + a.rarity + ']' +
-        ' MP=' + a.magical_power +
-        (a.ability ? ' | ' + a.ability : '')
+        `${a.name} [${a.rarity}] MP=${a.magical_power}${a.ability ? ' | ' + a.ability : ''}`
       ).join('\n')
 
     const reforgesFormatted = (reforges || [])
-      .map((r: any) => r.name + ' (' + r.type + '): ' + JSON.stringify(r.stats))
-      .join('\n')
-
-    const gemstonesFormatted = (gemstones || [])
-      .map((g: any) => g.name + ' [' + g.type + '] slot=' + g.slot_type)
+      .map((r: any) => `${r.name} (${r.type}): ${JSON.stringify(r.stats)}`)
       .join('\n')
 
     const minionsFormatted = (minions || [])
-      .map((m: any) => m.name + ': ' + m.resource + ' ~' + m.coins_per_hour + '/h')
+      .map((m: any) => `${m.name}: ${m.resource} ~${m.coins_per_hour}/h`)
+      .join('\n')
+
+    const armorFormatted = (gameContextArmor || [])
+      .map((g: any) => `${g.title}: ${(g.content || '').slice(0, 120)}`)
       .join('\n')
 
     const sharedContext =
-      '=== BAZAAR LIVE (buy_price=insta-buy, sell_price=insta-sell) ===\n' + bz +
-      '\n\n=== AH LIVE (items with discount vs historical avg) ===\n' +
-      (ahFormatted || 'No AH items with >10% discount currently') +
-      '\n\n=== SLAYER DATA (cost + drops + kill time) ===\n' + slayers +
-      '\n\n=== DUNGEON DATA (loot + run time) ===\n' + dungeons +
+      '=== BAZAAR (SELL=insta-sell you receive, BUY=insta-buy you pay, spread=profit margin) ===\n' + bz +
+      '\n\n=== AH LIVE (items underpriced vs historical — discount_pct = % below avg) ===\n' + ahFormatted +
+      '\n\n=== VERIFIED MONEY METHODS (use as primary reference for ACTIVE GRIND) ===\n' + verifiedMethods +
+      '\n\n=== SLAYER DATA ===\n' + slayers +
+      '\n\n=== DUNGEON DATA ===\n' + dungeons +
       '\n\n=== KUUDRA DATA ===\n' + kuudra +
-      '\n\n=== KNOWN MONEY METHODS (verified) ===\n' + moneyMethods +
       '\n\n=== LOOT TABLES (drop rates) ===\n' + lootFormatted +
       '\n\n=== MINIONS ===\n' + minionsFormatted +
-      '\n\n=== ACCESSORIES (for setups) ===\n' + accessoriesFormatted +
-      '\n\n=== REFORGES ===\n' + reforgesFormatted +
-      '\n\n=== GEMSTONES ===\n' + gemstonesFormatted
+      '\n\n=== ARMOR & WEAPONS (from game data) ===\n' + armorFormatted +
+      '\n\n=== ACCESSORIES (for setups — use ONLY these names) ===\n' + accessoriesFormatted +
+      '\n\n=== REFORGES (for setups — use ONLY these names) ===\n' + reforgesFormatted
 
     // 4. 4 appels Claude en parallèle
     const tierPromises = Object.entries(TIER_CONFIG).map(async ([tier, config]) => {
@@ -236,7 +243,7 @@ export async function GET(req: NextRequest) {
         },
         body: JSON.stringify({
           model:      'claude-sonnet-4-6',
-          max_tokens: 2500,
+          max_tokens: 3000,
           system: [{
             type:          'text',
             text:          buildSystemPrompt(tier, config),
@@ -253,7 +260,7 @@ export async function GET(req: NextRequest) {
 
     const results = await Promise.all(tierPromises)
 
-    // 5. Sauvegarde dans claude_analysis
+    // 5. Sauvegarde
     for (const result of results) {
       if ('error' in result) continue
 
@@ -276,11 +283,7 @@ export async function GET(req: NextRequest) {
       await supabase
         .from('claude_analysis')
         .upsert(
-          {
-            section,
-            content:    result.content,
-            updated_at: new Date().toISOString()
-          },
+          { section, content: result.content, updated_at: new Date().toISOString() },
           { onConflict: 'section' }
         )
     }
