@@ -7,7 +7,17 @@ const supabase = createClient(
 )
 
 const HYPIXEL_BAZAAR_URL = 'https://api.hypixel.net/v2/skyblock/bazaar'
-const TOP_ITEMS = 25
+const TOP_ITEMS          = 25
+
+type BazaarItem = {
+  item_id:    string
+  item_name:  string
+  buy_price:  number
+  sell_price: number
+  avg_price:  number
+  volume:     number
+  spread:     number
+}
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization')
@@ -16,16 +26,17 @@ export async function GET(request: Request) {
   }
 
   try {
-    const res = await fetch(HYPIXEL_BAZAAR_URL)
+    const res  = await fetch(HYPIXEL_BAZAAR_URL)
     const data = await res.json()
 
     if (!data.success || !data.products) {
       throw new Error('Hypixel API returned no products')
     }
 
-    // Calcule spread et filtre
-    const items = Object.entries(data.products)
-      .map(([item_id, product]: [string, any]) => {
+    const items: BazaarItem[] = (
+      Object.entries(data.products) as [string, any][]
+    )
+      .map(([item_id, product]) => {
         const qs = product.quick_status
         if (!qs) return null
 
@@ -40,20 +51,20 @@ export async function GET(request: Request) {
 
         return {
           item_id,
-          item_name: item_id.replace(/_/g, ' '),
+          item_name:  item_id.replace(/_/g, ' '),
           buy_price:  buy,
           sell_price: sell,
           avg_price:  avg,
           volume:     vol,
           spread:     Math.round(spread * 100) / 100
-        }
+        } as BazaarItem
       })
-      .filter(Boolean)
-      .filter(i => i!.spread >= 10 && i!.spread <= 80)
-      .sort((a, b) => b!.spread - a!.spread)
-      .slice(0, TOP_ITEMS) as NonNullable<typeof items[0]>[]
+      .filter((i): i is BazaarItem => i !== null)
+      .filter(i => i.spread >= 10 && i.spread <= 80)
+      .sort((a, b) => b.spread - a.spread)
+      .slice(0, TOP_ITEMS)
 
-    // 1. Mise à jour bazaar_1h (snapshot temps réel)
+    // 1. Snapshot bazaar_1h (DELETE + INSERT)
     await supabase.from('bazaar_1h').delete().neq('item_id', '')
     await supabase.from('bazaar_1h').insert(
       items.map(item => ({
@@ -62,27 +73,29 @@ export async function GET(request: Request) {
       }))
     )
 
-    // 2. Upsert dans price_history (bucket DAILY — Bazaar only)
+    // 2. Upsert price_history (bucket DAILY)
     const bucketDate = new Date().toISOString().split('T')[0]
 
-    const rpcCalls = items.map(item =>
-      supabase.rpc('upsert_bazaar_price_bucket', {
-        p_item_id:     item.item_id,
-        p_item_name:   item.item_name,
-        p_buy_price:   item.buy_price,
-        p_sell_price:  item.sell_price,
-        p_avg_price:   item.avg_price,
-        p_volume:      item.volume,
-        p_bucket_date: bucketDate
-      })
-    )
-
-    await Promise.all(rpcCalls)
+    for (let i = 0; i < items.length; i += 20) {
+      await Promise.all(
+        items.slice(i, i + 20).map(item =>
+          supabase.rpc('upsert_bazaar_price_bucket', {
+            p_item_id:     item.item_id,
+            p_item_name:   item.item_name,
+            p_buy_price:   item.buy_price,
+            p_sell_price:  item.sell_price,
+            p_avg_price:   item.avg_price,
+            p_volume:      item.volume,
+            p_bucket_date: bucketDate
+          }).then()
+        )
+      )
+    }
 
     return NextResponse.json({
-      success: true,
+      success:      true,
       items_scanned: items.length,
-      bucket_date: bucketDate
+      bucket_date:  bucketDate
     })
 
   } catch (error: any) {
