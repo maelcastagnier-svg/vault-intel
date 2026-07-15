@@ -12,7 +12,7 @@ const supabase = createClient(
 )
 
 const YEARS_TARGET    = 3
-const ITEMS_PER_RUN   = 5
+const ITEMS_PER_RUN   = 10
 const SKYCOFL_TOKEN   = process.env.SKYCOFL_ACCOUNT_TOKEN!
 const SKYCOFL_HEADERS = {
   'Authorization': `Bearer ${SKYCOFL_TOKEN}`,
