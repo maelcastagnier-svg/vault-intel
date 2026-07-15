@@ -56,7 +56,7 @@ export async function GET(request: Request) {
   }
 
   // Verrou anti-chevauchement
-  const lockKey    = 'ah_collect'
+  const lockKey        = 'ah_collect'
   const { data: lock } = await supabase
     .from('cron_locks')
     .select('locked_at')
@@ -146,9 +146,9 @@ export async function GET(request: Request) {
       .sort((a, b) => b.volume - a.volume)
       .slice(0, TOP_ITEMS)
       .map(item => {
-        const sorted     = [...item.prices].sort((a, b) => a - b)
-        const median     = sorted[Math.floor(sorted.length / 2)]
-        const avg        = sorted.reduce((s, p) => s + p, 0) / sorted.length
+        const sorted = [...item.prices].sort((a, b) => a - b)
+        const median = sorted[Math.floor(sorted.length / 2)]
+        const avg    = sorted.reduce((s, p) => s + p, 0) / sorted.length
         return { ...item, avg_price: avg, sell_price: item.best_price, buy_price: median }
       })
 
@@ -156,6 +156,7 @@ export async function GET(request: Request) {
     await supabase.from('ah_live').delete().neq('base_item_id', '')
     await supabase.from('ah_live').insert(
       topItems.map(item => ({
+        item_id:           item.base_item_id,
         base_item_id:      item.base_item_id,
         variant_key:       item.variant_key,
         item_name:         item.item_name,
@@ -166,8 +167,11 @@ export async function GET(request: Request) {
         category:          item.category,
         best_price:        item.best_price,
         best_auction_uuid: item.best_uuid,
+        buy_price:         item.buy_price,
+        sell_price:        item.sell_price,
         avg_price:         item.avg_price,
         volume:            item.volume,
+        timestamp:         new Date().toISOString(),
         scanned_at:        new Date().toISOString()
       }))
     )

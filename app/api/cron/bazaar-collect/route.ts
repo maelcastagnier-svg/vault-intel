@@ -17,6 +17,7 @@ type BazaarItem = {
   avg_price:  number
   volume:     number
   spread:     number
+  spread_pct: number
 }
 
 export async function GET(request: Request) {
@@ -47,7 +48,8 @@ export async function GET(request: Request) {
 
         if (sell <= 0 || buy <= 0 || vol < 500_000 || sell < 500) return null
 
-        const spread = ((buy - sell) / sell) * 100
+        const spread     = buy - sell
+        const spread_pct = Math.round(((buy - sell) / sell) * 10000) / 100
 
         return {
           item_id,
@@ -56,19 +58,28 @@ export async function GET(request: Request) {
           sell_price: sell,
           avg_price:  avg,
           volume:     vol,
-          spread:     Math.round(spread * 100) / 100
+          spread,
+          spread_pct
         } as BazaarItem
       })
       .filter((i): i is BazaarItem => i !== null)
-      .filter(i => i.spread >= 10 && i.spread <= 80)
-      .sort((a, b) => b.spread - a.spread)
+      .filter(i => i.spread_pct >= 10 && i.spread_pct <= 80)
+      .sort((a, b) => b.spread_pct - a.spread_pct)
       .slice(0, TOP_ITEMS)
 
     // 1. Snapshot bazaar_1h (DELETE + INSERT)
     await supabase.from('bazaar_1h').delete().neq('item_id', '')
     await supabase.from('bazaar_1h').insert(
       items.map(item => ({
-        ...item,
+        item_id:    item.item_id,
+        item_name:  item.item_name,
+        buy_price:  item.buy_price,
+        sell_price: item.sell_price,
+        avg_price:  item.avg_price,
+        volume:     item.volume,
+        spread:     item.spread,
+        spread_pct: item.spread_pct,
+        timestamp:  new Date().toISOString(),
         scanned_at: new Date().toISOString()
       }))
     )
@@ -93,9 +104,9 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({
-      success:      true,
+      success:       true,
       items_scanned: items.length,
-      bucket_date:  bucketDate
+      bucket_date:   bucketDate
     })
 
   } catch (error: any) {
