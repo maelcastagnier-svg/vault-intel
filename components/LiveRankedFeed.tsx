@@ -1,168 +1,400 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '../lib/supabase'
-import LiveRankedFeed from './LiveRankedFeed'
 
 const supabase = createClient()
-const TRANSITION_MS = 250
 
-export default function FlashAlertsPage() {
-  const [categories,       setCategories]       = useState<string[]>([])
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
-  const [showBazaar,       setShowBazaar]       = useState(true)
-  const [panelVisible,     setPanelVisible]     = useState(true)
-  const pendingRef = useRef<{ category: string | null; bazaar: boolean } | null>(null)
+interface AHItem {
+  id:                string
+  base_item_id:      string
+  item_name:         string
+  best_price:        number
+  avg_price:         number
+  historical_avg:    number
+  discount_pct:      number
+  spread_pct:        number
+  best_auction_uuid: string | null
+  category:          string | null
+  volume:            number
+  sold:              boolean
+}
+
+interface BazaarItem {
+  id:         string
+  item_id:    string
+  item_name:  string
+  buy_price:  number
+  sell_price: number
+  spread_pct: number
+}
+
+interface LiveRankedFeedProps {
+  type:         'AH' | 'BAZAAR'
+  maxItems?:    number
+  instanceKey?: string
+  category?:    string
+}
+
+const FADE_MS  = 350
+const ITEM_H   = 64
+const ITEM_GAP = 6
+
+export default function LiveRankedFeed({
+  type,
+  maxItems = 25,
+  instanceKey,
+  category,
+}: LiveRankedFeedProps) {
+  const [ahItems,     setAhItems]     = useState<AHItem[]>([])
+  const [bazaarItems, setBazaarItems] = useState<BazaarItem[]>([])
+  const [fadingOut,   setFadingOut]   = useState<Set<string>>(new Set())
+  const [fadingIn,    setFadingIn]    = useState<Set<string>>(new Set())
+  const [lastUpdate,  setLastUpdate]  = useState<Date | null>(null)
+  const [copiedId,    setCopiedId]    = useState<string | null>(null)
+  const [, tick]                      = useState(0)
+  const prevIdsRef                    = useRef<Set<string>>(new Set())
+  const loadingRef                    = useRef(false)
 
   useEffect(() => {
-    async function loadCategories() {
-      const { data } = await supabase
-        .from('ah_live')
-        .select('category')
-        .not('category', 'is', null)
+    const t = setInterval(() => tick(n => n + 1), 1000)
+    return () => clearInterval(t)
+  }, [])
 
-      if (data) {
-        const unique = Array.from(
-          new Set(data.map((d: any) => d.category).filter(Boolean))
-        ).sort() as string[]
-        setCategories(unique)
-        if (unique.length > 0 && !selectedCategory) setSelectedCategory(unique[0])
-      }
+  const secondsAgo = lastUpdate
+    ? Math.floor((Date.now() - lastUpdate.getTime()) / 1000)
+    : null
+
+  const checkAuctionActive = useCallback(async (uuid: string): Promise<boolean> => {
+    try {
+      const res  = await fetch(`https://api.hypixel.net/v2/skyblock/auction?uuid=${uuid}`)
+      const data = await res.json()
+      return data.success && data.auctions?.length > 0 && !data.auctions[0].claimed
+    } catch {
+      return true
     }
+  }, [])
 
-    loadCategories()
+  const loadAH = useCallback(async () => {
+    if (loadingRef.current) return
+    loadingRef.current = true
 
+    try {
+      let query = supabase
+        .from('ah_live')
+        .select('id, base_item_id, item_name, best_price, avg_price, historical_avg, discount_pct, spread_pct, best_auction_uuid, category, volume')
+        .order('discount_pct', { ascending: false })
+        .limit(maxItems * 2)
+
+      if (category) query = query.eq('category', category)
+
+      const { data } = await query
+      if (!data) return
+
+      const newIds  = new Set(data.map(d => String(d.id)))
+      const prevIds = prevIdsRef.current
+      const removed = [...prevIds].filter(id => !newIds.has(id))
+      const added   = [...newIds].filter(id => !prevIds.has(id))
+
+      if (removed.length > 0) {
+        setFadingOut(new Set(removed))
+        await new Promise(r => setTimeout(r, FADE_MS))
+        setFadingOut(new Set())
+      }
+
+      const verified: AHItem[] = []
+      for (const d of data) {
+        const isActive = d.best_auction_uuid
+          ? await checkAuctionActive(d.best_auction_uuid)
+          : true
+
+        verified.push({
+          id:                String(d.id),
+          base_item_id:      d.base_item_id,
+          item_name:         d.item_name,
+          best_price:        d.best_price,
+          avg_price:         d.avg_price,
+          historical_avg:    d.historical_avg ?? 0,
+          discount_pct:      d.discount_pct   ?? 0,
+          spread_pct:        d.spread_pct     ?? 0,
+          best_auction_uuid: d.best_auction_uuid,
+          category:          d.category,
+          volume:            d.volume,
+          sold:              !isActive
+        })
+
+        if (verified.filter(i => !i.sold).length >= maxItems) break
+      }
+
+      const finalItems = verified.slice(0, maxItems)
+      setAhItems(finalItems)
+      prevIdsRef.current = new Set(finalItems.map(i => i.id))
+
+      if (added.length > 0) {
+        setFadingIn(new Set(added))
+        setTimeout(() => setFadingIn(new Set()), FADE_MS)
+      }
+
+      setLastUpdate(new Date())
+    } finally {
+      loadingRef.current = false
+    }
+  }, [category, maxItems, checkAuctionActive])
+
+  const loadBazaar = useCallback(async () => {
+    if (loadingRef.current) return
+    loadingRef.current = true
+
+    try {
+      const { data } = await supabase
+        .from('bazaar_1h')
+        .select('item_id, buy_price, sell_price, spread_pct')
+        .order('spread_pct', { ascending: false })
+        .limit(maxItems)
+
+      if (!data) return
+
+      const newItems: BazaarItem[] = data.map(d => ({
+        id:         d.item_id,
+        item_id:    d.item_id,
+        item_name:  d.item_id.replace(/_/g, ' '),
+        buy_price:  d.buy_price,
+        sell_price: d.sell_price,
+        spread_pct: d.spread_pct
+      }))
+
+      const newIds  = new Set(newItems.map(i => i.id))
+      const prevIds = prevIdsRef.current
+      const removed = [...prevIds].filter(id => !newIds.has(id))
+      const added   = [...newIds].filter(id => !prevIds.has(id))
+
+      if (removed.length > 0) {
+        setFadingOut(new Set(removed))
+        await new Promise(r => setTimeout(r, FADE_MS))
+        setFadingOut(new Set())
+      }
+
+      setBazaarItems(newItems)
+      prevIdsRef.current = newIds
+
+      if (added.length > 0) {
+        setFadingIn(new Set(added))
+        setTimeout(() => setFadingIn(new Set()), FADE_MS)
+      }
+
+      setLastUpdate(new Date())
+    } finally {
+      loadingRef.current = false
+    }
+  }, [maxItems])
+
+  useEffect(() => {
+    setAhItems([])
+    setBazaarItems([])
+    prevIdsRef.current = new Set()
+    loadingRef.current = false
+
+    if (type === 'AH') loadAH()
+    else loadBazaar()
+
+    const table   = type === 'AH' ? 'ah_live' : 'bazaar_1h'
+    const uid     = instanceKey || `${type}_${category || 'all'}_${maxItems}`
     const channel = supabase
-      .channel('ah_live_cats')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ah_live' }, loadCategories)
+      .channel(`feed_${uid}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table }, () => {
+        if (type === 'AH') loadAH()
+        else loadBazaar()
+      })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [])
+  }, [type, category, maxItems, instanceKey, loadAH, loadBazaar])
 
-  const switchTo = (category: string | null, bazaar: boolean) => {
-    if (bazaar === showBazaar && category === selectedCategory) return
-    pendingRef.current = { category, bazaar }
-    setPanelVisible(false)
-    setTimeout(() => {
-      if (pendingRef.current) {
-        setSelectedCategory(pendingRef.current.category)
-        setShowBazaar(pendingRef.current.bazaar)
-        pendingRef.current = null
-      }
-      setPanelVisible(true)
-    }, TRANSITION_MS)
+  const color = type === 'AH' ? '#2a78d6' : '#1baf7a'
+
+  const handleCopy = (item: AHItem) => {
+    if (item.sold || !item.best_auction_uuid) return
+    navigator.clipboard.writeText(`/viewauction ${item.best_auction_uuid}`)
+    setCopiedId(item.id)
+    setTimeout(() => setCopiedId(null), 1500)
   }
 
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 20 }}>
+  const renderAHCard = (item: AHItem, idx: number) => {
+    const isFadingOut = fadingOut.has(item.id)
+    const isFadingIn  = fadingIn.has(item.id)
+    const isSold      = item.sold
+    const isCopied    = copiedId === item.id
 
-      {/* SIDEBAR */}
-      <div>
-        <div
-          onClick={() => switchTo(null, true)}
-          style={{
-            padding:      '10px 14px',
-            marginBottom: 6,
-            borderRadius: 8,
-            cursor:       'pointer',
+    return (
+      <div
+        key={item.id}
+        style={{
+          height:         ITEM_H,
+          marginBottom:   ITEM_GAP,
+          background:     isSold ? '#0d0d0c' : '#111110',
+          border:         `0.5px solid ${isSold ? '#3a3a38' : color + '30'}`,
+          borderLeft:     `3px solid ${isSold ? '#3a3a38' : color}`,
+          borderRadius:   8,
+          padding:        '8px 12px',
+          display:        'flex',
+          justifyContent: 'space-between',
+          alignItems:     'center',
+          cursor:         isSold ? 'not-allowed' : 'pointer',
+          opacity:        isFadingOut ? 0 : isSold ? 0.4 : 1,
+          transition:     `opacity ${FADE_MS}ms ease`,
+          animation:      isFadingIn ? `fadeIn ${FADE_MS}ms ease forwards` : undefined
+        }}
+        onClick={() => !isSold && handleCopy(item)}
+      >
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{
+            fontSize:     11,
+            fontWeight:   600,
+            color:        isSold ? '#4a4a48' : '#e8e6df',
             fontFamily:   'Space Mono, monospace',
-            fontSize:     12,
-            fontWeight:   showBazaar ? 700 : 400,
-            background:   showBazaar ? '#1baf7a20' : 'transparent',
-            border:       `1px solid ${showBazaar ? '#1baf7a' : '#2a2a28'}`,
-            color:        showBazaar ? '#1baf7a' : '#c8c6bf',
-            transition:   'all 0.2s ease'
-          }}
-        >
-          💰 Bazaar Top 25
+            overflow:     'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace:   'nowrap'
+          }}>
+            {!isSold && idx === 0 && '🥇 '}
+            {!isSold && idx === 1 && '🥈 '}
+            {!isSold && idx === 2 && '🥉 '}
+            {isSold && '🚫 '}
+            {item.item_name.slice(0, 28)}
+          </div>
+          <div style={{
+            fontSize:   9,
+            color:      '#6b6960',
+            fontFamily: 'Space Mono, monospace',
+            marginTop:  2
+          }}>
+            {isSold
+              ? 'SOLD — replacing soon'
+              : item.historical_avg > 0
+                ? `${item.best_price.toLocaleString()} → hist. ${item.historical_avg.toLocaleString()}`
+                : `best: ${item.best_price.toLocaleString()} · avg: ${item.avg_price.toLocaleString()}`
+            }
+          </div>
         </div>
-
         <div style={{
-          fontSize:      9,
-          color:         '#6b6960',
-          margin:        '14px 0 6px',
-          fontFamily:    'Space Mono, monospace',
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em'
+          fontSize:   12,
+          fontWeight: 700,
+          color:      isSold ? '#3a3a38' : color,
+          fontFamily: 'Space Mono, monospace',
+          flexShrink: 0,
+          marginLeft: 8
         }}>
-          AH Categories
+          {isSold
+            ? 'SOLD'
+            : isCopied
+              ? '✓'
+              : item.discount_pct > 0
+                ? `-${item.discount_pct}%`
+                : `+${item.spread_pct}%`
+          }
         </div>
-
-        {categories.length === 0 && (
-          <div style={{ fontSize: 10, color: '#6b6960', fontFamily: 'Space Mono, monospace' }}>
-            Loading...
-          </div>
-        )}
-
-        {categories.map(cat => {
-          const isActive = !showBazaar && selectedCategory === cat
-          return (
-            <div
-              key={cat}
-              onClick={() => switchTo(cat, false)}
-              style={{
-                padding:       '10px 14px',
-                marginBottom:  6,
-                borderRadius:  8,
-                cursor:        'pointer',
-                fontFamily:    'Space Mono, monospace',
-                fontSize:      12,
-                fontWeight:    isActive ? 700 : 400,
-                background:    isActive ? '#2a78d620' : 'transparent',
-                border:        `1px solid ${isActive ? '#2a78d6' : '#2a2a28'}`,
-                color:         isActive ? '#2a78d6' : '#c8c6bf',
-                transition:    'all 0.2s ease',
-                textTransform: 'capitalize'
-              }}
-            >
-              {cat}
-            </div>
-          )
-        })}
       </div>
+    )
+  }
 
-      {/* MAIN PANEL */}
+  const renderBazaarCard = (item: BazaarItem, idx: number) => (
+    <div
+      key={item.id}
+      style={{
+        height:         ITEM_H,
+        marginBottom:   ITEM_GAP,
+        background:     '#111110',
+        border:         `0.5px solid ${color}30`,
+        borderLeft:     `3px solid ${color}`,
+        borderRadius:   8,
+        padding:        '8px 12px',
+        display:        'flex',
+        justifyContent: 'space-between',
+        alignItems:     'center',
+        opacity:        fadingOut.has(item.id) ? 0 : 1,
+        transition:     `opacity ${FADE_MS}ms ease`,
+        animation:      fadingIn.has(item.id) ? `fadeIn ${FADE_MS}ms ease forwards` : undefined
+      }}
+    >
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{
+          fontSize:     11,
+          fontWeight:   600,
+          color:        '#e8e6df',
+          fontFamily:   'Space Mono, monospace',
+          overflow:     'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace:   'nowrap'
+        }}>
+          {idx === 0 && '🥇 '}
+          {idx === 1 && '🥈 '}
+          {idx === 2 && '🥉 '}
+          {item.item_name.slice(0, 28)}
+        </div>
+        <div style={{
+          fontSize:   9,
+          color:      '#6b6960',
+          fontFamily: 'Space Mono, monospace',
+          marginTop:  2
+        }}>
+          {item.sell_price.toFixed(1)} → {item.buy_price.toFixed(1)}
+        </div>
+      </div>
       <div style={{
-        opacity:    panelVisible ? 1 : 0,
-        transition: `opacity ${TRANSITION_MS}ms ease`,
-        minHeight:  400
+        fontSize:   12,
+        fontWeight: 700,
+        color,
+        fontFamily: 'Space Mono, monospace',
+        flexShrink: 0,
+        marginLeft: 8
       }}>
-        {showBazaar ? (
-          <div>
-            <div className="section-label" style={{ color: '#1baf7a' }}>
-              💰 Top 25 Bazaar Flips
-            </div>
-            <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>
-              LIVE · REFRESH 5MIN
-            </div>
-            <LiveRankedFeed
-              type="BAZAAR"
-              maxItems={25}
-              instanceKey="bazaar_main_25"
-            />
-          </div>
-        ) : selectedCategory ? (
-          <div>
-            <div className="section-label" style={{ color: '#2a78d6', textTransform: 'capitalize' }}>
-              🎯 {selectedCategory} — Top 25
-            </div>
-            <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>
-              LIVE · REFRESH 1MIN · SOLD ITEMS REPLACED AUTO
-            </div>
-            <LiveRankedFeed
-              type="AH"
-              maxItems={25}
-              instanceKey={`ah_cat_${selectedCategory}`}
-              category={selectedCategory}
-            />
-          </div>
-        ) : (
-          <div style={{ color: '#6b6960', fontFamily: 'Space Mono, monospace', fontSize: 12 }}>
-            Select a category
-          </div>
-        )}
+        +{item.spread_pct}%
       </div>
+    </div>
+  )
 
+  const containerH = maxItems * (ITEM_H + ITEM_GAP)
+
+  return (
+    <div>
+      <div style={{
+        fontSize:     9,
+        color:        secondsAgo !== null && secondsAgo < 90 ? '#1baf7a' : '#6b6960',
+        fontFamily:   'Space Mono, monospace',
+        marginBottom: 8,
+        display:      'flex',
+        alignItems:   'center',
+        gap:          4
+      }}>
+        <span style={{
+          width:        6,
+          height:       6,
+          borderRadius: '50%',
+          background:   secondsAgo !== null && secondsAgo < 90 ? '#1baf7a' : '#6b6960',
+          display:      'inline-block'
+        }} />
+        {secondsAgo === null
+          ? 'Waiting for data...'
+          : secondsAgo < 60
+            ? `Updated ${secondsAgo}s ago`
+            : `Updated ${Math.floor(secondsAgo / 60)}m ago`
+        }
+      </div>
+      <div style={{ minHeight: containerH }}>
+        <style>{`
+          @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: translateY(0);   }
+          }
+        `}</style>
+        {type === 'AH'
+          ? ahItems.length === 0
+            ? <div style={{ padding: 20, color: '#6b6960', fontFamily: 'Space Mono, monospace', fontSize: 11 }}>Scanning...</div>
+            : ahItems.map((item, i) => renderAHCard(item, i))
+          : bazaarItems.length === 0
+            ? <div style={{ padding: 20, color: '#6b6960', fontFamily: 'Space Mono, monospace', fontSize: 11 }}>Scanning...</div>
+            : bazaarItems.map((item, i) => renderBazaarCard(item, i))
+        }
+      </div>
     </div>
   )
 }
