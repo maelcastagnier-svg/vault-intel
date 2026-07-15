@@ -1,5 +1,3 @@
-// components/FlashAlertsPage.tsx
-// Page Flash Alerts avec sidebar de categories a gauche + Bazaar Top 25 fixe
 'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '../lib/supabase'
@@ -8,28 +6,31 @@ import LiveRankedFeed from './LiveRankedFeed'
 const supabase = createClient()
 
 export default function FlashAlertsPage() {
-  const [categories, setCategories] = useState<string[]>([])
+  const [categories, setCategories]       = useState<string[]>([])
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
-  const [showBazaar, setShowBazaar] = useState(true)
+  const [showBazaar, setShowBazaar]       = useState(true)
 
   useEffect(() => {
     async function loadCategories() {
       const { data } = await supabase
-        .from('ah_4h')
+        .from('ah_live')
         .select('category')
         .not('category', 'is', null)
 
       if (data) {
-        const unique = Array.from(new Set(data.map(d => d.category).filter(Boolean)))
-        setCategories(unique.sort())
+        const unique = Array.from(
+          new Set(data.map(d => d.category).filter(Boolean))
+        ).sort() as string[]
+        setCategories(unique)
         if (unique.length > 0 && !selectedCategory) setSelectedCategory(unique[0])
       }
     }
+
     loadCategories()
 
     const channel = supabase
-      .channel('ah_categories')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ah_4h' }, () => loadCategories())
+      .channel('ah_live_categories')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ah_live' }, () => loadCategories())
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
@@ -37,32 +38,42 @@ export default function FlashAlertsPage() {
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 20 }}>
-      {/* SIDEBAR CATEGORIES */}
+
+      {/* SIDEBAR */}
       <div>
         <div
           onClick={() => setShowBazaar(true)}
           style={{
-            padding: '10px 14px',
+            padding:    '10px 14px',
             marginBottom: 6,
             borderRadius: 8,
-            cursor: 'pointer',
+            cursor:     'pointer',
             fontFamily: 'Space Mono, monospace',
-            fontSize: 12,
+            fontSize:   12,
             fontWeight: showBazaar ? 700 : 400,
             background: showBazaar ? '#1baf7a20' : 'transparent',
-            border: `1px solid ${showBazaar ? '#1baf7a' : '#2a2a28'}`,
-            color: showBazaar ? '#1baf7a' : '#c8c6bf'
+            border:     `1px solid ${showBazaar ? '#1baf7a' : '#2a2a28'}`,
+            color:      showBazaar ? '#1baf7a' : '#c8c6bf'
           }}
         >
           💰 Bazaar Top 25
         </div>
 
-        <div style={{ fontSize: 9, color: '#6b6960', margin: '14px 0 6px', fontFamily: 'Space Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        <div style={{
+          fontSize:      9,
+          color:         '#6b6960',
+          margin:        '14px 0 6px',
+          fontFamily:    'Space Mono, monospace',
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em'
+        }}>
           AH Categories
         </div>
 
         {categories.length === 0 && (
-          <div style={{ fontSize: 10, color: '#6b6960', fontFamily: 'Space Mono, monospace' }}>Loading...</div>
+          <div style={{ fontSize: 10, color: '#6b6960', fontFamily: 'Space Mono, monospace' }}>
+            Loading...
+          </div>
         )}
 
         {categories.map(cat => (
@@ -70,16 +81,16 @@ export default function FlashAlertsPage() {
             key={cat}
             onClick={() => { setSelectedCategory(cat); setShowBazaar(false) }}
             style={{
-              padding: '10px 14px',
+              padding:    '10px 14px',
               marginBottom: 6,
               borderRadius: 8,
-              cursor: 'pointer',
+              cursor:     'pointer',
               fontFamily: 'Space Mono, monospace',
-              fontSize: 12,
+              fontSize:   12,
               fontWeight: !showBazaar && selectedCategory === cat ? 700 : 400,
               background: !showBazaar && selectedCategory === cat ? '#2a78d620' : 'transparent',
-              border: `1px solid ${!showBazaar && selectedCategory === cat ? '#2a78d6' : '#2a2a28'}`,
-              color: !showBazaar && selectedCategory === cat ? '#2a78d6' : '#c8c6bf'
+              border:     `1px solid ${!showBazaar && selectedCategory === cat ? '#2a78d6' : '#2a2a28'}`,
+              color:      !showBazaar && selectedCategory === cat ? '#2a78d6' : '#c8c6bf'
             }}
           >
             {cat}
@@ -92,19 +103,37 @@ export default function FlashAlertsPage() {
         {showBazaar ? (
           <div>
             <div className="section-label" style={{ color: '#1baf7a' }}>💰 Top 25 Bazaar Flips</div>
-            <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>LIVE · REFRESH 5MIN</div>
-            <LiveRankedFeed type="BAZAAR" maxItems={25} instanceKey="bazaar_main_25" />
+            <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>
+              LIVE · REFRESH 5MIN
+            </div>
+            <LiveRankedFeed
+              type="BAZAAR"
+              maxItems={25}
+              instanceKey="bazaar_main_25"
+            />
           </div>
         ) : selectedCategory ? (
           <div>
-            <div className="section-label" style={{ color: '#2a78d6' }}>🎯 {selectedCategory} — Top 20</div>
-            <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>LIVE · REFRESH ~30S</div>
-            <LiveRankedFeed type="AH" maxItems={20} minSpread={20} instanceKey={`ah_cat_${selectedCategory}`} category={selectedCategory} />
+            <div className="section-label" style={{ color: '#2a78d6' }}>
+              🎯 {selectedCategory} — Top 20
+            </div>
+            <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 8, fontFamily: 'Space Mono, monospace' }}>
+              LIVE · REFRESH 1MIN · VS HISTORICAL AVG
+            </div>
+            <LiveRankedFeed
+              type="AH"
+              maxItems={20}
+              instanceKey={`ah_cat_${selectedCategory}`}
+              category={selectedCategory}
+            />
           </div>
         ) : (
-          <div style={{ color: '#6b6960', fontFamily: 'Space Mono, monospace', fontSize: 12 }}>Select a category</div>
+          <div style={{ color: '#6b6960', fontFamily: 'Space Mono, monospace', fontSize: 12 }}>
+            Select a category
+          </div>
         )}
       </div>
+
     </div>
   )
 }
