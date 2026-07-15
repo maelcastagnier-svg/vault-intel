@@ -11,9 +11,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const YEARS_TARGET    = 3
-const ITEMS_PER_RUN   = 10
-const SKYCOFL_TOKEN   = process.env.SKYCOFL_ACCOUNT_TOKEN!
+const YEARS_TARGET  = 3
+const ITEMS_PER_RUN = 10
+const SKYCOFL_TOKEN = process.env.SKYCOFL_ACCOUNT_TOKEN!
 const SKYCOFL_HEADERS = {
   'Authorization': `Bearer ${SKYCOFL_TOKEN}`,
   'Accept':        'application/json'
@@ -135,7 +135,6 @@ async function importBazaar(item_id: string, fromDate: Date, toDate: Date): Prom
 // ============================================================
 async function importAH(
   item_id:   string,
-  item_name: string,
   liquidity: 'HIGH' | 'LOW',
   fromDate:  Date,
   toDate:    Date
@@ -149,8 +148,9 @@ async function importAH(
   const points: { time: number; avg: number; min: number; max: number; volume?: number }[] =
     await res.json()
 
-  const isHigh   = liquidity === 'HIGH'
-  const filtered = points.filter(p => {
+  const isHigh      = liquidity === 'HIGH'
+  const item_name   = item_id.replace(/_/g, ' ')
+  const filtered    = points.filter(p => {
     const ts = new Date(p.time * 1000)
     return ts >= fromDate && ts <= toDate
   })
@@ -188,16 +188,15 @@ async function importAH(
 }
 
 // ============================================================
-// TRAITEMENT D'UN ITEM — isolé pour ne pas bloquer les autres
+// TRAITEMENT D'UN ITEM
 // ============================================================
 async function processItem(item: {
   item_id:         string
-  item_name:       string | null
   item_type:       string
   liquidity:       string
   years_completed: number
 }): Promise<{ item_id: string; rows: number; error?: string; status: string }> {
-  const { item_id, item_name, item_type, liquidity, years_completed } = item
+  const { item_id, item_type, liquidity, years_completed } = item
 
   const toDate        = getDateBoundary(years_completed)
   const fromDate      = getDateBoundary(years_completed + 1)
@@ -212,7 +211,6 @@ async function processItem(item: {
     } else {
       rowsInserted = await importAH(
         item_id,
-        item_name ?? item_id.replace(/_/g, ' '),
         liquidity as 'HIGH' | 'LOW',
         effectiveFrom,
         toDate
@@ -234,19 +232,16 @@ async function processItem(item: {
     return { item_id, rows: rowsInserted, status: isDone ? 'done' : 'pending' }
 
   } catch (err: any) {
-    // En cas d'erreur sur un item — le marque done pour ne pas bloquer
-    // les autres et continuer l'import
-    console.error(`historic-import skip ${item_id}:`, err.message)
+    // En cas d'erreur — reste en pending pour être retraité au prochain run
+    // NE PAS marquer done — l'item doit être retenté
+    console.error(`historic-import error for ${item_id}:`, err.message)
 
     await supabase
       .from('historic_import_progress')
-      .update({
-        status:            'done',
-        last_processed_at: new Date().toISOString()
-      })
+      .update({ last_processed_at: new Date().toISOString() })
       .eq('item_id', item_id)
 
-    return { item_id, rows: 0, error: err.message, status: 'skipped' }
+    return { item_id, rows: 0, error: err.message, status: 'pending' }
   }
 }
 
@@ -262,7 +257,7 @@ export async function GET(request: Request) {
   try {
     const { data: nextItems, error } = await supabase
       .from('historic_import_progress')
-      .select('item_id, item_name, item_type, liquidity, years_completed')
+      .select('item_id, item_type, liquidity, years_completed')
       .eq('status', 'pending')
       .lt('years_completed', YEARS_TARGET)
       .order('years_completed', { ascending: true })
@@ -277,8 +272,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ message: 'Nothing to import — all items done or at target' })
     }
 
-    // Traite les items séquentiellement pour éviter les rate limits SkyCofl
-    // (pas en parallèle — SkyCofl bloque les requêtes simultanées)
+    // Traitement séquentiel — évite les rate limits SkyCofl
     const results = []
     for (const item of nextItems) {
       const result = await processItem(item)
@@ -286,15 +280,16 @@ export async function GET(request: Request) {
     }
 
     const successful = results.filter(r => !r.error).length
-    const skipped    = results.filter(r => r.error).length
+    const errors     = results.filter(r => r.error)
     const totalRows  = results.reduce((s, r) => s + r.rows, 0)
 
     return NextResponse.json({
       success:         true,
       items_processed: results.length,
       successful,
-      skipped,
+      errors_count:    errors.length,
       total_rows:      totalRows,
+      first_error:     errors[0]?.error ?? null,
       results
     })
 
