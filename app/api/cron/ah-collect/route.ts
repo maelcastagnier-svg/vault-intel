@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
-import { extractVariant } from '@/lib/text-variant-extractor'
+import { extractVariantFromName } from '@/lib/text-variant-extractor'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,10 +10,10 @@ const supabase = createClient(
 const HYPIXEL_AH_URL = 'https://api.hypixel.net/v2/skyblock/auctions'
 const TOP_ITEMS = 50
 
-// Helpers buckets
 function getDailyBucket(): string {
   return new Date().toISOString().split('T')[0]
 }
+
 function getWeeklyBucket(): string {
   const d = new Date()
   const day = d.getUTCDay()
@@ -21,6 +21,7 @@ function getWeeklyBucket(): string {
   monday.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1))
   return monday.toISOString().split('T')[0]
 }
+
 function getMonthlyBucket(): string {
   const d = new Date()
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`
@@ -48,7 +49,9 @@ export async function GET(request: Request) {
     }
   }
 
-  await supabase.from('cron_locks').upsert({ key: lockKey, locked_at: new Date().toISOString() })
+  await supabase
+    .from('cron_locks')
+    .upsert({ key: lockKey, locked_at: new Date().toISOString() })
 
   try {
     // Récupère la liquidité depuis historic_import_progress
@@ -60,14 +63,14 @@ export async function GET(request: Request) {
       (liquidityData || []).map(r => [r.item_id, r.liquidity as 'HIGH' | 'LOW'])
     )
 
-    // Fetch toutes les pages AH Hypixel
+    // Fetch première page AH Hypixel
     const firstRes = await fetch(HYPIXEL_AH_URL)
     const firstPage = await firstRes.json()
     const totalPages: number = firstPage.totalPages
 
     let allAuctions: any[] = [...firstPage.auctions]
 
-    // Fetch pages restantes en parallèle (par batch de 10)
+    // Fetch pages restantes en parallèle par batch de 10
     const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 1)
     for (let i = 0; i < remainingPages.length; i += 10) {
       const batch = remainingPages.slice(i, i + 10)
@@ -80,42 +83,42 @@ export async function GET(request: Request) {
     // Filtre BIN uniquement + enchères actives
     const binAuctions = allAuctions.filter(a => a.bin && !a.claimed)
 
-    // Groupe par base_item_id + variant_key pour calculer meilleur prix
+    // Groupe par base_item_id + variant_key
     type AggItem = {
-      base_item_id: string
-      variant_key: string
-      item_name: string
-      total_stars: number
-      is_recomb: boolean
-      reforge: string | null
-      has_dye: boolean
-      category: string | null
-      best_price: number
-      best_uuid: string
-      prices: number[]
-      volume: number
+      base_item_id:  string
+      variant_key:   string
+      item_name:     string
+      total_stars:   number
+      is_recomb:     boolean
+      reforge:       string | null
+      has_dye:       boolean
+      category:      string | null
+      best_price:    number
+      best_uuid:     string
+      prices:        number[]
+      volume:        number
     }
 
     const grouped = new Map<string, AggItem>()
 
     for (const auc of binAuctions) {
-      const variant = extractVariant(auc.item_name)
+      const variant = extractVariantFromName(auc.item_name)
       const key = `${variant.base_item_id}::${variant.variant_key}`
 
       if (!grouped.has(key)) {
         grouped.set(key, {
           base_item_id: variant.base_item_id,
-          variant_key: variant.variant_key,
-          item_name: auc.item_name,
-          total_stars: variant.total_stars,
-          is_recomb: variant.is_recomb,
-          reforge: variant.reforge ?? null,
-          has_dye: variant.has_dye ?? false,
-          category: auc.category ?? null,
-          best_price: auc.starting_bid,
-          best_uuid: auc.uuid,
-          prices: [auc.starting_bid],
-          volume: 1
+          variant_key:  variant.variant_key,
+          item_name:    auc.item_name,
+          total_stars:  variant.total_stars,
+          is_recomb:    variant.is_recomb,
+          reforge:      variant.reforge ?? null,
+          has_dye:      variant.has_dye ?? false,
+          category:     auc.category ?? null,
+          best_price:   auc.starting_bid,
+          best_uuid:    auc.uuid,
+          prices:       [auc.starting_bid],
+          volume:       1
         })
       } else {
         const existing = grouped.get(key)!
@@ -123,40 +126,39 @@ export async function GET(request: Request) {
         existing.volume++
         if (auc.starting_bid < existing.best_price) {
           existing.best_price = auc.starting_bid
-          existing.best_uuid = auc.uuid
+          existing.best_uuid  = auc.uuid
         }
       }
     }
 
-    // Sélectionne top 50 par volume
+    // Top 50 par volume
     const topItems = Array.from(grouped.values())
       .sort((a, b) => b.volume - a.volume)
       .slice(0, TOP_ITEMS)
       .map(item => {
         const sorted = [...item.prices].sort((a, b) => a - b)
         const median = sorted[Math.floor(sorted.length / 2)]
-        const avg = sorted.reduce((s, p) => s + p, 0) / sorted.length
+        const avg    = sorted.reduce((s, p) => s + p, 0) / sorted.length
         return { ...item, avg_price: avg, sell_price: item.best_price, buy_price: median }
       })
 
-    // 1. Mise à jour ah_live (snapshot temps réel — DELETE + INSERT)
+    // 1. Mise à jour ah_live (snapshot temps réel)
     await supabase.from('ah_live').delete().neq('base_item_id', '')
-
     await supabase.from('ah_live').insert(
       topItems.map(item => ({
-        base_item_id:     item.base_item_id,
-        variant_key:      item.variant_key,
-        item_name:        item.item_name,
-        total_stars:      item.total_stars,
-        is_recomb:        item.is_recomb,
-        reforge:          item.reforge,
-        has_dye:          item.has_dye,
-        category:         item.category,
-        best_price:       item.best_price,
+        base_item_id:      item.base_item_id,
+        variant_key:       item.variant_key,
+        item_name:         item.item_name,
+        total_stars:       item.total_stars,
+        is_recomb:         item.is_recomb,
+        reforge:           item.reforge,
+        has_dye:           item.has_dye,
+        category:          item.category,
+        best_price:        item.best_price,
         best_auction_uuid: item.best_uuid,
-        avg_price:        item.avg_price,
-        volume:           item.volume,
-        scanned_at:       new Date().toISOString()
+        avg_price:         item.avg_price,
+        volume:            item.volume,
+        scanned_at:        new Date().toISOString()
       }))
     )
 
@@ -169,7 +171,7 @@ export async function GET(request: Request) {
 
     for (const item of topItems) {
       const liquidity = liquidityMap[item.base_item_id] ?? 'LOW'
-      const isHigh = liquidity === 'HIGH'
+      const isHigh    = liquidity === 'HIGH'
 
       const buckets = isHigh
         ? [
@@ -210,10 +212,10 @@ export async function GET(request: Request) {
     await supabase.from('cron_locks').delete().eq('key', lockKey)
 
     return NextResponse.json({
-      success: true,
+      success:        true,
       total_auctions: allAuctions.length,
-      bin_auctions: binAuctions.length,
-      top_items: topItems.length,
+      bin_auctions:   binAuctions.length,
+      top_items:      topItems.length,
       buckets_written: rpcCalls.length
     })
 
