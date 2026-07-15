@@ -47,6 +47,8 @@ type AggItem = {
   avg_price:    number
   sell_price:   number
   buy_price:    number
+  min_price:    number
+  max_price:    number
 }
 
 export async function GET(request: Request) {
@@ -128,7 +130,9 @@ export async function GET(request: Request) {
           volume:      1,
           avg_price:   0,
           sell_price:  0,
-          buy_price:   0
+          buy_price:   0,
+          min_price:   0,
+          max_price:   0
         })
       } else {
         const existing = grouped.get(key)!
@@ -152,36 +156,48 @@ export async function GET(request: Request) {
         return {
           ...item,
           avg_price:  avg,
-          sell_price: item.best_price,  // meilleur prix = prix de vente
-          buy_price:  median,           // médiane = prix d'achat estimé
+          sell_price: item.best_price,
+          buy_price:  median,
           min_price:  sorted[0],
           max_price:  sorted[sorted.length - 1]
         }
       })
 
     // 1. Snapshot ah_live (DELETE + INSERT)
-    await supabase.from('ah_live').delete().neq('id', 0)
-    await supabase.from('ah_live').insert(
-      topItems.map(item => ({
-        item_id:           item.base_item_id,
-        base_item_id:      item.base_item_id,
-        variant_key:       item.variant_key,
-        item_name:         item.item_name,
-        total_stars:       item.total_stars,
-        is_recomb:         item.is_recomb,
-        reforge:           item.reforge,
-        has_dye:           item.has_dye,
-        category:          item.category,
-        best_price:        item.best_price,
-        best_auction_uuid: item.best_uuid,
-        buy_price:         item.buy_price,
-        sell_price:        item.sell_price,
-        avg_price:         item.avg_price,
-        volume:            item.volume,
-        timestamp:         new Date().toISOString(),
-        scanned_at:        new Date().toISOString()
-      }))
-    )
+    const { error: deleteError } = await supabase
+      .from('ah_live')
+      .delete()
+      .gte('id', 0)
+
+    if (deleteError) throw new Error(`ah_live delete failed: ${deleteError.message}`)
+
+    const { error: insertError } = await supabase
+      .from('ah_live')
+      .insert(
+        topItems.map(item => ({
+          item_id:           item.base_item_id,
+          base_item_id:      item.base_item_id,
+          variant_key:       item.variant_key,
+          item_name:         item.item_name,
+          total_stars:       item.total_stars,
+          is_recomb:         item.is_recomb,
+          reforge:           item.reforge,
+          has_dye:           item.has_dye,
+          category:          item.category,
+          best_price:        item.best_price,
+          best_auction_uuid: item.best_uuid,
+          buy_price:         item.buy_price,
+          sell_price:        item.sell_price,
+          avg_price:         item.avg_price,
+          min_price:         item.min_price,
+          max_price:         item.max_price,
+          volume:            item.volume,
+          timestamp:         new Date().toISOString(),
+          scanned_at:        new Date().toISOString()
+        }))
+      )
+
+    if (insertError) throw new Error(`ah_live insert failed: ${insertError.message}`)
 
     // 2. Upsert price_history_ah (buckets agrégés)
     const dailyBucket   = getDailyBucket()
@@ -207,8 +223,9 @@ export async function GET(request: Request) {
       }
     }
 
+    const rpcErrors: string[] = []
     for (let i = 0; i < rpcQueue.length; i += 20) {
-      await Promise.all(
+      const results = await Promise.all(
         rpcQueue.slice(i, i + 20).map(({ item, bucket }) =>
           supabase.rpc('upsert_ah_price_bucket', {
             p_base_item_id: item.base_item_id,
@@ -224,9 +241,12 @@ export async function GET(request: Request) {
             p_volume:       item.volume,
             p_granularity:  bucket.granularity,
             p_bucket_date:  bucket.bucket_date
-          }).then()
+          })
         )
       )
+      results.forEach(({ error }) => {
+        if (error) rpcErrors.push(error.message)
+      })
     }
 
     // Libère le verrou
@@ -240,7 +260,8 @@ export async function GET(request: Request) {
       total_auctions:  allAuctions.length,
       bin_auctions:    binAuctions.length,
       top_items:       topItems.length,
-      buckets_written: rpcQueue.length
+      buckets_written: rpcQueue.length,
+      rpc_errors:      rpcErrors.length > 0 ? rpcErrors.slice(0, 3) : []
     })
 
   } catch (error: any) {
