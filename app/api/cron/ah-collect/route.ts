@@ -8,15 +8,15 @@ const supabase = createClient(
 )
 
 const HYPIXEL_AH_URL = 'https://api.hypixel.net/v2/skyblock/auctions'
-const TOP_ITEMS = 50
+const TOP_ITEMS      = 50
 
 function getDailyBucket(): string {
   return new Date().toISOString().split('T')[0]
 }
 
 function getWeeklyBucket(): string {
-  const d = new Date()
-  const day = d.getUTCDay()
+  const d      = new Date()
+  const day    = d.getUTCDay()
   const monday = new Date(d)
   monday.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1))
   return monday.toISOString().split('T')[0]
@@ -31,13 +31,32 @@ function toBaseItemId(baseName: string): string {
   return baseName.toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '')
 }
 
+type AggItem = {
+  base_item_id: string
+  variant_key:  string
+  item_name:    string
+  total_stars:  number
+  is_recomb:    boolean
+  reforge:      string | null
+  has_dye:      boolean
+  category:     string | null
+  best_price:   number
+  best_uuid:    string
+  prices:       number[]
+  volume:       number
+  avg_price:    number
+  sell_price:   number
+  buy_price:    number
+}
+
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const lockKey = 'ah_collect'
+  // Verrou anti-chevauchement
+  const lockKey    = 'ah_collect'
   const { data: lock } = await supabase
     .from('cron_locks')
     .select('locked_at')
@@ -45,8 +64,7 @@ export async function GET(request: Request) {
     .single()
 
   if (lock) {
-    const lockedAt = new Date(lock.locked_at)
-    const elapsed  = Date.now() - lockedAt.getTime()
+    const elapsed = Date.now() - new Date(lock.locked_at).getTime()
     if (elapsed < 90_000) {
       return NextResponse.json({ message: 'Already running' })
     }
@@ -57,6 +75,7 @@ export async function GET(request: Request) {
     .upsert({ key: lockKey, locked_at: new Date().toISOString() })
 
   try {
+    // Liquidité depuis historic_import_progress
     const { data: liquidityData } = await supabase
       .from('historic_import_progress')
       .select('item_id, liquidity')
@@ -65,12 +84,14 @@ export async function GET(request: Request) {
       (liquidityData || []).map(r => [r.item_id, r.liquidity as 'HIGH' | 'LOW'])
     )
 
-    const firstRes  = await fetch(HYPIXEL_AH_URL)
-    const firstPage = await firstRes.json()
-    const totalPages: number = firstPage.totalPages
+    // Fetch première page AH Hypixel
+    const firstRes   = await fetch(HYPIXEL_AH_URL)
+    const firstPage  = await firstRes.json()
+    const totalPages = firstPage.totalPages as number
 
     let allAuctions: any[] = [...firstPage.auctions]
 
+    // Fetch pages restantes par batch de 10
     const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 1)
     for (let i = 0; i < remainingPages.length; i += 10) {
       const batch   = remainingPages.slice(i, i + 10)
@@ -80,23 +101,10 @@ export async function GET(request: Request) {
       results.forEach(r => { allAuctions = allAuctions.concat(r.auctions) })
     }
 
+    // BIN uniquement + actives
     const binAuctions = allAuctions.filter(a => a.bin && !a.claimed)
 
-    type AggItem = {
-      base_item_id: string
-      variant_key:  string
-      item_name:    string
-      total_stars:  number
-      is_recomb:    boolean
-      reforge:      string | null
-      has_dye:      boolean
-      category:     string | null
-      best_price:   number
-      best_uuid:    string
-      prices:       number[]
-      volume:       number
-    }
-
+    // Groupe par base_item_id + variant_key
     const grouped = new Map<string, AggItem>()
 
     for (const auc of binAuctions) {
@@ -117,7 +125,10 @@ export async function GET(request: Request) {
           best_price:  auc.starting_bid,
           best_uuid:   auc.uuid,
           prices:      [auc.starting_bid],
-          volume:      1
+          volume:      1,
+          avg_price:   0,
+          sell_price:  0,
+          buy_price:   0
         })
       } else {
         const existing = grouped.get(key)!
@@ -130,16 +141,18 @@ export async function GET(request: Request) {
       }
     }
 
-    const topItems = Array.from(grouped.values())
+    // Top 50 par volume avec calcul prix
+    const topItems: AggItem[] = Array.from(grouped.values())
       .sort((a, b) => b.volume - a.volume)
       .slice(0, TOP_ITEMS)
       .map(item => {
-        const sorted = [...item.prices].sort((a, b) => a - b)
-        const median = sorted[Math.floor(sorted.length / 2)]
-        const avg    = sorted.reduce((s, p) => s + p, 0) / sorted.length
+        const sorted     = [...item.prices].sort((a, b) => a - b)
+        const median     = sorted[Math.floor(sorted.length / 2)]
+        const avg        = sorted.reduce((s, p) => s + p, 0) / sorted.length
         return { ...item, avg_price: avg, sell_price: item.best_price, buy_price: median }
       })
 
+    // 1. Snapshot ah_live (DELETE + INSERT)
     await supabase.from('ah_live').delete().neq('base_item_id', '')
     await supabase.from('ah_live').insert(
       topItems.map(item => ({
@@ -159,27 +172,33 @@ export async function GET(request: Request) {
       }))
     )
 
+    // 2. Upsert price_history_ah (buckets agrégés)
     const dailyBucket   = getDailyBucket()
     const weeklyBucket  = getWeeklyBucket()
     const monthlyBucket = getMonthlyBucket()
 
-    const rpcCalls: Promise<any>[] = []
+    type RpcJob = { item: AggItem; bucket: { granularity: string; bucket_date: string } }
+    const rpcQueue: RpcJob[] = []
 
     for (const item of topItems) {
-      const liquidity = liquidityMap[item.base_item_id] ?? 'LOW'
-      const isHigh    = liquidity === 'HIGH'
-
+      const isHigh  = (liquidityMap[item.base_item_id] ?? 'LOW') === 'HIGH'
       const buckets = isHigh
         ? [
-            { granularity: 'DAILY',   bucket_date: dailyBucket },
-            { granularity: 'WEEKLY',  bucket_date: weeklyBucket }
+            { granularity: 'DAILY',   bucket_date: dailyBucket   },
+            { granularity: 'WEEKLY',  bucket_date: weeklyBucket  }
           ]
         : [
             { granularity: 'MONTHLY', bucket_date: monthlyBucket }
           ]
 
       for (const bucket of buckets) {
-        rpcCalls.push(
+        rpcQueue.push({ item, bucket })
+      }
+    }
+
+    for (let i = 0; i < rpcQueue.length; i += 20) {
+      await Promise.all(
+        rpcQueue.slice(i, i + 20).map(({ item, bucket }) =>
           supabase.rpc('upsert_ah_price_bucket', {
             p_base_item_id: item.base_item_id,
             p_variant_key:  item.variant_key,
@@ -194,13 +213,9 @@ export async function GET(request: Request) {
             p_volume:       item.volume,
             p_granularity:  bucket.granularity,
             p_bucket_date:  bucket.bucket_date
-          })
+          }).then()
         )
-      }
-    }
-
-    for (let i = 0; i < rpcCalls.length; i += 20) {
-      await Promise.all(rpcCalls.slice(i, i + 20))
+      )
     }
 
     await supabase.from('cron_locks').delete().eq('key', lockKey)
@@ -210,7 +225,7 @@ export async function GET(request: Request) {
       total_auctions:  allAuctions.length,
       bin_auctions:    binAuctions.length,
       top_items:       topItems.length,
-      buckets_written: rpcCalls.length
+      buckets_written: rpcQueue.length
     })
 
   } catch (error: any) {
