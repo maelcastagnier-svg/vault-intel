@@ -6,12 +6,12 @@ export async function GET() {
   const headers = { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
 
   const endpoints = [
+    'https://sky.coflnet.com/api/auctions/tag/HYPERION/history',
+    'https://sky.coflnet.com/api/auctions/tag/HYPERION/price/history',
     'https://sky.coflnet.com/api/auctions/tag/HYPERION/active/overview',
-    'https://sky.coflnet.com/api/auctions/tag/HYPERION',
-    'https://sky.coflnet.com/api/item/search?query=HYPERION&limit=3',
-    'https://sky.coflnet.com/api/items/search?term=HYPERION',
-    'https://sky.coflnet.com/api/auctions/search?term=HYPERION&limit=3',
-    'https://sky.coflnet.com/api/item/price/HYPERION?key=avg',
+    'https://sky.coflnet.com/api/item/price/tag/HYPERION/history',
+    'https://sky.coflnet.com/api/auctions/tag/HYPERION/sold/overview',
+    'https://sky.coflnet.com/api/auctions/HYPERION/history',
   ]
 
   const results = await Promise.all(
