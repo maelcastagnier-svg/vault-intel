@@ -1,12 +1,14 @@
-'use client'
++'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import EvolveSection from './EvolveSection'
-import LiveRankedFeed from '../../components/LiveRankedFeed'
 import FlashAlertsPage from '../../components/FlashAlertsPage'
 
+// ============================================================
+// PARSERS
+// ============================================================
 function parsePatchItems(text: string): string[] {
   const cleaned = text.replace(/^#+\s*Live Patches\s*/i, '').trim()
   const lines = cleaned.split('\n')
@@ -25,9 +27,7 @@ const MONTH_MAP: Record<string, number> = { jan: 0, feb: 1, mar: 2, apr: 3, may:
 function extractPatchDate(text: string): number {
   const match = text.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2})/i)
   if (!match) return 0
-  const month = MONTH_MAP[match[1].toLowerCase().slice(0, 3)] ?? 0
-  const day = parseInt(match[2], 10)
-  return month * 31 + day
+  return (MONTH_MAP[match[1].toLowerCase().slice(0, 3)] ?? 0) * 31 + parseInt(match[2], 10)
 }
 
 function sortPatchesNewestFirst(items: string[]): string[] {
@@ -43,45 +43,123 @@ function parseTable(text: string): Record<string, string>[] {
     const obj: Record<string, string> = {}
     headers.forEach((h, i) => { obj[h] = (cells[i] || '').replace(/\*\*/g, '') })
     return obj
-  }).filter(row => Object.values(row).some(v => v && v !== '---'))
+  }).filter(row => Object.values(row).some(v => v && v !== '---' && v !== 'N/A'))
 }
 
 function extractSection(text: string, keyword: string): string {
   const lines = text.split('\n')
-  let start = -1
-  let end = lines.length
+  let start = -1, end = lines.length
   for (let i = 0; i < lines.length; i++) {
-    if (start === -1 && lines[i].match(new RegExp('^#+\\s*(' + keyword + ')', 'i'))) {
-      start = i
-    } else if (start !== -1 && i > start && lines[i].match(/^#+\s/)) {
-      end = i
-      break
-    }
+    if (start === -1 && lines[i].match(new RegExp('^#+\\s*(' + keyword + ')', 'i'))) { start = i }
+    else if (start !== -1 && i > start && lines[i].match(/^#+\s/)) { end = i; break }
   }
   return start === -1 ? '' : lines.slice(start, end).join('\n')
 }
 
-function ItemIcon({ name, color }: { name: string, color: string }) {
+// Extrait le coins/heure depuis les colonnes connues
+function extractCoinsPerHour(item: Record<string, string>): string | null {
+  const keys = ['Coins/Hour', 'Coins/Hour ', 'Coins/hr', 'Coins/hr ', 'Est. Profit', 'Target Profit', 'Profit/Flip']
+  for (const k of keys) {
+    if (item[k] && item[k] !== '---' && item[k] !== 'N/A') return item[k]
+  }
+  return null
+}
+
+// ============================================================
+// COMPOSANTS UI
+// ============================================================
+function ItemIcon({ name, color }: { name: string; color: string }) {
   const clean = name.replace(/\*\*/g, '').replace(/[^A-Z0-9_]/gi, '').toUpperCase()
   return (
     <div style={{
-      width: 32, height: 32, borderRadius: 6, flexShrink: 0,
-      background: color + '18', border: '1px solid ' + color + '40',
+      width: 34, height: 34, borderRadius: 7, flexShrink: 0,
+      background: color + '15', border: '1px solid ' + color + '35',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontSize: 9, fontFamily: 'Space Mono, monospace', color, fontWeight: 700
-    }}>{clean.slice(0, 2)}</div>
+    }}>
+      {clean.slice(0, 2)}
+    </div>
   )
 }
 
-function FlashCard({ item, color, type, auctionUuid }: { item: Record<string, string>, color: string, type: string, auctionUuid?: string }) {
-  const name = item['Item'] || Object.values(item)[0] || 'Unknown'
+function CoinsPerHourBadge({ value, color }: { value: string; color: string }) {
+  // Extrait juste les chiffres + M/K pour affichage court
+  const short = value.replace(/coins?\/?h(our)?/gi, '').replace(/\s+/g, '').trim()
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      background: color + '12', border: '1px solid ' + color + '30',
+      borderRadius: 20, padding: '2px 8px', marginTop: 6
+    }}>
+      <span style={{ fontSize: 8, color, fontFamily: 'Space Mono, monospace', letterSpacing: '0.06em' }}>⚡</span>
+      <span style={{ fontSize: 10, color, fontFamily: 'Space Mono, monospace', fontWeight: 700 }}>{short.slice(0, 18)}</span>
+      <span style={{ fontSize: 8, color: color + 'aa', fontFamily: 'Space Mono, monospace' }}>/h</span>
+    </div>
+  )
+}
+
+function MoneyCard({ item, color, onClick }: { item: Record<string, string>; color: string; onClick: () => void }) {
+  const name = item['Item'] || item['Method'] || item['Opportunity'] || Object.values(item)[0] || ''
+  const coins = extractCoinsPerHour(item)
+  const conf  = item['Conf'] || item['Confidence'] || ''
+  const confColor = conf.toLowerCase().includes('high') ? '#1baf7a'
+    : conf.toLowerCase().includes('low') ? '#e34948'
+    : '#eda100'
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background: '#0d0d0c',
+        border: '0.5px solid ' + color + '22',
+        borderLeft: '2px solid ' + color,
+        borderRadius: 7,
+        padding: '10px 12px',
+        cursor: 'pointer',
+        marginBottom: 7,
+        transition: 'background 0.15s ease'
+      }}
+      onMouseEnter={e => (e.currentTarget.style.background = color + '08')}
+      onMouseLeave={e => (e.currentTarget.style.background = '#0d0d0c')}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+        <ItemIcon name={name} color={color} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontSize: 11, fontWeight: 600, color: '#e8e6df',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+          }}>
+            {name.replace(/\*\*/g, '').slice(0, 36)}
+          </div>
+          {coins && <CoinsPerHourBadge value={coins} color={color} />}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+          {conf && (
+            <span style={{
+              fontSize: 8, color: confColor,
+              fontFamily: 'Space Mono, monospace',
+              background: confColor + '12',
+              border: '1px solid ' + confColor + '30',
+              padding: '1px 5px', borderRadius: 3
+            }}>
+              {conf.slice(0, 4).toUpperCase()}
+            </span>
+          )}
+          <span style={{ fontSize: 10, color: '#3a3a38' }}>→</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FlashCard({ item, color, type }: { item: Record<string, string>; color: string; type: string }) {
+  const name    = item['Item'] || Object.values(item)[0] || 'Unknown'
   const entries = Object.entries(item).filter(([k]) => k !== 'Item').slice(0, 4)
   const [copied, setCopied] = useState(false)
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation()
-    const textToCopy = auctionUuid ? '/viewauction ' + auctionUuid : name.replace(/\*\*/g, '').trim()
-    navigator.clipboard.writeText(textToCopy)
+    navigator.clipboard.writeText(name.replace(/\*\*/g, '').trim())
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
@@ -94,24 +172,15 @@ function FlashCard({ item, color, type, auctionUuid }: { item: Record<string, st
           <div style={{ fontSize: 12, fontWeight: 600, fontFamily: 'Space Mono, monospace', color: '#e8e6df', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name.slice(0, 35)}</div>
           <div style={{ fontSize: 9, color, marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{type}</div>
         </div>
-        {type === 'AH' && (
-          <button
-            onClick={handleCopy}
-            title={auctionUuid ? 'Copy /viewauction command' : 'Copy item name for /ah search'}
-            style={{ flexShrink: 0, background: copied ? color + '30' : 'transparent', border: '1px solid ' + color + '40', color, fontSize: 9, fontFamily: 'Space Mono, monospace', padding: '3px 7px', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}
-          >
-            {copied ? '✓ Copied' : auctionUuid ? '🎯 /viewauction' : '📋 Copy'}
-          </button>
-        )}
-        <div style={{ fontSize: 9, padding: '2px 7px', borderRadius: 3, background: color + '18', color, fontWeight: 700, fontFamily: 'Space Mono, monospace' }}>
-          {type === 'BAZAAR' ? 'FLIP' : 'SNIPE'}
-        </div>
+        <button onClick={handleCopy} style={{ flexShrink: 0, background: copied ? color + '30' : 'transparent', border: '1px solid ' + color + '40', color, fontSize: 9, fontFamily: 'Space Mono, monospace', padding: '3px 7px', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}>
+          {copied ? '✓' : '📋'}
+        </button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
         {entries.map(([k, v]) => v && (
           <div key={k} style={{ fontSize: 10, fontFamily: 'Space Mono, monospace' }}>
             <span style={{ color: '#6b6960' }}>{k.slice(0, 8)}: </span>
-            <span style={{ color: k.toLowerCase().includes('spread') || k.toLowerCase().includes('profit') || k.toLowerCase().includes('action') ? color : '#c8c6bf' }}>{v.slice(0, 20)}</span>
+            <span style={{ color: k.toLowerCase().includes('spread') || k.toLowerCase().includes('profit') ? color : '#c8c6bf' }}>{v.slice(0, 20)}</span>
           </div>
         ))}
       </div>
@@ -119,44 +188,129 @@ function FlashCard({ item, color, type, auctionUuid }: { item: Record<string, st
   )
 }
 
-function MoneyCard({ item, color, onClick }: { item: Record<string, string>, color: string, onClick: () => void }) {
-  const name = item['Item'] || item['Method'] || item['Opportunity'] || Object.values(item)[0] || ''
-  const cph = item['Coins/hr'] || item['Coins/hr '] || ''
-  const conf = item['Conf'] || item['Confidence'] || ''
+// ============================================================
+// SETUP MODAL — redesigné
+// ============================================================
+function SetupModal({ item, onClose }: { item: Record<string, string>; onClose: () => void }) {
+  const name   = item['Item'] || item['Method'] || Object.values(item)[0] || ''
+  const coins  = extractCoinsPerHour(item)
+  const conf   = item['Conf'] || item['Confidence'] || ''
+
+  // Colonnes à afficher dans le détail (tout sauf le nom)
+  const detailKeys = Object.keys(item).filter(k =>
+    k !== 'Item' && k !== 'Method' && k !== 'Opportunity' && item[k] && item[k] !== '---'
+  )
+
+  // Icône par catégorie de colonne
+  const keyIcon = (k: string): string => {
+    const l = k.toLowerCase()
+    if (l.includes('setup') || l.includes('gear'))    return '🛡️'
+    if (l.includes('access') || l.includes('power'))  return '💍'
+    if (l.includes('stone') || l.includes('gem'))     return '💎'
+    if (l.includes('req'))                             return '📋'
+    if (l.includes('math') || l.includes('how'))      return '🧮'
+    if (l.includes('insight') || l.includes('edge'))  return '🔮'
+    if (l.includes('why'))                             return '💡'
+    if (l.includes('coin') || l.includes('profit'))   return '⚡'
+    if (l.includes('capital'))                         return '💰'
+    if (l.includes('conf'))                            return '📊'
+    return '›'
+  }
+
+  const confColor = conf.toLowerCase().includes('high') ? '#1baf7a'
+    : conf.toLowerCase().includes('low') ? '#e34948'
+    : '#eda100'
+
   return (
-    <div onClick={onClick} style={{ background: '#0d0d0c', border: '0.5px solid ' + color + '25', borderLeft: '2px solid ' + color, borderRadius: 6, padding: '10px 12px', cursor: 'pointer', marginBottom: 6 }}
-      onMouseEnter={e => (e.currentTarget.style.background = color + '08')}
-      onMouseLeave={e => (e.currentTarget.style.background = '#0d0d0c')}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <ItemIcon name={name} color={color} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 11, fontWeight: 500, color: '#e8e6df', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name.slice(0, 35)}</div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
-            {cph && <span style={{ fontSize: 10, color, fontFamily: 'Space Mono, monospace' }}>{cph.slice(0, 20)}</span>}
-            {conf && <span style={{ fontSize: 9, color: conf.toLowerCase().includes('high') ? '#1baf7a' : '#eda100' }}>● {conf.slice(0, 10)}</span>}
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}
+      onClick={onClose}
+    >
+      <div
+        style={{ background: '#0f0f0e', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 14, padding: '1.75rem', maxWidth: 520, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 9, color: '#c9a84c', fontFamily: 'Space Mono, monospace', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>
+              ⚙️ Setup Guide
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#f0d68a', lineHeight: 1.3, maxWidth: 380 }}>
+              {name.replace(/\*\*/g, '').slice(0, 60)}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', color: '#6b6960', cursor: 'pointer', fontSize: 13, borderRadius: 6, padding: '4px 8px', flexShrink: 0, marginLeft: 12 }}>✕</button>
+        </div>
+
+        {/* Coins/heure + confidence en bandeau */}
+        {(coins || conf) && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
+            {coins && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1baf7a15', border: '1px solid #1baf7a35', borderRadius: 8, padding: '6px 12px' }}>
+                <span style={{ fontSize: 16 }}>⚡</span>
+                <div>
+                  <div style={{ fontSize: 9, color: '#1baf7a', fontFamily: 'Space Mono, monospace', letterSpacing: '0.08em' }}>COINS/HOUR</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1baf7a', fontFamily: 'Space Mono, monospace' }}>{coins.replace(/coins?\/?h(our)?/gi, '').trim()}</div>
+                </div>
+              </div>
+            )}
+            {conf && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: confColor + '12', border: '1px solid ' + confColor + '35', borderRadius: 8, padding: '6px 12px' }}>
+                <div>
+                  <div style={{ fontSize: 9, color: confColor, fontFamily: 'Space Mono, monospace', letterSpacing: '0.08em' }}>CONFIDENCE</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: confColor, fontFamily: 'Space Mono, monospace' }}>{conf.slice(0, 4).toUpperCase()}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Détails par section */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {detailKeys
+            .filter(k => !['Coins/Hour', 'Coins/hr', 'Coins/Hour ', 'Coins/hr ', 'Conf', 'Confidence'].includes(k))
+            .map(k => (
+            <div key={k} style={{ padding: '10px 0', borderBottom: '0.5px solid rgba(201,168,76,0.08)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                <span style={{ fontSize: 11 }}>{keyIcon(k)}</span>
+                <span style={{ fontSize: 9, color: '#c9a84c', fontFamily: 'Space Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>{k}</span>
+              </div>
+              <div style={{ fontSize: 12.5, color: '#d8d6cf', lineHeight: 1.65, paddingLeft: 18 }}>
+                {item[k].replace(/\*\*/g, '')}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div style={{ marginTop: 16, padding: '0.65rem 0.85rem', background: 'rgba(201,168,76,0.04)', border: '1px solid rgba(201,168,76,0.1)', borderRadius: 8 }}>
+          <div style={{ fontSize: 10, color: '#6b6960', fontFamily: 'Space Mono, monospace' }}>
+            💡 Vault updates this analysis twice daily with current market prices
           </div>
         </div>
-        <div style={{ fontSize: 10, color: '#6b6960' }}>→</div>
       </div>
     </div>
   )
 }
 
+// ============================================================
+// DASHBOARD PRINCIPAL
+// ============================================================
 export default function Dashboard() {
-  const [user, setUser] = useState<any>(null)
-  const [plan, setPlan] = useState('free')
-  const [username, setUsername] = useState('')
-  const [tab, setTab] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [marketData, setMarketData] = useState<Record<string, string>>({})
-  const [insights, setInsights] = useState<any[]>([])
-  const [ahAuctionData, setAhAuctionData] = useState<any[]>([])
-  const [activeInsight, setActiveInsight] = useState<any | null>(null)
+  const [user, setUser]               = useState<any>(null)
+  const [plan, setPlan]               = useState('free')
+  const [username, setUsername]       = useState('')
+  const [tab, setTab]                 = useState(0)
+  const [loading, setLoading]         = useState(true)
+  const [marketData, setMarketData]   = useState<Record<string, string>>({})
+  const [insights, setInsights]       = useState<any[]>([])
   const [dataLoading, setDataLoading] = useState(true)
-  const [mmTier, setMmTier] = useState('early')
-  const [setupItem, setSetupItem] = useState<Record<string, string> | null>(null)
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
-  const router = useRouter()
+  const [mmTier, setMmTier]           = useState('early')
+  const [setupItem, setSetupItem]     = useState<Record<string, string> | null>(null)
+  const [activeInsight, setActiveInsight] = useState<any | null>(null)
+  const [lastUpdate, setLastUpdate]   = useState<Date | null>(null)
+  const router  = useRouter()
   const supabase = createClient()
 
   useEffect(() => {
@@ -174,26 +328,19 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function loadData() {
-      const res = await fetch('/api/market-data')
+      const res  = await fetch('/api/market-data')
       const data = await res.json()
       setMarketData(data)
       setInsights(data.insights || [])
-      setAhAuctionData(data.ah_live || [])
       setLastUpdate(new Date())
       setDataLoading(false)
     }
     loadData()
-
     const channel = supabase
       .channel('claude_analysis_live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'claude_analysis' }, () => {
-        loadData()
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'insight_patch' }, () => {
-        loadData()
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'claude_analysis' }, loadData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'insight_patch' }, loadData)
       .subscribe()
-
     return () => { supabase.removeChannel(channel) }
   }, [])
 
@@ -202,38 +349,19 @@ export default function Dashboard() {
   const TABS = [
     { label: '⚡ Flash Alerts', key: 'flash', plans: ['alert', 'pro', 'elite'] },
     { label: '💰 Money Making', key: 'money', plans: ['pro', 'elite'] },
-    { label: '🔧 Patches', key: 'patch', plans: ['alert', 'pro', 'elite'] },
-    { label: '📈 Radar', key: 'radar', plans: ['pro', 'elite'] },
-    { label: '🧬 Evolve', key: 'evolve', plans: ['elite'] },
+    { label: '🔧 Patches',      key: 'patch', plans: ['alert', 'pro', 'elite'] },
+    { label: '📈 Radar',        key: 'radar', plans: ['pro', 'elite'] },
+    { label: '🧬 Evolve',       key: 'evolve', plans: ['elite'] },
   ]
 
   const PLAN_COLORS: Record<string, string> = { alert: '#2a78d6', pro: '#c9a84c', elite: '#9b59b6', free: '#6b6960' }
 
   const MM_TIERS = [
-    { key: 'early', label: '🌱 Early', target: '5-15M/h', color: '#1baf7a' },
-    { key: 'mid', label: '⚔️ Mid', target: '15-35M/h', color: '#c9a84c' },
-    { key: 'end', label: '🔥 End', target: '35-70M/h', color: '#e34948' },
-    { key: 'late', label: '👑 Late', target: '70M+/h', color: '#9b59b6' },
+    { key: 'early', label: '🌱 Early', target: '10M/h',  color: '#1baf7a' },
+    { key: 'mid',   label: '⚔️ Mid',   target: '25M/h',  color: '#c9a84c' },
+    { key: 'end',   label: '🔥 End',   target: '50M/h',  color: '#e34948' },
+    { key: 'late',  label: '👑 Late',  target: '70M+/h', color: '#9b59b6' },
   ]
-
-  const normalizeItemName = (raw: string) => {
-    return raw
-      .toLowerCase()
-      .replace(/lvl_?\d+_?/gi, '')
-      .replace(/^_+|_+$/g, '')
-      .replace(/[^a-z0-9]/g, '')
-  }
-
-  const findAuctionUuid = (itemName: string) => {
-    const clean = normalizeItemName(itemName)
-    if (clean.length < 3) return undefined
-    const match = ahAuctionData.find(a => {
-      const aName = normalizeItemName(a.item_id || a.item_name || '')
-      if (aName.length < 3) return false
-      return clean.includes(aName) || aName.includes(clean)
-    })
-    return match?.best_auction_uuid
-  }
 
   const hasAccess = (plans: string[]) => plans.includes(plan)
 
@@ -245,37 +373,26 @@ export default function Dashboard() {
     })
   }
 
-  // Parse flash alerts — 3 sous-sections : Bazaar / AH Short Term / AH Mid Term
-  const flashText = marketData['flash_alerts'] || ''
-  const bazaarSection = flashText.split(/###\s*AH FLIP/i)[0] || flashText
-  const afterBazaar = flashText.split(/###\s*AH FLIP/i).slice(1).join('### AH FLIP')
-  const ahShortSection = afterBazaar.split(/###\s*AH FLIP\s*—?\s*MID/i)[0] || ''
-  const ahMidSection = afterBazaar.split(/###\s*AH FLIP\s*—?\s*MID/i)[1] || ''
-  const bazaarItems = parseTable(bazaarSection)
-  const ahShortItems = parseTable(ahShortSection)
-  const ahMidItems = parseTable(ahMidSection)
-
   // Parse money making
-  const tierKey = 'money_making_' + mmTier
-  const tierText = marketData[tierKey] || ''
-  const bazaarFlips = parseTable(extractSection(tierText, 'Bazaar Flip'))
-  const ahFlips = parseTable(extractSection(tierText, 'AH Flip'))
-  const farmMethods = parseTable(extractSection(tierText, 'Farming|Slayer Farming|Farm'))
-  const vaultExclusive = parseTable(extractSection(tierText, 'Vault Exclusive'))
-
+  const tierKey     = 'money_making_' + mmTier
+  const tierText    = marketData[tierKey] || ''
+  const bazaarFlips = parseTable(extractSection(tierText, 'BAZAAR FLIP|Bazaar Flip'))
+  const ahFlips     = parseTable(extractSection(tierText, 'AH FLIP|AH Flip'))
+  const grindMethods = parseTable(extractSection(tierText, 'ACTIVE GRIND|Active Grind|Farming|Farm'))
+  const vaultEx     = parseTable(extractSection(tierText, 'VAULT EXCLUSIVE|Vault Exclusive'))
   const currentTier = MM_TIERS.find(t => t.key === mmTier) || MM_TIERS[0]
 
-  // Parse patch analysis
-  const patchText = marketData['patch_analysis'] || ''
+  // Parse patch
+  const patchText  = marketData['patch_analysis'] || ''
   const patchSplit = patchText.split(/#+\s*Alpha\s*Upcoming/i)
-  const patchLive = (patchSplit[0] || '').replace(/^#+\s*Live Patches\s*/i, '').trim()
+  const patchLive  = (patchSplit[0] || '').replace(/^#+\s*Live Patches\s*/i, '').trim()
   const patchAlpha = (patchSplit[1] || '').trim()
 
-  // Parse radar mid/long term
-  const radarText = marketData['radar'] || ''
+  // Parse radar
+  const radarText  = marketData['radar'] || ''
   const radarSplit = radarText.split(/#+\s*Long-Term/i)
-  const radarMid = parseTable(radarSplit[0] || '')
-  const radarLong = parseTable(radarSplit[1] ? '### Long-Term' + radarSplit[1] : '')
+  const radarMid   = parseTable(radarSplit[0] || '')
+  const radarLong  = parseTable(radarSplit[1] ? '### Long-Term' + radarSplit[1] : '')
 
   if (loading) return (
     <div style={{ background: '#0a0a0a', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#c9a84c', fontFamily: 'Space Mono, monospace' }}>
@@ -295,10 +412,10 @@ export default function Dashboard() {
         .plan-badge { font-family: 'Space Mono', monospace; font-size: 0.6rem; padding: 0.18rem 0.55rem; border-radius: 3px; text-transform: uppercase; font-weight: 700; border: 1px solid; }
         .nav-link { font-size: 0.78rem; color: #6b6960; text-decoration: none; }
         .nav-link:hover { color: #c9a84c; }
-        .logout-btn { background: transparent; border: 1px solid rgba(201,168,76,0.15); color: #6b6960; padding: 0.35rem 0.75rem; border-radius: 4px; font-size: 0.75rem; cursor: pointer; font-family: 'Space Grotesk', sans-serif; }
+        .logout-btn { background: transparent; border: 1px solid rgba(201,168,76,0.15); color: #6b6960; padding: 0.35rem 0.75rem; border-radius: 4px; font-size: 0.75rem; cursor: pointer; }
         .main { max-width: 1100px; margin: 0 auto; padding: 1.5rem 2rem; }
         .tabs { display: flex; gap: 3px; margin-bottom: 1.25rem; flex-wrap: wrap; }
-        .tab { padding: 0.4rem 0.9rem; border-radius: 5px; font-size: 0.8rem; border: 1px solid rgba(201,168,76,0.15); background: #0f0f0e; color: #6b6960; cursor: pointer; font-family: 'Space Grotesk', sans-serif; }
+        .tab { padding: 0.4rem 0.9rem; border-radius: 5px; font-size: 0.8rem; border: 1px solid rgba(201,168,76,0.15); background: #0f0f0e; color: #6b6960; cursor: pointer; }
         .tab.active { border-color: #c9a84c; background: rgba(201,168,76,0.08); color: #c9a84c; font-weight: 500; }
         .tab.locked { opacity: 0.35; cursor: not-allowed; }
         .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -306,29 +423,26 @@ export default function Dashboard() {
         .col-scroll { max-height: 520px; overflow-y: auto; padding-right: 4px; scrollbar-width: thin; scrollbar-color: rgba(201,168,76,0.15) transparent; }
         .col-scroll::-webkit-scrollbar { width: 3px; }
         .col-scroll::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.15); border-radius: 2px; }
-        .section-label { font-family: 'Space Mono', monospace; font-size: 0.66rem; letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 12px; font-weight: 700; text-shadow: 0 0 12px currentColor; opacity: 0.95; }
+        .section-label { font-family: 'Space Mono', monospace; font-size: 0.66rem; letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 12px; font-weight: 700; opacity: 0.95; }
         .mm-tabs { display: flex; gap: 4px; margin-bottom: 14px; flex-wrap: wrap; }
-        .mm-tab { padding: 0.35rem 0.85rem; border-radius: 5px; font-size: 0.78rem; border: 1px solid rgba(201,168,76,0.15); background: #0f0f0e; color: #6b6960; cursor: pointer; font-family: 'Space Grotesk', sans-serif; }
+        .mm-tab { padding: 0.35rem 0.85rem; border-radius: 5px; font-size: 0.78rem; border: 1px solid rgba(201,168,76,0.15); background: #0f0f0e; color: #6b6960; cursor: pointer; }
         .four-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         @media (max-width: 650px) { .four-grid { grid-template-columns: 1fr; } }
-        .sub-card { background: #111110; border: 0.5px solid rgba(201,168,76,0.12); border-radius: 8px; padding: 12px; }
-        .sub-label { font-family: 'Space Mono', monospace; font-size: 0.62rem; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 10px; font-weight: 700; text-shadow: 0 0 8px currentColor; opacity: 0.9; }
+        .sub-card { background: #111110; border: 0.5px solid rgba(201,168,76,0.1); border-radius: 10px; padding: 14px; }
+        .sub-label { font-family: 'Space Mono', monospace; font-size: 0.62rem; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 10px; font-weight: 700; }
         .locked-msg { background: #111110; border: 1px solid rgba(201,168,76,0.15); border-radius: 12px; padding: 3rem; text-align: center; }
         .locked-msg h3 { color: #c9a84c; font-size: 1.1rem; margin-bottom: 0.5rem; }
         .locked-msg p { color: #6b6960; font-size: 0.85rem; margin-bottom: 1.5rem; }
-        .upgrade-btn { background: #c9a84c; color: #0a0a0a; border: none; padding: 0.7rem 1.4rem; border-radius: 5px; font-weight: 700; cursor: pointer; font-family: 'Space Grotesk', sans-serif; text-decoration: none; display: inline-block; }
+        .upgrade-btn { background: #c9a84c; color: #0a0a0a; border: none; padding: 0.7rem 1.4rem; border-radius: 5px; font-weight: 700; cursor: pointer; text-decoration: none; display: inline-block; }
         .loading-data { color: #6b6960; font-size: 0.82rem; text-align: center; padding: 3rem; font-family: 'Space Mono, monospace'; }
-        .setup-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 2rem; }
-        .setup-card { background: #111110; border: 1px solid rgba(201,168,76,0.25); border-radius: 12px; padding: 1.75rem; max-width: 480px; width: 100%; }
-        .setup-close { float: right; background: transparent; border: none; color: #6b6960; cursor: pointer; font-size: 1.1rem; }
         .ticker { font-family: 'Space Mono', monospace; font-size: 0.65rem; color: #6b6960; margin-bottom: 12px; letter-spacing: 0.08em; }
-        .gold-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; background: linear-gradient(135deg, #f0d68a 0%, #c9a84c 50%, #a5822f 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-        .plain-content { background: #111110; border: 0.5px solid rgba(201,168,76,0.15); border-radius: 10px; padding: 1.25rem; font-size: 12px; color: #9b9b8f; line-height: 1.7; white-space: pre-wrap; max-height: 600px; overflow-y: auto; }
+        .gold-title { font-weight: 700; background: linear-gradient(135deg, #f0d68a 0%, #c9a84c 50%, #a5822f 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
         .patch-list { display: flex; flex-direction: column; gap: 14px; max-height: 600px; overflow-y: auto; padding-right: 4px; }
         .patch-item { background: #111110; border: 0.5px solid rgba(201,168,76,0.15); border-left: 3px solid #c9a84c; border-radius: 8px; padding: 14px 16px; }
-        .patch-item-title { font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 700; color: #f0d68a; text-shadow: 0 0 10px rgba(201,168,76,0.35); margin-bottom: 8px; line-height: 1.4; }
+        .patch-item-title { font-size: 13px; font-weight: 700; color: #f0d68a; margin-bottom: 8px; line-height: 1.4; }
         .patch-item-body { font-size: 11.5px; color: #9b9b8f; line-height: 1.7; }
         .patch-alpha-item { background: #111110; border: 0.5px solid rgba(237,161,0,0.2); border-left: 3px solid #eda100; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; font-size: 11.5px; color: #b8b6ad; line-height: 1.7; }
+        .tier-header { display: flex; align-items: center; gap: 10; margin-bottom: 14px; padding: 10px 14px; background: ${currentTier.color}08; border: 1px solid ${currentTier.color}20; border-radius: 8px; }
       `}</style>
 
       <nav>
@@ -365,46 +479,80 @@ export default function Dashboard() {
           </div>
         ) : (
           <>
-            {/* FLASH ALERTS — sidebar categories dynamiques + Bazaar Top 25 */}
+            {/* FLASH ALERTS */}
             {tab === 0 && <FlashAlertsPage />}
 
             {/* MONEY MAKING */}
             {tab === 1 && (
               <div>
+                {/* Tier selector */}
                 <div className="mm-tabs">
                   {MM_TIERS.map(t => (
-                    <button key={t.key} className={`mm-tab ${mmTier === t.key ? 'active' : ''}`}
+                    <button
+                      key={t.key}
+                      className={`mm-tab ${mmTier === t.key ? 'active' : ''}`}
                       style={mmTier === t.key ? { borderColor: t.color, color: t.color, background: t.color + '12' } : {}}
-                      onClick={() => setMmTier(t.key)}>
-                      {t.label} <span style={{ fontSize: 9, color: mmTier === t.key ? t.color : '#6b6960', marginLeft: 4, fontFamily: 'Space Mono, monospace' }}>{t.target}</span>
+                      onClick={() => setMmTier(t.key)}
+                    >
+                      {t.label}
+                      <span style={{ fontSize: 9, color: mmTier === t.key ? t.color : '#6b6960', marginLeft: 5, fontFamily: 'Space Mono, monospace' }}>
+                        {t.target}
+                      </span>
                     </button>
                   ))}
                 </div>
-                {dataLoading ? <div className="loading-data">Loading AI analysis...</div> : (
-                  tierText ? (
-                    <div className="four-grid">
-                      <div className="sub-card">
-                        <div className="sub-label" style={{ color: '#1baf7a' }}>Bazaar Flips</div>
-                        {bazaarFlips.length > 0 ? bazaarFlips.slice(0, 3).map((item, i) => <MoneyCard key={i} item={item} color="#1baf7a" onClick={() => setSetupItem(item)} />) :
-                          <div style={{ color: '#6b6960', fontSize: 11, fontFamily: 'Space Mono, monospace' }}>Loading...</div>}
-                      </div>
-                      <div className="sub-card">
-                        <div className="sub-label" style={{ color: '#2a78d6' }}>AH Flips</div>
-                        {ahFlips.length > 0 ? ahFlips.slice(0, 3).map((item, i) => <MoneyCard key={i} item={item} color="#2a78d6" onClick={() => setSetupItem(item)} />) :
-                          <div style={{ color: '#6b6960', fontSize: 11, fontFamily: 'Space Mono, monospace' }}>Loading...</div>}
-                      </div>
-                      <div className="sub-card">
-                        <div className="sub-label" style={{ color: '#eda100' }}>Farming Methods</div>
-                        {farmMethods.length > 0 ? farmMethods.slice(0, 3).map((item, i) => <MoneyCard key={i} item={item} color="#eda100" onClick={() => setSetupItem(item)} />) :
-                          <div style={{ color: '#6b6960', fontSize: 11, fontFamily: 'Space Mono, monospace' }}>Loading...</div>}
-                      </div>
-                      <div className="sub-card">
-                        <div className="sub-label" style={{ color: '#9b59b6' }}>⚡ Vault Exclusive</div>
-                        {vaultExclusive.length > 0 ? vaultExclusive.slice(0, 3).map((item, i) => <MoneyCard key={i} item={item} color="#9b59b6" onClick={() => setSetupItem(item)} />) :
-                          <div style={{ color: '#6b6960', fontSize: 11, fontFamily: 'Space Mono, monospace' }}>Loading...</div>}
-                      </div>
+
+                {/* Bandeau tier actif */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, padding: '8px 14px', background: currentTier.color + '08', border: '1px solid ' + currentTier.color + '20', borderRadius: 8 }}>
+                  <span style={{ fontSize: 16 }}>⚡</span>
+                  <div>
+                    <span style={{ fontSize: 11, color: currentTier.color, fontFamily: 'Space Mono, monospace', fontWeight: 700 }}>
+                      TARGET: {currentTier.target} minimum
+                    </span>
+                    <span style={{ fontSize: 10, color: '#6b6960', fontFamily: 'Space Mono, monospace', marginLeft: 12 }}>
+                      Click any method to see full setup
+                    </span>
+                  </div>
+                </div>
+
+                {dataLoading ? (
+                  <div className="loading-data">Loading AI analysis...</div>
+                ) : tierText ? (
+                  <div className="four-grid">
+                    <div className="sub-card">
+                      <div className="sub-label" style={{ color: '#1baf7a' }}>📈 Bazaar Flips</div>
+                      {bazaarFlips.length > 0
+                        ? bazaarFlips.slice(0, 3).map((item, i) => <MoneyCard key={i} item={item} color="#1baf7a" onClick={() => setSetupItem(item)} />)
+                        : <div style={{ color: '#6b6960', fontSize: 11, fontFamily: 'Space Mono, monospace' }}>No data yet...</div>
+                      }
                     </div>
-                  ) : <div className="loading-data">AI analysis running for this tier...</div>
+
+                    <div className="sub-card">
+                      <div className="sub-label" style={{ color: '#2a78d6' }}>🏷️ AH Flips</div>
+                      {ahFlips.length > 0
+                        ? ahFlips.slice(0, 3).map((item, i) => <MoneyCard key={i} item={item} color="#2a78d6" onClick={() => setSetupItem(item)} />)
+                        : <div style={{ color: '#6b6960', fontSize: 11, fontFamily: 'Space Mono, monospace' }}>Insufficient AH history — building data...</div>
+                      }
+                    </div>
+
+                    <div className="sub-card">
+                      <div className="sub-label" style={{ color: '#eda100' }}>⚔️ Active Grind</div>
+                      {grindMethods.length > 0
+                        ? grindMethods.slice(0, 3).map((item, i) => <MoneyCard key={i} item={item} color="#eda100" onClick={() => setSetupItem(item)} />)
+                        : <div style={{ color: '#6b6960', fontSize: 11, fontFamily: 'Space Mono, monospace' }}>No data yet...</div>
+                      }
+                    </div>
+
+                    <div className="sub-card">
+                      <div className="sub-label" style={{ color: '#9b59b6' }}>⚡ Vault Exclusive</div>
+                      {vaultEx.length > 0
+                        ? vaultEx.slice(0, 3).map((item, i) => <MoneyCard key={i} item={item} color="#9b59b6" onClick={() => setSetupItem(item)} />)
+                        : <div style={{ color: '#6b6960', fontSize: 11, fontFamily: 'Space Mono, monospace' }}>No data yet...</div>
+                      }
+                    </div>
+                  </div>
+                ) : (
+                  <div className="loading-data">AI analysis running for this tier...</div>
                 )}
               </div>
             )}
@@ -417,19 +565,16 @@ export default function Dashboard() {
                   <div className="patch-list">
                     {dataLoading ? <div className="loading-data">Loading...</div> :
                       sortPatchesNewestFirst(parsePatchItems(patchLive)).map((item, i) => {
-                        const parts = item.split(' — ')
-                        const title = parts[0] || item
-                        const body = parts.slice(1).join(' — ')
+                        const parts   = item.split(' — ')
+                        const title   = parts[0] || item
+                        const body    = parts.slice(1).join(' — ')
                         const insight = findInsightForPatch(title)
                         return (
                           <div key={i} className="patch-item">
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
                               <div className="patch-item-title" style={{ marginBottom: 0 }}>📋 {title.replace(/\*\*/g, '').slice(0, 90)}</div>
                               {insight && (
-                                <button
-                                  onClick={() => setActiveInsight(insight)}
-                                  style={{ flexShrink: 0, background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.3)', color: '#c9a84c', fontSize: 10, fontFamily: 'Space Mono, monospace', padding: '3px 9px', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}
-                                >
+                                <button onClick={() => setActiveInsight(insight)} style={{ flexShrink: 0, background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.3)', color: '#c9a84c', fontSize: 10, fontFamily: 'Space Mono, monospace', padding: '3px 9px', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}>
                                   MORE →
                                 </button>
                               )}
@@ -437,7 +582,8 @@ export default function Dashboard() {
                             {body && <div className="patch-item-body" style={{ marginTop: 8 }}>{body.replace(/\*\*/g, '')}</div>}
                           </div>
                         )
-                      })}
+                      })
+                    }
                   </div>
                 </div>
                 <div>
@@ -446,7 +592,8 @@ export default function Dashboard() {
                     {dataLoading ? <div className="loading-data">Loading...</div> :
                       patchAlpha.split(/\n(?=[-•*]\s)/).filter(s => s.trim().length > 5).map((item, i) => (
                         <div key={i} className="patch-alpha-item">⚡ {item.replace(/^[-•*]\s*/, '').replace(/\*\*/g, '')}</div>
-                      ))}
+                      ))
+                    }
                     {!dataLoading && !patchAlpha && <div className="patch-alpha-item">Monitoring Hypixel Alpha Network for upcoming changes.</div>}
                   </div>
                 </div>
@@ -462,15 +609,19 @@ export default function Dashboard() {
                     <div>
                       <div className="section-label" style={{ color: '#2a78d6' }}>📅 Mid-Term (1-2 weeks)</div>
                       <div className="col-scroll">
-                        {radarMid.length > 0 ? radarMid.map((item, i) => <FlashCard key={i} item={item} color="#2a78d6" type="MID" />) :
-                          <div className="loading-data">No mid-term data</div>}
+                        {radarMid.length > 0
+                          ? radarMid.map((item, i) => <FlashCard key={i} item={item} color="#2a78d6" type="MID" />)
+                          : <div className="loading-data">No mid-term data</div>
+                        }
                       </div>
                     </div>
                     <div>
                       <div className="section-label" style={{ color: '#9b59b6' }}>🔮 Long-Term (1+ month)</div>
                       <div className="col-scroll">
-                        {radarLong.length > 0 ? radarLong.map((item, i) => <FlashCard key={i} item={item} color="#9b59b6" type="LONG" />) :
-                          <div className="loading-data">No long-term data</div>}
+                        {radarLong.length > 0
+                          ? radarLong.map((item, i) => <FlashCard key={i} item={item} color="#9b59b6" type="LONG" />)
+                          : <div className="loading-data">No long-term data</div>
+                        }
                       </div>
                     </div>
                   </div>
@@ -479,90 +630,44 @@ export default function Dashboard() {
             )}
 
             {/* EVOLVE */}
-            {tab === 4 && (
-              <EvolveSection plan={plan} userId={user?.id} />
-            )}
+            {tab === 4 && <EvolveSection plan={plan} userId={user?.id} />}
           </>
         )}
       </div>
 
-      {setupItem && (
-        <div className="setup-overlay" onClick={() => setSetupItem(null)}>
-          <div className="setup-card" onClick={e => e.stopPropagation()}>
-            <button className="setup-close" onClick={() => setSetupItem(null)}>✕</button>
-            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '0.7rem', color: '#c9a84c', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 14 }}>⚙️ Setup Guide</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {Object.entries(setupItem).map(([k, v]) => v && v !== '---' && (
-                <div key={k} style={{ borderBottom: '0.5px solid rgba(201,168,76,0.1)', paddingBottom: 10 }}>
-                  <div style={{ fontSize: 10, color: '#c9a84c', fontFamily: 'Space Mono, monospace', marginBottom: 3, textTransform: 'uppercase' }}>{k}</div>
-                  <div style={{ fontSize: 13, color: '#e8e6df', lineHeight: 1.5 }}>{v.replace(/\*\*/g, '')}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ marginTop: 16, padding: '0.75rem', background: 'rgba(201,168,76,0.05)', border: '1px solid rgba(201,168,76,0.12)', borderRadius: 6, fontSize: 11, color: '#6b6960' }}>
-              💡 Full gear recommendations coming with Evolve
-            </div>
-          </div>
-        </div>
-      )}
+      {/* SETUP MODAL */}
+      {setupItem && <SetupModal item={setupItem} onClose={() => setSetupItem(null)} />}
+
+      {/* PATCH INSIGHT MODAL */}
       {activeInsight && (
-        <div className="setup-overlay" onClick={() => setActiveInsight(null)}>
-          <div className="setup-card" onClick={e => e.stopPropagation()}>
-            <button className="setup-close" onClick={() => setActiveInsight(null)}>✕</button>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }} onClick={() => setActiveInsight(null)}>
+          <div style={{ background: '#111110', border: '1px solid rgba(201,168,76,0.25)', borderRadius: 12, padding: '1.75rem', maxWidth: 480, width: '100%' }} onClick={e => e.stopPropagation()}>
+            <button onClick={() => setActiveInsight(null)} style={{ float: 'right', background: 'transparent', border: 'none', color: '#6b6960', cursor: 'pointer', fontSize: 1.1 + 'rem' }}>✕</button>
             <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '0.7rem', color: '#c9a84c', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>📋 Patch Deep-Dive</div>
-            <div className="gold-title" style={{ fontSize: 16, marginBottom: 14, lineHeight: 1.4 }}>{activeInsight.patch_title} {activeInsight.patch_date && <span style={{ color: '#6b6960', fontSize: 11, fontFamily: 'Space Mono, monospace' }}>· {activeInsight.patch_date}</span>}</div>
-
+            <div className="gold-title" style={{ fontSize: 16, marginBottom: 14, lineHeight: 1.4 }}>
+              {activeInsight.patch_title}
+              {activeInsight.patch_date && <span style={{ color: '#6b6960', fontSize: 11, fontFamily: 'Space Mono, monospace' }}> · {activeInsight.patch_date}</span>}
+            </div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 10, padding: '3px 9px', borderRadius: 4, fontFamily: 'Space Mono, monospace', fontWeight: 700, background: 'rgba(201,168,76,0.12)', color: '#c9a84c', border: '1px solid rgba(201,168,76,0.3)' }}>
-                {activeInsight.action_signal}
-              </span>
-              <span style={{ fontSize: 10, padding: '3px 9px', borderRadius: 4, fontFamily: 'Space Mono, monospace', fontWeight: 700,
-                background: activeInsight.confirmed === 'confirmed' ? 'rgba(27,175,122,0.12)' : activeInsight.confirmed === 'contradicted' ? 'rgba(227,73,72,0.12)' : 'rgba(107,105,96,0.12)',
-                color: activeInsight.confirmed === 'confirmed' ? '#1baf7a' : activeInsight.confirmed === 'contradicted' ? '#e34948' : '#6b6960',
-                border: '1px solid ' + (activeInsight.confirmed === 'confirmed' ? 'rgba(27,175,122,0.3)' : activeInsight.confirmed === 'contradicted' ? 'rgba(227,73,72,0.3)' : 'rgba(107,105,96,0.3)') }}>
-                {activeInsight.confirmed === 'confirmed' ? '✓ Confirmed' : activeInsight.confirmed === 'contradicted' ? '✗ Contradicted' : '⏳ Pending'}
-              </span>
-              {activeInsight.is_alpha && (
-                <span style={{ fontSize: 10, padding: '3px 9px', borderRadius: 4, fontFamily: 'Space Mono, monospace', fontWeight: 700, background: 'rgba(237,161,0,0.12)', color: '#eda100', border: '1px solid rgba(237,161,0,0.3)' }}>ALPHA</span>
+              {activeInsight.action_signal && (
+                <span style={{ fontSize: 10, padding: '3px 9px', borderRadius: 4, fontFamily: 'Space Mono, monospace', fontWeight: 700, background: 'rgba(201,168,76,0.12)', color: '#c9a84c', border: '1px solid rgba(201,168,76,0.3)' }}>
+                  {activeInsight.action_signal}
+                </span>
               )}
             </div>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {activeInsight.items_affected && activeInsight.items_affected.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 10, color: '#c9a84c', fontFamily: 'Space Mono, monospace', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Items Affected</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {activeInsight.items_affected.map((it: string, i: number) => (
-                      <span key={i} style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', padding: '3px 8px', background: '#111110', border: '1px solid rgba(201,168,76,0.15)', borderRadius: 4, color: '#e8e6df' }}>{it}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {activeInsight.price_prediction && (
                 <div style={{ borderBottom: '0.5px solid rgba(201,168,76,0.1)', paddingBottom: 12 }}>
                   <div style={{ fontSize: 10, color: '#c9a84c', fontFamily: 'Space Mono, monospace', marginBottom: 4, textTransform: 'uppercase' }}>Prediction</div>
                   <div style={{ fontSize: 13, color: '#e8e6df', lineHeight: 1.5 }}>{activeInsight.price_prediction}</div>
                 </div>
               )}
-
               {activeInsight.direct_impact && (
-                <div style={{ borderBottom: '0.5px solid rgba(201,168,76,0.1)', paddingBottom: 12 }}>
+                <div>
                   <div style={{ fontSize: 10, color: '#1baf7a', fontFamily: 'Space Mono, monospace', marginBottom: 4, textTransform: 'uppercase' }}>🎯 Direct Impact</div>
                   <div style={{ fontSize: 13, color: '#e8e6df', lineHeight: 1.5 }}>{activeInsight.direct_impact}</div>
                 </div>
               )}
-
-              {activeInsight.unexpected_impact && (
-                <div>
-                  <div style={{ fontSize: 10, color: '#9b59b6', fontFamily: 'Space Mono, monospace', marginBottom: 4, textTransform: 'uppercase' }}>🔮 Unexpected Impact</div>
-                  <div style={{ fontSize: 13, color: '#e8e6df', lineHeight: 1.5 }}>{activeInsight.unexpected_impact}</div>
-                </div>
-              )}
-            </div>
-
-            <div style={{ marginTop: 16, padding: '0.6rem 0.75rem', background: 'rgba(201,168,76,0.05)', border: '1px solid rgba(201,168,76,0.12)', borderRadius: 6, fontSize: 10.5, color: '#6b6960', fontFamily: 'Space Mono, monospace' }}>
-              Vault tracks this prediction and self-corrects on next analysis.
             </div>
           </div>
         </div>
