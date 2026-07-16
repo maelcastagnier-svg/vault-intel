@@ -1,7 +1,7 @@
 // app/api/cron/historic-import/route.ts
 // Import historique depuis SkyCofl
-// Bazaar : /api/bazaar/{item_id}/history → 6 ans de données
-// AH     : /api/item/price/{item_id}/history/overview → historique AH
+// Bazaar : /api/bazaar/{item_id}/history         → 6 ans
+// AH     : /api/item/price/{item_id}/history/full → historique complet
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { extractVariantFromName } from '@/lib/text-variant-extractor'
@@ -11,7 +11,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const ITEMS_PER_RUN   = 10
+const ITEMS_PER_RUN   = 20
 const SKYCOFL_TOKEN   = process.env.SKYCOFL_ACCOUNT_TOKEN!
 const SKYCOFL_HEADERS = {
   'Authorization': `Bearer ${SKYCOFL_TOKEN}`,
@@ -31,12 +31,12 @@ function toBaseItemId(baseName: string): string {
 }
 
 function isDeadError(msg: string): boolean {
-  return msg.includes('404') || msg.includes('No JSON') ||
-         msg.includes('403') || msg.includes('No data')
+  return msg.includes('404') || msg.includes('403') ||
+         msg.includes('No data') || msg.includes('No JSON')
 }
 
 // ============================================================
-// IMPORT BAZAAR — endpoint correct avec 6 ans d'historique
+// IMPORT BAZAAR — /api/bazaar/{id}/history
 // ============================================================
 async function importBazaar(item_id: string): Promise<number> {
   const res = await fetch(
@@ -47,38 +47,29 @@ async function importBazaar(item_id: string): Promise<number> {
   if (!res.ok) throw new Error(`SkyCofl Bazaar ${res.status} for ${item_id}`)
 
   const points: {
-    maxBuy:          number
-    maxSell:         number
-    minBuy:          number
-    minSell:         number
-    buy:             number
-    sell:            number
-    sellVolume:      number
-    buyVolume:       number
-    timestamp:       string
-    buyMovingWeek:   number
-    sellMovingWeek:  number
+    buy:        number
+    sell:       number
+    sellVolume: number
+    buyVolume:  number
+    timestamp:  string
   }[] = await res.json()
 
-  if (!Array.isArray(points) || points.length === 0) {
+  if (!Array.isArray(points) || points.length === 0)
     throw new Error(`No data for ${item_id}`)
-  }
 
-  // Insère en batch de 20
-  for (let i = 0; i < points.length; i += 20) {
+  for (let i = 0; i < points.length; i += 50) {
     await Promise.all(
-      points.slice(i, i + 20).map(p => {
-        const ts = new Date(p.timestamp)
-        return supabase.rpc('upsert_bazaar_price_bucket', {
+      points.slice(i, i + 50).map(p =>
+        supabase.rpc('upsert_bazaar_price_bucket', {
           p_item_id:     item_id,
           p_item_name:   item_id.replace(/_/g, ' '),
           p_buy_price:   p.buy,
           p_sell_price:  p.sell,
           p_avg_price:   (p.buy + p.sell) / 2,
           p_volume:      p.sellVolume ?? 0,
-          p_bucket_date: getDailyBucket(ts)
+          p_bucket_date: getDailyBucket(new Date(p.timestamp))
         })
-      })
+      )
     )
   }
 
@@ -86,40 +77,39 @@ async function importBazaar(item_id: string): Promise<number> {
 }
 
 // ============================================================
-// IMPORT AH
+// IMPORT AH — /api/item/price/{id}/history/full
 // ============================================================
 async function importAH(
   item_id:   string,
   liquidity: 'HIGH' | 'LOW'
 ): Promise<number> {
   const res = await fetch(
-    `https://sky.coflnet.com/api/item/price/${item_id}/history/overview`,
+    `https://sky.coflnet.com/api/item/price/${item_id}/history/full`,
     { headers: SKYCOFL_HEADERS }
   )
 
   if (!res.ok) throw new Error(`SkyCofl AH ${res.status} for ${item_id}`)
 
   const points: {
-    time:    number
-    avg:     number
-    min:     number
-    max:     number
-    volume?: number
+    min:    number
+    max:    number
+    avg:    number
+    volume: number
+    time:   string
   }[] = await res.json()
 
-  if (!Array.isArray(points) || points.length === 0) {
+  if (!Array.isArray(points) || points.length === 0)
     throw new Error(`No data for ${item_id}`)
-  }
 
   const item_name    = item_id.replace(/_/g, ' ')
   const v            = extractVariantFromName(item_name)
   const base_item_id = toBaseItemId(v.baseName) || item_id
   const isHigh       = liquidity === 'HIGH'
 
-  for (let i = 0; i < points.length; i += 20) {
+  for (let i = 0; i < points.length; i += 50) {
     await Promise.all(
-      points.slice(i, i + 20).map(p => {
-        const ts          = new Date(p.time * 1000)
+      points.slice(i, i + 50).map(p => {
+        const ts          = new Date(p.time)
         const granularity = isHigh ? 'DAILY' : 'MONTHLY'
         const bucketDate  = isHigh ? getDailyBucket(ts) : getMonthlyBucket(ts)
 
@@ -156,15 +146,10 @@ async function processItem(item: {
   const { item_id, item_type, liquidity } = item
 
   try {
-    let rowsInserted = 0
+    const rows = item_type === 'BAZAAR'
+      ? await importBazaar(item_id)
+      : await importAH(item_id, liquidity as 'HIGH' | 'LOW')
 
-    if (item_type === 'BAZAAR') {
-      rowsInserted = await importBazaar(item_id)
-    } else {
-      rowsInserted = await importAH(item_id, liquidity as 'HIGH' | 'LOW')
-    }
-
-    // Item traité → done directement (on importe tout d'un coup)
     await supabase
       .from('historic_import_progress')
       .update({
@@ -174,11 +159,10 @@ async function processItem(item: {
       })
       .eq('item_id', item_id)
 
-    return { item_id, rows: rowsInserted, status: 'done' }
+    return { item_id, rows, status: 'done' }
 
   } catch (err: any) {
-    const errMsg = err.message as string
-    const dead   = isDeadError(errMsg)
+    const dead = isDeadError(err.message)
 
     await supabase
       .from('historic_import_progress')
@@ -188,7 +172,7 @@ async function processItem(item: {
       })
       .eq('item_id', item_id)
 
-    return { item_id, rows: 0, error: errMsg, status: dead ? 'done' : 'pending' }
+    return { item_id, rows: 0, error: err.message, status: dead ? 'done' : 'pending' }
   }
 }
 
@@ -210,33 +194,25 @@ export async function GET(request: Request) {
       .limit(ITEMS_PER_RUN)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    if (!nextItems || nextItems.length === 0) {
+    if (!nextItems || nextItems.length === 0)
       return NextResponse.json({ message: 'All items done!' })
-    }
 
     const results = []
     for (const item of nextItems) {
-      const result = await processItem(item)
-      results.push(result)
+      results.push(await processItem(item))
     }
-
-    const successful = results.filter(r => !r.error).length
-    const dead       = results.filter(r => r.status === 'done' && r.error).length
-    const retryLater = results.filter(r => r.status === 'pending' && r.error).length
-    const totalRows  = results.reduce((s, r) => s + r.rows, 0)
 
     return NextResponse.json({
       success:         true,
       items_processed: results.length,
-      successful,
-      dead_items:      dead,
-      retry_later:     retryLater,
-      total_rows:      totalRows,
+      successful:      results.filter(r => !r.error).length,
+      dead_items:      results.filter(r => r.status === 'done' && r.error).length,
+      retry_later:     results.filter(r => r.status === 'pending' && r.error).length,
+      total_rows:      results.reduce((s, r) => s + r.rows, 0),
       results
     })
 
   } catch (error: any) {
-    console.error('historic-import fatal error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
