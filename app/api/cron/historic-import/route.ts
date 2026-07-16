@@ -1,78 +1,21 @@
+// app/api/cron/historic-import/route.ts
+// Import historique depuis SkyCofl
+// Bazaar : /api/bazaar/{item_id}/history → 6 ans de données
+// AH     : /api/item/price/{item_id}/history/overview → historique AH
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
-import zlib from 'zlib'
-import { promisify } from 'util'
 import { extractVariantFromName } from '@/lib/text-variant-extractor'
-
-const inflateRaw = promisify(zlib.inflateRaw)
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const YEARS_TARGET    = 3
 const ITEMS_PER_RUN   = 10
 const SKYCOFL_TOKEN   = process.env.SKYCOFL_ACCOUNT_TOKEN!
 const SKYCOFL_HEADERS = {
   'Authorization': `Bearer ${SKYCOFL_TOKEN}`,
   'Accept':        'application/json'
-}
-
-// ============================================================
-// ZIP PARSER
-// ============================================================
-async function parseZipBuffer(buffer: Buffer): Promise<{ name: string; data: Buffer }[]> {
-  const files: { name: string; data: Buffer }[] = []
-  const EOCD_SIG = 0x06054b50
-  const CD_SIG   = 0x02014b50
-
-  let eocdOffset = -1
-  for (let i = buffer.length - 22; i >= 0; i--) {
-    if (buffer.readUInt32LE(i) === EOCD_SIG) { eocdOffset = i; break }
-  }
-  if (eocdOffset === -1) throw new Error('Invalid ZIP: EOCD not found')
-
-  const cdOffset = buffer.readUInt32LE(eocdOffset + 16)
-  const cdSize   = buffer.readUInt32LE(eocdOffset + 12)
-
-  let offset = cdOffset
-  while (offset < cdOffset + cdSize) {
-    if (buffer.readUInt32LE(offset) !== CD_SIG) break
-
-    const compression    = buffer.readUInt16LE(offset + 10)
-    const fileNameLen    = buffer.readUInt16LE(offset + 28)
-    const extraLen       = buffer.readUInt16LE(offset + 30)
-    const commentLen     = buffer.readUInt16LE(offset + 32)
-    const lfhOffset      = buffer.readUInt32LE(offset + 42)
-    const fileName       = buffer.toString('utf8', offset + 46, offset + 46 + fileNameLen)
-    const compSize       = buffer.readUInt32LE(offset + 20)
-
-    const lfhFileNameLen = buffer.readUInt16LE(lfhOffset + 26)
-    const lfhExtraLen    = buffer.readUInt16LE(lfhOffset + 28)
-    const dataOffset     = lfhOffset + 30 + lfhFileNameLen + lfhExtraLen
-
-    const compressed = buffer.slice(dataOffset, dataOffset + compSize)
-    const fileData   = compression === 0
-      ? compressed
-      : compression === 8
-        ? await inflateRaw(compressed) as Buffer
-        : (() => { throw new Error(`Unsupported ZIP compression: ${compression}`) })()
-
-    files.push({ name: fileName, data: fileData })
-    offset += 46 + fileNameLen + extraLen + commentLen
-  }
-
-  return files
-}
-
-// ============================================================
-// HELPERS TEMPORELS
-// ============================================================
-function getDateBoundary(yearsAgo: number): Date {
-  const d = new Date()
-  d.setUTCFullYear(d.getUTCFullYear() - yearsAgo)
-  return d
 }
 
 function getDailyBucket(ts: Date): string {
@@ -87,56 +30,59 @@ function toBaseItemId(baseName: string): string {
   return baseName.toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '')
 }
 
-// Erreurs qui indiquent que l'item n'existe pas sur SkyCofl
-// → marquer done immédiatement, pas la peine de retenter
 function isDeadError(msg: string): boolean {
-  return msg.includes('404') ||
-         msg.includes('No JSON') ||
-         msg.includes('403') ||
-         msg.includes('No data')
+  return msg.includes('404') || msg.includes('No JSON') ||
+         msg.includes('403') || msg.includes('No data')
 }
 
 // ============================================================
-// IMPORT BAZAAR
+// IMPORT BAZAAR — endpoint correct avec 6 ans d'historique
 // ============================================================
-async function importBazaar(item_id: string, fromDate: Date, toDate: Date): Promise<number> {
+async function importBazaar(item_id: string): Promise<number> {
   const res = await fetch(
-    `https://sky.coflnet.com/api/item/price/${item_id}/history`,
-    { headers: { ...SKYCOFL_HEADERS, 'Accept': 'application/zip' } }
+    `https://sky.coflnet.com/api/bazaar/${item_id}/history`,
+    { headers: SKYCOFL_HEADERS }
   )
+
   if (!res.ok) throw new Error(`SkyCofl Bazaar ${res.status} for ${item_id}`)
 
-  const buffer = Buffer.from(await res.arrayBuffer())
-  const files  = await parseZipBuffer(buffer)
-  const json   = files.find(f => f.name.endsWith('.json'))
-  if (!json) throw new Error(`No JSON in ZIP for ${item_id}`)
+  const points: {
+    maxBuy:          number
+    maxSell:         number
+    minBuy:          number
+    minSell:         number
+    buy:             number
+    sell:            number
+    sellVolume:      number
+    buyVolume:       number
+    timestamp:       string
+    buyMovingWeek:   number
+    sellMovingWeek:  number
+  }[] = await res.json()
 
-  const points: { timestamp: string; avg: number; min: number; max: number; volume: number }[] =
-    JSON.parse(json.data.toString('utf8'))
+  if (!Array.isArray(points) || points.length === 0) {
+    throw new Error(`No data for ${item_id}`)
+  }
 
-  const filtered = points.filter(p => {
-    const ts = new Date(p.timestamp)
-    return ts >= fromDate && ts <= toDate
-  })
-
-  for (let i = 0; i < filtered.length; i += 20) {
+  // Insère en batch de 20
+  for (let i = 0; i < points.length; i += 20) {
     await Promise.all(
-      filtered.slice(i, i + 20).map(p => {
+      points.slice(i, i + 20).map(p => {
         const ts = new Date(p.timestamp)
         return supabase.rpc('upsert_bazaar_price_bucket', {
           p_item_id:     item_id,
           p_item_name:   item_id.replace(/_/g, ' '),
-          p_buy_price:   p.max,
-          p_sell_price:  p.min,
-          p_avg_price:   p.avg,
-          p_volume:      p.volume ?? 0,
+          p_buy_price:   p.buy,
+          p_sell_price:  p.sell,
+          p_avg_price:   (p.buy + p.sell) / 2,
+          p_volume:      p.sellVolume ?? 0,
           p_bucket_date: getDailyBucket(ts)
-        }).then()
+        })
       })
     )
   }
 
-  return filtered.length
+  return points.length
 }
 
 // ============================================================
@@ -144,37 +90,35 @@ async function importBazaar(item_id: string, fromDate: Date, toDate: Date): Prom
 // ============================================================
 async function importAH(
   item_id:   string,
-  liquidity: 'HIGH' | 'LOW',
-  fromDate:  Date,
-  toDate:    Date
+  liquidity: 'HIGH' | 'LOW'
 ): Promise<number> {
   const res = await fetch(
     `https://sky.coflnet.com/api/item/price/${item_id}/history/overview`,
     { headers: SKYCOFL_HEADERS }
   )
+
   if (!res.ok) throw new Error(`SkyCofl AH ${res.status} for ${item_id}`)
 
-  const points: { time: number; avg: number; min: number; max: number; volume?: number }[] =
-    await res.json()
+  const points: {
+    time:    number
+    avg:     number
+    min:     number
+    max:     number
+    volume?: number
+  }[] = await res.json()
 
-  // Pas de data = item sans historique sur SkyCofl
   if (!Array.isArray(points) || points.length === 0) {
     throw new Error(`No data for ${item_id}`)
   }
 
-  const isHigh    = liquidity === 'HIGH'
-  const item_name = item_id.replace(/_/g, ' ')
-  const filtered  = points.filter(p => {
-    const ts = new Date(p.time * 1000)
-    return ts >= fromDate && ts <= toDate
-  })
-
+  const item_name    = item_id.replace(/_/g, ' ')
   const v            = extractVariantFromName(item_name)
   const base_item_id = toBaseItemId(v.baseName) || item_id
+  const isHigh       = liquidity === 'HIGH'
 
-  for (let i = 0; i < filtered.length; i += 20) {
+  for (let i = 0; i < points.length; i += 20) {
     await Promise.all(
-      filtered.slice(i, i + 20).map(p => {
+      points.slice(i, i + 20).map(p => {
         const ts          = new Date(p.time * 1000)
         const granularity = isHigh ? 'DAILY' : 'MONTHLY'
         const bucketDate  = isHigh ? getDailyBucket(ts) : getMonthlyBucket(ts)
@@ -193,59 +137,49 @@ async function importAH(
           p_volume:       p.volume ?? 0,
           p_granularity:  granularity,
           p_bucket_date:  bucketDate
-        }).then()
+        })
       })
     )
   }
 
-  return filtered.length
+  return points.length
 }
 
 // ============================================================
 // TRAITEMENT D'UN ITEM
 // ============================================================
 async function processItem(item: {
-  item_id:         string
-  item_type:       string
-  liquidity:       string
-  years_completed: number
+  item_id:   string
+  item_type: string
+  liquidity: string
 }): Promise<{ item_id: string; rows: number; error?: string; status: string }> {
-  const { item_id, item_type, liquidity, years_completed } = item
-
-  const toDate        = getDateBoundary(years_completed)
-  const fromDate      = getDateBoundary(years_completed + 1)
-  const hardLimit     = getDateBoundary(YEARS_TARGET)
-  const effectiveFrom = fromDate < hardLimit ? hardLimit : fromDate
+  const { item_id, item_type, liquidity } = item
 
   try {
     let rowsInserted = 0
 
     if (item_type === 'BAZAAR') {
-      rowsInserted = await importBazaar(item_id, effectiveFrom, toDate)
+      rowsInserted = await importBazaar(item_id)
     } else {
-      rowsInserted = await importAH(item_id, liquidity as 'HIGH' | 'LOW', effectiveFrom, toDate)
+      rowsInserted = await importAH(item_id, liquidity as 'HIGH' | 'LOW')
     }
 
-    const newYearsCompleted = years_completed + 1
-    const isDone            = newYearsCompleted >= YEARS_TARGET
-
+    // Item traité → done directement (on importe tout d'un coup)
     await supabase
       .from('historic_import_progress')
       .update({
-        years_completed:   newYearsCompleted,
-        status:            isDone ? 'done' : 'pending',
+        years_completed:   3,
+        status:            'done',
         last_processed_at: new Date().toISOString()
       })
       .eq('item_id', item_id)
 
-    return { item_id, rows: rowsInserted, status: isDone ? 'done' : 'pending' }
+    return { item_id, rows: rowsInserted, status: 'done' }
 
   } catch (err: any) {
     const errMsg = err.message as string
     const dead   = isDeadError(errMsg)
 
-    // 404 / No data → item sans historique SkyCofl → done définitivement
-    // Autre erreur (timeout, réseau) → reste pending pour être retenté
     await supabase
       .from('historic_import_progress')
       .update({
@@ -270,22 +204,16 @@ export async function GET(request: Request) {
   try {
     const { data: nextItems, error } = await supabase
       .from('historic_import_progress')
-      .select('item_id, item_type, liquidity, years_completed')
+      .select('item_id, item_type, liquidity')
       .eq('status', 'pending')
-      .lt('years_completed', YEARS_TARGET)
-      .order('years_completed', { ascending: true })
-      .order('item_id',         { ascending: true })
+      .order('item_id', { ascending: true })
       .limit(ITEMS_PER_RUN)
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     if (!nextItems || nextItems.length === 0) {
-      return NextResponse.json({ message: 'Nothing to import — all items done or at target' })
+      return NextResponse.json({ message: 'All items done!' })
     }
 
-    // Traitement séquentiel — évite les rate limits SkyCofl
     const results = []
     for (const item of nextItems) {
       const result = await processItem(item)
