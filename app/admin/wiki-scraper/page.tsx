@@ -1,231 +1,333 @@
 // app/admin/wiki-scraper/page.tsx
-// Page admin — scrape le Fandom Wiki Hypixel Skyblock depuis TON navigateur
-// Fandom a une API ouverte (CORS OK) — lance une fois par semaine
+// Scraper complet du Fandom Wiki Hypixel Skyblock
+// Pagine toutes les pages → filtre les pertinentes → sauvegarde dans Supabase
 'use client'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { createClient } from '../../../lib/supabase'
 
-const supabase  = createClient()
+const supabase   = createClient()
 const FANDOM_API = 'https://hypixel-skyblock.fandom.com/api.php'
 
-const WIKI_PAGES = [
-  // Guides money making
-  { category: 'wiki_guide',   key: 'fishing',           page: 'Fishing'                     },
-  { category: 'wiki_guide',   key: 'trophy_fishing',    page: 'Trophy_Fishing'              },
-  { category: 'wiki_guide',   key: 'garden',            page: 'The_Garden'                  },
-  { category: 'wiki_guide',   key: 'pest_farming',      page: 'Pests'                       },
-  { category: 'wiki_guide',   key: 'crystal_hollows',   page: 'Crystal_Hollows'             },
-  { category: 'wiki_guide',   key: 'hotm',              page: 'Heart_of_the_Mountain'       },
-  { category: 'wiki_guide',   key: 'crimson_isle',      page: 'Crimson_Isle'                },
-  { category: 'wiki_guide',   key: 'kuudra',            page: 'Kuudra'                      },
-  { category: 'wiki_guide',   key: 'dungeons',          page: 'Dungeons'                    },
-  { category: 'wiki_guide',   key: 'slayer',            page: 'Slayer'                      },
-  { category: 'wiki_guide',   key: 'bazaar',            page: 'Bazaar'                      },
-  { category: 'wiki_guide',   key: 'auction_house',     page: 'Auction_House'               },
-  { category: 'wiki_guide',   key: 'foraging',          page: 'Foraging'                    },
-  { category: 'wiki_guide',   key: 'mining',            page: 'Mining'                      },
-  { category: 'wiki_guide',   key: 'rift',              page: 'The_Rift'                    },
-  { category: 'wiki_guide',   key: 'farming',           page: 'Farming'                     },
-  { category: 'wiki_guide',   key: 'diana',             page: 'Diana'                       },
-  { category: 'wiki_guide',   key: 'combat',            page: 'Combat'                      },
-  { category: 'wiki_guide',   key: 'minions',           page: 'Minion'                      },
-  { category: 'wiki_guide',   key: 'dwarven_mines',     page: 'Dwarven_Mines'               },
-  { category: 'wiki_guide',   key: 'glacite_tunnels',   page: 'Glacite_Tunnels'             },
-  { category: 'wiki_guide',   key: 'vanquisher',        page: 'Vanquisher'                  },
-  { category: 'wiki_guide',   key: 'thunder',           page: 'Thunder'                     },
-  // Armures
-  { category: 'armor_set',    key: 'necron',            page: 'Necron%27s_Armor'            },
-  { category: 'armor_set',    key: 'crimson_armor',     page: 'Crimson_Armor'               },
-  { category: 'armor_set',    key: 'superior_dragon',   page: 'Superior_Dragon_Armor'       },
-  { category: 'armor_set',    key: 'storm',             page: 'Storm%27s_Armor'             },
-  { category: 'armor_set',    key: 'terror',            page: 'Terror_Armor'                },
-  { category: 'armor_set',    key: 'fervor',            page: 'Fervor_Armor'                },
-  { category: 'armor_set',    key: 'hollow',            page: 'Hollow_Armor'                },
-  { category: 'armor_set',    key: 'aurora',            page: 'Aurora_Armor'                },
-  { category: 'armor_set',    key: 'goldor',            page: 'Goldor%27s_Armor'            },
-  { category: 'armor_set',    key: 'maxor',             page: 'Maxor%27s_Armor'             },
-  { category: 'armor_set',    key: 'blaze_armor',       page: 'Blaze_Armor'                 },
-  { category: 'armor_set',    key: 'shadow_assassin',   page: 'Shadow_Assassin_Armor'       },
-  { category: 'armor_set',    key: 'reactive',          page: 'Reactive_Armor'              },
-  // Armes
-  { category: 'weapon',       key: 'hyperion',          page: 'Hyperion'                    },
-  { category: 'weapon',       key: 'midas_staff',       page: 'Midas_Staff'                 },
-  { category: 'weapon',       key: 'terminator',        page: 'Terminator'                  },
-  { category: 'weapon',       key: 'astraea',           page: 'Astraea'                     },
-  { category: 'weapon',       key: 'juju_shortbow',     page: 'Juju_Shortbow'               },
-  { category: 'weapon',       key: 'valkyrie',          page: 'Valkyrie'                    },
-  { category: 'weapon',       key: 'reaper_scythe',     page: 'Reaper_Scythe'               },
-  { category: 'weapon',       key: 'midas_sword',       page: 'Midas%27_Sword'              },
-  { category: 'weapon',       key: 'shadow_fury',       page: 'Shadow_Fury'                 },
-  { category: 'weapon',       key: 'livid_dagger',      page: 'Livid_Dagger'                },
-  // Pets
-  { category: 'pet_guide',    key: 'enderman_pet',      page: 'Enderman_(Pet)'              },
-  { category: 'pet_guide',    key: 'griffin_pet',       page: 'Griffin_(Pet)'               },
-  { category: 'pet_guide',    key: 'golden_dragon',     page: 'Golden_Dragon_(Pet)'         },
-  { category: 'pet_guide',    key: 'bee_pet',           page: 'Bee_(Pet)'                   },
-  { category: 'pet_guide',    key: 'lion_pet',          page: 'Lion_(Pet)'                  },
-  { category: 'pet_guide',    key: 'ender_dragon_pet',  page: 'Ender_Dragon_(Pet)'          },
-  { category: 'pet_guide',    key: 'black_cat_pet',     page: 'Black_Cat_(Pet)'             },
-  // Donjons
-  { category: 'dungeon_wiki', key: 'f7',                page: 'The_Catacombs_-_Floor_VII'   },
-  { category: 'dungeon_wiki', key: 'm7',                page: 'Master_Catacombs_-_Floor_VII'},
-  { category: 'dungeon_wiki', key: 'f6',                page: 'The_Catacombs_-_Floor_VI'    },
-  { category: 'dungeon_wiki', key: 'f5',                page: 'The_Catacombs_-_Floor_V'     },
-  // Slayers
-  { category: 'slayer_wiki',  key: 'zombie',            page: 'Revenant_Horror'             },
-  { category: 'slayer_wiki',  key: 'spider',            page: 'Tarantula_Broodfather'       },
-  { category: 'slayer_wiki',  key: 'wolf',              page: 'Sven_Packmaster'             },
-  { category: 'slayer_wiki',  key: 'enderman',          page: 'Voidgloom_Seraph'            },
-  { category: 'slayer_wiki',  key: 'blaze',             page: 'Inferno_Demonlord'           },
-  { category: 'slayer_wiki',  key: 'vampire',           page: 'Riftstalker_Bloodfiend'      },
-  // Accessoires importants
-  { category: 'accessory_wiki', key: 'rift_prism',      page: 'Rift_Prism'                  },
-  { category: 'accessory_wiki', key: 'wither_artifact', page: 'Wither_Artifact'             },
-  { category: 'accessory_wiki', key: 'talismans',       page: 'Talisman'                    },
+// Pages à ignorer (maintenance, meta, templates)
+const SKIP_PREFIXES = [
+  'File:', 'Template:', 'Category:', 'User:', 'Talk:', 'User_talk:',
+  'Template_talk:', 'File_talk:', 'MediaWiki:', 'Help:', 'Special:',
+  'Module:', 'Project:', 'Hypixel_SkyBlock_Wiki:'
 ]
 
+// Catégorisation automatique depuis le titre
+function categorize(title: string): string {
+  const t = title.toLowerCase()
+  if (t.includes('armor') || t.includes('helmet') || t.includes('chestplate') || t.includes('leggings') || t.includes('boots')) return 'armor_set'
+  if (t.includes('sword') || t.includes('bow') || t.includes('staff') || t.includes('wand') || t.includes('axe') || t.includes('blade') || t.includes('scythe')) return 'weapon'
+  if (t.includes('(pet)') || t.includes('_pet')) return 'pet_guide'
+  if (t.includes('slayer') || t.includes('horror') || t.includes('broodfather') || t.includes('packmaster') || t.includes('seraph') || t.includes('demonlord') || t.includes('bloodfiend')) return 'slayer_wiki'
+  if (t.includes('dungeon') || t.includes('catacombs') || t.includes('floor')) return 'dungeon_wiki'
+  if (t.includes('kuudra')) return 'kuudra_wiki'
+  if (t.includes('fishing') || t.includes('trophy_fish') || t.includes('sea_creature')) return 'fishing_wiki'
+  if (t.includes('mining') || t.includes('crystal_hollow') || t.includes('dwarven') || t.includes('glacite') || t.includes('hotm') || t.includes('heart_of_the_mountain')) return 'mining_wiki'
+  if (t.includes('garden') || t.includes('pest') || t.includes('farming')) return 'farming_wiki'
+  if (t.includes('foraging')) return 'foraging_wiki'
+  if (t.includes('talisman') || t.includes('accessory') || t.includes('artifact') || t.includes('ring') || t.includes('orb')) return 'accessory_wiki'
+  if (t.includes('minion')) return 'minion_wiki'
+  if (t.includes('enchant')) return 'enchant_wiki'
+  if (t.includes('reforge') || t.includes('reforge_stone')) return 'reforge_wiki'
+  if (t.includes('mayor') || t.includes('election') || t.includes('jerry')) return 'mayor_wiki'
+  if (t.includes('bazaar') || t.includes('auction') || t.includes('flip')) return 'economy_wiki'
+  if (t.includes('skill')) return 'skill_wiki'
+  if (t.includes('gemstone')) return 'gemstone_wiki'
+  if (t.includes('boss') || t.includes('mob') || t.includes('monster')) return 'mob_wiki'
+  return 'game_wiki'
+}
+
+// Pages prioritaires à scrapper en premier
+const PRIORITY_CATEGORIES = [
+  'armor_set', 'weapon', 'slayer_wiki', 'dungeon_wiki', 'kuudra_wiki',
+  'fishing_wiki', 'mining_wiki', 'farming_wiki', 'accessory_wiki',
+  'minion_wiki', 'pet_guide', 'economy_wiki', 'mayor_wiki'
+]
+
+type ScrapeStatus = 'idle' | 'listing' | 'scraping' | 'done'
+
 type PageResult = {
-  key:      string
+  title:    string
   category: string
-  status:   'pending' | 'success' | 'failed' | 'empty'
+  status:   'success' | 'failed' | 'empty' | 'skipped'
   chars?:   number
   error?:   string
 }
 
 export default function WikiScraperAdmin() {
-  const [running,  setRunning]  = useState(false)
-  const [results,  setResults]  = useState<PageResult[]>([])
-  const [progress, setProgress] = useState(0)
-  const [current,  setCurrent]  = useState('')
+  const [status,      setStatus]      = useState<ScrapeStatus>('idle')
+  const [allPages,    setAllPages]    = useState<{ title: string; category: string }[]>([])
+  const [results,     setResults]     = useState<PageResult[]>([])
+  const [progress,    setProgress]    = useState(0)
+  const [currentPage, setCurrentPage] = useState('')
+  const [phase,       setPhase]       = useState('')
+  const stopRef = useRef(false)
 
-  async function fetchFandomPage(page: string): Promise<string> {
-    const url  = `${FANDOM_API}?action=parse&page=${page}&prop=wikitext&format=json&origin=*`
-    const res  = await fetch(url)
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const data = await res.json()
-    if (data.error) throw new Error(data.error.info || 'Page not found')
-    return data?.parse?.wikitext?.['*'] || ''
+  // ── PHASE 1 : Récupère toutes les pages via pagination ────
+  async function fetchAllPageTitles(): Promise<{ title: string; category: string }[]> {
+    const pages: { title: string; category: string }[] = []
+    let continueToken: string | null = null
+    let batch = 0
+
+    do {
+      const params = new URLSearchParams({
+        action:    'query',
+        list:      'allpages',
+        aplimit:   '500',
+        apnamespace: '0', // Namespace 0 = articles principaux uniquement
+        format:    'json',
+        origin:    '*'
+      })
+
+      if (continueToken) params.set('apcontinue', continueToken)
+
+      const res  = await fetch(`${FANDOM_API}?${params}`)
+      const data = await res.json()
+
+      const rawPages = data?.query?.allpages || []
+
+      for (const p of rawPages) {
+        const title = p.title as string
+
+        // Skip pages de maintenance
+        const isSkip = SKIP_PREFIXES.some(prefix => title.startsWith(prefix))
+        if (isSkip) continue
+
+        // Skip pages trop courtes ou meta
+        if (title.length < 3) continue
+
+        pages.push({ title, category: categorize(title) })
+      }
+
+      continueToken = data?.continue?.apcontinue || null
+      batch++
+      setPhase(`Listing pages... batch ${batch} (${pages.length} found)`)
+
+      // Pause entre les requêtes
+      await new Promise(r => setTimeout(r, 200))
+
+    } while (continueToken && !stopRef.current)
+
+    return pages
   }
 
-  async function runScraper() {
-    setRunning(true)
-    setResults([])
-    setProgress(0)
+  // ── PHASE 2 : Scrape le contenu de chaque page ───────────
+  async function scrapePages(pages: { title: string; category: string }[]) {
+    const total = pages.length
+    let idx     = 0
 
-    const total = WIKI_PAGES.length
+    for (const p of pages) {
+      if (stopRef.current) break
 
-    for (let i = 0; i < WIKI_PAGES.length; i++) {
-      const p = WIKI_PAGES[i]
-      setCurrent(p.page)
-      setProgress(Math.round((i / total) * 100))
+      setCurrentPage(p.title)
+      setProgress(Math.round((idx / total) * 100))
+      idx++
 
-      let result: PageResult = { key: p.key, category: p.category, status: 'pending' }
+      let result: PageResult = { title: p.title, category: p.category, status: 'failed' }
 
       try {
-        const text = await fetchFandomPage(p.page)
+        const url  = `${FANDOM_API}?action=parse&page=${encodeURIComponent(p.title)}&prop=wikitext&format=json&origin=*`
+        const res  = await fetch(url)
+        const data = await res.json()
 
-        if (text.length < 50) {
-          result = { ...result, status: 'empty' }
+        if (data.error) {
+          result = { ...result, status: 'skipped', error: data.error.info }
         } else {
-          const { error } = await supabase
-            .from('game_mechanics_misc')
-            .upsert({
-              category:   p.category,
-              key:        p.key,
-              value:      {
-                page:    p.page,
-                source:  'fandom_wiki',
-                content: text.slice(0, 8000),
-                chars:   text.length
-              },
-              updated_at: new Date().toISOString()
-            }, { onConflict: 'category, key' })
+          const text = data?.parse?.wikitext?.['*'] || ''
 
-          result = error
-            ? { ...result, status: 'failed', error: error.message }
-            : { ...result, status: 'success', chars: text.length }
+          if (text.length < 100) {
+            result = { ...result, status: 'empty' }
+          } else {
+            // Sauvegarde dans Supabase
+            const key = p.title.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 100)
+
+            const { error } = await supabase
+              .from('game_mechanics_misc')
+              .upsert({
+                category:   p.category,
+                key,
+                value: {
+                  title:   p.title,
+                  source:  'fandom_wiki',
+                  content: text.slice(0, 8000),
+                  chars:   text.length
+                },
+                updated_at: new Date().toISOString()
+              }, { onConflict: 'category, key' })
+
+            result = error
+              ? { ...result, status: 'failed', error: error.message }
+              : { ...result, status: 'success', chars: text.length }
+          }
         }
       } catch (err: any) {
         result = { ...result, status: 'failed', error: err.message }
       }
 
-      setResults(prev => [...prev, result])
-      await new Promise(r => setTimeout(r, 400))
+      setResults(prev => [result, ...prev].slice(0, 200)) // Garde les 200 derniers
+      await new Promise(r => setTimeout(r, 300)) // Respecte le rate limit Fandom
+    }
+  }
+
+  async function startScraper(priorityOnly = false) {
+    stopRef.current = false
+    setStatus('listing')
+    setResults([])
+    setProgress(0)
+    setAllPages([])
+
+    try {
+      // Phase 1 — Liste toutes les pages
+      setPhase('Fetching page list...')
+      const pages = await fetchAllPageTitles()
+
+      // Trie : prioritaires en premier, puis le reste
+      const sorted = priorityOnly
+        ? pages.filter(p => PRIORITY_CATEGORIES.includes(p.category))
+        : [
+            ...pages.filter(p => PRIORITY_CATEGORIES.includes(p.category)),
+            ...pages.filter(p => !PRIORITY_CATEGORIES.includes(p.category))
+          ]
+
+      setAllPages(sorted)
+      setStatus('scraping')
+      setPhase('Scraping content...')
+
+      // Phase 2 — Scrape le contenu
+      await scrapePages(sorted)
+
+    } catch (err: any) {
+      console.error('Scraper error:', err)
     }
 
+    setStatus('done')
+    setPhase('')
     setProgress(100)
-    setCurrent('')
-    setRunning(false)
+  }
+
+  function stopScraper() {
+    stopRef.current = true
   }
 
   const successCount = results.filter(r => r.status === 'success').length
   const failedCount  = results.filter(r => r.status === 'failed').length
   const emptyCount   = results.filter(r => r.status === 'empty').length
+  const skippedCount = results.filter(r => r.status === 'skipped').length
   const totalChars   = results.reduce((s, r) => s + (r.chars || 0), 0)
+
+  // Catégories découvertes
+  const categoryCounts = results.reduce((acc, r) => {
+    if (r.status === 'success') acc[r.category] = (acc[r.category] || 0) + 1
+    return acc
+  }, {} as Record<string, number>)
 
   const statusColor = (s: PageResult['status']) => ({
     success: '#1baf7a',
     failed:  '#e34948',
     empty:   '#eda100',
-    pending: '#6b6960'
+    skipped: '#6b6960'
   }[s])
 
   return (
     <div style={{ background: '#0a0a0a', minHeight: '100vh', padding: '2rem', fontFamily: 'Space Mono, monospace', color: '#e8e6df' }}>
-      <div style={{ maxWidth: 860, margin: '0 auto' }}>
+      <div style={{ maxWidth: 960, margin: '0 auto' }}>
 
+        {/* Header */}
         <div style={{ marginBottom: 24 }}>
           <div style={{ fontSize: 10, color: '#c9a84c', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 8 }}>
             VAULT ADMIN
           </div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#f0d68a', marginBottom: 4 }}>
-            🕸️ Fandom Wiki Scraper
+          <div style={{ fontSize: 22, fontWeight: 700, color: '#f0d68a', marginBottom: 4 }}>
+            🕸️ Fandom Wiki — Complete Scraper
           </div>
           <div style={{ fontSize: 11, color: '#6b6960' }}>
-            Scrape {WIKI_PAGES.length} pages depuis le Fandom Wiki Hypixel Skyblock → Supabase.
-            Lance une fois par semaine depuis ce browser.
+            Scrape l'intégralité du Fandom Wiki Hypixel Skyblock par pagination automatique.
+            {allPages.length > 0 && ` ${allPages.length} pages détectées.`}
           </div>
         </div>
 
-        <button
-          onClick={runScraper}
-          disabled={running}
-          style={{
-            background:   running ? '#1a1a18' : '#c9a84c',
-            color:        running ? '#6b6960' : '#0a0a0a',
-            border:       'none',
-            padding:      '10px 24px',
-            borderRadius: 6,
-            fontSize:     12,
-            fontWeight:   700,
-            cursor:       running ? 'not-allowed' : 'pointer',
-            fontFamily:   'Space Mono, monospace',
-            marginBottom: 16
-          }}
-        >
-          {running ? '⏳ Scraping ' + current + '...' : '🚀 Start Fandom Scraper'}
-        </button>
+        {/* Contrôles */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => startScraper(true)}
+            disabled={status === 'listing' || status === 'scraping'}
+            style={{
+              background:   status !== 'idle' && status !== 'done' ? '#1a1a18' : '#c9a84c',
+              color:        status !== 'idle' && status !== 'done' ? '#6b6960' : '#0a0a0a',
+              border:       'none', padding: '10px 20px', borderRadius: 6,
+              fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Space Mono, monospace'
+            }}
+          >
+            ⚡ Priority Only (fast)
+          </button>
 
-        {running && (
+          <button
+            onClick={() => startScraper(false)}
+            disabled={status === 'listing' || status === 'scraping'}
+            style={{
+              background:   'transparent',
+              color:        status !== 'idle' && status !== 'done' ? '#6b6960' : '#c9a84c',
+              border:       '1px solid #c9a84c40',
+              padding:      '10px 20px', borderRadius: 6,
+              fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Space Mono, monospace'
+            }}
+          >
+            🌐 Full Wiki (slow)
+          </button>
+
+          {(status === 'listing' || status === 'scraping') && (
+            <button
+              onClick={stopScraper}
+              style={{
+                background: '#e3494815', color: '#e34948',
+                border: '1px solid #e3494840', padding: '10px 20px',
+                borderRadius: 6, fontSize: 11, fontWeight: 700,
+                cursor: 'pointer', fontFamily: 'Space Mono, monospace'
+              }}
+            >
+              ⏹ Stop
+            </button>
+          )}
+        </div>
+
+        {/* Progress */}
+        {(status === 'listing' || status === 'scraping') && (
           <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 10, color: '#6b6960', marginBottom: 6 }}>
-              {progress}% — {results.length}/{WIKI_PAGES.length} pages
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#6b6960', marginBottom: 6 }}>
+              <span>{phase}</span>
+              <span>{progress}% — {results.length} pages traitées</span>
             </div>
             <div style={{ height: 4, background: '#1a1a18', borderRadius: 2, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: progress + '%', background: '#c9a84c', transition: 'width 0.3s ease', borderRadius: 2 }} />
+              <div style={{
+                height: '100%', width: (status === 'listing' ? '20' : progress) + '%',
+                background: '#c9a84c', transition: 'width 0.3s ease', borderRadius: 2
+              }} />
             </div>
+            {currentPage && (
+              <div style={{ fontSize: 9, color: '#6b6960', marginTop: 4 }}>
+                → {currentPage}
+              </div>
+            )}
           </div>
         )}
 
+        {/* Stats */}
         {results.length > 0 && (
-          <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
             {[
-              { label: 'Success', count: successCount, color: '#1baf7a' },
-              { label: 'Empty',   count: emptyCount,   color: '#eda100' },
-              { label: 'Failed',  count: failedCount,  color: '#e34948' },
-              { label: 'Chars',   count: totalChars.toLocaleString(), color: '#c9a84c' },
+              { label: 'Success',  count: successCount,              color: '#1baf7a' },
+              { label: 'Empty',    count: emptyCount,                color: '#eda100' },
+              { label: 'Skipped',  count: skippedCount,              color: '#6b6960' },
+              { label: 'Failed',   count: failedCount,               color: '#e34948' },
+              { label: 'MB saved', count: (totalChars / 1e6).toFixed(1), color: '#c9a84c' },
             ].map(s => (
-              <div key={s.label} style={{ background: s.color + '12', border: '1px solid ' + s.color + '30', borderRadius: 8, padding: '8px 14px' }}>
+              <div key={s.label} style={{
+                background: s.color + '12', border: '1px solid ' + s.color + '30',
+                borderRadius: 8, padding: '8px 14px'
+              }}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: s.color }}>{s.count}</div>
                 <div style={{ fontSize: 9, color: s.color + 'aa', textTransform: 'uppercase' }}>{s.label}</div>
               </div>
@@ -233,38 +335,78 @@ export default function WikiScraperAdmin() {
           </div>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {results.map((r, i) => (
-            <div key={i} style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '6px 12px', background: '#111110',
-              borderLeft: '2px solid ' + statusColor(r.status),
-              borderRadius: 4, fontSize: 10
-            }}>
-              <div>
-                <span style={{ color: '#6b6960', marginRight: 8 }}>[{r.category}]</span>
-                <span style={{ color: '#e8e6df' }}>{r.key}</span>
-                {r.error && <span style={{ color: '#e34948', marginLeft: 8 }}>— {r.error.slice(0, 50)}</span>}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {r.chars && <span style={{ color: '#6b6960' }}>{r.chars.toLocaleString()} chars</span>}
-                <span style={{ color: statusColor(r.status), fontWeight: 700, textTransform: 'uppercase', fontSize: 9 }}>
-                  {r.status}
-                </span>
-              </div>
+        {/* Catégories */}
+        {Object.keys(categoryCounts).length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 9, color: '#6b6960', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              Pages par catégorie
             </div>
-          ))}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {Object.entries(categoryCounts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([cat, count]) => (
+                  <div key={cat} style={{
+                    background: '#111110', border: '1px solid rgba(201,168,76,0.15)',
+                    borderRadius: 4, padding: '3px 8px', fontSize: 9
+                  }}>
+                    <span style={{ color: '#c9a84c' }}>{count}</span>
+                    <span style={{ color: '#6b6960', marginLeft: 4 }}>{cat}</span>
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+        )}
+
+        {/* Feed résultats temps réel */}
+        <div>
+          <div style={{ fontSize: 9, color: '#6b6960', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+            Live feed (200 dernières)
+          </div>
+          <div style={{ maxHeight: 500, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {results.map((r, i) => (
+              <div key={i} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '5px 10px', background: '#111110',
+                borderLeft: '2px solid ' + statusColor(r.status),
+                borderRadius: 3, fontSize: 9
+              }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <span style={{ color: '#6b6960', marginRight: 6 }}>[{r.category}]</span>
+                  <span style={{ color: '#e8e6df', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {r.title.slice(0, 50)}
+                  </span>
+                  {r.error && <span style={{ color: '#e34948', marginLeft: 6 }}>— {r.error.slice(0, 30)}</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexShrink: 0, marginLeft: 8 }}>
+                  {r.chars && <span style={{ color: '#6b6960' }}>{(r.chars / 1000).toFixed(1)}K</span>}
+                  <span style={{ color: statusColor(r.status), fontWeight: 700, textTransform: 'uppercase' }}>
+                    {r.status}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
-        {results.length === 0 && !running && (
-          <div style={{ background: '#111110', border: '1px solid rgba(201,168,76,0.15)', borderRadius: 10, padding: 20, fontSize: 11, color: '#6b6960', lineHeight: 1.9 }}>
-            <div style={{ color: '#c9a84c', fontWeight: 700, marginBottom: 8 }}>ℹ️ Comment ça marche</div>
-            <div>1. Clique <strong style={{ color: '#e8e6df' }}>Start Fandom Scraper</strong></div>
-            <div>2. Le browser fetch les {WIKI_PAGES.length} pages du Fandom Wiki (CORS ouvert ✅)</div>
-            <div>3. Chaque page est sauvegardée dans <code style={{ color: '#c9a84c' }}>game_mechanics_misc</code></div>
-            <div>4. Claude utilise ces données pour des analyses + setups ultra précis</div>
-            <div style={{ marginTop: 12, color: '#1baf7a' }}>✅ Lance depuis vault-intel-iota.vercel.app/admin/wiki-scraper</div>
-            <div style={{ color: '#1baf7a' }}>✅ Fandom Wiki API est ouverte — pas de blocage CORS</div>
+        {/* Instructions */}
+        {status === 'idle' && (
+          <div style={{ marginTop: 20, background: '#111110', border: '1px solid rgba(201,168,76,0.15)', borderRadius: 10, padding: 20, fontSize: 11, color: '#6b6960', lineHeight: 1.9 }}>
+            <div style={{ color: '#c9a84c', fontWeight: 700, marginBottom: 8 }}>⚡ Priority Only vs 🌐 Full Wiki</div>
+            <div><strong style={{ color: '#e8e6df' }}>Priority Only</strong> — Scrape uniquement les pages pertinentes (armures, armes, slayers, donjons, farming, fishing, mining...). ~200-400 pages. ~5-10 min.</div>
+            <div style={{ marginTop: 6 }}><strong style={{ color: '#e8e6df' }}>Full Wiki</strong> — Scrape toutes les pages du wiki (3000-5000 pages). ~2-3 heures. Couvre TOUT le contenu du jeu.</div>
+            <div style={{ marginTop: 10, color: '#1baf7a' }}>✅ Laisse la page ouverte pendant le scraping</div>
+            <div style={{ color: '#1baf7a' }}>✅ Tu peux arrêter et reprendre — les pages déjà sauvegardées sont préservées</div>
+          </div>
+        )}
+
+        {status === 'done' && (
+          <div style={{ marginTop: 20, background: '#1baf7a12', border: '1px solid #1baf7a30', borderRadius: 10, padding: 16, fontSize: 11 }}>
+            <div style={{ color: '#1baf7a', fontWeight: 700, marginBottom: 4 }}>✅ Scraping terminé</div>
+            <div style={{ color: '#6b6960' }}>
+              {successCount} pages sauvegardées — {(totalChars / 1e6).toFixed(2)} MB de données wiki dans Supabase.
+              Claude peut maintenant utiliser tout ce contexte pour des analyses ultra-précises.
+            </div>
           </div>
         )}
       </div>
