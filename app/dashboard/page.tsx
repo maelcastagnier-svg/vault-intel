@@ -349,10 +349,9 @@ function SetupModal({ item, onClose }: { item: Record<string,string>; onClose: (
                 }}>{k}</span>
               </div>
               <div style={{
-                fontSize: 12.5, color: '#cac8c0', lineHeight: 1.7,
-                paddingLeft: 27,
+                fontSize: k.toLowerCase().includes('math') || k.toLowerCase().includes('calc') ? 11 : 12.5,
+                color: '#cac8c0', lineHeight: 1.7, paddingLeft: 27,
                 fontFamily: k.toLowerCase().includes('math') || k.toLowerCase().includes('calc') ? 'Space Mono, monospace' : 'inherit',
-                fontSize: k.toLowerCase().includes('math') ? 11 : 12.5
               }}>{item[k].replace(/\*\*/g, '')}</div>
             </div>
           ))}
