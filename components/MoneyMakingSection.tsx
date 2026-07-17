@@ -393,7 +393,7 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
             </div>
             {tierData.active.length > 0
               ? tierData.active.slice(0, 3).map((m, i) => (
-                  <MethodCard key={i} method={m} tier={mmTier} accentColor={currentTier.color} type="active" />
+                  <MethodCard key={mmTier + "_active_" + (m.id || i)} method={m} tier={mmTier} accentColor={currentTier.color} type="active" />
                 ))
               : <div style={{ padding:'20px', textAlign:'center', background:'#111110', borderRadius:8, border:'1px solid rgba(255,255,255,0.04)', fontSize:10, color:'#2a2a28', fontFamily:'Space Mono, monospace' }}>Building data...</div>
             }
@@ -407,7 +407,7 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
             </div>
             {tierData.vault.length > 0
               ? tierData.vault.slice(0, 3).map((m, i) => (
-                  <MethodCard key={i} method={m} tier={mmTier} accentColor="#9b59b6" type="vault" />
+                  <MethodCard key={mmTier + "_vault_" + (m.id || i)} method={m} tier={mmTier} accentColor="#9b59b6" type="vault" />
                 ))
               : <div style={{ padding:'20px', textAlign:'center', background:'#111110', borderRadius:8, border:'1px solid rgba(255,255,255,0.04)', fontSize:10, color:'#2a2a28', fontFamily:'Space Mono, monospace' }}>Generating innovations...</div>
             }
