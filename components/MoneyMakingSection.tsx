@@ -250,8 +250,8 @@ function SetupPanel({ setup }: { setup: Setup }) {
       {setup.target_stats && (
         <Section icon="🎯" label="Target Stats">
           <div style={{ background: '#0e0e0d', borderRadius: 7, padding: '10px 12px' }}>
-            {Object.entries(setup.target_stats).map(([k, v]) => (
-              <StatRow key={k} label={k.replace(/_/g, ' ').toUpperCase()} value={v as string} />
+            {Object.entries(setup.target_stats as Record<string, string>).map(([k, v]) => (
+              <StatRow key={k} label={k.replace(/_/g, ' ').toUpperCase()} value={String(v)} />
             ))}
           </div>
         </Section>
@@ -260,9 +260,9 @@ function SetupPanel({ setup }: { setup: Setup }) {
       {/* REQUIREMENTS */}
       {setup.requirements && (
         <Section icon="📋" label="Requirements">
-          {Object.entries(setup.requirements).map(([k, v]) => v && (
+          {Object.entries(setup.requirements as Record<string, string>).map(([k, v]) => v && (
             <div key={k} style={{ fontSize: 10.5, color: '#9b9b8f', marginBottom: 2 }}>
-              <span style={{ color: '#6b6960', textTransform: 'capitalize' }}>{k}: </span>{v as string}
+              <span style={{ color: '#6b6960', textTransform: 'capitalize' }}>{k}: </span>{String(v)}
             </div>
           ))}
         </Section>
@@ -272,10 +272,10 @@ function SetupPanel({ setup }: { setup: Setup }) {
       {setup.cost_estimate && (
         <Section icon="💰" label="Setup Cost">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {Object.entries(setup.cost_estimate).map(([tier, desc]) => (
-              <div key={tier} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                <Tag text={tier.toUpperCase()} color={tier === 'budget' ? '#1baf7a' : tier === 'optimal' ? '#c9a84c' : '#9b59b6'} />
-                <span style={{ fontSize: 10.5, color: '#9b9b8f', flex: 1 }}>{desc as string}</span>
+            {Object.entries(setup.cost_estimate as Record<string, string>).map(([tierKey, desc]) => (
+              <div key={tierKey} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <Tag text={tierKey.toUpperCase()} color={tierKey === 'budget' ? '#1baf7a' : tierKey === 'optimal' ? '#c9a84c' : '#9b59b6'} />
+                <span style={{ fontSize: 10.5, color: '#9b9b8f', flex: 1 }}>{String(desc)}</span>
               </div>
             ))}
           </div>
