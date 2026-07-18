@@ -206,16 +206,16 @@ function SetupPanel({ setup }: { setup: Setup }) {
             {setup.enchants_armor.map((e, i) => <Tag key={i} text={e} color="#2a78d6" />)}
           </div>
         )}
-        {setup.enchants_tool?.length > 0 && (
+        {(setup.enchants_tool?.length ?? 0) > 0 && (
           <div style={{ marginBottom: 3 }}>
             <span style={{ fontSize: 8.5, color: '#4a4a45', fontFamily: 'Space Mono, monospace', marginRight: 4 }}>Drill:</span>
-            {setup.enchants_tool.map((e, i) => <Tag key={i} text={e} color="#2a78d6" />)}
+            {(setup.enchants_tool ?? []).map((e, i) => <Tag key={i} text={e} color="#2a78d6" />)}
           </div>
         )}
-        {setup.enchants_rod?.length > 0 && (
+        {(setup.enchants_rod?.length ?? 0) > 0 && (
           <div>
             <span style={{ fontSize: 8.5, color: '#4a4a45', fontFamily: 'Space Mono, monospace', marginRight: 4 }}>Rod:</span>
-            {setup.enchants_rod.map((e, i) => <Tag key={i} text={e} color="#2a78d6" />)}
+            {(setup.enchants_rod ?? []).map((e, i) => <Tag key={i} text={e} color="#2a78d6" />)}
           </div>
         )}
       </DataRow>
