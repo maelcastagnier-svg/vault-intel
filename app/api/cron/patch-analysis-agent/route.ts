@@ -167,15 +167,27 @@ export async function GET(req: NextRequest) {
       },
       body: JSON.stringify({
         model:      'claude-sonnet-4-6',
-        max_tokens: 3000,
+        max_tokens: 4096,
         system: [{ type: 'text', text: buildAnalysisPrompt(), cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content: `Patch notes:\n${patchContext}\n\nBazaar prices:\n${JSON.stringify(bazaarPrices?.slice(0, 30))}` }],
       }),
     })
 
-    // Parse analyse
+    // Parse analyse — robuste
     const analysisData = await analysisRes.json()
-    const analysis     = parseJSON(analysisData.content?.[0]?.text || '{}')
+    const rawText = analysisData.content?.[0]?.text || '{}'
+    let analysis: any = { live_patches: [], alpha_patches: [] }
+    try {
+      analysis = parseJSON(rawText)
+    } catch (e) {
+      // Essaie d'extraire le JSON partiel si tronqué
+      try {
+        const truncated = rawText.replace(/,\s*$/, '').replace(/,\s*\]$/, ']') + '}'
+        analysis = JSON.parse(truncated.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim())
+      } catch {
+        console.error('JSON parse failed, raw:', rawText.slice(0, 200))
+      }
+    }
 
     // Sauvegarde patches live dans insight_patch
     let savedLive  = 0
