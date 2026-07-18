@@ -12,7 +12,7 @@ const supabase = createClient(
 
 const FEEDS = [
   { url: 'https://hypixel.net/forums/skyblock-patch-notes.158/index.rss',        is_alpha: false },
-  { url: 'https://hypixel.net/forums/skyblock-alpha-patch-notes.190/index.rss',  is_alpha: true  },
+  { url: 'https://hypixel.net/skyblock-alpha/-/index.rss',                       is_alpha: true  },
 ]
 
 function parseRSS(xml: string, is_alpha: boolean) {
