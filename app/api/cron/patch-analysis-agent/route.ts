@@ -184,8 +184,8 @@ export async function GET(req: NextRequest) {
               'content-type':      'application/json',
             },
             body: JSON.stringify({
-              model:      'claude-sonnet-4-6',
-              max_tokens: 2000,
+              model:      'claude-haiku-4-5-20251001', // Haiku suffit pour valider des chiffres
+              max_tokens: 1500,
               messages: [{ role: 'user', content: buildValidationPrompt(pendingValidation, bazaarPrices || []) }],
             }),
           })
