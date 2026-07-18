@@ -1,7 +1,5 @@
 // app/api/cron/historic-import/route.ts
-// Import historique depuis SkyCofl
-// Bazaar : /api/bazaar/{item_id}/history         → 6 ans
-// AH     : /api/item/price/{item_id}/history/full → historique complet
+// 10 BAZAAR + 10 AH par run — jamais bloqué par l'ordre alphabétique
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { extractVariantFromName } from '@/lib/text-variant-extractor'
@@ -11,8 +9,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const ITEMS_PER_RUN   = 20
-const SKYCOFL_TOKEN   = process.env.SKYCOFL_ACCOUNT_TOKEN!
+const PER_TYPE      = 10  // 10 Bazaar + 10 AH = 20 par run
+const SKYCOFL_TOKEN = process.env.SKYCOFL_ACCOUNT_TOKEN!
 const SKYCOFL_HEADERS = {
   'Authorization': `Bearer ${SKYCOFL_TOKEN}`,
   'Accept':        'application/json'
@@ -35,71 +33,43 @@ function isDeadError(msg: string): boolean {
          msg.includes('No data') || msg.includes('No JSON')
 }
 
-// ============================================================
-// IMPORT BAZAAR — /api/bazaar/{id}/history
-// ============================================================
+// ── Bazaar ───────────────────────────────────────────────────
 async function importBazaar(item_id: string): Promise<number> {
   const res = await fetch(
     `https://sky.coflnet.com/api/bazaar/${item_id}/history`,
     { headers: SKYCOFL_HEADERS }
   )
+  if (!res.ok) throw new Error(`Bazaar ${res.status}`)
 
-  if (!res.ok) throw new Error(`SkyCofl Bazaar ${res.status} for ${item_id}`)
-
-  const points: {
-    buy:        number
-    sell:       number
-    sellVolume: number
-    buyVolume:  number
-    timestamp:  string
-  }[] = await res.json()
-
-  if (!Array.isArray(points) || points.length === 0)
-    throw new Error(`No data for ${item_id}`)
+  const points: { buy: number; sell: number; sellVolume: number; timestamp: string }[] = await res.json()
+  if (!Array.isArray(points) || points.length === 0) throw new Error('No data')
 
   for (let i = 0; i < points.length; i += 50) {
-    await Promise.all(
-      points.slice(i, i + 50).map(p =>
-        supabase.rpc('upsert_bazaar_price_bucket', {
-          p_item_id:     item_id,
-          p_item_name:   item_id.replace(/_/g, ' '),
-          p_buy_price:   p.buy,
-          p_sell_price:  p.sell,
-          p_avg_price:   (p.buy + p.sell) / 2,
-          p_volume:      p.sellVolume ?? 0,
-          p_bucket_date: getDailyBucket(new Date(p.timestamp))
-        })
-      )
-    )
+    await Promise.all(points.slice(i, i + 50).map(p =>
+      supabase.rpc('upsert_bazaar_price_bucket', {
+        p_item_id:     item_id,
+        p_item_name:   item_id.replace(/_/g, ' '),
+        p_buy_price:   p.buy,
+        p_sell_price:  p.sell,
+        p_avg_price:   (p.buy + p.sell) / 2,
+        p_volume:      p.sellVolume ?? 0,
+        p_bucket_date: getDailyBucket(new Date(p.timestamp))
+      })
+    ))
   }
-
   return points.length
 }
 
-// ============================================================
-// IMPORT AH — /api/item/price/{id}/history/full
-// ============================================================
-async function importAH(
-  item_id:   string,
-  liquidity: 'HIGH' | 'LOW'
-): Promise<number> {
+// ── AH ──────────────────────────────────────────────────────
+async function importAH(item_id: string, liquidity: 'HIGH' | 'LOW'): Promise<number> {
   const res = await fetch(
     `https://sky.coflnet.com/api/item/price/${item_id}/history/full`,
     { headers: SKYCOFL_HEADERS }
   )
+  if (!res.ok) throw new Error(`AH ${res.status}`)
 
-  if (!res.ok) throw new Error(`SkyCofl AH ${res.status} for ${item_id}`)
-
-  const points: {
-    min:    number
-    max:    number
-    avg:    number
-    volume: number
-    time:   string
-  }[] = await res.json()
-
-  if (!Array.isArray(points) || points.length === 0)
-    throw new Error(`No data for ${item_id}`)
+  const points: { min: number; max: number; avg: number; volume: number; time: string }[] = await res.json()
+  if (!Array.isArray(points) || points.length === 0) throw new Error('No data')
 
   const item_name    = item_id.replace(/_/g, ' ')
   const v            = extractVariantFromName(item_name)
@@ -107,109 +77,91 @@ async function importAH(
   const isHigh       = liquidity === 'HIGH'
 
   for (let i = 0; i < points.length; i += 50) {
-    await Promise.all(
-      points.slice(i, i + 50).map(p => {
-        const ts          = new Date(p.time)
-        const granularity = isHigh ? 'DAILY' : 'MONTHLY'
-        const bucketDate  = isHigh ? getDailyBucket(ts) : getMonthlyBucket(ts)
-
-        return supabase.rpc('upsert_ah_price_bucket', {
-          p_base_item_id: base_item_id,
-          p_variant_key:  v.variantKey,
-          p_item_name:    item_name,
-          p_total_stars:  v.totalStars,
-          p_is_recomb:    v.recombobulated,
-          p_reforge:      v.reforge ?? null,
-          p_has_dye:      v.hasDye,
-          p_buy_price:    p.max,
-          p_sell_price:   p.min,
-          p_avg_price:    p.avg,
-          p_volume:       p.volume ?? 0,
-          p_granularity:  granularity,
-          p_bucket_date:  bucketDate
-        })
+    await Promise.all(points.slice(i, i + 50).map(p => {
+      const ts = new Date(p.time)
+      return supabase.rpc('upsert_ah_price_bucket', {
+        p_base_item_id: base_item_id,
+        p_variant_key:  v.variantKey,
+        p_item_name:    item_name,
+        p_total_stars:  v.totalStars,
+        p_is_recomb:    v.recombobulated,
+        p_reforge:      v.reforge ?? null,
+        p_has_dye:      v.hasDye,
+        p_buy_price:    p.max,
+        p_sell_price:   p.min,
+        p_avg_price:    p.avg,
+        p_volume:       p.volume ?? 0,
+        p_granularity:  isHigh ? 'DAILY' : 'MONTHLY',
+        p_bucket_date:  isHigh ? getDailyBucket(ts) : getMonthlyBucket(ts)
       })
-    )
+    }))
   }
-
   return points.length
 }
 
-// ============================================================
-// TRAITEMENT D'UN ITEM
-// ============================================================
-async function processItem(item: {
-  item_id:   string
-  item_type: string
-  liquidity: string
-}): Promise<{ item_id: string; rows: number; error?: string; status: string }> {
-  const { item_id, item_type, liquidity } = item
-
+// ── Process un item ──────────────────────────────────────────
+async function processItem(item: { item_id: string; item_type: string; liquidity: string }) {
   try {
-    const rows = item_type === 'BAZAAR'
-      ? await importBazaar(item_id)
-      : await importAH(item_id, liquidity as 'HIGH' | 'LOW')
+    const rows = item.item_type === 'BAZAAR'
+      ? await importBazaar(item.item_id)
+      : await importAH(item.item_id, item.liquidity as 'HIGH' | 'LOW')
 
-    await supabase
-      .from('historic_import_progress')
-      .update({
-        years_completed:   3,
-        status:            'done',
-        last_processed_at: new Date().toISOString()
-      })
-      .eq('item_id', item_id)
+    await supabase.from('historic_import_progress')
+      .update({ status: 'done', years_completed: 3, last_processed_at: new Date().toISOString() })
+      .eq('item_id', item.item_id)
 
-    return { item_id, rows, status: 'done' }
-
+    return { item_id: item.item_id, type: item.item_type, rows, ok: true }
   } catch (err: any) {
     const dead = isDeadError(err.message)
-
-    await supabase
-      .from('historic_import_progress')
-      .update({
-        status:            dead ? 'done' : 'pending',
-        last_processed_at: new Date().toISOString()
-      })
-      .eq('item_id', item_id)
-
-    return { item_id, rows: 0, error: err.message, status: dead ? 'done' : 'pending' }
+    await supabase.from('historic_import_progress')
+      .update({ status: dead ? 'done' : 'pending', last_processed_at: new Date().toISOString() })
+      .eq('item_id', item.item_id)
+    return { item_id: item.item_id, type: item.item_type, rows: 0, ok: false, dead, error: err.message }
   }
 }
 
-// ============================================================
-// HANDLER PRINCIPAL
-// ============================================================
+// ── Handler ──────────────────────────────────────────────────
 export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   try {
-    const { data: nextItems, error } = await supabase
-      .from('historic_import_progress')
-      .select('item_id, item_type, liquidity')
-      .eq('status', 'pending')
-      .order('item_id', { ascending: true })
-      .limit(ITEMS_PER_RUN)
+    // Récupère 10 BAZAAR + 10 AH séparément — jamais bloqués l'un par l'autre
+    const [bazaarRes, ahRes] = await Promise.all([
+      supabase.from('historic_import_progress')
+        .select('item_id, item_type, liquidity')
+        .eq('status', 'pending')
+        .eq('item_type', 'BAZAAR')
+        .order('item_id', { ascending: true })
+        .limit(PER_TYPE),
+      supabase.from('historic_import_progress')
+        .select('item_id, item_type, liquidity')
+        .eq('status', 'pending')
+        .eq('item_type', 'AH')
+        .order('item_id', { ascending: true })
+        .limit(PER_TYPE),
+    ])
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    if (!nextItems || nextItems.length === 0)
+    const items = [...(bazaarRes.data || []), ...(ahRes.data || [])]
+
+    if (items.length === 0) {
       return NextResponse.json({ message: 'All items done!' })
+    }
 
     const results = []
-    for (const item of nextItems) {
+    for (const item of items) {
       results.push(await processItem(item))
     }
 
     return NextResponse.json({
-      success:         true,
-      items_processed: results.length,
-      successful:      results.filter(r => !r.error).length,
-      dead_items:      results.filter(r => r.status === 'done' && r.error).length,
-      retry_later:     results.filter(r => r.status === 'pending' && r.error).length,
-      total_rows:      results.reduce((s, r) => s + r.rows, 0),
-      results
+      success:    true,
+      processed:  results.length,
+      bazaar:     results.filter(r => r.type === 'BAZAAR').length,
+      ah:         results.filter(r => r.type === 'AH').length,
+      successful: results.filter(r => r.ok).length,
+      dead:       results.filter(r => !r.ok && r.dead).length,
+      total_rows: results.reduce((s, r) => s + r.rows, 0),
     })
 
   } catch (error: any) {
