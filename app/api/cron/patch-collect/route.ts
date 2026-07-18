@@ -26,6 +26,7 @@ function parseRSS(xml: string, is_alpha: boolean) {
     ).trim().slice(0, 300)
 
     const content = (
+      block.match(/<content:encoded><!\[CDATA\[([\s\S]*?)\]\]><\/content:encoded>/)?.[1] ||
       block.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/)?.[1] ||
       block.match(/<description>([\s\S]*?)<\/description>/)?.[1] || ''
     ).replace(/<[^>]*>/g, '').trim().slice(0, 5000)
