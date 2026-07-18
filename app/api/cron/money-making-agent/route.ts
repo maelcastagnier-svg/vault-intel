@@ -209,8 +209,9 @@ async function saveToLibrary(methods: any[], tier: string, bazaarSnapshot: any[]
     if (error) console.error('Library save error:', m.id, error.message)
 
     // Incrémente validation_count
-    await supabase.rpc('increment_validation_count', { p_method_id: m.id, p_tier: tier })
-      .catch(() => {}) // ignore si la fonction n'existe pas encore
+    try {
+      await supabase.rpc('increment_validation_count', { p_method_id: m.id, p_tier: tier })
+    } catch {} // ignore si la fonction n'existe pas encore
   }
 }
 
