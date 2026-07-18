@@ -2,13 +2,8 @@
 // Parser NBT binaire natif Node.js — zéro dépendance externe
 // Decode le format NBT Minecraft depuis un Buffer
 
-export type NBTValue =
-  | number | bigint | string
-  | number[] | bigint[]
-  | Buffer
-  | NBTCompound
-  | NBTList
-
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type NBTValue   = any
 export type NBTCompound = Record<string, NBTValue>
 export type NBTList     = NBTValue[]
 
