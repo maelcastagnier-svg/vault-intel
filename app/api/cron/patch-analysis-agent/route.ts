@@ -1,8 +1,6 @@
 // app/api/cron/patch-analysis-agent/route.ts
-// Tourne tous les jours à 6h UTC
-// 2 appels Sonnet parallèles :
-//   1. Analyse Live + Alpha patches avec prédictions
-//   2. Validation des prédictions passées vs prix réels
+// 2 appels séparés : Sonnet pour live, Haiku pour alpha
+// Format JSON compact pour éviter la troncature
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -17,115 +15,56 @@ function parseJSON(text: string): any {
   return JSON.parse(text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim())
 }
 
-// ── Prompt analyse patches ────────────────────────────────────
-function buildAnalysisPrompt(): string {
-  return `You are Vault, elite Hypixel Skyblock economic intelligence system.
+// ── Prompt LIVE — Sonnet, analyse économique profonde ────────
+const LIVE_PROMPT = `You are Vault, Hypixel Skyblock economic intelligence.
+Analyze these LIVE patch notes and output economic impact.
 
-Your job: analyze Hypixel Skyblock patch notes and predict economic impacts with precision.
+RULES:
+- Focus only on changes that affect item prices or money-making methods
+- Use exact Bazaar item IDs (ENCHANTED_FLINT format)
+- Signals: BUY=price rising, SELL=price dropping, HOLD=unclear, INVEST=long term
+- Be concise — short strings only, no long explanations
 
-=== ANALYSIS RULES ===
-1. For LIVE patches: analyze confirmed changes, identify items directly affected
-2. For ALPHA patches: these are changes being TESTED — may or may not reach live servers
-3. Always link patches to Bazaar items (use item_id format like ENCHANTED_FLINT)
-4. Predict price direction with reasoning from supply/demand mechanics
-5. Flag methods that are buffed or nerfed
-6. Assign confidence based on how directly the patch affects economy
-
-=== ACTION SIGNALS ===
-BUY    → price will rise, buy now before patch hits live
-SELL   → price will drop, sell before patch hits live  
-HOLD   → monitor, unclear impact
-WATCH  → alpha only, wait for live confirmation
-INVEST → long term position, patch creates sustained demand
-
-=== OUTPUT FORMAT — strict JSON only ===
+Return ONLY this compact JSON (no backticks):
 {
-  "live_patches": [
+  "patches": [
     {
-      "patch_title": "Exact patch name/version",
-      "patch_date": "Month Day, Year if known",
-      "direct_impact": "1-2 sentences: what changed economically",
-      "items_affected": [
-        {"item_id": "ITEM_ID", "direction": "up|down|neutral", "reason": "why", "magnitude": "LOW|MED|HIGH"}
-      ],
-      "methods_affected": [
-        {"method": "method name", "impact": "buffed|nerfed|unchanged", "reason": "why"}
-      ],
-      "price_prediction": "Specific price movement prediction with timeframe",
-      "predicted_items": [
-        {"item_id": "ITEM_ID", "predicted_change_pct": 25, "timeframe_days": 7, "reasoning": "why"}
-      ],
-      "action_signal": "BUY|SELL|HOLD|WATCH|INVEST",
+      "title": "exact patch title",
+      "date": "date if known",
+      "impact": "1 sentence economic impact",
+      "items": [{"id":"ITEM_ID","dir":"up|down","why":"short reason","mag":"LOW|MED|HIGH"}],
+      "methods": [{"name":"method","impact":"buffed|nerfed","why":"short reason"}],
+      "prediction": "1 sentence price prediction",
+      "signal": "BUY|SELL|HOLD|INVEST",
       "confidence": "HIGH|MED|LOW"
     }
-  ],
-  "alpha_patches": [
+  ]
+}`
+
+// ── Prompt ALPHA — Haiku, prévisions conditionnelles ─────────
+const ALPHA_PROMPT = `You are Vault, Hypixel Skyblock economic intelligence.
+Analyze these ALPHA patch notes (not yet live — conditional predictions only).
+
+RULES:
+- These changes may or may not reach the live server
+- Signals: WATCH=monitor, INVEST=position early if confident
+- Short strings only
+
+Return ONLY this compact JSON (no backticks):
+{
+  "patches": [
     {
-      "patch_title": "Alpha patch name",
-      "patch_date": "Month Day, Year if known",
-      "direct_impact": "What this WOULD change if it hits live",
-      "items_affected": [
-        {"item_id": "ITEM_ID", "direction": "up|down|neutral", "reason": "why IF hits live", "magnitude": "LOW|MED|HIGH"}
-      ],
-      "methods_affected": [
-        {"method": "method name", "impact": "buffed|nerfed|unchanged", "reason": "why"}
-      ],
-      "price_prediction": "Conditional prediction: IF this hits live, expect...",
-      "predicted_items": [
-        {"item_id": "ITEM_ID", "predicted_change_pct": 15, "timeframe_days": 14, "reasoning": "conditional on alpha reaching live"}
-      ],
-      "action_signal": "WATCH|INVEST",
+      "title": "exact patch title",
+      "date": "date if known",
+      "impact": "1 sentence: what this WOULD change if live",
+      "items": [{"id":"ITEM_ID","dir":"up|down","why":"short reason","mag":"LOW|MED|HIGH"}],
+      "methods": [{"name":"method","impact":"buffed|nerfed","why":"short reason"}],
+      "prediction": "Conditional: IF this hits live...",
+      "signal": "WATCH|INVEST",
       "confidence": "LOW|MED"
     }
   ]
 }`
-}
-
-// ── Prompt validation des prédictions ─────────────────────────
-function buildValidationPrompt(predictions: any[], bazaarPrices: any[]): string {
-  const priceMap = Object.fromEntries(
-    (bazaarPrices || []).map((i: any) => [i.item_id, { sell: i.sell_price, buy: i.buy_price }])
-  )
-
-  const toValidate = predictions.map(p => ({
-    id:            p.id,
-    patch_title:   p.patch_title,
-    predicted_items: p.predicted_items || [],
-    price_prediction: p.price_prediction,
-    action_signal: p.action_signal,
-    confidence:    p.confidence,
-    created_at:    p.created_at,
-    current_prices: (p.predicted_items || []).map((pi: any) => ({
-      item_id:       pi.item_id,
-      predicted_pct: pi.predicted_change_pct,
-      current_sell:  priceMap[pi.item_id]?.sell ?? null,
-      current_buy:   priceMap[pi.item_id]?.buy  ?? null,
-    }))
-  }))
-
-  return `You are Vault validation engine. Evaluate prediction accuracy using current market prices.
-
-PREDICTIONS TO VALIDATE:
-${JSON.stringify(toValidate, null, 2)}
-
-For each prediction:
-1. Compare predicted direction with actual price movement
-2. Score accuracy 0-100 (100=perfect, 0=wrong direction)
-3. Note what was right/wrong
-
-Return ONLY raw JSON:
-{
-  "validations": [
-    {
-      "id": prediction_id,
-      "accuracy_score": 0-100,
-      "status": "validated",
-      "validated_at": "${new Date().toISOString()}",
-      "validation_notes": "What happened vs what was predicted. Be specific."
-    }
-  ]
-}`
-}
 
 // ── Handler ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
@@ -134,152 +73,110 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Charge patches + prix bazaar + prédictions à valider en parallèle
-    const [
-      { data: livePatches },
-      { data: alphaPatches },
-      { data: bazaarPrices },
-      { data: pendingValidation }
-    ] = await Promise.all([
-      supabase.from('patch_notes').select('*').eq('is_alpha', false).order('published_at', { ascending: false }).limit(10),
-      supabase.from('patch_notes').select('*').eq('is_alpha', true).order('published_at',  { ascending: false }).limit(5),
-      supabase.from('bazaar_1h').select('item_id, sell_price, buy_price'),
-      supabase.from('insight_patch')
-        .select('*')
-        .eq('status', 'active')
-        .not('predicted_items', 'is', null)
-        .lt('created_at', new Date(Date.now() - 3 * 86_400_000).toISOString()) // > 3 jours
-        .limit(10),
+    // Charge les données
+    const [{ data: livePatches }, { data: alphaPatches }, { data: bazaarPrices }] = await Promise.all([
+      supabase.from('patch_notes').select('title, content, published_at').eq('is_alpha', false).order('published_at', { ascending: false }).limit(5),
+      supabase.from('patch_notes').select('title, content, published_at').eq('is_alpha', true).order('published_at', { ascending: false }).limit(3),
+      supabase.from('bazaar_1h').select('item_id, sell_price, buy_price').limit(30),
     ])
 
-    const patchContext = JSON.stringify({
-      live:  (livePatches  || []).slice(0, 5).map(p => ({ title: p.title, content: p.content?.slice(0, 1500), date: p.published_at })),
-      alpha: (alphaPatches || []).slice(0, 3).map(p => ({ title: p.title, content: p.content?.slice(0, 1000), date: p.published_at })),
-    })
+    const bazaarCtx = (bazaarPrices || []).map((i: any) => `${i.item_id}:SELL=${Number(i.sell_price).toFixed(0)}`).join(' ')
 
-    // Appel 1 : analyse (séquentiel pour éviter timeout)
-    const analysisRes = await fetch('https://api.anthropic.com/v1/messages', {
+    // Contexte live — top 3 patches uniquement
+    const liveCtx = (livePatches || []).slice(0, 3).map((p: any) =>
+      `[${p.title}]\n${(p.content || '').slice(0, 800)}`
+    ).join('\n\n')
+
+    // Contexte alpha — top 2 patches officiels
+    const alphaCtx = (alphaPatches || []).slice(0, 2).map((p: any) =>
+      `[${p.title}]\n${(p.content || '').slice(0, 600)}`
+    ).join('\n\n')
+
+    // Appel 1 — Sonnet pour live patches
+    const liveRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'x-api-key':         process.env.ANTHROPIC_API_KEY!,
-        'anthropic-version': '2023-06-01',
-        'content-type':      'application/json',
-      },
+      headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify({
         model:      'claude-sonnet-4-6',
-        max_tokens: 4096,
-        system: [{ type: 'text', text: buildAnalysisPrompt(), cache_control: { type: 'ephemeral' } }],
-        messages: [{ role: 'user', content: `Patch notes:\n${patchContext}\n\nBazaar prices:\n${JSON.stringify(bazaarPrices?.slice(0, 30))}` }],
+        max_tokens: 2000,
+        system:     LIVE_PROMPT,
+        messages:   [{ role: 'user', content: `Patches:\n${liveCtx}\n\nBazaar:\n${bazaarCtx}` }],
       }),
     })
 
-    // Parse analyse — robuste
-    const analysisData = await analysisRes.json()
-    const rawText = analysisData.content?.[0]?.text || '{}'
-    let analysis: any = { live_patches: [], alpha_patches: [] }
-    try {
-      analysis = parseJSON(rawText)
-    } catch (e) {
-      // Essaie d'extraire le JSON partiel si tronqué
-      try {
-        const truncated = rawText.replace(/,\s*$/, '').replace(/,\s*\]$/, ']') + '}'
-        analysis = JSON.parse(truncated.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim())
-      } catch {
-        console.error('JSON parse failed, raw:', rawText.slice(0, 200))
-      }
-    }
+    // Appel 2 — Haiku pour alpha patches
+    const alphaRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model:      'claude-haiku-4-5-20251001',
+        max_tokens: 1500,
+        system:     ALPHA_PROMPT,
+        messages:   [{ role: 'user', content: `Alpha patches:\n${alphaCtx}\n\nBazaar:\n${bazaarCtx}` }],
+      }),
+    })
 
-    // Sauvegarde patches live dans insight_patch
-    let savedLive  = 0
-    let savedAlpha = 0
+    // Parse résultats
+    const [liveData, alphaData] = await Promise.all([liveRes.json(), alphaRes.json()])
 
-    for (const patch of (analysis.live_patches || [])) {
+    let liveAnalysis:  any[] = []
+    let alphaAnalysis: any[] = []
+
+    try { liveAnalysis  = parseJSON(liveData.content?.[0]?.text  || '{}').patches || [] } catch (e) { console.error('Live parse error:', e) }
+    try { alphaAnalysis = parseJSON(alphaData.content?.[0]?.text || '{}').patches || [] } catch (e) { console.error('Alpha parse error:', e) }
+
+    // Sauvegarde dans claude_analysis (format dashboard)
+    const combined = { live_patches: liveAnalysis, alpha_patches: alphaAnalysis }
+    await supabase.from('claude_analysis').upsert(
+      { section: 'patch_analysis', content: JSON.stringify(combined), updated_at: new Date().toISOString() },
+      { onConflict: 'section' }
+    )
+
+    // Sauvegarde dans insight_patch
+    let savedLive = 0, savedAlpha = 0
+
+    for (const p of liveAnalysis) {
       const { error } = await supabase.from('insight_patch').upsert({
-        patch_title:      patch.patch_title,
-        patch_date:       patch.patch_date,
+        patch_title:      p.title,
+        patch_date:       p.date || null,
         patch_type:       'live',
-        patch_source:     'hypixel_official',
-        direct_impact:    patch.direct_impact,
-        items_affected:   patch.items_affected || [],
-        methods_affected: patch.methods_affected || [],
-        price_prediction: patch.price_prediction,
-        predicted_items:  patch.predicted_items || [],
-        action_signal:    patch.action_signal,
-        confidence:       patch.confidence,
+        is_alpha:         false,
+        direct_impact:    p.impact,
+        items_affected:   p.items || [],
+        methods_affected: p.methods || [],
+        price_prediction: p.prediction,
+        action_signal:    p.signal,
+        confidence:       p.confidence,
         status:           'active',
         updated_at:       new Date().toISOString(),
       }, { onConflict: 'patch_title', ignoreDuplicates: false })
-
       if (!error) savedLive++
     }
 
-    for (const patch of (analysis.alpha_patches || [])) {
+    for (const p of alphaAnalysis) {
       const { error } = await supabase.from('insight_patch').upsert({
-        patch_title:      patch.patch_title,
-        patch_date:       patch.patch_date,
+        patch_title:      p.title,
+        patch_date:       p.date || null,
         patch_type:       'alpha',
         is_alpha:         true,
-        patch_source:     'hypixel_alpha',
-        direct_impact:    patch.direct_impact,
-        items_affected:   patch.items_affected || [],
-        methods_affected: patch.methods_affected || [],
-        price_prediction: patch.price_prediction,
-        predicted_items:  patch.predicted_items || [],
-        action_signal:    patch.action_signal,
-        confidence:       patch.confidence,
+        direct_impact:    p.impact,
+        items_affected:   p.items || [],
+        methods_affected: p.methods || [],
+        price_prediction: p.prediction,
+        action_signal:    p.signal,
+        confidence:       p.confidence,
         status:           'active',
         updated_at:       new Date().toISOString(),
       }, { onConflict: 'patch_title', ignoreDuplicates: false })
-
       if (!error) savedAlpha++
     }
 
-    // Sauvegarde dans claude_analysis pour le dashboard
-    await supabase.from('claude_analysis').upsert({
-      section:    'patch_analysis',
-      content:    JSON.stringify(analysis),
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'section' })
-
-    // Validation prédictions (séparée, uniquement si des prédictions existent)
-    let validationsApplied = 0
-    if (pendingValidation && pendingValidation.length > 0) {
-      try {
-        const valRes = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'x-api-key':         process.env.ANTHROPIC_API_KEY!,
-            'anthropic-version': '2023-06-01',
-            'content-type':      'application/json',
-          },
-          body: JSON.stringify({
-            model:      'claude-haiku-4-5-20251001',
-            max_tokens: 1500,
-            messages:   [{ role: 'user', content: buildValidationPrompt(pendingValidation, bazaarPrices || []) }],
-          }),
-        })
-        const valData = await valRes.json()
-        const val     = parseJSON(valData.content?.[0]?.text || '{}')
-        for (const v of (val.validations || [])) {
-          const { error } = await supabase.from('insight_patch').update({
-            accuracy_score:   v.accuracy_score,
-            status:           v.status,
-            validated_at:     v.validated_at,
-            accuracy_notes:   v.validation_notes,
-            outcome_verified: true,
-          }).eq('id', v.id)
-          if (!error) validationsApplied++
-        }
-      } catch (e) {
-        console.error('Validation error:', e)
-      }
-    }
-
     return NextResponse.json({
-      success:              true,
-      live_patches_saved:   savedLive,
-      alpha_patches_saved:  savedAlpha,
-      validations_applied:  validationsApplied,
+      success:     true,
+      live_saved:  savedLive,
+      alpha_saved: savedAlpha,
+      live_count:  liveAnalysis.length,
+      alpha_count: alphaAnalysis.length,
     })
 
   } catch (e: any) {
