@@ -35,6 +35,13 @@ function parseRSS(xml: string, is_alpha: boolean) {
 
     if (!title) continue
 
+    // Pour alpha: garde uniquement les threads officiels
+    if (is_alpha) {
+      const OFFICIAL = [/^\[/, /release candidate/i, /patch notes/i, /skyblock \d+\.\d+/i, /hotfix/i, /\d+\.\d+\.\d+/]
+      if (!OFFICIAL.some(p => p.test(title))) continue
+    }
+
+
     items.push({ title, content, link, published_at: pubDate, is_alpha })
   }
 
