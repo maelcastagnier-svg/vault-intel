@@ -1,11 +1,9 @@
 // app/api/cron/ah-collect/route.ts
-// Scanne tout l'AH Hypixel toutes les minutes
-// Decode NBT de chaque item → extrait toutes les données
-// Insère SCAN dans price_history_ah
-// Compare avec historique → TOP 300 underpriced dans ah_live
-import { createClient }      from '@supabase/supabase-js'
-import { NextResponse }       from 'next/server'
-import { decodeItemBytes }    from '@/lib/skyblock-item-decoder'
+// Scan complet AH Hypixel — decode NBT — compare avec historique 3 niveaux
+// → TOP 300 underpriced dans ah_live
+import { createClient }   from '@supabase/supabase-js'
+import { NextResponse }    from 'next/server'
+import { decodeItemBytes } from '@/lib/skyblock-item-decoder'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,11 +14,11 @@ const HYPIXEL_AH_URL = 'https://api.hypixel.net/v2/skyblock/auctions'
 const TOP_ITEMS      = 300
 const TODAY          = new Date().toISOString().split('T')[0]
 
-// ── Fetch toutes les pages AH en parallèle ────────────────────
+// ── Fetch toutes les pages en parallèle ──────────────────────
 async function fetchAllAuctions(): Promise<any[]> {
-  const first     = await fetch(HYPIXEL_AH_URL).then(r => r.json())
-  const total     = first.totalPages as number
-  let all: any[]  = [...(first.auctions || [])]
+  const first    = await fetch(HYPIXEL_AH_URL).then(r => r.json())
+  const total    = first.totalPages as number
+  let all: any[] = [...(first.auctions || [])]
 
   for (let i = 1; i < total; i += 10) {
     const batch   = Array.from({ length: Math.min(10, total - i) }, (_, j) => i + j)
@@ -33,19 +31,13 @@ async function fetchAllAuctions(): Promise<any[]> {
   return all.filter(a => a.bin && !a.claimed)
 }
 
-// ── Handler principal ─────────────────────────────────────────
 export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Anti-doublon
   const { data: lock } = await supabase
-    .from('cron_locks')
-    .select('locked_until')
-    .eq('job_name', 'ah_collect')
-    .single()
+    .from('cron_locks').select('locked_until').eq('job_name', 'ah_collect').single()
 
   if (lock?.locked_until && new Date(lock.locked_until) > new Date()) {
     return NextResponse.json({ message: 'Already running' })
@@ -57,28 +49,26 @@ export async function GET(request: Request) {
   )
 
   try {
-    // 1. Fetch toutes les enchères BIN
+    // 1. Fetch toutes les BIN
     const binAuctions = await fetchAllAuctions()
 
-    // 2. Decode NBT + groupe par variant_key
-    type AucItem = {
-      decoded:    ReturnType<typeof decodeItemBytes> & {}
-      price:      number
-      uuid:       string
-      seller:     string
-      category:   string | null
+    // 2. Decode NBT + groupe par variant_key_full
+    type GroupItem = {
+      decoded:  ReturnType<typeof decodeItemBytes> & {}
+      price:    number
+      uuid:     string
+      seller:   string
+      category: string | null
     }
 
-    const grouped = new Map<string, AucItem[]>()
+    const grouped = new Map<string, GroupItem[]>()
 
     for (const auc of binAuctions) {
       if (!auc.item_bytes) continue
-
       const decoded = decodeItemBytes(auc.item_bytes)
       if (!decoded || !decoded.item_id) continue
 
-      const key = `${decoded.item_id}::${decoded.variant_key}`
-
+      const key = `${decoded.item_id}::${decoded.variant_key_full}`
       if (!grouped.has(key)) grouped.set(key, [])
       grouped.get(key)!.push({
         decoded,
@@ -93,91 +83,99 @@ export async function GET(request: Request) {
     const scanRows: any[] = []
 
     for (const [, items] of grouped) {
-      if (items.length === 0) continue
-      const d       = items[0].decoded
-      const prices  = items.map(i => i.price).sort((a, b) => a - b)
-      const avgPrice= prices.reduce((s, p) => s + p, 0) / prices.length
-      const minPrice= prices[0]
+      const d        = items[0].decoded
+      const prices   = items.map(i => i.price).sort((a, b) => a - b)
+      const avgPrice = prices.reduce((s, p) => s + p, 0) / prices.length
 
       scanRows.push({
-        base_item_id:        d.item_id,
-        variant_key:         d.variant_key,
-        item_name:           d.item_name,
-        granularity:         'SCAN',
-        bucket_date:         TODAY,
-        avg_price:           avgPrice,
-        sell_price:          minPrice,
-        buy_price:           avgPrice,
-        volume:              items.length,
-        data_points:         items.length,
-
-        // NBT complet
-        total_stars:         d.total_stars,
-        master_stars:        d.master_stars,
-        is_recomb:           d.is_recomb,
-        reforge:             d.reforge,
-        hot_potato_count:    d.hot_potato_count,
-        art_of_war_count:    d.art_of_war_count,
-        art_of_peace_count:  d.art_of_peace_count,
-        wood_singularity:    d.wood_singularity,
-        transmitted_count:   d.transmitted_count,
-        mana_disintegrator:  d.mana_disintegrator,
-        silex_applied:       d.silex_applied,
-        enchantments:        Object.keys(d.enchantments).length > 0 ? d.enchantments : null,
-        ultimate_enchant:    d.ultimate_enchant,
-        ultimate_level:      d.ultimate_level,
-        gems:                Object.keys(d.gems).length > 0 ? d.gems : null,
-        gems_summary:        d.gems_summary || null,
-        attributes:          Object.keys(d.attributes).length > 0 ? d.attributes : null,
-        attribute_1:         d.attribute_1,
-        attribute_1_level:   d.attribute_1_level,
-        attribute_2:         d.attribute_2,
-        attribute_2_level:   d.attribute_2_level,
-        has_dye:             d.has_dye,
-        dye_item:            d.dye_item,
-        item_skin:           d.item_skin,
-        item_origin:         d.item_origin,
-        auction_uuid:        items[0].uuid,
-        seller_uuid:         items[0].seller,
-        raw_price:           minPrice,
-        item_count:          d.item_count,
-        item_uuid:           d.item_uuid,
+        base_item_id:     d.item_id,
+        variant_key:      d.variant_key_full,
+        variant_key_base: d.variant_key_base,
+        item_name:        d.item_name,
+        granularity:      'SCAN',
+        bucket_date:      TODAY,
+        avg_price:        avgPrice,
+        sell_price:       prices[0],
+        buy_price:        avgPrice,
+        volume:           items.length,
+        data_points:      items.length,
+        total_stars:      d.total_stars,
+        master_stars:     d.master_stars,
+        is_recomb:        d.is_recomb,
+        reforge:          d.reforge,
+        hot_potato_count: d.hot_potato_count,
+        art_of_war_count: d.art_of_war_count,
+        art_of_peace_count: d.art_of_peace_count,
+        wood_singularity: d.wood_singularity,
+        transmitted_count:d.transmitted_count,
+        mana_disintegrator:d.mana_disintegrator,
+        silex_applied:    d.silex_applied,
+        enchantments:     Object.keys(d.enchantments).length > 0 ? d.enchantments : null,
+        ultimate_enchant: d.ultimate_enchant,
+        ultimate_level:   d.ultimate_level,
+        gems:             Object.keys(d.gems).length > 0 ? d.gems : null,
+        gems_summary:     d.gems_summary || null,
+        attributes:       Object.keys(d.attributes).length > 0 ? d.attributes : null,
+        attribute_1:      d.attribute_1,
+        attribute_1_level:d.attribute_1_level,
+        attribute_2:      d.attribute_2,
+        attribute_2_level:d.attribute_2_level,
+        has_dye:          d.has_dye,
+        dye_item:         d.dye_item,
+        item_skin:        d.item_skin,
+        item_origin:      d.item_origin,
+        auction_uuid:     items[0].uuid,
+        seller_uuid:      items[0].seller,
+        raw_price:        prices[0],
+        item_count:       d.item_count,
+        item_uuid:        d.item_uuid,
       })
     }
 
-    // Insert par batch de 100
     for (let i = 0; i < scanRows.length; i += 100) {
       await supabase.from('price_history_ah').insert(scanRows.slice(i, i + 100))
     }
 
-    // 4. Compare avec historique 7j → calcule discount_pct
+    // 4. Historique 7j — fallback à 3 niveaux
     const baseItemIds = [...new Set(scanRows.map(r => r.base_item_id))]
     const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0]
 
     const { data: historical } = await supabase
       .from('price_history_ah')
-      .select('base_item_id, variant_key, avg_price')
+      .select('base_item_id, variant_key, variant_key_base, avg_price, granularity')
       .in('base_item_id', baseItemIds)
-      .in('granularity', ['DAILY', 'MONTHLY'])
+      .in('granularity', ['DAILY_EXACT', 'DAILY', 'MONTHLY'])
       .gte('bucket_date', sevenDaysAgo)
 
-    // Calcule moyenne historique par (item_id, variant_key)
-    const histMap = new Map<string, number[]>()
+    // Maps par niveau de précision
+    const histExact = new Map<string, number[]>() // DAILY_EXACT (variant_key_full)
+    const histBase  = new Map<string, number[]>() // DAILY (variant_key_base)
+    const histMthly = new Map<string, number[]>() // MONTHLY (nostar_norecomb)
+
     for (const h of historical || []) {
-      const k = `${h.base_item_id}::${h.variant_key}`
-      if (!histMap.has(k)) histMap.set(k, [])
-      histMap.get(k)!.push(Number(h.avg_price))
+      const price = Number(h.avg_price)
+      if (h.granularity === 'DAILY_EXACT') {
+        const k = `${h.base_item_id}::${h.variant_key}`
+        if (!histExact.has(k)) histExact.set(k, [])
+        histExact.get(k)!.push(price)
+      } else if (h.granularity === 'DAILY') {
+        const k = `${h.base_item_id}::${h.variant_key_base || h.variant_key}`
+        if (!histBase.has(k)) histBase.set(k, [])
+        histBase.get(k)!.push(price)
+      } else if (h.granularity === 'MONTHLY') {
+        const k = `${h.base_item_id}::nostar_norecomb`
+        if (!histMthly.has(k)) histMthly.set(k, [])
+        histMthly.get(k)!.push(price)
+      }
     }
 
-    const histAvg = new Map<string, number>()
-    for (const [k, prices] of histMap) {
-      histAvg.set(k, prices.reduce((s, p) => s + p, 0) / prices.length)
-    }
+    const avg = (arr: number[]) => arr.reduce((s, p) => s + p, 0) / arr.length
 
-    // 5. Score et sélection TOP 300 par catégorie
+    // 5. Score chaque item
     type ScoredItem = {
       base_item_id:      string
-      variant_key:       string
+      variant_key_full:  string
+      variant_key_base:  string
       item_name:         string
       category:          string | null
       best_price:        number
@@ -187,7 +185,9 @@ export async function GET(request: Request) {
       discount_pct:      number
       spread_pct:        number
       volume:            number
+      hist_precision:    string
       total_stars:       number
+      master_stars:      number
       is_recomb:         boolean
       reforge:           string | null
       has_dye:           boolean
@@ -196,27 +196,46 @@ export async function GET(request: Request) {
       attribute_1_level: number | null
       attribute_2:       string | null
       attribute_2_level: number | null
-      master_stars:      number
     }
 
     const scored: ScoredItem[] = []
 
     for (const [key, items] of grouped) {
-      const d          = items[0].decoded
-      const prices     = items.map(i => i.price).sort((a, b) => a - b)
-      const bestPrice  = prices[0]
-      const avgPrice   = prices.reduce((s, p) => s + p, 0) / prices.length
-      const histPrice  = histAvg.get(key) ?? 0
+      const d         = items[0].decoded
+      const prices    = items.map(i => i.price).sort((a, b) => a - b)
+      const bestPrice = prices[0]
+      const avgPrice  = prices.reduce((s, p) => s + p, 0) / prices.length
+
+      // Fallback à 3 niveaux
+      const exactKey = `${d.item_id}::${d.variant_key_full}`
+      const baseKey  = `${d.item_id}::${d.variant_key_base}`
+      const mthlyKey = `${d.item_id}::nostar_norecomb`
+
+      let histPrice  = 0
+      let precision  = 'none'
+
+      if (histExact.has(exactKey)) {
+        histPrice = avg(histExact.get(exactKey)!)
+        precision = 'exact'
+      } else if (histBase.has(baseKey)) {
+        histPrice = avg(histBase.get(baseKey)!)
+        precision = 'base'
+      } else if (histMthly.has(mthlyKey)) {
+        histPrice = avg(histMthly.get(mthlyKey)!)
+        precision = 'monthly'
+      }
+
       const discountPct = histPrice > 0
         ? Math.round(((histPrice - bestPrice) / histPrice) * 100)
         : 0
-      const spreadPct  = avgPrice > 0
+      const spreadPct   = avgPrice > 0
         ? Math.round(((avgPrice - bestPrice) / avgPrice) * 100)
         : 0
 
       scored.push({
         base_item_id:      d.item_id,
-        variant_key:       d.variant_key,
+        variant_key_full:  d.variant_key_full,
+        variant_key_base:  d.variant_key_base,
         item_name:         d.item_name,
         category:          items[0].category,
         best_price:        bestPrice,
@@ -226,6 +245,7 @@ export async function GET(request: Request) {
         discount_pct:      discountPct,
         spread_pct:        spreadPct,
         volume:            items.length,
+        hist_precision:    precision,
         total_stars:       d.total_stars,
         master_stars:      d.master_stars,
         is_recomb:         d.is_recomb,
@@ -239,7 +259,7 @@ export async function GET(request: Request) {
       })
     }
 
-    // Sélection par catégorie (max 50 par cat) puis top global
+    // 6. TOP 300 par catégorie (max 50 par cat)
     const byCat = new Map<string, ScoredItem[]>()
     for (const item of scored) {
       const cat = item.category ?? 'other'
@@ -263,13 +283,14 @@ export async function GET(request: Request) {
 
     const finalItems = topItems.slice(0, TOP_ITEMS)
 
-    // 6. DELETE + INSERT ah_live
+    // 7. DELETE + INSERT ah_live
     await supabase.from('ah_live').delete().gte('id', 0)
 
     const liveRows = finalItems.map(item => ({
       item_id:           item.base_item_id,
       base_item_id:      item.base_item_id,
-      variant_key:       item.variant_key,
+      variant_key:       item.variant_key_full,
+      variant_key_base:  item.variant_key_base,
       item_name:         item.item_name?.slice(0, 299) ?? '',
       total_stars:       item.total_stars,
       master_stars:      item.master_stars,
@@ -305,20 +326,24 @@ export async function GET(request: Request) {
       .update({ locked_until: null })
       .eq('job_name', 'ah_collect')
 
+    const withExact   = finalItems.filter(i => i.hist_precision === 'exact').length
+    const withBase    = finalItems.filter(i => i.hist_precision === 'base').length
+    const withMonthly = finalItems.filter(i => i.hist_precision === 'monthly').length
+    const noHistory   = finalItems.filter(i => i.hist_precision === 'none').length
+
     return NextResponse.json({
       success:          true,
       total_bin:        binAuctions.length,
       decoded_ok:       scanRows.length,
       scans_inserted:   scanRows.length,
       top_items:        finalItems.length,
-      with_history:     finalItems.filter(i => i.historical_avg > 0).length,
+      history_precision: { exact: withExact, base: withBase, monthly: withMonthly, none: noHistory }
     })
 
   } catch (error: any) {
     await supabase.from('cron_locks')
       .update({ locked_until: null })
       .eq('job_name', 'ah_collect')
-    console.error('ah-collect error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }

@@ -1,11 +1,14 @@
 // lib/skyblock-item-decoder.ts
 // Décode un item Skyblock depuis item_bytes (base64 gzippé)
 // Extrait absolument toutes les données utiles via NBT
+// Produit deux variant_key :
+//   variant_key_full = comparaison exacte (stars+recomb+reforge+ultimate+attributes)
+//   variant_key_base = agrégation DAILY (stars+recomb+ultimate+attributes — sans reforge)
 
 import { gunzipSync }       from 'zlib'
 import { parseNBT, getNBT } from './nbt-parser'
 
-// ── ULTIMATE ENCHANTS SKYBLOCK ────────────────────────────────
+// ── ULTIMATE ENCHANTS ─────────────────────────────────────────
 const ULTIMATE_ENCHANTS = new Set([
   'ultimate_one_for_all',
   'ultimate_soul_eater',
@@ -21,16 +24,14 @@ const ULTIMATE_ENCHANTS = new Set([
   'ultimate_habanero_tactics',
 ])
 
-// ── Résultat du décodage ──────────────────────────────────────
+// ── Type résultat ─────────────────────────────────────────────
 export type DecodedItem = {
-  // Identité
   item_id:             string
   item_name:           string
   item_uuid:           string | null
   item_origin:         string | null
   item_skin:           string | null
 
-  // Upgrades
   total_stars:         number
   master_stars:        number
   is_recomb:           boolean
@@ -42,119 +43,120 @@ export type DecodedItem = {
   mana_disintegrator:  number
   silex_applied:       boolean
 
-  // Reforge
   reforge:             string | null
 
-  // Enchantements
   enchantments:        Record<string, number>
   ultimate_enchant:    string | null
   ultimate_level:      number | null
 
-  // Gemstones
   gems:                Record<string, string>
   gems_summary:        string
 
-  // Attributs Kuudra / spéciaux
   attributes:          Record<string, number>
   attribute_1:         string | null
   attribute_1_level:   number | null
   attribute_2:         string | null
   attribute_2_level:   number | null
 
-  // Dye
   has_dye:             boolean
   dye_item:            string | null
-
-  // Stack
   item_count:          number
 
-  // Clé de variante composite pour comparaison
-  variant_key:         string
+  // Deux clés de variante
+  variant_key_full:    string  // comparaison exacte
+  variant_key_base:    string  // agrégation DAILY/MONTHLY
 }
 
-// ── Construit la variant_key ───────────────────────────────────
-function buildVariantKey(item: Omit<DecodedItem, 'variant_key'>): string {
-  const parts: string[] = []
-
-  // Étoiles
-  const stars = (item.master_stars > 0 ? item.master_stars : item.total_stars)
-  parts.push(stars > 0 ? `${stars}star` : 'nostar')
-
-  // Recomb
-  parts.push(item.is_recomb ? 'recomb' : 'norecomb')
-
-  // Reforge
-  parts.push(item.reforge ? item.reforge.toLowerCase() : 'noreforge')
+// ── Construit les deux variant_key ────────────────────────────
+function buildVariantKeys(d: Omit<DecodedItem, 'variant_key_full' | 'variant_key_base'>): {
+  variant_key_full: string
+  variant_key_base: string
+} {
+  const stars    = d.master_stars > 0 ? d.master_stars : d.total_stars
+  const starStr  = stars > 0 ? `${stars}star` : 'nostar'
+  const recombStr= d.is_recomb ? 'recomb' : 'norecomb'
 
   // Ultimate enchant
-  if (item.ultimate_enchant) {
-    const short = item.ultimate_enchant.replace('ultimate_', '')
-    parts.push(`${short}${item.ultimate_level || 1}`)
-  }
+  const ultimateStr = d.ultimate_enchant
+    ? `${d.ultimate_enchant.replace('ultimate_', '')}${d.ultimate_level || 1}`
+    : null
 
-  // Attributs Kuudra (tri alphabétique pour cohérence)
-  const attrKeys = Object.keys(item.attributes).sort()
-  if (attrKeys.length > 0) {
-    const attrStr = attrKeys.map(k => `${k}${item.attributes[k]}`).join('_')
-    parts.push(attrStr)
-  }
+  // Attributs Kuudra triés alphabétiquement
+  const attrKeys = Object.keys(d.attributes).sort()
+  const attrStr  = attrKeys.length > 0
+    ? attrKeys.map(k => `${k}${d.attributes[k]}`).join('_')
+    : null
 
-  // Hot potato (groupé par tranches)
-  if (item.hot_potato_count >= 10) parts.push('fuming')
-  else if (item.hot_potato_count >= 5) parts.push(`hpb${item.hot_potato_count}`)
+  // HPB groupé
+  const hpbStr = d.hot_potato_count >= 10 ? 'fuming'
+    : d.hot_potato_count >= 5 ? `hpb${d.hot_potato_count}`
+    : null
 
-  return parts.join('_').toLowerCase().slice(0, 200)
+  // ── variant_key_base : ce qui DRIVE la valeur ─────────────
+  // Stars + Recomb + Ultimate + Attributes Kuudra
+  const baseParts = [starStr, recombStr]
+  if (ultimateStr) baseParts.push(ultimateStr)
+  if (attrStr)     baseParts.push(attrStr)
+  if (hpbStr)      baseParts.push(hpbStr)
+
+  const variant_key_base = baseParts.join('_').toLowerCase().slice(0, 200)
+
+  // ── variant_key_full : comparaison exacte ─────────────────
+  // Stars + Recomb + Reforge + Ultimate + Attributes
+  const fullParts = [starStr, recombStr]
+  if (d.reforge)   fullParts.push(d.reforge.toLowerCase())
+  if (ultimateStr) fullParts.push(ultimateStr)
+  if (attrStr)     fullParts.push(attrStr)
+  if (hpbStr)      fullParts.push(hpbStr)
+
+  const variant_key_full = fullParts.join('_').toLowerCase().slice(0, 200)
+
+  return { variant_key_full, variant_key_base }
 }
 
 // ── Décodeur principal ────────────────────────────────────────
 export function decodeItemBytes(itemBytesBase64: string): DecodedItem | null {
   try {
-    // 1. Decode base64 → Buffer
     const compressed = Buffer.from(itemBytesBase64, 'base64')
+    const raw        = gunzipSync(compressed)
+    const nbt        = parseNBT(raw)
 
-    // 2. Gunzip
-    const raw = gunzipSync(compressed)
-
-    // 3. Parse NBT
-    const nbt = parseNBT(raw)
-
-    // 4. Navigue vers le premier item dans la liste i
     const items = getNBT(nbt, 'i') as any[]
     if (!Array.isArray(items) || items.length === 0) return null
 
-    const itemNbt  = items[0] as Record<string, any>
-    const tag      = (itemNbt.tag  || {}) as Record<string, any>
-    const display  = (tag.display  || {}) as Record<string, any>
-    const extra    = (tag.ExtraAttributes || {}) as Record<string, any>
+    const itemNbt = items[0] as Record<string, any>
+    const tag     = (itemNbt.tag             || {}) as Record<string, any>
+    const display = (tag.display             || {}) as Record<string, any>
+    const extra   = (tag.ExtraAttributes     || {}) as Record<string, any>
 
-    // ── Identité ────────────────────────────────────────────
-    const item_id   = String(extra.id   || '')
-    const item_name = String(display.Name || '').replace(/§[0-9a-fk-or]/gi, '') // strip color codes
-    const item_uuid = extra.uuid   ? String(extra.uuid)   : null
+    // Identité
+    const item_id     = String(extra.id        || '')
+    const item_name   = String(display.Name    || '').replace(/§[0-9a-fk-or]/gi, '')
+    const item_uuid   = extra.uuid      ? String(extra.uuid)      : null
     const item_origin = extra.originTag ? String(extra.originTag) : null
-    const item_skin = extra.skin   ? String(extra.skin)   : null
-    const item_count = Number(itemNbt.Count || 1)
+    const item_skin   = extra.skin      ? String(extra.skin)      : null
+    const item_count  = Number(itemNbt.Count   || 1)
 
-    // ── Étoiles ─────────────────────────────────────────────
-    const total_stars  = Number(extra.upgrade_level      || 0)
-    const master_stars = Number(extra.dungeon_item_level  || 0)
+    // Stars
+    const total_stars  = Number(extra.upgrade_level       || 0)
+    const master_stars = Number(extra.dungeon_item_level   || 0)
 
-    // ── Recomb ──────────────────────────────────────────────
+    // Recomb
     const is_recomb = Number(extra.rarity_upgrades || 0) >= 1
 
-    // ── Hot Potato / upgrades livres ────────────────────────
-    const hot_potato_count   = Number(extra.hot_potato_count    || 0)
-    const art_of_war_count   = Number(extra.art_of_war_count    || 0)
-    const art_of_peace_count = Number(extra.art_of_peace_count  || 0)
-    const wood_singularity   = Number(extra.wood_singularity_count || 0)
-    const transmitted_count  = Number(extra.transmission_tuner_count || 0)
-    const mana_disintegrator = Number(extra.mana_disintegrator_count || 0)
+    // Upgrades livres
+    const hot_potato_count   = Number(extra.hot_potato_count           || 0)
+    const art_of_war_count   = Number(extra.art_of_war_count           || 0)
+    const art_of_peace_count = Number(extra.art_of_peace_count         || 0)
+    const wood_singularity   = Number(extra.wood_singularity_count     || 0)
+    const transmitted_count  = Number(extra.transmission_tuner_count   || 0)
+    const mana_disintegrator = Number(extra.mana_disintegrator_count   || 0)
     const silex_applied      = !!(extra.silex_count && Number(extra.silex_count) > 0)
 
-    // ── Reforge ─────────────────────────────────────────────
+    // Reforge
     const reforge = extra.modifier ? String(extra.modifier).toLowerCase() : null
 
-    // ── Enchantements ────────────────────────────────────────
+    // Enchantements
     const rawEnchants = (extra.enchantments || {}) as Record<string, any>
     const enchantments: Record<string, number> = {}
     let ultimate_enchant: string | null = null
@@ -169,7 +171,7 @@ export function decodeItemBytes(itemBytesBase64: string): DecodedItem | null {
       }
     }
 
-    // ── Gemstones ────────────────────────────────────────────
+    // Gemstones
     const rawGems = (extra.gems || {}) as Record<string, any>
     const gems: Record<string, string> = {}
     const gemCounts: Record<string, number> = {}
@@ -190,32 +192,27 @@ export function decodeItemBytes(itemBytesBase64: string): DecodedItem | null {
 
     const gems_summary = Object.entries(gemCounts)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, n]) => n > 1 ? `${n}x${k}` : k)
+      .map(([k, c]) => c > 1 ? `${c}x${k}` : k)
       .join(' ')
 
-    // ── Attributs Kuudra / spéciaux ──────────────────────────
+    // Attributs Kuudra
     const rawAttrs  = (extra.attributes || {}) as Record<string, any>
     const attributes: Record<string, number> = {}
-
     for (const [k, v] of Object.entries(rawAttrs)) {
       attributes[k] = Number(v)
     }
 
-    // Top 2 attributs par niveau
-    const sortedAttrs = Object.entries(attributes)
-      .sort(([, a], [, b]) => b - a)
-
+    const sortedAttrs       = Object.entries(attributes).sort(([,a],[,b]) => b - a)
     const attribute_1       = sortedAttrs[0]?.[0] ?? null
     const attribute_1_level = sortedAttrs[0] ? Number(sortedAttrs[0][1]) : null
     const attribute_2       = sortedAttrs[1]?.[0] ?? null
     const attribute_2_level = sortedAttrs[1] ? Number(sortedAttrs[1][1]) : null
 
-    // ── Dye ─────────────────────────────────────────────────
+    // Dye
     const has_dye  = !!(extra.dye_item)
     const dye_item = extra.dye_item ? String(extra.dye_item) : null
 
-    // ── Construit l'objet final ──────────────────────────────
-    const decoded: Omit<DecodedItem, 'variant_key'> = {
+    const base: Omit<DecodedItem, 'variant_key_full' | 'variant_key_base'> = {
       item_id, item_name, item_uuid, item_origin, item_skin,
       total_stars, master_stars, is_recomb,
       hot_potato_count, art_of_war_count, art_of_peace_count,
@@ -224,14 +221,10 @@ export function decodeItemBytes(itemBytesBase64: string): DecodedItem | null {
       enchantments, ultimate_enchant, ultimate_level,
       gems, gems_summary,
       attributes, attribute_1, attribute_1_level, attribute_2, attribute_2_level,
-      has_dye, dye_item,
-      item_count,
+      has_dye, dye_item, item_count,
     }
 
-    return {
-      ...decoded,
-      variant_key: buildVariantKey(decoded),
-    }
+    return { ...base, ...buildVariantKeys(base) }
 
   } catch {
     return null
