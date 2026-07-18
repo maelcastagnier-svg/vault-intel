@@ -323,12 +323,35 @@ export default function PatchSection({ marketData, dataLoading }: {
     livePatches  = insights.filter(i => i.patch_type === 'live')
     alphaPatches = insights.filter(i => i.patch_type === 'alpha')
   } else {
+    // Fallback depuis claude_analysis (format compact)
     try {
       const raw = marketData['patch_analysis'] || ''
       if (raw) {
         const parsed = JSON.parse(raw)
-        livePatches  = parsed.live_patches  || []
-        alphaPatches = parsed.alpha_patches || []
+        // Normalise le format compact vers le format PatchInsight
+        const normalize = (p: any): PatchInsight => ({
+          patch_title:      p.patch_title || p.title || '',
+          patch_date:       p.patch_date  || p.date  || '',
+          patch_type:       p.patch_type  || 'live',
+          direct_impact:    p.direct_impact || p.impact || '',
+          items_affected:   (p.items_affected || p.items || []).map((i: any) => ({
+            item_id:   i.item_id  || i.id  || '',
+            direction: i.direction|| i.dir || 'neutral',
+            reason:    i.reason   || i.why || '',
+            magnitude: i.magnitude|| i.mag || 'MED',
+          })),
+          methods_affected: (p.methods_affected || p.methods || []).map((m: any) => ({
+            method: m.method || m.name || '',
+            impact: m.impact || '',
+            reason: m.reason || m.why  || '',
+          })),
+          price_prediction: p.price_prediction || p.prediction || '',
+          action_signal:    p.action_signal    || p.signal     || 'HOLD',
+          confidence:       p.confidence       || 'MED',
+          predicted_items:  p.predicted_items  || [],
+        })
+        livePatches  = (parsed.live_patches  || []).map(normalize)
+        alphaPatches = (parsed.alpha_patches || []).map(normalize)
       }
     } catch {}
   }
