@@ -153,44 +153,25 @@ export async function GET(req: NextRequest) {
     ])
 
     const patchContext = JSON.stringify({
-      live:  (livePatches  || []).map(p => ({ title: p.title, content: p.content?.slice(0, 3000), date: p.published_at })),
-      alpha: (alphaPatches || []).map(p => ({ title: p.title, content: p.content?.slice(0, 2000), date: p.published_at })),
+      live:  (livePatches  || []).slice(0, 5).map(p => ({ title: p.title, content: p.content?.slice(0, 1500), date: p.published_at })),
+      alpha: (alphaPatches || []).slice(0, 3).map(p => ({ title: p.title, content: p.content?.slice(0, 1000), date: p.published_at })),
     })
 
-    // 2 appels Claude en parallèle
-    const [analysisRes, validationRes] = await Promise.all([
-      // Appel 1 : analyse des patches
-      fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key':         process.env.ANTHROPIC_API_KEY!,
-          'anthropic-version': '2023-06-01',
-          'content-type':      'application/json',
-        },
-        body: JSON.stringify({
-          model:      'claude-sonnet-4-6',
-          max_tokens: 4000,
-          system: [{ type: 'text', text: buildAnalysisPrompt(), cache_control: { type: 'ephemeral' } }],
-          messages: [{ role: 'user', content: `Patch notes to analyze:\n${patchContext}\n\nCurrent bazaar prices:\n${JSON.stringify(bazaarPrices?.slice(0, 50))}` }],
-        }),
+    // Appel 1 : analyse (séquentiel pour éviter timeout)
+    const analysisRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key':         process.env.ANTHROPIC_API_KEY!,
+        'anthropic-version': '2023-06-01',
+        'content-type':      'application/json',
+      },
+      body: JSON.stringify({
+        model:      'claude-sonnet-4-6',
+        max_tokens: 3000,
+        system: [{ type: 'text', text: buildAnalysisPrompt(), cache_control: { type: 'ephemeral' } }],
+        messages: [{ role: 'user', content: `Patch notes:\n${patchContext}\n\nBazaar prices:\n${JSON.stringify(bazaarPrices?.slice(0, 30))}` }],
       }),
-      // Appel 2 : validation prédictions passées
-      pendingValidation && pendingValidation.length > 0
-        ? fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-              'x-api-key':         process.env.ANTHROPIC_API_KEY!,
-              'anthropic-version': '2023-06-01',
-              'content-type':      'application/json',
-            },
-            body: JSON.stringify({
-              model:      'claude-haiku-4-5-20251001', // Haiku suffit pour valider des chiffres
-              max_tokens: 1500,
-              messages: [{ role: 'user', content: buildValidationPrompt(pendingValidation, bazaarPrices || []) }],
-            }),
-          })
-        : Promise.resolve(null),
-    ])
+    })
 
     // Parse analyse
     const analysisData = await analysisRes.json()
@@ -248,13 +229,25 @@ export async function GET(req: NextRequest) {
       updated_at: new Date().toISOString(),
     }, { onConflict: 'section' })
 
-    // Parse + applique validations
+    // Validation prédictions (séparée, uniquement si des prédictions existent)
     let validationsApplied = 0
-    if (validationRes) {
+    if (pendingValidation && pendingValidation.length > 0) {
       try {
-        const valData = await validationRes.json()
+        const valRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key':         process.env.ANTHROPIC_API_KEY!,
+            'anthropic-version': '2023-06-01',
+            'content-type':      'application/json',
+          },
+          body: JSON.stringify({
+            model:      'claude-haiku-4-5-20251001',
+            max_tokens: 1500,
+            messages:   [{ role: 'user', content: buildValidationPrompt(pendingValidation, bazaarPrices || []) }],
+          }),
+        })
+        const valData = await valRes.json()
         const val     = parseJSON(valData.content?.[0]?.text || '{}')
-
         for (const v of (val.validations || [])) {
           const { error } = await supabase.from('insight_patch').update({
             accuracy_score:   v.accuracy_score,
@@ -263,11 +256,10 @@ export async function GET(req: NextRequest) {
             accuracy_notes:   v.validation_notes,
             outcome_verified: true,
           }).eq('id', v.id)
-
           if (!error) validationsApplied++
         }
       } catch (e) {
-        console.error('Validation parse error:', e)
+        console.error('Validation error:', e)
       }
     }
 
