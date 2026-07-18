@@ -1,65 +1,82 @@
 // app/api/cron/patch-collect/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+// Scrape les patch notes Hypixel (live + alpha) → patch_notes
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 
-export const maxDuration = 60;
+export const maxDuration = 60
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+)
+
+const FEEDS = [
+  { url: 'https://hypixel.net/forums/skyblock-patch-notes.158/index.rss',        is_alpha: false },
+  { url: 'https://hypixel.net/forums/skyblock-alpha-patch-notes.190/index.rss',  is_alpha: true  },
+]
+
+function parseRSS(xml: string, is_alpha: boolean) {
+  const items: any[] = []
+  const blocks = xml.split('<item>').slice(1)
+
+  for (const block of blocks.slice(0, 10)) {
+    const title = (
+      block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/)?.[1] ||
+      block.match(/<title>([\s\S]*?)<\/title>/)?.[1] || ''
+    ).trim().slice(0, 300)
+
+    const content = (
+      block.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/)?.[1] ||
+      block.match(/<description>([\s\S]*?)<\/description>/)?.[1] || ''
+    ).replace(/<[^>]*>/g, '').trim().slice(0, 5000)
+
+    const link       = block.match(/<link>(.*?)<\/link>/)?.[1]        || ''
+    const pubDate    = block.match(/<pubDate>(.*?)<\/pubDate>/)?.[1]   || new Date().toISOString()
+
+    if (!title) continue
+
+    items.push({ title, content, link, published_at: pubDate, is_alpha })
+  }
+
+  return items
+}
 
 export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   try {
-    const rssRes = await fetch('https://hypixel.net/forums/skyblock-patch-notes.158/index.rss', {
-      headers: { 'User-Agent': 'VaultBot/1.0' }
-    }).then(r => r.text());
+    let inserted = 0, skipped = 0
 
-    const items: any[] = [];
-    const itemBlocks = rssRes.split('<item>').slice(1);
+    for (const feed of FEEDS) {
+      const xml = await fetch(feed.url, { headers: { 'User-Agent': 'VaultBot/1.0' } }).then(r => r.text())
+      const items = parseRSS(xml, feed.is_alpha)
 
-    for (const block of itemBlocks.slice(0, 10)) {
-      const titleMatch = block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/) || block.match(/<title>([\s\S]*?)<\/title>/);
-      const descMatch = block.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/) || block.match(/<description>([\s\S]*?)<\/description>/);
-      const linkMatch = block.match(/<link>(.*?)<\/link>/);
-      const pubDateMatch = block.match(/<pubDate>(.*?)<\/pubDate>/);
+      for (const item of items) {
+        const { data: existing } = await supabase
+          .from('patch_notes')
+          .select('id')
+          .eq('title', item.title)
+          .limit(1)
 
-      if (!titleMatch || !titleMatch[1]?.trim()) continue;
-      const title = titleMatch[1].trim().substring(0, 300);
+        if (existing && existing.length > 0) { skipped++; continue }
 
-      items.push({
-        source: 'patch',
-        title,
-        content: (descMatch?.[1] || '').replace(/<[^>]*>/g, '').trim().substring(0, 800),
-        link: linkMatch?.[1] || '',
-        published_at: pubDateMatch?.[1] || new Date().toISOString(),
-        created_at: new Date().toISOString()
-      });
+        const { error } = await supabase.from('patch_notes').insert({
+          title:        item.title,
+          content:      item.content,
+          link:         item.link,
+          published_at: item.published_at,
+          is_alpha:     item.is_alpha,
+        })
+
+        if (!error) inserted++
+        else console.error('Insert error:', error.message)
+      }
     }
 
-    let inserted = 0;
-    let skipped = 0;
-
-    for (const item of items) {
-      const { data: existing } = await supabase
-        .from('game_knowledge')
-        .select('id')
-        .eq('title', item.title)
-        .limit(1);
-
-      if (existing && existing.length > 0) { skipped++; continue; }
-
-      const { error } = await supabase.from('game_knowledge').insert(item);
-      if (!error) inserted++;
-    }
-
-    return NextResponse.json({ status: 'done', inserted, skipped, totalFetched: items.length });
+    return NextResponse.json({ success: true, inserted, skipped })
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }
