@@ -132,8 +132,12 @@ export async function GET(request: Request) {
       })
     }
 
+    // Upsert SCAN — ignore duplicates (même item scanné plusieurs fois dans la journée)
     for (let i = 0; i < scanRows.length; i += 100) {
-      await supabase.from('price_history_ah').insert(scanRows.slice(i, i + 100))
+      await supabase.from('price_history_ah').upsert(scanRows.slice(i, i + 100), {
+        onConflict:       'base_item_id, variant_key, granularity, bucket_date',
+        ignoreDuplicates: false // met à jour le prix si déjà scanné aujourd'hui
+      })
     }
 
     // 4. Historique 7j — fallback à 3 niveaux
