@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
       supabase.from('bazaar_1h').select('item_id, sell_price, buy_price, volume').order('volume', { ascending: false }).limit(50),
 
       // Mayors (si disponible)
-      supabase.from('mayors').select('*').limit(5).catch(() => ({ data: [] })),
+      supabase.from('mayors').select('*').limit(5),
     ])
 
     // Tendances prix 30j pour les top items Bazaar
