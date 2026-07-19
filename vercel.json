@@ -11,6 +11,7 @@
     { "path": "/api/cron/radar-agent",          "schedule": "0 7 * * *"    },
     { "path": "/api/cron/evolve-sync",          "schedule": "0 */6 * * *"  },
     { "path": "/api/cron/historic-import",      "schedule": "*/5 * * * *"  },
+    { "path": "/api/cron/update-catalog",      "schedule": "0 2 * * *"    },
     { "path": "/api/cron/data-retention",       "schedule": "0 3 * * 0"    },
     { "path": "/api/cron/wiki-auto-sync",       "schedule": "*/30 * * * *" }
   ]
