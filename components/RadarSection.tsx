@@ -181,7 +181,7 @@ function ItemExplorer() {
                   <div style={{ fontSize:12, color:'#e8e6df', fontWeight:500 }}>{r.item_name}</div>
                   <div style={{ fontSize:9.5, color:'#4a4a45', fontFamily:'Space Mono, monospace' }}>{r.item_id}</div>
                 </div>
-                {r.source === 'ah' && r.variant_count > 1 && (
+                {r.source === 'ah' && (r.variant_count ?? 0) > 1 && (
                   <span style={{ fontSize:8.5, color:'#9b59b6', fontFamily:'Space Mono, monospace', background:'rgba(155,89,182,0.1)', padding:'2px 6px', borderRadius:4, flexShrink:0 }}>
                     {r.variant_count} variants
                   </span>
