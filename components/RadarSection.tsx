@@ -200,7 +200,7 @@ function ItemExplorer() {
       // Données historiques
       let q2 = supabase
         .from('price_history_ah')
-        .select(useScans ? 'created_at,avg_price,volume,variant_key' : 'bucket_date,avg_price,volume,variant_key')
+        .select('bucket_date,created_at,avg_price,volume,variant_key')
         .eq('base_item_id', item.item_id)
         .in('granularity', useScans ? ['SCAN'] : ['DAILY','DAILY_EXACT','MONTHLY'])
         .gt('avg_price', 0)
