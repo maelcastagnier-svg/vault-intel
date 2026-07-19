@@ -24,21 +24,25 @@ export async function GET(req: NextRequest) {
   const search = q.trim().toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '')
   if (!search) return NextResponse.json([])
 
+  // Cherche au début de chaque mot (séparé par _)
+  // "NE" → NECRON% ou %_NE% — jamais au milieu d'un mot
+  // Supprime la recherche par item_name (cause trop de faux matches via "Ancient", "Rune"...)
+  const startPattern = `${search}%`       // commence par le terme
+  const wordPattern  = `%_${search}%`     // mot après underscore commence par le terme
+
   const [{ data: bazaarItems }, { data: ahItems }] = await Promise.all([
-    // Bazaar — item_id distinct
     supabase
       .from('price_history')
       .select('item_id')
-      .ilike('item_id', `%${search}%`)
+      .or(`item_id.ilike.${startPattern},item_id.ilike.${wordPattern}`)
       .gt('sell_price', 0)
       .order('item_id')
       .limit(limit * 2),
 
-    // AH — base_item_id et item_name
     supabase
       .from('price_history_ah')
       .select('base_item_id, item_name, variant_key')
-      .or(`base_item_id.ilike.%${search}%,item_name.ilike.%${search}%`)
+      .or(`base_item_id.ilike.${startPattern},base_item_id.ilike.${wordPattern}`)
       .not('base_item_id', 'is', null)
       .order('base_item_id')
       .limit(limit * 5),
