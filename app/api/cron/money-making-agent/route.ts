@@ -88,13 +88,13 @@ function formatContext(ctx: any, existingMethods: any[], feedbackData: any[]): s
     '=== BAZAAR LIVE PRICES ===', bz,
     '\n=== EXISTING METHOD LIBRARY (methods discovered in previous runs) ===', library,
     '\n=== COMMUNITY FEEDBACK (player votes on each method) ===', feedback,
-    '\n=== SLAYER WIKI ===', wiki(ctx?.wiki_slayers, 2500),
-    '\n=== KUUDRA WIKI ===', wiki(ctx?.wiki_kuudra, 1500),
-    '\n=== DUNGEON WIKI ===', wiki(ctx?.wiki_dungeons, 1200),
-    '\n=== MINING WIKI ===', wiki(ctx?.wiki_mining, 2000),
-    '\n=== FARMING WIKI ===', wiki(ctx?.wiki_farming, 1200),
-    '\n=== FISHING WIKI ===', wiki(ctx?.wiki_fishing, 1500),
-    '\n=== ECONOMY WIKI ===', wiki(ctx?.wiki_economy, 600),
+    '\n=== SLAYER WIKI ===', wiki(ctx?.wiki_slayers, 1500),
+    '\n=== KUUDRA WIKI ===', wiki(ctx?.wiki_kuudra, 1000),
+    '\n=== DUNGEON WIKI ===', wiki(ctx?.wiki_dungeons, 800),
+    '\n=== MINING WIKI ===', wiki(ctx?.wiki_mining, 1200),
+    '\n=== FARMING WIKI ===', wiki(ctx?.wiki_farming, 800),
+    '\n=== FISHING WIKI ===', wiki(ctx?.wiki_fishing, 1000),
+    '\n=== ECONOMY WIKI ===', wiki(ctx?.wiki_economy, 400),
   ].join('\n')
 }
 
