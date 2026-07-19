@@ -14,21 +14,26 @@ const HYPIXEL_AH_URL = 'https://api.hypixel.net/v2/skyblock/auctions'
 const TOP_ITEMS      = 300
 const TODAY          = new Date().toISOString().split('T')[0]
 
-// ── Fetch toutes les pages en parallèle ──────────────────────
-async function fetchAllAuctions(): Promise<any[]> {
-  const first    = await fetch(HYPIXEL_AH_URL).then(r => r.json())
-  const total    = first.totalPages as number
-  let all: any[] = [...(first.auctions || [])]
+const MAX_PAGES_PER_RUN = 30  // ~30 × 2.3MB = 69MB max par run
 
-  for (let i = 1; i < total; i += 10) {
-    const batch   = Array.from({ length: Math.min(10, total - i) }, (_, j) => i + j)
+// ── Fetch pages AH avec pagination par run ───────────────────
+async function fetchAllAuctions(): Promise<{ auctions: any[]; totalPages: number; pagesScanned: number }> {
+  const first     = await fetch(HYPIXEL_AH_URL).then(r => r.json())
+  const total     = first.totalPages as number
+  let all: any[]  = [...(first.auctions || []).filter((a: any) => a.bin && !a.claimed)]
+
+  // Pages suivantes en batch de 10 — max MAX_PAGES_PER_RUN
+  const pagesToFetch = Math.min(MAX_PAGES_PER_RUN - 1, total - 1)
+
+  for (let i = 1; i <= pagesToFetch; i += 10) {
+    const batch   = Array.from({ length: Math.min(10, pagesToFetch - i + 1) }, (_, j) => i + j)
     const results = await Promise.all(
       batch.map(p => fetch(`${HYPIXEL_AH_URL}?page=${p}`).then(r => r.json()))
     )
-    results.forEach(r => { all = all.concat(r.auctions || []) })
+    results.forEach(r => { all = all.concat((r.auctions || []).filter((a: any) => a.bin && !a.claimed)) })
   }
 
-  return all.filter(a => a.bin && !a.claimed)
+  return { auctions: all, totalPages: total, pagesScanned: pagesToFetch + 1 }
 }
 
 export async function GET(request: Request) {
@@ -50,7 +55,7 @@ export async function GET(request: Request) {
 
   try {
     // 1. Fetch toutes les BIN
-    const binAuctions = await fetchAllAuctions()
+    const { auctions: binAuctions, totalPages, pagesScanned } = await fetchAllAuctions()
 
     // 2. Decode NBT + groupe par variant_key_full
     type GroupItem = {
@@ -132,12 +137,11 @@ export async function GET(request: Request) {
       })
     }
 
-    // Upsert SCAN — ignore duplicates (même item scanné plusieurs fois dans la journée)
+    // SCAN → insert simple pour conserver tout l'historique intraday
+    // La contrainte unique sur DAILY/DAILY_EXACT/MONTHLY empêche les doublons agrégés
+    // mais les SCAN multiples par jour sont voulus (historique de prix toutes les minutes)
     for (let i = 0; i < scanRows.length; i += 100) {
-      await supabase.from('price_history_ah').upsert(scanRows.slice(i, i + 100), {
-        onConflict:       'base_item_id, variant_key, granularity, bucket_date',
-        ignoreDuplicates: false // met à jour le prix si déjà scanné aujourd'hui
-      })
+      await supabase.from('price_history_ah').insert(scanRows.slice(i, i + 100))
     }
 
     // 4. Historique 7j — fallback à 3 niveaux
@@ -341,6 +345,8 @@ export async function GET(request: Request) {
       decoded_ok:       scanRows.length,
       scans_inserted:   scanRows.length,
       top_items:        finalItems.length,
+      pages_scanned:    pagesScanned,
+      total_pages:      totalPages,
       history_precision: { exact: withExact, base: withBase, monthly: withMonthly, none: noHistory }
     })
 
