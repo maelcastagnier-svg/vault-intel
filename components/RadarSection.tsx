@@ -2,10 +2,15 @@
 // Section Radar — Item Explorer (graphique) + Intelligence Vault (Claude)
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import {
-  LineChart, Line, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, CartesianGrid, ReferenceLine
-} from 'recharts'
+import dynamic from 'next/dynamic'
+
+const LineChart        = dynamic(() => import('recharts').then(m => m.LineChart),        { ssr: false })
+const Line             = dynamic(() => import('recharts').then(m => m.Line),             { ssr: false })
+const XAxis            = dynamic(() => import('recharts').then(m => m.XAxis),            { ssr: false })
+const YAxis            = dynamic(() => import('recharts').then(m => m.YAxis),            { ssr: false })
+const Tooltip          = dynamic(() => import('recharts').then(m => m.Tooltip),          { ssr: false })
+const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.ResponsiveContainer), { ssr: false })
+const CartesianGrid    = dynamic(() => import('recharts').then(m => m.CartesianGrid),    { ssr: false })
 
 // ─── Types ───────────────────────────────────────────────────
 type SearchResult = { item_id: string; item_name: string; source: 'bazaar'|'ah' }
@@ -126,7 +131,7 @@ function ItemExplorer() {
 
   const data      = history?.data || []
   const isBazaar  = selected?.source === 'bazaar'
-  const variants  = history?.available_variants || []
+  const variants  = (history?.available_variants as any[]) || []
 
   // Stats rapides
   const prices    = data.map(d => d.sell_price || d.avg_price || 0).filter(p => p > 0)
@@ -172,10 +177,15 @@ function ItemExplorer() {
                 <span style={{ fontSize:8.5, padding:'2px 6px', borderRadius:4, fontFamily:'Space Mono, monospace', fontWeight:700, color:r.source==='bazaar'?'#1baf7a':'#c9a84c', background:r.source==='bazaar'?'#1baf7a12':'#c9a84c12', border:`1px solid ${r.source==='bazaar'?'#1baf7a':'#c9a84c'}20`, flexShrink:0 }}>
                   {r.source.toUpperCase()}
                 </span>
-                <div>
+                <div style={{ flex:1 }}>
                   <div style={{ fontSize:12, color:'#e8e6df', fontWeight:500 }}>{r.item_name}</div>
                   <div style={{ fontSize:9.5, color:'#4a4a45', fontFamily:'Space Mono, monospace' }}>{r.item_id}</div>
                 </div>
+                {r.source === 'ah' && r.variant_count > 1 && (
+                  <span style={{ fontSize:8.5, color:'#9b59b6', fontFamily:'Space Mono, monospace', background:'rgba(155,89,182,0.1)', padding:'2px 6px', borderRadius:4, flexShrink:0 }}>
+                    {r.variant_count} variants
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -203,17 +213,7 @@ function ItemExplorer() {
               {selected.source==='bazaar'?'BAZAAR':'AH'}
             </div>
 
-            {/* Variant selector (AH only) */}
-            {!isBazaar && variants.length > 1 && (
-              <select
-                value={variant}
-                onChange={e => changeVariant(e.target.value)}
-                style={{ background:'#111110', border:'1px solid rgba(255,255,255,0.08)', borderRadius:7, padding:'4px 10px', color:'#e8e6df', fontSize:10, fontFamily:'Space Mono, monospace', cursor:'pointer', outline:'none' }}
-              >
-                <option value="all">All variants</option>
-                {variants.map(v => <option key={v} value={v}>{v}</option>)}
-              </select>
-            )}
+            {/* Variant selector (AH only) — remplacé par la liste en dessous du graphique */}
           </div>
 
           {/* Quick stats */}
@@ -251,16 +251,12 @@ function ItemExplorer() {
                     dataKey="date"
                     tickFormatter={formatDate}
                     tick={{ fill:'#3a3a38', fontSize:9, fontFamily:'Space Mono, monospace' }}
-                    tickLine={false}
-                    axisLine={false}
-                    interval="preserveStartEnd"
+                    tickLine={false} axisLine={false} interval="preserveStartEnd"
                   />
                   <YAxis
                     tickFormatter={formatPrice}
                     tick={{ fill:'#3a3a38', fontSize:9, fontFamily:'Space Mono, monospace' }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={50}
+                    tickLine={false} axisLine={false} width={50}
                   />
                   <Tooltip content={<PriceTooltip />} />
                   {isBazaar ? (
@@ -287,6 +283,85 @@ function ItemExplorer() {
               </div>
             )}
           </div>
+
+          {/* ── Variant List (AH only) ── */}
+          {!isBazaar && variants.length > 0 && (
+            <div style={{ marginTop:16, borderTop:'1px solid rgba(255,255,255,0.05)', paddingTop:14 }}>
+              <div style={{ fontSize:9, color:'#4a4a45', fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:10 }}>
+                {variants.length} variant{variants.length > 1 ? 's' : ''} tracked
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:4, maxHeight:220, overflowY:'auto' }}>
+                {/* Option "toutes variantes" */}
+                <div
+                  onClick={() => changeVariant('all')}
+                  style={{
+                    display:'flex', alignItems:'center', gap:10, padding:'7px 10px',
+                    borderRadius:7, cursor:'pointer', transition:'all 0.12s',
+                    background: variant==='all' ? 'rgba(201,168,76,0.08)' : 'transparent',
+                    border: `1px solid ${variant==='all' ? 'rgba(201,168,76,0.2)' : 'rgba(255,255,255,0.04)'}`,
+                  }}
+                >
+                  <div style={{ width:28, height:28, borderRadius:6, background:'rgba(201,168,76,0.1)', border:'1px solid rgba(201,168,76,0.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, flexShrink:0 }}>📊</div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:11, fontWeight:600, color:'#e8e6df' }}>All variants (avg)</div>
+                    <div style={{ fontSize:9.5, color:'#4a4a45', fontFamily:'Space Mono, monospace', marginTop:1 }}>
+                      Average across all {variants.length} variants
+                    </div>
+                  </div>
+                  {variant==='all' && <span style={{ fontSize:10, color:'#c9a84c' }}>●</span>}
+                </div>
+
+                {/* Chaque variante */}
+                {variants.map((v: any) => {
+                  const vKey     = typeof v === 'string' ? v : v.key
+                  const vLabel   = typeof v === 'string' ? v : (v.label || vKey)
+                  const vPts     = typeof v === 'object' ? v.data_points : 0
+                  const vExact   = typeof v === 'object' ? v.has_daily_exact : false
+                  const isActive = variant === vKey
+
+                  // Parse le label pour l'icône
+                  const hasStars  = vKey.match(/^(\d+)star/)
+                  const hasRecomb = vKey.includes('recomb') && !vKey.includes('norecomb')
+                  const isBase    = vKey === 'nostar_norecomb_noreforge'
+
+                  const icon = isBase ? '✦' : hasStars ? `⭐${hasStars[1]}` : '🔹'
+                  const accentColor = isBase ? '#c9a84c' : hasRecomb ? '#9b59b6' : '#2a78d6'
+
+                  return (
+                    <div
+                      key={vKey}
+                      onClick={() => changeVariant(vKey)}
+                      style={{
+                        display:'flex', alignItems:'center', gap:10, padding:'7px 10px',
+                        borderRadius:7, cursor:'pointer', transition:'all 0.12s',
+                        background: isActive ? accentColor+'0d' : 'transparent',
+                        border: `1px solid ${isActive ? accentColor+'30' : 'rgba(255,255,255,0.04)'}`,
+                      }}
+                    >
+                      {/* Icon */}
+                      <div style={{ width:28, height:28, borderRadius:6, background:accentColor+'10', border:'1px solid '+accentColor+'20', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, flexShrink:0, fontFamily:'Space Mono, monospace', color:accentColor, fontWeight:700 }}>
+                        {icon}
+                      </div>
+
+                      {/* Label */}
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:10.5, fontWeight:600, color: isActive ? '#e8e6df' : '#9b9b8f', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          {vLabel}
+                        </div>
+                        <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:2 }}>
+                          <span style={{ fontSize:9, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>{vPts} pts</span>
+                          {vExact && <span style={{ fontSize:8, color:'#1baf7a', fontFamily:'Space Mono, monospace', background:'rgba(27,175,122,0.08)', padding:'1px 5px', borderRadius:3 }}>NBT ✓</span>}
+                        </div>
+                      </div>
+
+                      {/* Active indicator */}
+                      {isActive && <span style={{ fontSize:10, color:accentColor, flexShrink:0 }}>●</span>}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </>
       )}
 
