@@ -96,7 +96,7 @@ function ItemExplorer() {
       const data = await res.json()
       setResults(Array.isArray(data) ? data : [])
       setShowDrop(true)
-    }, 300)
+    }, 150)
   }, [])
 
   // Charge historique

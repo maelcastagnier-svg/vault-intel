@@ -1,7 +1,4 @@
 // app/api/item-search/route.ts
-// Recherche d'items pour le dropdown Radar
-// Prioritise base_item_id propre, déduplique les variantes SkyCofl
-// GET /api/item-search?q=hyper&limit=20
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -17,10 +14,12 @@ export async function GET(req: NextRequest) {
 
   if (q.length < 2) return NextResponse.json([])
 
-  const search = q.toUpperCase().replace(/\s+/g, '_')
+  // Normalise : minuscules/majuscules/espaces → uppercase underscore
+  const search = q.trim().toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '')
+  if (!search) return NextResponse.json([])
 
   const [{ data: bazaarItems }, { data: ahItems }] = await Promise.all([
-    // Bazaar — item_id direct
+    // Bazaar — distinct item_id, trié par pertinence (starts with > contains)
     supabase
       .from('price_history')
       .select('item_id')
@@ -29,50 +28,47 @@ export async function GET(req: NextRequest) {
       .order('item_id')
       .limit(limit),
 
-    // AH — base_item_id + count des variantes disponibles
+    // AH — distinct base_item_id avec count variantes
     supabase
       .from('price_history_ah')
-      .select('base_item_id, item_name, variant_key, granularity')
+      .select('base_item_id, item_name')
       .ilike('base_item_id', `%${search}%`)
-      .in('granularity', ['DAILY', 'DAILY_EXACT', 'SCAN'])
+      .not('base_item_id', 'is', null)
       .order('base_item_id')
-      .limit(limit * 5), // plus large pour grouper ensuite
+      .limit(limit * 3),
   ])
 
-  // Groupe les AH par base_item_id et compte les variantes
-  const ahGroups = new Map<string, { item_name: string; variant_count: number }>()
+  // Déduplique AH par base_item_id
+  const ahMap = new Map<string, { item_name: string; count: number }>()
   for (const row of ahItems || []) {
-    if (!ahGroups.has(row.base_item_id)) {
-      ahGroups.set(row.base_item_id, {
-        item_name:     row.item_name || row.base_item_id.replace(/_/g, ' '),
-        variant_count: 0,
+    if (!ahMap.has(row.base_item_id)) {
+      ahMap.set(row.base_item_id, {
+        item_name: row.item_name || row.base_item_id.replace(/_/g, ' '),
+        count:     0,
       })
     }
-    // Compte variantes uniques
-    const existing = ahGroups.get(row.base_item_id)!
-    existing.variant_count++
+    ahMap.get(row.base_item_id)!.count++
   }
 
-  // Déduplique et formate
   const seen    = new Set<string>()
   const results: any[] = []
 
-  // Bazaar d'abord
+  // Bazaar
   for (const row of bazaarItems || []) {
-    const key = `bazaar:${row.item_id}`
+    const key = `bz:${row.item_id}`
     if (!seen.has(key)) {
       seen.add(key)
       results.push({
         item_id:       row.item_id,
-        item_name:     row.item_id.replace(/_/g, ' '),
+        item_name:     row.item_id.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c: string) => c.toUpperCase()),
         source:        'bazaar',
         variant_count: 1,
       })
     }
   }
 
-  // AH ensuite — 1 entrée par base_item_id (avec le count de variantes)
-  for (const [base_item_id, { item_name, variant_count }] of ahGroups) {
+  // AH — 1 entrée par base_item_id
+  for (const [base_item_id, { item_name, count }] of ahMap) {
     const key = `ah:${base_item_id}`
     if (!seen.has(key)) {
       seen.add(key)
@@ -80,10 +76,17 @@ export async function GET(req: NextRequest) {
         item_id:       base_item_id,
         item_name:     item_name,
         source:        'ah',
-        variant_count: Math.min(variant_count, 99),
+        variant_count: count,
       })
     }
   }
+
+  // Trie : exact match en premier, puis starts with, puis contains
+  results.sort((a, b) => {
+    const aExact  = a.item_id === search ? 0 : a.item_id.startsWith(search) ? 1 : 2
+    const bExact  = b.item_id === search ? 0 : b.item_id.startsWith(search) ? 1 : 2
+    return aExact - bExact || a.item_id.localeCompare(b.item_id)
+  })
 
   return NextResponse.json(results.slice(0, limit))
 }

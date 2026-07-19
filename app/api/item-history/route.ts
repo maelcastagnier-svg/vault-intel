@@ -26,6 +26,13 @@ export async function GET(req: NextRequest) {
   const days      = PERIOD_INTERVALS[period] || 30
   const startDate = new Date(Date.now() - days * 86_400_000).toISOString().split('T')[0]
 
+  // Pour les périodes courtes (1D, 1W) on utilise les SCAN pour plus de granularité
+  // Pour les périodes longues (1M, 1Y, 3Y) on utilise DAILY/MONTHLY
+  const useScans     = period === '1D' || period === '1W'
+  const granularities = useScans
+    ? ['SCAN']
+    : ['DAILY', 'DAILY_EXACT', 'MONTHLY']
+
   // ── BAZAAR ────────────────────────────────────────────────────
   if (source === 'bazaar') {
     const { data, error } = await supabase
@@ -92,10 +99,9 @@ export async function GET(req: NextRequest) {
 
   // Filtre par variante si spécifié, sinon prend les DAILY (toutes variantes agrégées)
   if (variant && variant !== 'all') {
-    query = query.eq('variant_key', variant).in('granularity', ['DAILY_EXACT', 'DAILY', 'MONTHLY', 'SCAN'])
+    query = query.eq('variant_key', variant).in('granularity', granularities)
   } else {
-    // Pas de filtre variante → agrège par date (moyenne pondérée)
-    query = query.in('granularity', ['DAILY', 'DAILY_EXACT', 'MONTHLY'])
+    query = query.in('granularity', granularities)
   }
 
   const { data, error } = await query
