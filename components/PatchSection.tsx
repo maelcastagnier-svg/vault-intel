@@ -1,154 +1,133 @@
 // components/PatchSection.tsx
-// Section Patches — 2 colonnes Live | Alpha
-// Visuel 100% React — Claude fournit uniquement du texte + JSON
+// Visuel 100% React — données fournies par Claude via DB
 'use client'
 import { useState, useEffect } from 'react'
 
-// ─── Types ───────────────────────────────────────────────────
 type ItemAffected = {
-  item_id:   string
-  direction: 'up' | 'down' | 'neutral'
-  reason:    string
-  magnitude: 'LOW' | 'MED' | 'HIGH'
+  item_id: string; direction: 'up'|'down'|'neutral'
+  reason: string; magnitude: 'LOW'|'MED'|'HIGH'
 }
-
-type MethodAffected = {
-  method: string
-  impact: 'buffed' | 'nerfed' | 'unchanged'
-  reason: string
-}
-
-type PredictedItem = {
-  item_id:             string
-  predicted_change_pct:number
-  timeframe_days:      number
-  reasoning:           string
-}
+type MethodAffected = { method: string; impact: 'buffed'|'nerfed'|'unchanged'; reason: string }
+type PredictedItem  = { item_id: string; predicted_change_pct: number; timeframe_days: number; reasoning: string }
 
 type PatchInsight = {
-  id?:               number
-  patch_title:       string
-  patch_date?:       string
-  patch_type:        'live' | 'alpha'
-  direct_impact:     string
-  items_affected:    ItemAffected[]
-  methods_affected:  MethodAffected[]
-  price_prediction:  string
-  predicted_items:   PredictedItem[]
-  action_signal:     string
-  confidence:        string
-  accuracy_score?:   number
-  status?:           string
+  id?: number; patch_title: string; patch_date?: string
+  patch_type: 'live'|'alpha'; direct_impact: string
+  items_affected: ItemAffected[]; methods_affected: MethodAffected[]
+  price_prediction: string; predicted_items: PredictedItem[]
+  action_signal: string; confidence: string
+  accuracy_score?: number; status?: string
 }
 
-// ─── Config ──────────────────────────────────────────────────
-const SIGNAL_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
-  BUY:    { color: '#1baf7a', bg: '#1baf7a15', label: '📈 BUY'    },
-  SELL:   { color: '#e34948', bg: '#e3494815', label: '📉 SELL'   },
-  HOLD:   { color: '#c9a84c', bg: '#c9a84c15', label: '⏸ HOLD'   },
-  WATCH:  { color: '#2a78d6', bg: '#2a78d615', label: '👁 WATCH'  },
-  INVEST: { color: '#9b59b6', bg: '#9b59b615', label: '💎 INVEST' },
+const SIGNAL: Record<string, { color: string; bg: string; border: string; icon: string; label: string }> = {
+  BUY:    { color:'#1baf7a', bg:'#1baf7a0f', border:'#1baf7a25', icon:'📈', label:'BUY'    },
+  SELL:   { color:'#e34948', bg:'#e349480f', border:'#e3494825', icon:'📉', label:'SELL'   },
+  HOLD:   { color:'#c9a84c', bg:'#c9a84c0f', border:'#c9a84c25', icon:'⏸', label:'HOLD'   },
+  WATCH:  { color:'#2a78d6', bg:'#2a78d60f', border:'#2a78d625', icon:'👁', label:'WATCH'  },
+  INVEST: { color:'#9b59b6', bg:'#9b59b60f', border:'#9b59b625', icon:'💎', label:'INVEST' },
 }
 
-const MAGNITUDE_COLORS: Record<string, string> = {
-  HIGH: '#e34948', MED: '#c9a84c', LOW: '#1baf7a'
-}
+const MAG_COLOR: Record<string, string> = { HIGH:'#e34948', MED:'#c9a84c', LOW:'#1baf7a' }
+const CONF_COLOR: Record<string, string> = { HIGH:'#1baf7a', MED:'#c9a84c', LOW:'#e34948' }
+const IMP_COLOR: Record<string, string>  = { buffed:'#1baf7a', nerfed:'#e34948', unchanged:'#4a4a45' }
 
-const CONF_COLORS: Record<string, string> = {
-  HIGH: '#1baf7a', MED: '#c9a84c', LOW: '#e34948'
-}
+const s = (v: any) => (typeof v === 'string' ? v : '')
+const a = (v: any) => (Array.isArray(v) ? v : [])
 
-const IMPACT_COLORS: Record<string, string> = {
-  buffed: '#1baf7a', nerfed: '#e34948', unchanged: '#4a4a45'
-}
-
-// ─── Atoms ───────────────────────────────────────────────────
-function SignalBadge({ signal }: { signal: string }) {
-  const cfg = SIGNAL_CONFIG[signal] || SIGNAL_CONFIG.HOLD
+// ─── Signal Badge ─────────────────────────────────────────────
+function SignalBadge({ signal, large = false }: { signal: string; large?: boolean }) {
+  const cfg = SIGNAL[signal] || SIGNAL.HOLD
   return (
-    <span style={{
-      fontSize: 9.5, fontFamily: 'Space Mono, monospace', fontWeight: 700,
-      padding: '2px 8px', borderRadius: 4,
-      color: cfg.color, background: cfg.bg,
-      border: '1px solid ' + cfg.color + '30',
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: large ? 6 : 4,
+      padding: large ? '6px 14px' : '3px 9px',
+      borderRadius: large ? 8 : 5,
+      background: cfg.bg, border: '1px solid ' + cfg.border, color: cfg.color,
+      fontSize: large ? 12 : 9.5,
+      fontFamily: 'Space Mono, monospace', fontWeight: 700,
       whiteSpace: 'nowrap'
-    }}>{cfg.label}</span>
+    }}>
+      <span style={{ fontSize: large ? 14 : 11 }}>{cfg.icon}</span>
+      {cfg.label}
+    </div>
   )
 }
 
+// ─── Conf Badge ───────────────────────────────────────────────
 function ConfBadge({ conf }: { conf: string }) {
-  const color = CONF_COLORS[conf] || '#c9a84c'
+  const color = CONF_COLOR[conf] || '#c9a84c'
   return (
-    <span style={{
-      fontSize: 8.5, fontFamily: 'Space Mono, monospace', fontWeight: 700,
-      padding: '1px 6px', borderRadius: 3,
-      color, background: color + '12', border: '1px solid ' + color + '25'
-    }}>{conf}</span>
+    <span style={{ fontSize:8.5, fontFamily:'Space Mono, monospace', fontWeight:700, padding:'2px 7px', borderRadius:4, color, background:color+'12', border:'1px solid '+color+'25' }}>
+      {conf}
+    </span>
   )
 }
 
 // ─── Deep Dive Modal ─────────────────────────────────────────
 function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () => void }) {
-  const signal = SIGNAL_CONFIG[patch.action_signal] || SIGNAL_CONFIG.HOLD
+  const isAlpha = patch.patch_type === 'alpha'
+  const accentColor = isAlpha ? '#eda100' : '#1baf7a'
+  const items   = a(patch.items_affected)
+  const methods = a(patch.methods_affected)
+  const predicted = a(patch.predicted_items)
 
   return (
-    <div
-      onClick={onClose}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem', backdropFilter: 'blur(8px)' }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{ background: '#0f0f0e', border: '1px solid rgba(201,168,76,0.15)', borderRadius: 16, maxWidth: 540, width: '100%', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 40px 80px rgba(0,0,0,0.8)' }}
-      >
-        {/* Header */}
-        <div style={{ padding: '20px 22px 16px', borderBottom: '1px solid rgba(255,255,255,0.05)', position: 'sticky', top: 0, background: '#0f0f0e', zIndex: 1, borderRadius: '16px 16px 0 0' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-            <div>
-              <div style={{ fontSize: 8.5, color: patch.patch_type === 'alpha' ? '#eda100' : '#1baf7a', fontFamily: 'Space Mono, monospace', letterSpacing: '0.12em', marginBottom: 6 }}>
-                {patch.patch_type === 'alpha' ? '⚡ ALPHA PREVIEW' : '✅ LIVE PATCH'}
-                {patch.patch_date && <span style={{ color: '#3a3a38', marginLeft: 8 }}>{patch.patch_date}</span>}
-              </div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#f0d68a', lineHeight: 1.3 }}>{patch.patch_title}</div>
-            </div>
-            <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', color: '#6b6960', cursor: 'pointer', borderRadius: 8, padding: '5px 9px', fontSize: 12, flexShrink: 0 }}>✕</button>
-          </div>
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.9)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center', padding:'1.5rem', backdropFilter:'blur(10px)' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:'#0d0d0c', border:'1px solid '+accentColor+'22', borderTop:'2px solid '+accentColor, borderRadius:16, maxWidth:580, width:'100%', maxHeight:'90vh', overflowY:'auto', boxShadow:'0 40px 100px rgba(0,0,0,0.9)' }}>
 
-          {/* Badges */}
-          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-            <SignalBadge signal={patch.action_signal} />
+        {/* Header */}
+        <div style={{ padding:'22px 24px 18px', borderBottom:'1px solid rgba(255,255,255,0.05)', position:'sticky', top:0, background:'#0d0d0c', zIndex:1, borderRadius:'16px 16px 0 0' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10 }}>
+            <div style={{ flex:1 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                <span style={{ width:7, height:7, borderRadius:'50%', background:accentColor, display:'inline-block', boxShadow:'0 0 8px '+accentColor }} />
+                <span style={{ fontSize:8.5, color:accentColor, fontFamily:'Space Mono, monospace', letterSpacing:'0.14em', textTransform:'uppercase', fontWeight:700 }}>
+                  {isAlpha ? 'ALPHA PREVIEW' : 'LIVE PATCH'}
+                  {s(patch.patch_date) && <span style={{ color:'#3a3a38', marginLeft:8, fontWeight:400 }}>{patch.patch_date}</span>}
+                </span>
+              </div>
+              <div style={{ fontSize:16, fontWeight:700, color:'#f0d68a', lineHeight:1.3 }}>{s(patch.patch_title)}</div>
+            </div>
+            <button onClick={onClose} style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'#6b6960', cursor:'pointer', borderRadius:8, padding:'6px 10px', fontSize:13, flexShrink:0 }}>✕</button>
+          </div>
+          <div style={{ display:'flex', gap:8, marginTop:14, flexWrap:'wrap', alignItems:'center' }}>
+            <SignalBadge signal={patch.action_signal} large />
             <ConfBadge conf={patch.confidence} />
             {patch.accuracy_score !== undefined && (
-              <span style={{ fontSize: 9, fontFamily: 'Space Mono, monospace', color: '#9b9b8f', padding: '2px 7px', background: 'rgba(255,255,255,0.04)', borderRadius: 4, border: '1px solid rgba(255,255,255,0.07)' }}>
+              <span style={{ fontSize:9, fontFamily:'Space Mono, monospace', color:'#9b9b8f', padding:'2px 8px', background:'rgba(255,255,255,0.04)', borderRadius:5, border:'1px solid rgba(255,255,255,0.07)' }}>
                 Accuracy: {patch.accuracy_score}%
               </span>
             )}
           </div>
         </div>
 
-        <div style={{ padding: '4px 22px 22px' }}>
+        <div style={{ padding:'6px 24px 24px' }}>
 
-          {/* Direct impact */}
-          {patch.direct_impact && (
-            <div style={{ padding: '13px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-              <div style={{ fontSize: 9, color: '#c9a84c', fontFamily: 'Space Mono, monospace', letterSpacing: '0.1em', marginBottom: 7 }}>🎯 DIRECT IMPACT</div>
-              <div style={{ fontSize: 12.5, color: '#cac8c0', lineHeight: 1.65 }}>{patch.direct_impact}</div>
+          {/* Direct Impact */}
+          {s(patch.direct_impact) && (
+            <div style={{ padding:'14px 0', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
+              <div style={{ fontSize:9, color:accentColor, fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:8, textTransform:'uppercase' }}>🎯 Economic Impact</div>
+              <div style={{ fontSize:13, color:'#d8d6cf', lineHeight:1.7 }}>{s(patch.direct_impact)}</div>
             </div>
           )}
 
-          {/* Items affected */}
-          {patch.items_affected?.length > 0 && (
-            <div style={{ padding: '13px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-              <div style={{ fontSize: 9, color: '#c9a84c', fontFamily: 'Space Mono, monospace', letterSpacing: '0.1em', marginBottom: 10 }}>📦 ITEMS AFFECTED</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {patch.items_affected.map((item, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '7px 10px', background: '#111110', borderRadius: 7, border: '1px solid rgba(255,255,255,0.04)' }}>
-                    <span style={{ fontSize: 14, flexShrink: 0 }}>{item.direction === 'up' ? '📈' : item.direction === 'down' ? '📉' : '➡️'}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                        <span style={{ fontSize: 10.5, fontWeight: 600, color: '#e8e6df', fontFamily: 'Space Mono, monospace' }}>{item.item_id}</span>
-                        <span style={{ fontSize: 8, color: MAGNITUDE_COLORS[item.magnitude], background: MAGNITUDE_COLORS[item.magnitude] + '15', padding: '1px 5px', borderRadius: 3, fontFamily: 'Space Mono, monospace' }}>{item.magnitude}</span>
+          {/* Items Affected */}
+          {items.length > 0 && (
+            <div style={{ padding:'14px 0', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
+              <div style={{ fontSize:9, color:accentColor, fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:10, textTransform:'uppercase' }}>📦 Items Affected</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                {items.map((item: ItemAffected, i: number) => (
+                  <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', background:'#111110', borderRadius:8, border:'1px solid rgba(255,255,255,0.04)' }}>
+                    <span style={{ fontSize:18, flexShrink:0 }}>{item.direction==='up'?'📈':item.direction==='down'?'📉':'➡️'}</span>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:3 }}>
+                        <span style={{ fontSize:11, fontWeight:700, color:'#e8e6df', fontFamily:'Space Mono, monospace' }}>{item.item_id}</span>
+                        <span style={{ fontSize:8, padding:'1px 5px', borderRadius:3, color:MAG_COLOR[item.magnitude]||'#c9a84c', background:(MAG_COLOR[item.magnitude]||'#c9a84c')+'15', fontFamily:'Space Mono, monospace', fontWeight:700 }}>{item.magnitude}</span>
                       </div>
-                      <div style={{ fontSize: 10.5, color: '#6b6960', lineHeight: 1.5 }}>{item.reason}</div>
+                      <div style={{ fontSize:11, color:'#6b6960', lineHeight:1.5 }}>{item.reason}</div>
+                    </div>
+                    <div style={{ fontSize:13, fontWeight:700, color:item.direction==='up'?'#1baf7a':item.direction==='down'?'#e34948':'#4a4a45', flexShrink:0 }}>
+                      {item.direction==='up'?'↑':item.direction==='down'?'↓':'→'}
                     </div>
                   </div>
                 ))}
@@ -156,19 +135,19 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
             </div>
           )}
 
-          {/* Methods affected */}
-          {patch.methods_affected?.length > 0 && (
-            <div style={{ padding: '13px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-              <div style={{ fontSize: 9, color: '#c9a84c', fontFamily: 'Space Mono, monospace', letterSpacing: '0.1em', marginBottom: 10 }}>⚔️ METHODS AFFECTED</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                {patch.methods_affected.map((m, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 10px', background: '#111110', borderRadius: 6 }}>
-                    <span style={{ fontSize: 9, fontFamily: 'Space Mono, monospace', fontWeight: 700, color: IMPACT_COLORS[m.impact], background: IMPACT_COLORS[m.impact] + '15', padding: '2px 6px', borderRadius: 3, flexShrink: 0, marginTop: 1 }}>
-                      {m.impact.toUpperCase()}
+          {/* Methods Affected */}
+          {methods.length > 0 && (
+            <div style={{ padding:'14px 0', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
+              <div style={{ fontSize:9, color:accentColor, fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:10, textTransform:'uppercase' }}>⚔️ Methods Affected</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
+                {methods.map((m: MethodAffected, i: number) => (
+                  <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'8px 12px', background:'#111110', borderRadius:7 }}>
+                    <span style={{ fontSize:9, fontFamily:'Space Mono, monospace', fontWeight:700, color:IMP_COLOR[m.impact]||'#c9a84c', background:(IMP_COLOR[m.impact]||'#c9a84c')+'15', padding:'2px 7px', borderRadius:4, flexShrink:0, marginTop:1 }}>
+                      {(m.impact||'').toUpperCase()}
                     </span>
                     <div>
-                      <div style={{ fontSize: 10.5, color: '#e8e6df', fontWeight: 500, marginBottom: 2 }}>{m.method}</div>
-                      <div style={{ fontSize: 10, color: '#6b6960' }}>{m.reason}</div>
+                      <div style={{ fontSize:11, color:'#e8e6df', fontWeight:600, marginBottom:2 }}>{m.method}</div>
+                      <div style={{ fontSize:10.5, color:'#6b6960' }}>{m.reason}</div>
                     </div>
                   </div>
                 ))}
@@ -176,25 +155,30 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
             </div>
           )}
 
-          {/* Predicted items */}
-          {patch.predicted_items?.length > 0 && (
-            <div style={{ padding: '13px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-              <div style={{ fontSize: 9, color: '#c9a84c', fontFamily: 'Space Mono, monospace', letterSpacing: '0.1em', marginBottom: 10 }}>🔮 PRICE PREDICTIONS</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {patch.predicted_items.map((p, i) => {
-                  const positive = p.predicted_change_pct >= 0
-                  const color    = positive ? '#1baf7a' : '#e34948'
+          {/* Price Predictions */}
+          {predicted.length > 0 && (
+            <div style={{ padding:'14px 0', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
+              <div style={{ fontSize:9, color:accentColor, fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:10, textTransform:'uppercase' }}>🔮 Price Predictions</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                {predicted.map((p: PredictedItem, i: number) => {
+                  const pos = p.predicted_change_pct >= 0
+                  const col = pos ? '#1baf7a' : '#e34948'
+                  const pct = Math.abs(p.predicted_change_pct)
                   return (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', background: '#111110', borderRadius: 7 }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 10.5, fontFamily: 'Space Mono, monospace', color: '#e8e6df', fontWeight: 600 }}>{p.item_id}</div>
-                        <div style={{ fontSize: 9.5, color: '#4a4a45', marginTop: 2 }}>{p.reasoning}</div>
+                    <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 12px', background:'#111110', borderRadius:8 }}>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:11, fontFamily:'Space Mono, monospace', color:'#e8e6df', fontWeight:700 }}>{p.item_id}</div>
+                        <div style={{ fontSize:10, color:'#4a4a45', marginTop:2 }}>{p.reasoning}</div>
                       </div>
-                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color, fontFamily: 'Space Mono, monospace' }}>
-                          {positive ? '+' : ''}{p.predicted_change_pct}%
+                      <div style={{ textAlign:'right', flexShrink:0 }}>
+                        <div style={{ fontSize:18, fontWeight:700, color:col, fontFamily:'Space Mono, monospace', lineHeight:1 }}>
+                          {pos?'+':'-'}{pct}%
                         </div>
-                        <div style={{ fontSize: 8.5, color: '#4a4a45', fontFamily: 'Space Mono, monospace' }}>in {p.timeframe_days}d</div>
+                        <div style={{ fontSize:8.5, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>in {p.timeframe_days}d</div>
+                      </div>
+                      {/* Mini bar */}
+                      <div style={{ width:40, height:40, borderRadius:'50%', background:col+'12', border:'2px solid '+col+'30', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                        <span style={{ fontSize:16 }}>{pos?'↑':'↓'}</span>
                       </div>
                     </div>
                   )
@@ -203,16 +187,18 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
             </div>
           )}
 
-          {/* Price prediction text */}
-          {patch.price_prediction && (
-            <div style={{ padding: '13px 0' }}>
-              <div style={{ fontSize: 9, color: '#c9a84c', fontFamily: 'Space Mono, monospace', letterSpacing: '0.1em', marginBottom: 7 }}>📊 VAULT ANALYSIS</div>
-              <div style={{ fontSize: 12, color: '#cac8c0', lineHeight: 1.7 }}>{patch.price_prediction}</div>
+          {/* Vault Analysis */}
+          {s(patch.price_prediction) && (
+            <div style={{ padding:'14px 0' }}>
+              <div style={{ fontSize:9, color:accentColor, fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:8, textTransform:'uppercase' }}>📊 Vault Analysis</div>
+              <div style={{ fontSize:12.5, color:'#cac8c0', lineHeight:1.75, padding:'12px 14px', background:'rgba(201,168,76,0.04)', border:'1px solid rgba(201,168,76,0.08)', borderRadius:8 }}>
+                {s(patch.price_prediction)}
+              </div>
             </div>
           )}
 
-          <div style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8, fontSize: 9.5, color: '#3a3a38', fontFamily: 'Space Mono, monospace' }}>
-            Vault validates predictions automatically against live prices every 24h.
+          <div style={{ marginTop:8, padding:'8px 12px', background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)', borderRadius:8, fontSize:9.5, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>
+            Vault auto-validates predictions against live prices every 24h
           </div>
         </div>
       </div>
@@ -222,185 +208,209 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
 
 // ─── Patch Card ───────────────────────────────────────────────
 function PatchCard({ patch, isAlpha }: { patch: PatchInsight; isAlpha: boolean }) {
-  const [showDeepDive, setShowDeepDive] = useState(false)
-  const accentColor = isAlpha ? '#eda100' : '#1baf7a'
-  const signal      = SIGNAL_CONFIG[patch.action_signal] || SIGNAL_CONFIG.HOLD
-  const topItems    = (patch.items_affected || []).slice(0, 3)
+  const [modal, setModal] = useState(false)
+  const accentColor = isAlpha ? '#eda100' : '#c9a84c'
+  const dotColor    = isAlpha ? '#eda100' : '#1baf7a'
+  const cfg         = SIGNAL[patch.action_signal] || SIGNAL.HOLD
+  const items       = a(patch.items_affected).slice(0, 4)
+  const upItems     = items.filter((i: ItemAffected) => i.direction === 'up')
+  const downItems   = items.filter((i: ItemAffected) => i.direction === 'down')
+  const [hov, setHov] = useState(false)
 
   return (
     <>
-      <div style={{
-        background: '#111110',
-        border: `1px solid ${accentColor}18`,
-        borderLeft: `3px solid ${accentColor}`,
-        borderRadius: 8, padding: '13px 15px', marginBottom: 8
-      }}>
+      <div
+        onMouseEnter={() => setHov(true)}
+        onMouseLeave={() => setHov(false)}
+        style={{
+          background:   hov ? '#141413' : '#0f0f0e',
+          border:       `1px solid ${hov ? accentColor+'30' : 'rgba(255,255,255,0.06)'}`,
+          borderTop:    `2px solid ${dotColor}`,
+          borderRadius: 10, padding:'16px 16px 14px',
+          marginBottom: 10, transition:'all 0.15s ease',
+          boxShadow:    hov ? `0 8px 30px rgba(0,0,0,0.4)` : 'none',
+        }}
+      >
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 600, color: '#e8e6df', lineHeight: 1.3, marginBottom: 4 }}>
-              {patch.patch_title}
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10, marginBottom:10 }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:12, fontWeight:700, color:'#e8e6df', lineHeight:1.35, marginBottom:4 }}>
+              {s(patch.patch_title).slice(0, 60)}
             </div>
-            {patch.patch_date && (
-              <div style={{ fontSize: 9, color: '#3a3a38', fontFamily: 'Space Mono, monospace' }}>{patch.patch_date}</div>
+            {s(patch.patch_date) && (
+              <div style={{ fontSize:9, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>{patch.patch_date}</div>
             )}
           </div>
-          <SignalBadge signal={patch.action_signal} />
+          {/* Signal pill */}
+          <div style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 10px', borderRadius:20, background:cfg.bg, border:'1px solid '+cfg.border, flexShrink:0 }}>
+            <span style={{ fontSize:12 }}>{cfg.icon}</span>
+            <span style={{ fontSize:9.5, fontFamily:'Space Mono, monospace', fontWeight:700, color:cfg.color }}>{cfg.label}</span>
+          </div>
         </div>
 
-        {/* Impact */}
-        {patch.direct_impact && (
-          <div style={{ fontSize: 11, color: '#8b8980', lineHeight: 1.55, marginBottom: 10 }}>
-            {patch.direct_impact.slice(0, 140)}{patch.direct_impact.length > 140 ? '...' : ''}
+        {/* Impact text */}
+        {s(patch.direct_impact) && (
+          <div style={{ fontSize:11.5, color:'#8b8980', lineHeight:1.6, marginBottom:12 }}>
+            {s(patch.direct_impact).slice(0, 160)}{patch.direct_impact?.length > 160 ? '...' : ''}
           </div>
         )}
 
-        {/* Items affectés (preview) */}
-        {topItems.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
-            {topItems.map((item, i) => (
-              <span key={i} style={{
-                fontSize: 9, fontFamily: 'Space Mono, monospace', padding: '2px 7px', borderRadius: 4,
-                color: item.direction === 'up' ? '#1baf7a' : item.direction === 'down' ? '#e34948' : '#6b6960',
-                background: item.direction === 'up' ? '#1baf7a12' : item.direction === 'down' ? '#e3494812' : '#6b696012',
-                border: `1px solid ${item.direction === 'up' ? '#1baf7a' : item.direction === 'down' ? '#e34948' : '#6b6960'}22`
-              }}>
-                {item.direction === 'up' ? '↑' : item.direction === 'down' ? '↓' : '→'} {item.item_id}
-              </span>
+        {/* Items preview */}
+        {items.length > 0 && (
+          <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginBottom:12 }}>
+            {upItems.slice(0,3).map((item: ItemAffected, i: number) => (
+              <div key={i} style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 8px', borderRadius:5, background:'#1baf7a0d', border:'1px solid #1baf7a20' }}>
+                <span style={{ fontSize:9, color:'#1baf7a' }}>↑</span>
+                <span style={{ fontSize:9, color:'#1baf7a', fontFamily:'Space Mono, monospace', fontWeight:700 }}>{item.item_id}</span>
+              </div>
             ))}
-            {patch.items_affected?.length > 3 && (
-              <span style={{ fontSize: 9, color: '#3a3a38', fontFamily: 'Space Mono, monospace', padding: '2px 7px' }}>
-                +{patch.items_affected.length - 3} more
-              </span>
+            {downItems.slice(0,3).map((item: ItemAffected, i: number) => (
+              <div key={i} style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 8px', borderRadius:5, background:'#e349480d', border:'1px solid #e3494820' }}>
+                <span style={{ fontSize:9, color:'#e34948' }}>↓</span>
+                <span style={{ fontSize:9, color:'#e34948', fontFamily:'Space Mono, monospace', fontWeight:700 }}>{item.item_id}</span>
+              </div>
+            ))}
+            {a(patch.items_affected).length > 4 && (
+              <div style={{ padding:'3px 8px', borderRadius:5, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)', fontSize:9, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>
+                +{a(patch.items_affected).length - 4}
+              </div>
             )}
           </div>
         )}
 
         {/* Footer */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <ConfBadge conf={patch.confidence} />
           <button
-            onClick={() => setShowDeepDive(true)}
-            style={{
-              background: 'rgba(201,168,76,0.06)', border: '1px solid rgba(201,168,76,0.18)',
-              color: '#c9a84c', fontSize: 9.5, fontFamily: 'Space Mono, monospace',
-              padding: '4px 10px', borderRadius: 5, cursor: 'pointer', fontWeight: 700
-            }}
-          >DEEP DIVE →</button>
+            onClick={() => setModal(true)}
+            style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:6, background:'rgba(201,168,76,0.06)', border:'1px solid rgba(201,168,76,0.18)', color:'#c9a84c', fontSize:9.5, fontFamily:'Space Mono, monospace', cursor:'pointer', fontWeight:700, transition:'all 0.15s' }}
+          >
+            DEEP DIVE <span style={{ fontSize:10 }}>→</span>
+          </button>
         </div>
       </div>
 
-      {showDeepDive && <DeepDiveModal patch={patch} onClose={() => setShowDeepDive(false)} />}
+      {modal && <DeepDiveModal patch={patch} onClose={() => setModal(false)} />}
     </>
   )
 }
 
-// ─── Main Section ─────────────────────────────────────────────
+// ─── Column Header ────────────────────────────────────────────
+function ColHeader({ label, dot, count }: { label: string; dot: string; count: number }) {
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16, padding:'10px 14px', background:'#0f0f0e', border:'1px solid rgba(255,255,255,0.05)', borderRadius:8 }}>
+      <span style={{ width:8, height:8, borderRadius:'50%', background:dot, display:'inline-block', boxShadow:'0 0 8px '+dot, flexShrink:0 }} />
+      <span style={{ fontSize:10, fontWeight:700, fontFamily:'Space Mono, monospace', color:dot, letterSpacing:'0.14em', textTransform:'uppercase', flex:1 }}>{label}</span>
+      {count > 0 && (
+        <span style={{ fontSize:9, fontFamily:'Space Mono, monospace', color:'#3a3a38', padding:'2px 7px', background:'rgba(255,255,255,0.03)', borderRadius:4 }}>
+          {count} patches
+        </span>
+      )}
+    </div>
+  )
+}
+
+// ─── Empty State ──────────────────────────────────────────────
+function EmptyState({ label }: { label: string }) {
+  return (
+    <div style={{ padding:'32px 20px', background:'#0f0f0e', borderRadius:10, border:'1px solid rgba(255,255,255,0.04)', textAlign:'center' }}>
+      <div style={{ fontSize:24, marginBottom:8, opacity:0.3 }}>📋</div>
+      <div style={{ fontSize:10, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>{label}</div>
+    </div>
+  )
+}
+
+// ─── Main ─────────────────────────────────────────────────────
 export default function PatchSection({ marketData, dataLoading }: {
   marketData: Record<string, string>; dataLoading: boolean
 }) {
-  const [insights, setInsights] = useState<PatchInsight[]>([])
-  const [loadingInsights, setLoadingInsights] = useState(true)
+  const [insights, setInsights]     = useState<PatchInsight[]>([])
+  const [insLoading, setInsLoading] = useState(true)
 
-  // Charge les insights depuis Supabase
   useEffect(() => {
-    async function loadInsights() {
-      try {
-        const res  = await fetch('/api/patch-insights')
-        const data = await res.json()
-        setInsights(Array.isArray(data) ? data : [])
-      } catch {}
-      setLoadingInsights(false)
-    }
-    loadInsights()
+    fetch('/api/patch-insights')
+      .then(r => r.json())
+      .then(d => { setInsights(Array.isArray(d) ? d : []); setInsLoading(false) })
+      .catch(() => setInsLoading(false))
   }, [])
 
-  // Fallback: parse depuis claude_analysis si pas d'insights en DB
   let livePatches:  PatchInsight[] = []
   let alphaPatches: PatchInsight[] = []
 
   if (insights.length > 0) {
-    livePatches  = insights.filter(i => i.patch_type === 'live')
-    alphaPatches = insights.filter(i => i.patch_type === 'alpha')
+    livePatches  = insights.filter(i => i.patch_type === 'live'  || (!i.patch_type && !i.is_alpha))
+    alphaPatches = insights.filter(i => i.patch_type === 'alpha' || i.is_alpha)
   } else {
-    // Fallback depuis claude_analysis (format compact)
     try {
       const raw = marketData['patch_analysis'] || ''
       if (raw) {
         const parsed = JSON.parse(raw)
-        // Normalise le format compact vers le format PatchInsight
-        const normalize = (p: any): PatchInsight => ({
-          patch_title:      p.patch_title || p.title || '',
-          patch_date:       p.patch_date  || p.date  || '',
-          patch_type:       p.patch_type  || 'live',
-          direct_impact:    p.direct_impact || p.impact || '',
-          items_affected:   (p.items_affected || p.items || []).map((i: any) => ({
-            item_id:   i.item_id  || i.id  || '',
-            direction: i.direction|| i.dir || 'neutral',
-            reason:    i.reason   || i.why || '',
-            magnitude: i.magnitude|| i.mag || 'MED',
+        const norm = (p: any): PatchInsight => ({
+          patch_title:      s(p.patch_title || p.title),
+          patch_date:       s(p.patch_date  || p.date),
+          patch_type:       p.patch_type || 'live',
+          direct_impact:    s(p.direct_impact || p.impact),
+          items_affected:   a(p.items_affected || p.items).map((i: any) => ({
+            item_id: i.item_id||i.id||'', direction: i.direction||i.dir||'neutral',
+            reason: i.reason||i.why||'', magnitude: i.magnitude||i.mag||'MED'
           })),
-          methods_affected: (p.methods_affected || p.methods || []).map((m: any) => ({
-            method: m.method || m.name || '',
-            impact: m.impact || '',
-            reason: m.reason || m.why  || '',
+          methods_affected: a(p.methods_affected || p.methods).map((m: any) => ({
+            method: m.method||m.name||'', impact: m.impact||'unchanged', reason: m.reason||m.why||''
           })),
-          price_prediction: p.price_prediction || p.prediction || '',
-          action_signal:    p.action_signal    || p.signal     || 'HOLD',
-          confidence:       p.confidence       || 'MED',
-          predicted_items:  p.predicted_items  || [],
+          price_prediction: s(p.price_prediction || p.prediction),
+          predicted_items:  a(p.predicted_items),
+          action_signal:    s(p.action_signal || p.signal),
+          confidence:       s(p.confidence),
         })
-        livePatches  = (parsed.live_patches  || []).map(normalize)
-        alphaPatches = (parsed.alpha_patches || []).map(normalize)
+        livePatches  = a(parsed.live_patches).map(norm)
+        alphaPatches = a(parsed.alpha_patches).map(norm)
       }
     } catch {}
   }
 
-  const loading = dataLoading || loadingInsights
+  const loading = dataLoading || insLoading
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-
-      {/* LIVE PATCHES */}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#1baf7a', display: 'inline-block', boxShadow: '0 0 6px #1baf7a' }} />
-          <span style={{ fontSize: 10, fontWeight: 700, fontFamily: 'Space Mono, monospace', color: '#1baf7a', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Live Patches</span>
+    <div>
+      {/* Section title */}
+      <div style={{ marginBottom:20, padding:'12px 16px', background:'linear-gradient(135deg, rgba(201,168,76,0.06) 0%, rgba(201,168,76,0.02) 100%)', border:'1px solid rgba(201,168,76,0.12)', borderRadius:10, display:'flex', alignItems:'center', gap:12 }}>
+        <span style={{ fontSize:20 }}>🔧</span>
+        <div>
+          <div style={{ fontSize:11, fontWeight:700, color:'#c9a84c', fontFamily:'Space Mono, monospace', letterSpacing:'0.1em' }}>PATCH INTELLIGENCE</div>
+          <div style={{ fontSize:10, color:'#3a3a38', marginTop:2 }}>Live patches + Alpha previews with economic impact analysis</div>
         </div>
-
-        {loading ? (
-          <div style={{ color: '#2a2a28', fontSize: 10.5, textAlign: 'center', padding: '3rem', fontFamily: 'Space Mono, monospace' }}>
-            LOADING...
-          </div>
-        ) : livePatches.length > 0 ? (
-          livePatches.map((p, i) => <PatchCard key={i} patch={p} isAlpha={false} />)
-        ) : (
-          <div style={{ padding: '20px', background: '#111110', borderRadius: 8, border: '1px solid rgba(255,255,255,0.04)', textAlign: 'center' }}>
-            <div style={{ fontSize: 10, color: '#3a3a38', fontFamily: 'Space Mono, monospace' }}>No live patches analyzed yet</div>
-          </div>
-        )}
+        <div style={{ marginLeft:'auto', fontSize:8.5, color:'#3a3a38', fontFamily:'Space Mono, monospace', textAlign:'right' }}>
+          Updated daily<br/>by Vault AI
+        </div>
       </div>
 
-      {/* ALPHA PATCHES */}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#eda100', display: 'inline-block', boxShadow: '0 0 6px #eda100' }} />
-          <span style={{ fontSize: 10, fontWeight: 700, fontFamily: 'Space Mono, monospace', color: '#eda100', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Alpha Preview</span>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20 }}>
+
+        {/* LIVE */}
+        <div>
+          <ColHeader label="Live Patches" dot="#1baf7a" count={livePatches.length} />
+          {loading ? (
+            <EmptyState label="Loading..." />
+          ) : livePatches.length > 0 ? (
+            livePatches.map((p, i) => <PatchCard key={i} patch={p} isAlpha={false} />)
+          ) : (
+            <EmptyState label="No live patches analyzed yet" />
+          )}
         </div>
 
-        {loading ? (
-          <div style={{ color: '#2a2a28', fontSize: 10.5, textAlign: 'center', padding: '3rem', fontFamily: 'Space Mono, monospace' }}>
-            LOADING...
-          </div>
-        ) : alphaPatches.length > 0 ? (
-          alphaPatches.map((p, i) => <PatchCard key={i} patch={p} isAlpha={true} />)
-        ) : (
-          <div style={{ padding: '20px', background: '#111110', borderRadius: 8, border: '1px solid rgba(255,255,255,0.04)', textAlign: 'center' }}>
-            <div style={{ fontSize: 10, color: '#3a3a38', fontFamily: 'Space Mono, monospace' }}>No alpha patches detected</div>
-          </div>
-        )}
-      </div>
+        {/* ALPHA */}
+        <div>
+          <ColHeader label="Alpha Preview" dot="#eda100" count={alphaPatches.length} />
+          {loading ? (
+            <EmptyState label="Loading..." />
+          ) : alphaPatches.length > 0 ? (
+            alphaPatches.map((p, i) => <PatchCard key={i} patch={p} isAlpha={true} />)
+          ) : (
+            <EmptyState label="No alpha patches detected" />
+          )}
+        </div>
 
+      </div>
     </div>
   )
 }
