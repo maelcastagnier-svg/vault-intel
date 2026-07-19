@@ -34,15 +34,18 @@ export async function GET(req: NextRequest) {
   const [
     { data: bzStarts }, { data: bzContains },
     { data: ahStarts }, { data: ahContains },
+    { data: ahScanStarts },
   ] = await Promise.all([
     // Bazaar starts-with
     supabase.from('price_history').select('item_id').ilike('item_id', `${search}%`).gt('sell_price', 0).order('item_id').limit(limit),
-    // Bazaar contains (exclu starts-with)
+    // Bazaar contains
     supabase.from('price_history').select('item_id').ilike('item_id', `%${search}%`).not('item_id', 'ilike', `${search}%`).gt('sell_price', 0).order('item_id').limit(limit),
-    // AH starts-with
-    supabase.from('price_history_ah').select('base_item_id, item_name, variant_key').ilike('base_item_id', `${search}%`).not('base_item_id', 'is', null).order('base_item_id').limit(limit * 3),
-    // AH contains (exclu starts-with)
-    supabase.from('price_history_ah').select('base_item_id, item_name, variant_key').ilike('base_item_id', `%${search}%`).not('base_item_id', 'ilike', `${search}%`).not('base_item_id', 'is', null).order('base_item_id').limit(limit * 3),
+    // AH DAILY starts-with
+    supabase.from('price_history_ah').select('base_item_id, item_name, variant_key').ilike('base_item_id', `${search}%`).not('base_item_id', 'is', null).in('granularity', ['DAILY','DAILY_EXACT','MONTHLY']).order('base_item_id').limit(limit * 3),
+    // AH DAILY contains
+    supabase.from('price_history_ah').select('base_item_id, item_name, variant_key').ilike('base_item_id', `%${search}%`).not('base_item_id', 'ilike', `${search}%`).not('base_item_id', 'is', null).in('granularity', ['DAILY','DAILY_EXACT','MONTHLY']).order('base_item_id').limit(limit * 3),
+    // AH SCAN starts-with (items récents pas encore en DAILY)
+    supabase.from('price_history_ah').select('base_item_id, item_name, variant_key').ilike('base_item_id', `${search}%`).not('base_item_id', 'is', null).eq('granularity', 'SCAN').eq('bucket_date', new Date().toISOString().split('T')[0]).order('base_item_id').limit(limit * 3),
   ])
 
   // ── Groupe AH par base_item_id ────────────────────────────
@@ -61,8 +64,14 @@ export async function GET(req: NextRequest) {
     return map
   }
 
-  const ahStartsMap   = groupAH(ahStarts,   0)
-  const ahContainsMap = groupAH(ahContains, 1)
+  const ahStartsMap   = groupAH(ahStarts     || [], 0)
+  const ahScanMap     = groupAH(ahScanStarts || [], 0) // SCAN = même priorité que DAILY starts-with
+  const ahContainsMap = groupAH(ahContains   || [], 1)
+
+  // Merge SCAN dans ahStartsMap (sans écraser)
+  for (const [id, val] of ahScanMap) {
+    if (!ahStartsMap.has(id)) ahStartsMap.set(id, val)
+  }
 
   // ── Construit résultats ordonnés ──────────────────────────
   const seen    = new Set<string>()
