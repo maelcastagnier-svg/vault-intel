@@ -83,9 +83,7 @@ export async function GET(req: NextRequest) {
         .limit(10),
 
       // Top items Bazaar avec tendances 30j
-      supabase.rpc('get_price_summary').limit ? 
-        supabase.from('bazaar_1h').select('item_id, sell_price, buy_price, volume').order('volume', { ascending: false }).limit(50) :
-        supabase.from('bazaar_1h').select('item_id, sell_price, buy_price, volume').order('volume', { ascending: false }).limit(50),
+      supabase.from('bazaar_1h').select('item_id, sell_price, buy_price, volume').order('volume', { ascending: false }).limit(50),
 
       // Mayors (si disponible)
       supabase.from('mayors').select('*').limit(5).catch(() => ({ data: [] })),
