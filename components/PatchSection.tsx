@@ -12,7 +12,7 @@ type PredictedItem  = { item_id: string; predicted_change_pct: number; timeframe
 
 type PatchInsight = {
   id?: number; patch_title: string; patch_date?: string
-  patch_type: 'live'|'alpha'; direct_impact: string
+  patch_type: 'live'|'alpha'; is_alpha?: boolean; direct_impact: string
   items_affected: ItemAffected[]; methods_affected: MethodAffected[]
   price_prediction: string; predicted_items: PredictedItem[]
   action_signal: string; confidence: string
