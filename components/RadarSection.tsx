@@ -74,6 +74,7 @@ function ChartTooltip({ active, payload, label }: any) {
 function ItemExplorer() {
   const [query,    setQuery]    = useState('')
   const [results,  setResults]  = useState<SearchResult[]>([])
+  const [catalog,  setCatalog]  = useState<SearchResult[]>([])
   const [selected, setSelected] = useState<SearchResult|null>(null)
   const [period,   setPeriod]   = useState('1M')
   const [history,  setHistory]  = useState<PricePoint[]>([])
@@ -81,9 +82,9 @@ function ItemExplorer() {
   const [variant,  setVariant]  = useState('all')
   const [loading,  setLoading]  = useState(false)
   const [showDrop, setShowDrop] = useState(false)
+  const [catLoaded,setCatLoaded]= useState(false)
 
   const debounceRef  = useRef<any>(null)
-  const currentQ     = useRef('')
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Ferme dropdown clic extérieur
@@ -96,65 +97,40 @@ function ItemExplorer() {
     return () => document.removeEventListener('mousedown', fn)
   }, [])
 
-  // ── Recherche directe Supabase ────────────────────────────
+  // Charge le catalogue une seule fois au montage
+  useEffect(() => {
+    async function loadCatalog() {
+      const { data } = await supabase
+        .from('items_catalog')
+        .select('item_id, item_name, source')
+        .order('item_id')
+      if (data) {
+        setCatalog(data.map(r => ({ item_id: r.item_id, item_name: r.item_name || toLabel(r.item_id), source: r.source as 'bazaar'|'ah', variant_count: 1 })))
+        setCatLoaded(true)
+      }
+    }
+    loadCatalog()
+  }, [])
+
+  // Recherche locale — instantanée
   const search = useCallback((q: string) => {
     setQuery(q)
-    currentQ.current = q
     clearTimeout(debounceRef.current)
+
     if (q.length < 1) { setResults([]); setShowDrop(false); return }
 
-    debounceRef.current = setTimeout(async () => {
-      if (currentQ.current !== q) return
+    debounceRef.current = setTimeout(() => {
       const term = q.trim().toUpperCase().replace(/\s+/g,'_').replace(/[^A-Z0-9_]/g,'')
-      if (!term) return
+      if (!term || catalog.length === 0) return
 
-      // 2 requêtes parallèles : starts-with + contains (exclu starts-with)
-      const [
-        { data: bzS }, { data: bzC },
-        { data: ahS }, { data: ahC },
-      ] = await Promise.all([
-        supabase.from('price_history').select('item_id').ilike('item_id',`${term}%`).gt('sell_price',0).order('item_id').limit(15),
-        supabase.from('price_history').select('item_id').ilike('item_id',`%${term}%`).not('item_id','ilike',`${term}%`).gt('sell_price',0).order('item_id').limit(10),
-        supabase.from('price_history_ah').select('base_item_id').ilike('base_item_id',`${term}%`).not('base_item_id','is',null).order('base_item_id').limit(15),
-        supabase.from('price_history_ah').select('base_item_id').ilike('base_item_id',`%${term}%`).not('base_item_id','ilike',`${term}%`).not('base_item_id','is',null).order('base_item_id').limit(10),
-      ])
+      // Filtre + tri : starts-with en premier, contains ensuite
+      const startsWith = catalog.filter(r => r.item_id.startsWith(term))
+      const contains   = catalog.filter(r => r.item_id.includes(term) && !r.item_id.startsWith(term))
 
-      if (currentQ.current !== q) return
-
-      const seen = new Set<string>()
-      const out: SearchResult[] = []
-
-      // Bazaar starts-with
-      for (const r of bzS||[]) {
-        const k = `bz:${r.item_id}`
-        if (seen.has(k)) continue; seen.add(k)
-        out.push({ item_id:r.item_id, item_name:toLabel(r.item_id), source:'bazaar', variant_count:1 })
-      }
-      // AH starts-with
-      const ahSIds = new Set((ahS||[]).map((r:any)=>r.base_item_id))
-      for (const id of ahSIds) {
-        const k = `ah:${id}`
-        if (seen.has(k)) continue; seen.add(k)
-        out.push({ item_id:id, item_name:toLabel(id), source:'ah', variant_count:1 })
-      }
-      // Bazaar contains
-      for (const r of bzC||[]) {
-        const k = `bz:${r.item_id}`
-        if (seen.has(k)) continue; seen.add(k)
-        out.push({ item_id:r.item_id, item_name:toLabel(r.item_id), source:'bazaar', variant_count:1 })
-      }
-      // AH contains
-      const ahCIds = new Set((ahC||[]).map((r:any)=>r.base_item_id))
-      for (const id of ahCIds) {
-        const k = `ah:${id}`
-        if (seen.has(k)) continue; seen.add(k)
-        out.push({ item_id:id, item_name:toLabel(id), source:'ah', variant_count:1 })
-      }
-
-      setResults(out.slice(0,25))
+      setResults([...startsWith, ...contains].slice(0, 25))
       setShowDrop(true)
-    }, 150)
-  }, [])
+    }, 50) // 50ms seulement car c'est local
+  }, [catalog])
 
   // ── Historique direct Supabase ────────────────────────────
   const loadHistory = useCallback(async (item: SearchResult, p: string, v: string) => {
@@ -239,7 +215,6 @@ function ItemExplorer() {
     setQuery(item.item_name)
     setShowDrop(false)
     setResults([])
-    currentQ.current = ''
     setVariant('all')
     loadHistory(item, period, 'all')
   }
@@ -267,7 +242,7 @@ function ItemExplorer() {
           value={query}
           onChange={e=>search(e.target.value)}
           onFocus={()=>query.length>=1&&results.length>0&&setShowDrop(true)}
-          placeholder="Search any item... (chimera, jungle, necron, hyperion...)"
+          placeholder={catLoaded ? "Search any item... (chimera, jungle, necron, hyperion...)" : "Loading catalog..."}
           style={{ width:'100%', background:'#111110', border:'1px solid rgba(255,255,255,0.08)', borderRadius:9, padding:'11px 14px', color:'#e8e6df', fontFamily:'Space Grotesk, sans-serif', fontSize:13, outline:'none', boxSizing:'border-box' }}
         />
         {showDrop && results.length>0 && (
