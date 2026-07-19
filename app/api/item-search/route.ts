@@ -1,6 +1,6 @@
 // app/api/item-search/route.ts
-// Recherche d'items — minuscules/majuscules/espaces acceptés
-// Retourne : item de base en premier + variantes groupées
+// Priorité : base_item_id starts-with > base_item_id contains
+// item_name utilisé uniquement en fallback si aucun résultat base_item_id
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -13,6 +13,13 @@ function toLabel(id: string): string {
   return id.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
 }
 
+function cleanItemName(name: string): string {
+  return (name || '')
+    .replace(/[✪➊➋➌➍➎➏➐➑➒➓✦✿]/g, '')
+    .replace(/\b(Ancient|Fabled|Withered|Heroic|Spicy|Itchy|Gentle|Epic|Odd|Fast|Fair|Deadly|Shiny|Keen|Rapid|Unpleasant|Nasty|Stained|Loving|Paranoid|Demonic|Forceful|Hurtful|Strong|Superior|Godly|Zealous|Bizarre|Silky|Bloody|Shaded|Mystical|Perfect|Spiritual|Headstrong|Clean|Fierce|Heavy|Light|Sharp|Wise|Fruitful|Candied|Treacherous|Renowned|Spiked|Titanic|Jaded|Lush|Chomp|Stellar|Dirty|Pure|Necrotic|Undead|Noisy|Sandy|Stiff|Lucky)\s/gi, '')
+    .replace(/\s+/g, ' ').trim()
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const q     = searchParams.get('q') || ''
@@ -20,93 +27,80 @@ export async function GET(req: NextRequest) {
 
   if (q.length < 1) return NextResponse.json([])
 
-  // Normalise : tout en majuscules underscores
   const search = q.trim().toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '')
   if (!search) return NextResponse.json([])
 
-  // Cherche au début de chaque mot (séparé par _)
-  // "NE" → NECRON% ou %_NE% — jamais au milieu d'un mot
-  // Supprime la recherche par item_name (cause trop de faux matches via "Ancient", "Rune"...)
-  const startPattern = `${search}%`       // commence par le terme
-  const wordPattern  = `%_${search}%`     // mot après underscore commence par le terme
-
-  const [{ data: bazaarItems }, { data: ahItems }] = await Promise.all([
-    supabase
-      .from('price_history')
-      .select('item_id')
-      .or(`item_id.ilike.${startPattern},item_id.ilike.${wordPattern}`)
-      .gt('sell_price', 0)
-      .order('item_id')
-      .limit(limit * 2),
-
-    supabase
-      .from('price_history_ah')
-      .select('base_item_id, item_name, variant_key')
-      .or(`base_item_id.ilike.${startPattern},base_item_id.ilike.${wordPattern}`)
-      .not('base_item_id', 'is', null)
-      .order('base_item_id')
-      .limit(limit * 5),
+  // ── 2 requêtes : starts-with (priorité 1) + contains (priorité 2) ──
+  const [
+    { data: bzStarts }, { data: bzContains },
+    { data: ahStarts }, { data: ahContains },
+  ] = await Promise.all([
+    // Bazaar starts-with
+    supabase.from('price_history').select('item_id').ilike('item_id', `${search}%`).gt('sell_price', 0).order('item_id').limit(limit),
+    // Bazaar contains (exclu starts-with)
+    supabase.from('price_history').select('item_id').ilike('item_id', `%${search}%`).not('item_id', 'ilike', `${search}%`).gt('sell_price', 0).order('item_id').limit(limit),
+    // AH starts-with
+    supabase.from('price_history_ah').select('base_item_id, item_name, variant_key').ilike('base_item_id', `${search}%`).not('base_item_id', 'is', null).order('base_item_id').limit(limit * 3),
+    // AH contains (exclu starts-with)
+    supabase.from('price_history_ah').select('base_item_id, item_name, variant_key').ilike('base_item_id', `%${search}%`).not('base_item_id', 'ilike', `${search}%`).not('base_item_id', 'is', null).order('base_item_id').limit(limit * 3),
   ])
 
   // ── Groupe AH par base_item_id ────────────────────────────
-  const ahMap = new Map<string, { item_name: string; variants: Set<string> }>()
-  for (const row of ahItems || []) {
-    if (!ahMap.has(row.base_item_id)) {
-      // Nom propre : préfère item_name sans étoiles/reforge
-      const cleanName = (row.item_name || '')
-        .replace(/[✪➊➋➌➍➎➏➐➑➒➓✦✿]/g, '')
-        .replace(/\b(Ancient|Fabled|Withered|Heroic|Spicy|Itchy|Gentle|Epic|Odd|Fast|Fair|Deadly|Shiny|Keen|Rapid|Unpleasant|Nasty|Stained|Loving|Paranoid|Demonic|Forceful|Hurtful|Strong|Superior|Godly|Zealous|Bizarre|Silky|Bloody|Shaded|Mystical|Perfect|Spiritual|Headstrong|Clean|Fierce|Heavy|Light|Sharp|Wise|Fruitful|Candied|Treacherous|Renowned|Spiked|Renowned|Titanic|Jaded|Lush|Chomp|Stellar|Dirty|Pure|Necrotic|Undead|Noisy|Sandy|Stiff|Lucky)\s/gi, '')
-        .replace(/\s+/g, ' ').trim()
-      ahMap.set(row.base_item_id, {
-        item_name: cleanName || toLabel(row.base_item_id),
-        variants:  new Set(),
-      })
+  function groupAH(rows: any[], priority: number) {
+    const map = new Map<string, { item_name: string; variants: Set<string>; priority: number }>()
+    for (const row of rows || []) {
+      if (!map.has(row.base_item_id)) {
+        map.set(row.base_item_id, {
+          item_name: cleanItemName(row.item_name) || toLabel(row.base_item_id),
+          variants:  new Set(),
+          priority,
+        })
+      }
+      if (row.variant_key) map.get(row.base_item_id)!.variants.add(row.variant_key)
     }
-    if (row.variant_key) ahMap.get(row.base_item_id)!.variants.add(row.variant_key)
+    return map
   }
 
-  // ── Construit les résultats ───────────────────────────────
+  const ahStartsMap   = groupAH(ahStarts,   0)
+  const ahContainsMap = groupAH(ahContains, 1)
+
+  // ── Construit résultats ordonnés ──────────────────────────
   const seen    = new Set<string>()
   const results: any[] = []
 
-  // Bazaar en premier
-  for (const row of bazaarItems || []) {
+  // 1. Bazaar starts-with
+  for (const row of bzStarts || []) {
     const key = `bz:${row.item_id}`
     if (seen.has(key)) continue
     seen.add(key)
-    results.push({
-      item_id:       row.item_id,
-      item_name:     toLabel(row.item_id),
-      source:        'bazaar',
-      variant_count: 1,
-    })
+    results.push({ item_id: row.item_id, item_name: toLabel(row.item_id), source: 'bazaar', variant_count: 1, _priority: 0 })
   }
 
-  // AH — 1 ligne par base_item_id
-  for (const [base_item_id, { item_name, variants }] of ahMap) {
-    const key = `ah:${base_item_id}`
+  // 2. AH starts-with
+  for (const [id, { item_name, variants }] of ahStartsMap) {
+    const key = `ah:${id}`
     if (seen.has(key)) continue
     seen.add(key)
-    results.push({
-      item_id:       base_item_id,
-      item_name:     item_name,
-      source:        'ah',
-      variant_count: variants.size,
-    })
+    results.push({ item_id: id, item_name, source: 'ah', variant_count: variants.size, _priority: 0 })
   }
 
-  // ── Tri par pertinence ────────────────────────────────────
-  // exact match → starts with → contains (dans chaque groupe source)
-  results.sort((a, b) => {
-    const scoreA = a.item_id === search ? 0
-      : a.item_id.startsWith(search)   ? 1
-      : 2
-    const scoreB = b.item_id === search ? 0
-      : b.item_id.startsWith(search)   ? 1
-      : 2
-    if (scoreA !== scoreB) return scoreA - scoreB
-    return a.item_id.localeCompare(b.item_id)
-  })
+  // 3. Bazaar contains
+  for (const row of bzContains || []) {
+    const key = `bz:${row.item_id}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    results.push({ item_id: row.item_id, item_name: toLabel(row.item_id), source: 'bazaar', variant_count: 1, _priority: 1 })
+  }
 
-  return NextResponse.json(results.slice(0, limit))
+  // 4. AH contains
+  for (const [id, { item_name, variants }] of ahContainsMap) {
+    const key = `ah:${id}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    results.push({ item_id: id, item_name, source: 'ah', variant_count: variants.size, _priority: 1 })
+  }
+
+  // Retire _priority du résultat final
+  const final = results.slice(0, limit).map(({ _priority, ...r }) => r)
+  return NextResponse.json(final)
 }
