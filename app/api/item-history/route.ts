@@ -1,7 +1,7 @@
 // app/api/item-history/route.ts
-// Retourne l'historique de prix d'un item (Bazaar ou AH)
-// avec toutes les variantes disponibles
-// GET /api/item-history?item_id=HYPERION&source=ah&period=1M&variant=nostar_norecomb_noreforge
+// Historique de prix d'un item avec gestion des variantes
+// 1D/1W → SCAN (granularité minute)
+// 1M/1Y/3Y → DAILY + DAILY_EXACT + MONTHLY
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -10,8 +10,25 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const PERIOD_INTERVALS: Record<string, number> = {
+const PERIOD_DAYS: Record<string, number> = {
   '1D': 1, '1W': 7, '1M': 30, '1Y': 365, '3Y': 1095,
+}
+
+function buildVariantLabel(vk: string): string {
+  if (!vk || vk === 'nostar_norecomb_noreforge') return '✦ Base item (no upgrades)'
+  const parts: string[] = []
+  const stars = vk.match(/^(\d+)star/)
+  if (stars) parts.push(`⭐ ${stars[1]} stars`)
+  else if (!vk.startsWith('nostar')) parts.push('⭐ Stars')
+  if (vk.includes('_recomb') && !vk.includes('norecomb')) parts.push('✦ Recomb')
+  const ultimate = vk.match(/(ofa|soul_eater|last_stand|fatal_tempo|wise|inferno|bank|combo|jerry|swarm|habanero)(\d+)?/)
+  if (ultimate) parts.push(`⚡ ${ultimate[1].toUpperCase().replace(/_/g, ' ')}`)
+  const attrs = vk.match(/([a-z_]+\d+)(?:_[a-z_]+\d+)?$/)
+  if (attrs && !['noreforge','norecomb','nostar'].some(x => attrs[1].includes(x))) {
+    const attrStr = attrs[0].replace(/_/g, ' ')
+    if (!parts.some(p => p.includes(attrStr))) parts.push(`🔮 ${attrStr}`)
+  }
+  return parts.length > 0 ? parts.join(' · ') : vk
 }
 
 export async function GET(req: NextRequest) {
@@ -23,17 +40,14 @@ export async function GET(req: NextRequest) {
 
   if (!item_id) return NextResponse.json({ error: 'item_id required' }, { status: 400 })
 
-  const days      = PERIOD_INTERVALS[period] || 30
+  const days      = PERIOD_DAYS[period] || 30
   const startDate = new Date(Date.now() - days * 86_400_000).toISOString().split('T')[0]
-
-  // Pour les périodes courtes (1D, 1W) on utilise les SCAN pour plus de granularité
-  // Pour les périodes longues (1M, 1Y, 3Y) on utilise DAILY/MONTHLY
-  const useScans     = period === '1D' || period === '1W'
+  const useScans  = period === '1D' || period === '1W'
   const granularities = useScans
     ? ['SCAN']
     : ['DAILY', 'DAILY_EXACT', 'MONTHLY']
 
-  // ── BAZAAR ────────────────────────────────────────────────────
+  // ── BAZAAR ────────────────────────────────────────────────
   if (source === 'bazaar') {
     const { data, error } = await supabase
       .from('price_history')
@@ -56,77 +70,83 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  // ── AH — liste toutes les variantes disponibles ────────────
-  const { data: variantRows } = await supabase
+  // ── AH — variantes disponibles ────────────────────────────
+  const { data: allVariantRows } = await supabase
     .from('price_history_ah')
     .select('variant_key, granularity')
     .eq('base_item_id', item_id)
     .in('granularity', ['DAILY', 'DAILY_EXACT', 'SCAN'])
     .gt('avg_price', 0)
 
-  // Compte les variantes uniques avec leur granularité la plus précise
-  const variantMap = new Map<string, { count: number; has_daily_exact: boolean }>()
-  for (const row of variantRows || []) {
+  // Agrège variantes : compte pts et qualité
+  const variantMap = new Map<string, { count: number; has_exact: boolean; has_scan: boolean }>()
+  for (const row of allVariantRows || []) {
     if (!variantMap.has(row.variant_key)) {
-      variantMap.set(row.variant_key, { count: 0, has_daily_exact: false })
+      variantMap.set(row.variant_key, { count: 0, has_exact: false, has_scan: false })
     }
     const v = variantMap.get(row.variant_key)!
     v.count++
-    if (row.granularity === 'DAILY_EXACT') v.has_daily_exact = true
+    if (row.granularity === 'DAILY_EXACT') v.has_exact = true
+    if (row.granularity === 'SCAN')        v.has_scan  = true
   }
 
-  // Trie : DAILY_EXACT en premier, puis par count décroissant
+  // Trie : base item en premier, puis par data points décroissant
   const variants = Array.from(variantMap.entries())
-    .sort(([, a], [, b]) => {
-      if (a.has_daily_exact !== b.has_daily_exact) return a.has_daily_exact ? -1 : 1
-      return b.count - a.count
+    .sort(([ak, av], [bk, bv]) => {
+      const aBase = ak === 'nostar_norecomb_noreforge' ? -1 : 0
+      const bBase = bk === 'nostar_norecomb_noreforge' ? -1 : 0
+      if (aBase !== bBase) return aBase - bBase
+      return bv.count - av.count
     })
-    .map(([vk, meta]) => ({
-      key:             vk,
-      data_points:     meta.count,
-      has_daily_exact: meta.has_daily_exact,
-      label:           buildVariantLabel(vk),
+    .map(([key, meta]) => ({
+      key,
+      label:       buildVariantLabel(key),
+      data_points: meta.count,
+      has_exact:   meta.has_exact,
+      has_scan:    meta.has_scan,
     }))
 
-  // ── AH — historique pour la variante demandée ─────────────
+  // ── AH — données historiques ──────────────────────────────
   let query = supabase
     .from('price_history_ah')
-    .select('bucket_date, avg_price, sell_price, volume, variant_key, granularity')
+    .select('bucket_date, avg_price, sell_price, volume, variant_key, granularity, created_at')
     .eq('base_item_id', item_id)
-    .gte('bucket_date', startDate)
+    .gte(useScans ? 'created_at' : 'bucket_date', useScans
+      ? new Date(Date.now() - days * 86_400_000).toISOString()
+      : startDate
+    )
     .gt('avg_price', 0)
-    .order('bucket_date', { ascending: true })
+    .in('granularity', granularities)
+    .order(useScans ? 'created_at' : 'bucket_date', { ascending: true })
+    .limit(useScans ? 2000 : 1500)
 
-  // Filtre par variante si spécifié, sinon prend les DAILY (toutes variantes agrégées)
   if (variant && variant !== 'all') {
-    query = query.eq('variant_key', variant).in('granularity', granularities)
-  } else {
-    query = query.in('granularity', granularities)
+    query = query.eq('variant_key', variant)
   }
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Agrège par date (plusieurs variantes ou granularités par jour)
-  const byDate = new Map<string, { prices: number[]; volumes: number[]; granularities: string[] }>()
+  // Agrège par date/heure
+  const byDate = new Map<string, { prices: number[]; volumes: number[]; gran: string }>()
   for (const d of data || []) {
-    const key = d.bucket_date
-    if (!byDate.has(key)) byDate.set(key, { prices: [], volumes: [], granularities: [] })
-    const entry = byDate.get(key)!
-    entry.prices.push(Number(d.avg_price))
-    entry.volumes.push(Number(d.volume))
-    entry.granularities.push(d.granularity)
+    // Pour les SCAN : groupe par heure pour lisibilité
+    const dateKey = useScans
+      ? new Date(d.created_at).toISOString().slice(0, 13) + ':00'
+      : d.bucket_date
+    if (!byDate.has(dateKey)) byDate.set(dateKey, { prices: [], volumes: [], gran: d.granularity })
+    byDate.get(dateKey)!.prices.push(Number(d.avg_price))
+    byDate.get(dateKey)!.volumes.push(Number(d.volume))
   }
 
   const aggregated = Array.from(byDate.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, { prices, volumes, granularities }]) => ({
+    .map(([date, { prices, volumes, gran }]) => ({
       date,
       avg_price:   Math.round(prices.reduce((s, p) => s + p, 0) / prices.length),
       sell_price:  Math.round(Math.min(...prices)),
       volume:      volumes.reduce((s, v) => s + v, 0),
-      granularity: granularities.includes('DAILY_EXACT') ? 'DAILY_EXACT'
-                 : granularities.includes('DAILY') ? 'DAILY' : granularities[0],
+      granularity: gran,
     }))
 
   return NextResponse.json({
@@ -137,20 +157,4 @@ export async function GET(req: NextRequest) {
     available_variants: variants,
     data:               aggregated,
   })
-}
-
-// ── Transforme variant_key en label lisible ────────────────────
-function buildVariantLabel(vk: string): string {
-  if (vk === 'nostar_norecomb_noreforge') return '✦ Base item'
-  const parts: string[] = []
-  const m = vk.match(/^(\d+)star/)
-  if (m) parts.push(`⭐ ${m[1]} stars`)
-  if (vk.includes('recomb')) parts.push('✦ Recomb')
-  const reforgeMatch = vk.match(/_([\w]+)$/)
-  if (reforgeMatch && !['noreforge','norecomb','nostar'].includes(reforgeMatch[1])) {
-    parts.push(`🔮 ${reforgeMatch[1]}`)
-  }
-  const ultimateMatch = vk.match(/_(ofa|soul_eater|last_stand|fatal_tempo|wise|inferno|bank|combo|jerry|swarm)\d+/)
-  if (ultimateMatch) parts.push(`⚡ ${ultimateMatch[1].toUpperCase()}`)
-  return parts.length > 0 ? parts.join(' · ') : vk
 }
