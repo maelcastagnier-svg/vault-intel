@@ -13,7 +13,7 @@ const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.Respons
 const CartesianGrid    = dynamic(() => import('recharts').then(m => m.CartesianGrid),    { ssr: false })
 
 // ─── Types ───────────────────────────────────────────────────
-type SearchResult = { item_id: string; item_name: string; source: 'bazaar'|'ah' }
+type SearchResult = { item_id: string; item_name: string; source: 'bazaar'|'ah'; variant_count?: number }
 type PricePoint   = { date: string; buy_price?: number; sell_price?: number; avg_price?: number; volume?: number }
 type HistoryData  = { item_id: string; source: string; period: string; data: PricePoint[]; available_variants?: string[] }
 
