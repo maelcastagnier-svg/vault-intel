@@ -167,6 +167,45 @@ export async function GET(request: Request) {
       }
     }
 
+    // ── Fetch enchères BIN vendues → avg_sold_price par variante ──
+    try {
+      const { auctions: soldAuctions } = await fetchSoldAuctions()
+
+      // Groupe les ventes par variante
+      const soldGroups = new Map<string, { prices: number[]; decoded: any }>()
+      for (const auc of soldAuctions) {
+        if (!auc.item_bytes) continue
+        const decoded = decodeItemBytes(auc.item_bytes)
+        if (!decoded?.item_id) continue
+        const key = `${decoded.item_id}::${decoded.variant_key_full}`
+        if (!soldGroups.has(key)) soldGroups.set(key, { prices: [], decoded })
+        soldGroups.get(key)!.prices.push(auc.price)
+      }
+
+      // Update avg_sold_price dans ah_scan_buffer
+      if (soldGroups.size > 0) {
+        const soldRows = Array.from(soldGroups.entries()).map(([, { prices, decoded }]) => ({
+          base_item_id:   decoded.item_id,
+          variant_key:    decoded.variant_key_full,
+          avg_sold_price: Math.round(prices.reduce((s, p) => s + p, 0) / prices.length),
+          sold_count:     prices.length,
+        }))
+
+        // Update sold prices dans le buffer
+        for (const row of soldRows) {
+          await supabase.from('ah_scan_buffer')
+            .update({
+              avg_sold_price: row.avg_sold_price,
+              sold_count:     row.sold_count,
+            })
+            .eq('base_item_id', row.base_item_id)
+            .eq('variant_key', row.variant_key)
+        }
+      }
+    } catch (e) {
+      console.error('Sold auctions error:', e)
+    }
+
     // 4. Compare avec price_history_ah → TOP 300
     const baseItemIds = [...new Set(bufferRows.map(r => r.base_item_id))]
     const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0]
@@ -358,4 +397,13 @@ export async function GET(request: Request) {
     await supabase.from('cron_locks').update({ locked_until: null }).eq('job_name', 'ah_collect')
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
+}
+
+// ── Fetch enchères BIN vendues (prix réels de vente) ─────────
+async function fetchSoldAuctions(): Promise<{ auctions: any[] }> {
+  const res = await fetch('https://api.hypixel.net/v2/skyblock/auctions/ended')
+  if (!res.ok) return { auctions: [] }
+  const data = await res.json()
+  // Filtre uniquement les BIN
+  return { auctions: (data.auctions || []).filter((a: any) => a.bin) }
 }

@@ -43,6 +43,8 @@ export async function GET(request: Request) {
       buy_price:        b.avg_price,
       volume:           b.volume,
       data_points:      b.scan_count,
+      avg_sold_price:   b.avg_sold_price || 0,
+      sold_count:       b.sold_count || 0,
       total_stars:      b.total_stars,
       master_stars:     b.master_stars,
       is_recomb:        b.is_recomb,
