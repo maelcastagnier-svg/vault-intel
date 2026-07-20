@@ -1,5 +1,6 @@
 // app/api/cron/historic-import/route.ts
-// 10 BAZAAR + 10 AH par run — jamais bloqué par l'ordre alphabétique
+// Import historique SkyCofl — AH + Bazaar
+// 400 = item inexistant dans SkyCofl → marqué dead → skippé
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { extractVariantFromName } from '@/lib/text-variant-extractor'
@@ -9,8 +10,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const PER_TYPE = 20  // 20 AH par run (Bazaar terminé)
-const SKYCOFL_TOKEN = process.env.SKYCOFL_ACCOUNT_TOKEN!
+const PER_TYPE       = 20
+const SKYCOFL_TOKEN  = process.env.SKYCOFL_ACCOUNT_TOKEN!
 const SKYCOFL_HEADERS = {
   'Authorization': `Bearer ${SKYCOFL_TOKEN}`,
   'Accept':        'application/json'
@@ -28,12 +29,16 @@ function toBaseItemId(baseName: string): string {
   return baseName.toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '')
 }
 
+// 400/404/403 = item inexistant dans SkyCofl → dead
 function isDeadError(msg: string): boolean {
-  return msg.includes('404') || msg.includes('403') ||
-         msg.includes('No data') || msg.includes('No JSON')
+  return msg.includes('400') ||
+         msg.includes('404') ||
+         msg.includes('403') ||
+         msg.includes('No data') ||
+         msg.includes('item_not_found')
 }
 
-// ── Bazaar ───────────────────────────────────────────────────
+// ── Bazaar ────────────────────────────────────────────────────
 async function importBazaar(item_id: string): Promise<number> {
   const res = await fetch(
     `https://sky.coflnet.com/api/bazaar/${item_id}/history`,
@@ -44,8 +49,10 @@ async function importBazaar(item_id: string): Promise<number> {
   const points: { buy: number; sell: number; sellVolume: number; timestamp: string }[] = await res.json()
   if (!Array.isArray(points) || points.length === 0) throw new Error('No data')
 
+  let inserted = 0
   for (let i = 0; i < points.length; i += 50) {
-    await Promise.all(points.slice(i, i + 50).map(p =>
+    const batch = points.slice(i, i + 50)
+    await Promise.all(batch.map(p =>
       supabase.rpc('upsert_bazaar_price_bucket', {
         p_item_id:     item_id,
         p_item_name:   item_id.replace(/_/g, ' '),
@@ -56,50 +63,60 @@ async function importBazaar(item_id: string): Promise<number> {
         p_bucket_date: getDailyBucket(new Date(p.timestamp))
       })
     ))
+    inserted += batch.length
   }
-  return points.length
+  return inserted
 }
 
-// ── AH ──────────────────────────────────────────────────────
+// ── AH ───────────────────────────────────────────────────────
 async function importAH(item_id: string, liquidity: 'HIGH' | 'LOW'): Promise<number> {
   const res = await fetch(
-    `https://sky.coflnet.com/api/item/price/${item_id}/history/full`,
+    `https://sky.coflnet.com/api/item/price/${encodeURIComponent(item_id)}/history/full`,
     { headers: SKYCOFL_HEADERS }
   )
-  if (!res.ok) throw new Error(`AH ${res.status}`)
+
+  if (!res.ok) {
+    // Essaye de lire le message d'erreur pour identifier item_not_found
+    const text = await res.text().catch(() => '')
+    throw new Error(`AH ${res.status} ${text.slice(0, 100)}`)
+  }
 
   const points: { min: number; max: number; avg: number; volume: number; time: string }[] = await res.json()
   if (!Array.isArray(points) || points.length === 0) throw new Error('No data')
 
+  // Extrait variante depuis le nom de l'item
   const item_name    = item_id.replace(/_/g, ' ')
   const v            = extractVariantFromName(item_name)
   const base_item_id = toBaseItemId(v.baseName) || item_id
+  const variant_key  = v.variantKey || 'nostar_norecomb_noreforge'
   const isHigh       = liquidity === 'HIGH'
 
+  let inserted = 0
   for (let i = 0; i < points.length; i += 50) {
-    await Promise.all(points.slice(i, i + 50).map(p => {
-      const ts = new Date(p.time)
+    const batch = points.slice(i, i + 50)
+    const results = await Promise.all(batch.map(p => {
+      const ts = new Date(typeof p.time === 'number' ? p.time * 1000 : p.time)
       return supabase.rpc('upsert_ah_price_bucket', {
         p_base_item_id: base_item_id,
-        p_variant_key:  v.variantKey,
-        p_item_name:    item_name,
-        p_total_stars:  v.totalStars,
-        p_is_recomb:    v.recombobulated,
+        p_variant_key:  variant_key,
+        p_total_stars:  v.totalStars ?? 0,
+        p_is_recomb:    v.recombobulated ?? false,
         p_reforge:      v.reforge ?? null,
-        p_has_dye:      v.hasDye,
-        p_buy_price:    p.max,
-        p_sell_price:   p.min,
+        p_buy_price:    p.max ?? p.avg,
+        p_sell_price:   p.min ?? p.avg,
         p_avg_price:    p.avg,
         p_volume:       p.volume ?? 0,
         p_granularity:  isHigh ? 'DAILY' : 'MONTHLY',
         p_bucket_date:  isHigh ? getDailyBucket(ts) : getMonthlyBucket(ts)
       })
     }))
+    // Compte les insertions réussies
+    inserted += results.filter(r => !r.error).length
   }
-  return points.length
+  return inserted
 }
 
-// ── Process un item ──────────────────────────────────────────
+// ── Process un item ───────────────────────────────────────────
 async function processItem(item: { item_id: string; item_type: string; liquidity: string }) {
   try {
     const rows = item.item_type === 'BAZAAR'
@@ -107,27 +124,43 @@ async function processItem(item: { item_id: string; item_type: string; liquidity
       : await importAH(item.item_id, item.liquidity as 'HIGH' | 'LOW')
 
     await supabase.from('historic_import_progress')
-      .update({ status: 'done', years_completed: 3, last_processed_at: new Date().toISOString() })
+      .update({
+        status:            'done',
+        years_completed:   3,
+        last_processed_at: new Date().toISOString()
+      })
       .eq('item_id', item.item_id)
 
     return { item_id: item.item_id, type: item.item_type, rows, ok: true }
+
   } catch (err: any) {
     const dead = isDeadError(err.message)
+
     await supabase.from('historic_import_progress')
-      .update({ status: dead ? 'done' : 'pending', last_processed_at: new Date().toISOString() })
+      .update({
+        status:            dead ? 'done' : 'pending',
+        last_processed_at: new Date().toISOString()
+      })
       .eq('item_id', item.item_id)
-    return { item_id: item.item_id, type: item.item_type, rows: 0, ok: false, dead, error: err.message }
+
+    return {
+      item_id: item.item_id,
+      type:    item.item_type,
+      rows:    0,
+      ok:      false,
+      dead,
+      error:   err.message.slice(0, 150)
+    }
   }
 }
 
-// ── Handler ──────────────────────────────────────────────────
+// ── Handler ───────────────────────────────────────────────────
 export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   try {
-    // Récupère 10 BAZAAR + 10 AH séparément — jamais bloqués l'un par l'autre
     const [bazaarRes, ahRes] = await Promise.all([
       supabase.from('historic_import_progress')
         .select('item_id, item_type, liquidity')
@@ -146,7 +179,7 @@ export async function GET(request: Request) {
     const items = [...(bazaarRes.data || []), ...(ahRes.data || [])]
 
     if (items.length === 0) {
-      return NextResponse.json({ message: 'All items done!' })
+      return NextResponse.json({ message: 'All items done! 🎉' })
     }
 
     const results = []
@@ -154,15 +187,23 @@ export async function GET(request: Request) {
       results.push(await processItem(item))
     }
 
+    const successful = results.filter(r => r.ok)
+    const dead       = results.filter(r => !r.ok && r.dead)
+    const failed     = results.filter(r => !r.ok && !r.dead)
+
     return NextResponse.json({
       success:    true,
       processed:  results.length,
       bazaar:     results.filter(r => r.type === 'BAZAAR').length,
       ah:         results.filter(r => r.type === 'AH').length,
-      successful: results.filter(r => r.ok).length,
-      dead:       results.filter(r => !r.ok && r.dead).length,
+      successful: successful.length,
+      dead:       dead.length,
+      failed:     failed.length,
       total_rows: results.reduce((s, r) => s + r.rows, 0),
-      errors:     results.filter(r => !r.ok).map(r => ({ item_id: r.item_id, error: r.error })),
+      // Affiche les erreurs non-dead pour debug
+      errors:     failed.map(r => ({ item_id: r.item_id, error: r.error })),
+      // Affiche un sample des succès
+      sample_ok:  successful.slice(0, 3).map(r => ({ item_id: r.item_id, rows: r.rows })),
     })
 
   } catch (error: any) {
