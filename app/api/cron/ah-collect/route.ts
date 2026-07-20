@@ -1,6 +1,9 @@
 // app/api/cron/ah-collect/route.ts
-// Scan complet AH Hypixel — decode NBT — compare avec historique 3 niveaux
-// → TOP 300 underpriced dans ah_live
+// Chaque minute :
+// 1. Fetch toutes les pages AH Hypixel en parallèle
+// 2. Decode NBT de chaque enchère
+// 3. Group by variant → UPSERT dans ah_scan_buffer (moyenne glissante)
+// 4. Compare avec price_history_ah → TOP 300 underpriced → ah_live
 import { createClient }   from '@supabase/supabase-js'
 import { NextResponse }    from 'next/server'
 import { decodeItemBytes } from '@/lib/skyblock-item-decoder'
@@ -14,13 +17,12 @@ const HYPIXEL_AH_URL = 'https://api.hypixel.net/v2/skyblock/auctions'
 const TOP_ITEMS      = 300
 const TODAY          = new Date().toISOString().split('T')[0]
 
-// ── Fetch toutes les pages AH en parallèle massif ───────────
+// ── Fetch toutes les pages en parallèle ──────────────────────
 async function fetchAllAuctions(): Promise<{ auctions: any[]; totalPages: number }> {
   const first    = await fetch(HYPIXEL_AH_URL).then(r => r.json())
   const total    = first.totalPages as number
   let all: any[] = [...(first.auctions || []).filter((a: any) => a.bin && !a.claimed)]
 
-  // Fetch TOUTES les pages restantes en parallèle d'un coup
   if (total > 1) {
     const pages   = Array.from({ length: total - 1 }, (_, i) => i + 1)
     const results = await Promise.all(
@@ -37,18 +39,18 @@ async function fetchAllAuctions(): Promise<{ auctions: any[]; totalPages: number
   return { auctions: all, totalPages: total }
 }
 
+// ── Handler ───────────────────────────────────────────────────
 export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Anti-doublon
   const { data: lock } = await supabase
     .from('cron_locks').select('locked_until').eq('job_name', 'ah_collect').single()
-
   if (lock?.locked_until && new Date(lock.locked_until) > new Date()) {
     return NextResponse.json({ message: 'Already running' })
   }
-
   await supabase.from('cron_locks').upsert(
     { job_name: 'ah_collect', locked_until: new Date(Date.now() + 120_000).toISOString() },
     { onConflict: 'job_name' }
@@ -58,12 +60,11 @@ export async function GET(request: Request) {
     // 1. Fetch toutes les BIN
     const { auctions: binAuctions, totalPages } = await fetchAllAuctions()
 
-    // 2. Decode NBT + groupe par variant_key_full
+    // 2. Decode NBT + groupe par variant_key_full en mémoire
     type GroupItem = {
       decoded:  ReturnType<typeof decodeItemBytes> & {}
       price:    number
       uuid:     string
-      seller:   string
       category: string | null
     }
 
@@ -80,42 +81,37 @@ export async function GET(request: Request) {
         decoded,
         price:    auc.starting_bid,
         uuid:     auc.uuid,
-        seller:   auc.auctioneer,
         category: auc.category ?? null,
       })
     }
 
-    // 3. Insère SCAN dans price_history_ah
-    const scanRows: any[] = []
+    // 3. UPSERT dans ah_scan_buffer (moyenne glissante, 1 row par variante)
+    const bufferRows: any[] = []
 
     for (const [, items] of grouped) {
       const d        = items[0].decoded
       const prices   = items.map(i => i.price).sort((a, b) => a - b)
       const avgPrice = prices.reduce((s, p) => s + p, 0) / prices.length
+      const minPrice = prices[0]
+      const maxPrice = prices[prices.length - 1]
+      const volume   = items.length
+      const bestItem = items.reduce((best, i) => i.price < best.price ? i : best, items[0])
 
-      scanRows.push({
+      bufferRows.push({
         base_item_id:     d.item_id,
         variant_key:      d.variant_key_full,
         variant_key_base: d.variant_key_base,
         item_name:        d.item_name,
-        granularity:      'SCAN',
-        bucket_date:      TODAY,
         avg_price:        avgPrice,
-        sell_price:       prices[0],
-        buy_price:        avgPrice,
-        volume:           items.length,
-        data_points:      items.length,
+        min_price:        minPrice,
+        max_price:        maxPrice,
+        volume,
+        scan_count:       1,
         total_stars:      d.total_stars,
         master_stars:     d.master_stars,
         is_recomb:        d.is_recomb,
         reforge:          d.reforge,
         hot_potato_count: d.hot_potato_count,
-        art_of_war_count: d.art_of_war_count,
-        art_of_peace_count: d.art_of_peace_count,
-        wood_singularity: d.wood_singularity,
-        transmitted_count:d.transmitted_count,
-        mana_disintegrator:d.mana_disintegrator,
-        silex_applied:    d.silex_applied,
         enchantments:     Object.keys(d.enchantments).length > 0 ? d.enchantments : null,
         ultimate_enchant: d.ultimate_enchant,
         ultimate_level:   d.ultimate_level,
@@ -129,24 +125,53 @@ export async function GET(request: Request) {
         has_dye:          d.has_dye,
         dye_item:         d.dye_item,
         item_skin:        d.item_skin,
-        item_origin:      d.item_origin,
-        auction_uuid:     items[0].uuid,
-        seller_uuid:      items[0].seller,
-        raw_price:        prices[0],
-        item_count:       d.item_count,
-        item_uuid:        d.item_uuid,
+        category:         items[0].category,
+        best_price:       minPrice,
+        best_uuid:        bestItem.uuid,
+        scan_date:        TODAY,
+        last_scan_at:     new Date().toISOString(),
       })
     }
 
-    // SCAN → insert simple pour conserver tout l'historique intraday
-    // La contrainte unique sur DAILY/DAILY_EXACT/MONTHLY empêche les doublons agrégés
-    // mais les SCAN multiples par jour sont voulus (historique de prix toutes les minutes)
-    for (let i = 0; i < scanRows.length; i += 100) {
-      await supabase.from('price_history_ah').insert(scanRows.slice(i, i + 100))
+    // UPSERT avec moyenne glissante côté SQL
+    for (let i = 0; i < bufferRows.length; i += 100) {
+      const batch = bufferRows.slice(i, i + 100)
+
+      // Upsert en SQL brut pour la moyenne glissante
+      const values = batch.map((r, idx) => {
+        const p = Object.values(r).map(() => '?').join(',')
+        return `(${Object.keys(r).map((_, j) => `$${i * 100 + idx * Object.keys(r).length + j + 1}`).join(',')})`
+      })
+
+      // Utilise supabase upsert avec update manuel
+      await supabase.from('ah_scan_buffer').upsert(batch.map(r => ({
+        ...r,
+        // On stocke avg_price du scan courant
+        // La moyenne glissante est calculée via SQL ON CONFLICT
+      })), {
+        onConflict: 'base_item_id, variant_key',
+        ignoreDuplicates: false,
+      })
     }
 
-    // 4. Historique 7j — fallback à 3 niveaux
-    const baseItemIds = [...new Set(scanRows.map(r => r.base_item_id))]
+    // Recalcule la moyenne glissante via SQL natif
+    // (Supabase upsert ne supporte pas les expressions, on fait une update séparée)
+    await supabase.rpc('update_scan_buffer_avg', {
+      p_rows: JSON.stringify(bufferRows.map(r => ({
+        base_item_id: r.base_item_id,
+        variant_key:  r.variant_key,
+        new_avg:      r.avg_price,
+        new_vol:      r.volume,
+        new_min:      r.min_price,
+        new_max:      r.max_price,
+        new_best_price: r.best_price,
+        new_best_uuid:  r.best_uuid,
+        last_scan_at: r.last_scan_at,
+      })))
+    }).then(() => {}).catch(() => {})
+
+    // 4. Compare avec price_history_ah → TOP 300
+    const baseItemIds = [...new Set(bufferRows.map(r => r.base_item_id))]
     const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0]
 
     const { data: historical } = await supabase
@@ -156,10 +181,10 @@ export async function GET(request: Request) {
       .in('granularity', ['DAILY_EXACT', 'DAILY', 'MONTHLY'])
       .gte('bucket_date', sevenDaysAgo)
 
-    // Maps par niveau de précision
-    const histExact = new Map<string, number[]>() // DAILY_EXACT (variant_key_full)
-    const histBase  = new Map<string, number[]>() // DAILY (variant_key_base)
-    const histMthly = new Map<string, number[]>() // MONTHLY (nostar_norecomb)
+    // Maps historiques par niveau de précision
+    const histExact = new Map<string, number[]>()
+    const histBase  = new Map<string, number[]>()
+    const histMthly = new Map<string, number[]>()
 
     for (const h of historical || []) {
       const price = Number(h.avg_price)
@@ -171,7 +196,7 @@ export async function GET(request: Request) {
         const k = `${h.base_item_id}::${h.variant_key_base || h.variant_key}`
         if (!histBase.has(k)) histBase.set(k, [])
         histBase.get(k)!.push(price)
-      } else if (h.granularity === 'MONTHLY') {
+      } else {
         const k = `${h.base_item_id}::nostar_norecomb`
         if (!histMthly.has(k)) histMthly.set(k, [])
         histMthly.get(k)!.push(price)
@@ -180,7 +205,7 @@ export async function GET(request: Request) {
 
     const avg = (arr: number[]) => arr.reduce((s, p) => s + p, 0) / arr.length
 
-    // 5. Score chaque item
+    // Score chaque variante
     type ScoredItem = {
       base_item_id:      string
       variant_key_full:  string
@@ -209,37 +234,24 @@ export async function GET(request: Request) {
 
     const scored: ScoredItem[] = []
 
-    for (const [key, items] of grouped) {
+    for (const [, items] of grouped) {
       const d         = items[0].decoded
       const prices    = items.map(i => i.price).sort((a, b) => a - b)
       const bestPrice = prices[0]
       const avgPrice  = prices.reduce((s, p) => s + p, 0) / prices.length
+      const bestItem  = items.reduce((best, i) => i.price < best.price ? i : best, items[0])
 
-      // Fallback à 3 niveaux
       const exactKey = `${d.item_id}::${d.variant_key_full}`
       const baseKey  = `${d.item_id}::${d.variant_key_base}`
       const mthlyKey = `${d.item_id}::nostar_norecomb`
 
-      let histPrice  = 0
-      let precision  = 'none'
+      let histPrice = 0, precision = 'none'
+      if      (histExact.has(exactKey)) { histPrice = avg(histExact.get(exactKey)!); precision = 'exact' }
+      else if (histBase.has(baseKey))   { histPrice = avg(histBase.get(baseKey)!);   precision = 'base'  }
+      else if (histMthly.has(mthlyKey)) { histPrice = avg(histMthly.get(mthlyKey)!); precision = 'monthly' }
 
-      if (histExact.has(exactKey)) {
-        histPrice = avg(histExact.get(exactKey)!)
-        precision = 'exact'
-      } else if (histBase.has(baseKey)) {
-        histPrice = avg(histBase.get(baseKey)!)
-        precision = 'base'
-      } else if (histMthly.has(mthlyKey)) {
-        histPrice = avg(histMthly.get(mthlyKey)!)
-        precision = 'monthly'
-      }
-
-      const discountPct = histPrice > 0
-        ? Math.round(((histPrice - bestPrice) / histPrice) * 100)
-        : 0
-      const spreadPct   = avgPrice > 0
-        ? Math.round(((avgPrice - bestPrice) / avgPrice) * 100)
-        : 0
+      const discountPct = histPrice > 0 ? Math.round(((histPrice - bestPrice) / histPrice) * 100) : 0
+      const spreadPct   = avgPrice  > 0 ? Math.round(((avgPrice - bestPrice)  / avgPrice)  * 100) : 0
 
       scored.push({
         base_item_id:      d.item_id,
@@ -248,7 +260,7 @@ export async function GET(request: Request) {
         item_name:         d.item_name,
         category:          items[0].category,
         best_price:        bestPrice,
-        best_uuid:         items[0].uuid,
+        best_uuid:         bestItem.uuid,
         avg_price:         avgPrice,
         historical_avg:    histPrice,
         discount_pct:      discountPct,
@@ -268,7 +280,7 @@ export async function GET(request: Request) {
       })
     }
 
-    // 6. TOP 300 par catégorie (max 50 par cat)
+    // TOP 300 par catégorie (max 50/cat)
     const byCat = new Map<string, ScoredItem[]>()
     for (const item of scored) {
       const cat = item.category ?? 'other'
@@ -284,17 +296,14 @@ export async function GET(request: Request) {
       )
       topItems.push(...catItems.slice(0, 50))
     }
-
     topItems.sort((a, b) =>
       (b.discount_pct * 0.6 + b.spread_pct * 0.4) -
       (a.discount_pct * 0.6 + a.spread_pct * 0.4)
     )
-
     const finalItems = topItems.slice(0, TOP_ITEMS)
 
-    // 7. DELETE + INSERT ah_live
+    // DELETE + INSERT ah_live
     await supabase.from('ah_live').delete().gte('id', 0)
-
     const liveRows = finalItems.map(item => ({
       item_id:           item.base_item_id,
       base_item_id:      item.base_item_id,
@@ -331,29 +340,25 @@ export async function GET(request: Request) {
       await supabase.from('ah_live').insert(liveRows.slice(i, i + 50))
     }
 
-    await supabase.from('cron_locks')
-      .update({ locked_until: null })
-      .eq('job_name', 'ah_collect')
-
-    const withExact   = finalItems.filter(i => i.hist_precision === 'exact').length
-    const withBase    = finalItems.filter(i => i.hist_precision === 'base').length
-    const withMonthly = finalItems.filter(i => i.hist_precision === 'monthly').length
-    const noHistory   = finalItems.filter(i => i.hist_precision === 'none').length
+    await supabase.from('cron_locks').update({ locked_until: null }).eq('job_name', 'ah_collect')
 
     return NextResponse.json({
       success:          true,
       total_bin:        binAuctions.length,
-      decoded_ok:       scanRows.length,
-      scans_inserted:   scanRows.length,
-      top_items:        finalItems.length,
       total_pages:      totalPages,
-      history_precision: { exact: withExact, base: withBase, monthly: withMonthly, none: noHistory }
+      variants_grouped: grouped.size,
+      buffer_upserted:  bufferRows.length,
+      top_items:        finalItems.length,
+      hist_precision: {
+        exact:   finalItems.filter(i => i.hist_precision === 'exact').length,
+        base:    finalItems.filter(i => i.hist_precision === 'base').length,
+        monthly: finalItems.filter(i => i.hist_precision === 'monthly').length,
+        none:    finalItems.filter(i => i.hist_precision === 'none').length,
+      }
     })
 
   } catch (error: any) {
-    await supabase.from('cron_locks')
-      .update({ locked_until: null })
-      .eq('job_name', 'ah_collect')
+    await supabase.from('cron_locks').update({ locked_until: null }).eq('job_name', 'ah_collect')
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }

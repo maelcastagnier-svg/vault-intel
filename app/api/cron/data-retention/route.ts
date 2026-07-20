@@ -1,57 +1,60 @@
+// app/api/cron/data-retention/route.ts
+// Chaque nuit à 3h — purge les données anciennes
+// Avec le nouveau système ah_scan_buffer, plus de SCAN dans price_history_ah
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { NextResponse } from 'next/server'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const RETENTION_YEARS = 3
-const BATCH_SIZE      = 200000
-
-export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+export async function GET(req: NextRequest) {
+  if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  try {
-    const cutoffDate = new Date()
-    cutoffDate.setFullYear(cutoffDate.getFullYear() - RETENTION_YEARS)
+  const results: Record<string, number> = {}
 
-    // Compte les lignes à supprimer
-    const { count: totalToDelete } = await supabase
-      .from('price_history')
-      .select('*', { count: 'exact', head: true })
-      .lt('timestamp', cutoffDate.toISOString())
+  // 1. Purge SCAN résiduels dans price_history_ah (ancienne architecture)
+  const { count: scanDeleted } = await supabase
+    .from('price_history_ah')
+    .delete({ count: 'exact' })
+    .eq('granularity', 'SCAN')
+  results.scan_deleted = scanDeleted || 0
 
-    let deleted = 0
+  // 2. Purge DAILY > 3 ans
+  const threeYearsAgo = new Date(Date.now() - 3 * 365 * 86_400_000).toISOString().split('T')[0]
+  const { count: dailyDeleted } = await supabase
+    .from('price_history_ah')
+    .delete({ count: 'exact' })
+    .in('granularity', ['DAILY', 'DAILY_EXACT'])
+    .lt('bucket_date', threeYearsAgo)
+  results.daily_deleted = dailyDeleted || 0
 
-    if (totalToDelete && totalToDelete > 0) {
-      const { data, error } = await supabase.rpc('delete_old_price_history', {
-        cutoff_timestamp: cutoffDate.toISOString(),
-        batch_limit:      BATCH_SIZE
-      })
-      if (error) throw error
-      deleted = data ?? 0
-    }
+  // 3. Purge price_history Bazaar > 6 ans
+  const sixYearsAgo = new Date(Date.now() - 6 * 365 * 86_400_000).toISOString().split('T')[0]
+  const { count: bzDeleted } = await supabase
+    .from('price_history')
+    .delete({ count: 'exact' })
+    .lt('bucket_date', sixYearsAgo)
+  results.bazaar_deleted = bzDeleted || 0
 
-    // VACUUM après suppression pour libérer l'espace disque
-    if (deleted > 0) {
-      await supabase.rpc('vacuum_price_history')
-    }
+  // 4. Purge ah_scan_buffer résiduel (au cas où ah-aggregate aurait raté)
+  const yesterday = new Date(Date.now() - 86_400_000).toISOString().split('T')[0]
+  const { count: bufferDeleted } = await supabase
+    .from('ah_scan_buffer')
+    .delete({ count: 'exact' })
+    .lt('scan_date', yesterday)
+  results.buffer_deleted = bufferDeleted || 0
 
-    return NextResponse.json({
-      success: true,
-      cutoff:  cutoffDate.toISOString(),
-      deleted,
-      note:    totalToDelete && totalToDelete > BATCH_SIZE
-                 ? 'More rows remain, next cron will continue'
-                 : 'All old rows deleted'
-    })
+  // 5. Purge claude_memory > 90 jours
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 86_400_000).toISOString()
+  const { count: memDeleted } = await supabase
+    .from('claude_memory')
+    .delete({ count: 'exact' })
+    .lt('archived_at', ninetyDaysAgo)
+  results.memory_deleted = memDeleted || 0
 
-  } catch (error: any) {
-    console.error('data-retention error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+  return NextResponse.json({ success: true, ...results })
 }
