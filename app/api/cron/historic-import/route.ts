@@ -162,6 +162,7 @@ export async function GET(request: Request) {
       successful: results.filter(r => r.ok).length,
       dead:       results.filter(r => !r.ok && r.dead).length,
       total_rows: results.reduce((s, r) => s + r.rows, 0),
+      errors:     results.filter(r => !r.ok).map(r => ({ item_id: r.item_id, error: r.error })),
     })
 
   } catch (error: any) {
