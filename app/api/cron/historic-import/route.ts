@@ -106,8 +106,8 @@ async function importAH(item_id: string, liquidity: 'HIGH' | 'LOW'): Promise<num
         p_sell_price:   p.min ?? p.avg,
         p_avg_price:    p.avg,
         p_volume:       p.volume ?? 0,
-        p_granularity:  isHigh ? 'DAILY' : 'MONTHLY',
-        p_bucket_date:  isHigh ? getDailyBucket(ts) : getMonthlyBucket(ts)
+        p_granularity:  'DAILY',
+        p_bucket_date:  getDailyBucket(ts)
       })
     }))
     // Compte les insertions réussies
