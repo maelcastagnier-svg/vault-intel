@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     for (let i = 0; i < bzIds.length; i += 200) {
       const batch = bzIds.slice(i, i + 200).map(id => ({
         item_id:   id,
-        item_name: id.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()),
+        item_name: id.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c: string) => c.toUpperCase()),
         source:    'bazaar',
         updated_at: new Date().toISOString(),
       }))
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
     for (let i = 0; i < ahIds.length; i += 200) {
       const batch = ahIds.slice(i, i + 200).map(id => ({
         item_id:   id,
-        item_name: id.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()),
+        item_name: id.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c: string) => c.toUpperCase()),
         source:    'ah',
         updated_at: new Date().toISOString(),
       }))
