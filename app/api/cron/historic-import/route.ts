@@ -9,7 +9,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const PER_TYPE      = 10  // 10 Bazaar + 10 AH = 20 par run
+const PER_TYPE = 20  // 20 AH par run (Bazaar terminé)
 const SKYCOFL_TOKEN = process.env.SKYCOFL_ACCOUNT_TOKEN!
 const SKYCOFL_HEADERS = {
   'Authorization': `Bearer ${SKYCOFL_TOKEN}`,
