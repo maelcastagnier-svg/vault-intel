@@ -156,19 +156,21 @@ export async function GET(request: Request) {
 
     // Recalcule la moyenne glissante via SQL natif
     // (Supabase upsert ne supporte pas les expressions, on fait une update séparée)
-    await supabase.rpc('update_scan_buffer_avg', {
-      p_rows: JSON.stringify(bufferRows.map(r => ({
-        base_item_id: r.base_item_id,
-        variant_key:  r.variant_key,
-        new_avg:      r.avg_price,
-        new_vol:      r.volume,
-        new_min:      r.min_price,
-        new_max:      r.max_price,
-        new_best_price: r.best_price,
-        new_best_uuid:  r.best_uuid,
-        last_scan_at: r.last_scan_at,
-      })))
-    }).then(() => {}).catch(() => {})
+    try {
+      await supabase.rpc('update_scan_buffer_avg', {
+        p_rows: JSON.stringify(bufferRows.map(r => ({
+          base_item_id:   r.base_item_id,
+          variant_key:    r.variant_key,
+          new_avg:        r.avg_price,
+          new_vol:        r.volume,
+          new_min:        r.min_price,
+          new_max:        r.max_price,
+          new_best_price: r.best_price,
+          new_best_uuid:  r.best_uuid,
+          last_scan_at:   r.last_scan_at,
+        })))
+      })
+    } catch {} // ignore si la fonction n'existe pas encore
 
     // 4. Compare avec price_history_ah → TOP 300
     const baseItemIds = [...new Set(bufferRows.map(r => r.base_item_id))]
