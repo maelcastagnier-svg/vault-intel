@@ -101,13 +101,50 @@ function buildVariantKeys(d: Omit<DecodedItem, 'variant_key_full' | 'variant_key
 
   const variant_key_base = baseParts.join('_').toLowerCase().slice(0, 200)
 
-  // ── variant_key_full : comparaison exacte ─────────────────
-  // Stars + Recomb + Reforge + Ultimate + Attributes
+  // ── variant_key_full : tout ce qui impacte le prix significativement ──
   const fullParts = [starStr, recombStr]
-  if (d.reforge)   fullParts.push(d.reforge.toLowerCase())
-  if (ultimateStr) fullParts.push(ultimateStr)
-  if (attrStr)     fullParts.push(attrStr)
-  if (hpbStr)      fullParts.push(hpbStr)
+
+  // Reforge
+  if (d.reforge)     fullParts.push(d.reforge.toLowerCase())
+
+  // Ultimate enchant
+  if (ultimateStr)   fullParts.push(ultimateStr)
+
+  // Kuudra attributes (triés alphabétiquement)
+  if (attrStr)       fullParts.push(attrStr)
+
+  // Hot potato (groupé par tranches significatives)
+  // 0 = rien, 1-4 = partiel, 5-9 = avancé, 10+ = fuming
+  if (d.hot_potato_count >= 10)      fullParts.push('fuming')
+  else if (d.hot_potato_count >= 5)  fullParts.push(`hpb${d.hot_potato_count}`)
+  else if (d.hot_potato_count >= 1)  fullParts.push(`hpb${d.hot_potato_count}`)
+
+  // Gemstones PERFECT et FLAWLESS (impact prix significatif)
+  // FINE/ROUGH/FLAWED ignorés (impact marginal)
+  const gemStr = Object.entries(d.gems)
+    .filter(([, q]) => q === 'PERFECT' || q === 'FLAWLESS')
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([slot, q]) => `${slot.split('_')[0]}${q === 'PERFECT' ? 'P' : 'F'}`)
+    .join('_')
+  if (gemStr) fullParts.push(gemStr)
+
+  // Art of War (augmente les stats d'armor/weapon significativement)
+  if (d.art_of_war_count > 0)   fullParts.push(`aow${d.art_of_war_count}`)
+
+  // Art of Peace (farming tools)
+  if (d.art_of_peace_count > 0) fullParts.push(`aop${d.art_of_peace_count}`)
+
+  // Wood Singularity (déblocage de sockets sur Divan Drill — +100M+)
+  if (d.wood_singularity > 0)   fullParts.push('ws')
+
+  // Transmission Tuner (Divan Drill — augmente les stats mining)
+  if (d.transmitted_count > 0)  fullParts.push(`tt${d.transmitted_count}`)
+
+  // Mana Disintegrator (fishing rods — impact sur mana regen)
+  if (d.mana_disintegrator > 0) fullParts.push(`md${d.mana_disintegrator}`)
+
+  // Silex (fishing rod — augmente la pêche de manière significative)
+  if (d.silex_applied) fullParts.push('silex')
 
   const variant_key_full = fullParts.join('_').toLowerCase().slice(0, 200)
 
