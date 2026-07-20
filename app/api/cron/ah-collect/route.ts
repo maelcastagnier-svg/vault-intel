@@ -133,44 +133,39 @@ export async function GET(request: Request) {
       })
     }
 
-    // UPSERT avec moyenne glissante côté SQL
-    for (let i = 0; i < bufferRows.length; i += 100) {
-      const batch = bufferRows.slice(i, i + 100)
-
-      // Upsert en SQL brut pour la moyenne glissante
-      const values = batch.map((r, idx) => {
-        const p = Object.values(r).map(() => '?').join(',')
-        return `(${Object.keys(r).map((_, j) => `$${i * 100 + idx * Object.keys(r).length + j + 1}`).join(',')})`
-      })
-
-      // Utilise supabase upsert avec update manuel
-      await supabase.from('ah_scan_buffer').upsert(batch.map(r => ({
-        ...r,
-        // On stocke avg_price du scan courant
-        // La moyenne glissante est calculée via SQL ON CONFLICT
-      })), {
-        onConflict: 'base_item_id, variant_key',
-        ignoreDuplicates: false,
-      })
+    // UPSERT batch avec moyenne glissante via fonction SQL native
+    // Envoi par batch de 500 pour éviter les payloads trop lourds
+    for (let i = 0; i < bufferRows.length; i += 500) {
+      const batch = bufferRows.slice(i, i + 500).map(r => ({
+        base_item_id:     r.base_item_id,
+        variant_key:      r.variant_key,
+        variant_key_base: r.variant_key_base,
+        item_name:        r.item_name,
+        avg_price:        r.avg_price,
+        min_price:        r.min_price,
+        max_price:        r.max_price,
+        volume:           r.volume,
+        best_price:       r.best_price,
+        best_uuid:        r.best_uuid,
+        category:         r.category,
+        total_stars:      r.total_stars,
+        master_stars:     r.master_stars,
+        is_recomb:        r.is_recomb,
+        reforge:          r.reforge,
+        ultimate_enchant: r.ultimate_enchant,
+        attribute_1:      r.attribute_1,
+        attribute_1_level:r.attribute_1_level,
+        attribute_2:      r.attribute_2,
+        attribute_2_level:r.attribute_2_level,
+        scan_date:        r.scan_date,
+        last_scan_at:     r.last_scan_at,
+      }))
+      try {
+        await supabase.rpc('upsert_scan_buffer_batch', { p_rows: batch })
+      } catch (e) {
+        console.error('Buffer upsert error batch', i, e)
+      }
     }
-
-    // Recalcule la moyenne glissante via SQL natif
-    // (Supabase upsert ne supporte pas les expressions, on fait une update séparée)
-    try {
-      await supabase.rpc('update_scan_buffer_avg', {
-        p_rows: JSON.stringify(bufferRows.map(r => ({
-          base_item_id:   r.base_item_id,
-          variant_key:    r.variant_key,
-          new_avg:        r.avg_price,
-          new_vol:        r.volume,
-          new_min:        r.min_price,
-          new_max:        r.max_price,
-          new_best_price: r.best_price,
-          new_best_uuid:  r.best_uuid,
-          last_scan_at:   r.last_scan_at,
-        })))
-      })
-    } catch {} // ignore si la fonction n'existe pas encore
 
     // 4. Compare avec price_history_ah → TOP 300
     const baseItemIds = [...new Set(bufferRows.map(r => r.base_item_id))]
