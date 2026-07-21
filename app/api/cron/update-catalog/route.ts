@@ -37,13 +37,13 @@ export async function GET(req: NextRequest) {
 
   // 4. Construit les rows avec noms Hypixel si disponible
   const allItems = [
-    ...bzIds.map(id => ({
+    ...bzIds.map((id: string) => ({
       item_id:    id,
       item_name:  hypixelNames.get(id) || toLabel(id),
       source:     'bazaar',
       updated_at: new Date().toISOString(),
     })),
-    ...ahIds.map(id => ({
+    ...ahIds.map((id: string) => ({
       item_id:    id,
       item_name:  hypixelNames.get(id) || toLabel(id),
       source:     'ah',
