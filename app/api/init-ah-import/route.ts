@@ -28,8 +28,13 @@ export async function GET(request: Request) {
   })
   const items: { name: string; tag: string; flags: any }[] = await res.json()
 
-  // 2. Filtre AUCTION (string ou bitmask)
-  const auctionItems = items.filter(i => i.tag && isAuction(i.flags))
+  // 2. Filtre AUCTION (string ou bitmask) + exclut les tags invalides (format Minecraft legacy avec :)
+  const auctionItems = items.filter(i => 
+    i.tag && 
+    isAuction(i.flags) && 
+    !i.tag.includes(':') &&  // exclut LOG_2:2, LEATHER_BOOTS:31 etc.
+    i.tag.length > 0
+  )
 
   // 3. Récupère les items déjà en DB
   const { data: existing } = await supabase
