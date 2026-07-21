@@ -126,8 +126,8 @@ export async function GET(req: NextRequest) {
     }
 
     // 8. Networth approximatif
-    const purse    = member.currencies?.coin_purse ?? 0
-    const bank     = profile.banking?.balance ?? 0
+    const purse    = Math.round(member.currencies?.coin_purse ?? 0)
+    const bank     = Math.round(profile.banking?.balance ?? 0)
     const networth = purse + bank
 
     // 9. Fairy souls
