@@ -51,21 +51,16 @@ export async function GET(req: NextRequest) {
   if (!username) return NextResponse.json({ error: 'username required' }, { status: 400 })
 
   try {
-    // 1. UUID depuis username
-    const uuidRes  = await fetch(
-      `https://api.hypixel.net/v2/uuid?name=${encodeURIComponent(username)}`,
-      { headers: { 'API-Key': HYPIXEL_KEY } }
+    // 1. UUID depuis Mojang API (pas Hypixel)
+    const mojangRes  = await fetch(
+      `https://api.mojang.com/users/profiles/minecraft/${encodeURIComponent(username)}`
     )
-    const uuidText = await uuidRes.text()
-    if (!uuidRes.ok) return NextResponse.json({ 
-      error: 'Player not found', 
-      status: uuidRes.status,
-      key_defined: !!HYPIXEL_KEY,
-      key_length: HYPIXEL_KEY?.length,
-      response: uuidText.slice(0, 200)
-    }, { status: 404 })
-    const uuidData = JSON.parse(uuidText)
-    const uuid     = uuidData.uuid
+    if (!mojangRes.ok) return NextResponse.json({ error: 'Player not found on Mojang' }, { status: 404 })
+    const mojangData = await mojangRes.json()
+    const uuid = mojangData.id
+      ? `${mojangData.id.slice(0,8)}-${mojangData.id.slice(8,12)}-${mojangData.id.slice(12,16)}-${mojangData.id.slice(16,20)}-${mojangData.id.slice(20)}`
+      : null
+    if (!uuid) return NextResponse.json({ error: 'Invalid username' }, { status: 404 })
     if (!uuid) return NextResponse.json({ error: 'Invalid username' }, { status: 404 })
 
     // 2. Profil Skyblock
