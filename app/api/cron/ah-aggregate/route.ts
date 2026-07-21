@@ -23,7 +23,7 @@ export async function GET(request: Request) {
     const { data: buffer, error: bufErr } = await supabase
       .from('ah_scan_buffer')
       .select('*')
-      .eq('scan_date', TODAY)
+      .lte('scan_date', TODAY)
 
     if (bufErr) throw new Error('Buffer read: ' + bufErr.message)
     if (!buffer || buffer.length === 0) {
@@ -73,7 +73,7 @@ export async function GET(request: Request) {
         .from('price_history_ah')
         .upsert(dailyRows.slice(i, i + 100), {
           onConflict:       'base_item_id, variant_key, granularity, bucket_date',
-          ignoreDuplicates: false,
+          ignoreDuplicates: true,
         })
       if (!error) inserted += Math.min(100, dailyRows.length - i)
       else console.error('Aggregate upsert error:', error.message)
