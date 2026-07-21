@@ -97,6 +97,12 @@ version, le signaler avant de continuer.
 4. Toujours privilégier une source de données déjà collectée en interne
 5. Clés React stables (`item_id`), jamais d'UUID éphémères
 6. Toujours proposer `git add/commit/push`, jamais de push sans confirmation
+7. **Jamais de constantes de jeu reconstituées de mémoire.** Tout seuil, tier, 
+   XP requis, ou palier lié aux mécaniques Hypixel doit être vérifié contre le 
+   wiki Hypixel officiel et/ou une table Supabase déjà collectée pour les agents 
+   (ex : slayer_data, dungeon_data, magical_power_by_rarity...) avant d'être 
+   codé en dur. Si aucune source fiable n'existe en interne, aller la chercher 
+   via l'API Hypixel plutôt que d'inventer une valeur plausible.
 
 ## Prochaines étapes
 
