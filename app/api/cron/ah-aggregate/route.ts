@@ -1,11 +1,9 @@
 // app/api/cron/ah-aggregate/route.ts
 // 23h59 chaque soir :
 // 1. Lit ah_scan_buffer (toutes les variantes du jour)
-// 2. Crée 2 buckets par variante :
-//    - DAILY_EXACT  : variant_key_full  (prix exact par variante NBT complète)
-//    - DAILY        : variant_key_base  (tendance par famille de variante)
-// 3. bucket_date = scan_date réelle (pas TODAY)
-// 4. TRUNCATE buffer → repart à 0 demain
+// 2. INSERT dans price_history_ah_variants (1 DAILY_EXACT par variante)
+// 3. INSERT dans price_history_ah (1 DAILY par item = moyenne toutes variantes)
+// 4. TRUNCATE ah_scan_buffer
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse }  from 'next/server'
 
@@ -22,7 +20,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Lit tout le buffer (toutes dates confondues)
+    // 1. Lit tout le buffer
     const { data: buffer, error: bufErr } = await supabase
       .from('ah_scan_buffer')
       .select('*')
@@ -33,29 +31,29 @@ export async function GET(request: Request) {
       return NextResponse.json({ message: 'Buffer empty' })
     }
 
-    // 2. Génère 2 rows par variante :
-    //    - DAILY_EXACT (variant_key_full) pour prix exact
-    //    - DAILY       (variant_key_base) pour tendance famille
-    const rows: any[] = []
-
-    for (const b of buffer) {
-      const base = {
+    // ── TABLE 1 : price_history_ah_variants ───────────────────
+    // 1 row par variante exacte (variant_key_full) par jour
+    const variantRows = buffer
+      .filter(b => b.scan_count >= 3) // données fiables uniquement
+      .map(b => ({
         base_item_id:     b.base_item_id,
+        variant_key:      b.variant_key,
+        variant_key_base: b.variant_key_base,
         item_name:        b.item_name,
-        bucket_date:      b.scan_date,  // date réelle du scan
+        bucket_date:      b.scan_date,
         avg_price:        b.avg_price,
+        min_price:        b.min_price,
+        max_price:        b.max_price,
         sell_price:       b.min_price,
-        buy_price:        b.avg_price,
+        avg_sold_price:   b.avg_sold_price || 0,
+        sold_count:       b.sold_count     || 0,
         volume:           b.volume,
         data_points:      b.scan_count,
-        avg_sold_price:   b.avg_sold_price || 0,
-        sold_count:       b.sold_count || 0,
         total_stars:      b.total_stars,
         master_stars:     b.master_stars,
         is_recomb:        b.is_recomb,
         reforge:          b.reforge,
         hot_potato_count: b.hot_potato_count,
-        enchantments:     b.enchantments,
         ultimate_enchant: b.ultimate_enchant,
         ultimate_level:   b.ultimate_level,
         gems:             b.gems,
@@ -66,60 +64,73 @@ export async function GET(request: Request) {
         attribute_2:      b.attribute_2,
         attribute_2_level:b.attribute_2_level,
         has_dye:          b.has_dye,
-        dye_item:         b.dye_item,
         auction_uuid:     b.best_uuid,
-        raw_price:        b.best_price,
-      }
+      }))
 
-      // DAILY_EXACT → variant_key_full (prix exact par variante complète)
-      // Seulement si scan_count >= 3 (données fiables)
-      if (b.scan_count >= 3) {
-        rows.push({
-          ...base,
-          granularity:      'DAILY_EXACT',
-          variant_key:      b.variant_key,
-          variant_key_base: b.variant_key_base,
+    let variantsInserted = 0
+    for (let i = 0; i < variantRows.length; i += 100) {
+      const { error } = await supabase
+        .from('price_history_ah_variants')
+        .upsert(variantRows.slice(i, i + 100), {
+          onConflict:       'base_item_id, variant_key, bucket_date',
+          ignoreDuplicates: true,
         })
-      }
-
-      // DAILY → variant_key_base (tendance par famille, toujours)
-      rows.push({
-        ...base,
-        granularity:      'DAILY',
-        variant_key:      b.variant_key_base || b.variant_key,
-        variant_key_base: b.variant_key_base,
-      })
+      if (!error) variantsInserted += Math.min(100, variantRows.length - i)
     }
 
-    // 3. Upsert par batch de 100
-    let inserted = 0
-    let errors   = 0
+    // ── TABLE 2 : price_history_ah ────────────────────────────
+    // 1 row par item (base_item_id) par jour = moyenne toutes variantes
+    // Groupe par base_item_id + scan_date
+    const itemMap = new Map<string, { prices: number[]; volumes: number[]; scan_date: string }>()
+    for (const b of buffer) {
+      const key = `${b.base_item_id}::${b.scan_date}`
+      if (!itemMap.has(key)) {
+        itemMap.set(key, { prices: [], volumes: [], scan_date: b.scan_date })
+      }
+      itemMap.get(key)!.prices.push(Number(b.avg_price))
+      itemMap.get(key)!.volumes.push(Number(b.volume))
+    }
 
-    for (let i = 0; i < rows.length; i += 100) {
+    const dailyRows = Array.from(itemMap.entries()).map(([key, { prices, volumes, scan_date }]) => {
+      const base_item_id = key.split('::')[0]
+      const avg_price    = Math.round(prices.reduce((s, p) => s + p, 0) / prices.length)
+      const volume       = volumes.reduce((s, v) => s + v, 0)
+      return {
+        base_item_id,
+        variant_key:      'nostar_norecomb_noreforge',
+        variant_key_base: 'nostar_norecomb_noreforge',
+        granularity:      'DAILY',
+        bucket_date:      scan_date,
+        avg_price,
+        sell_price:       avg_price,
+        buy_price:        avg_price,
+        volume,
+        data_points:      prices.length,
+      }
+    })
+
+    let dailyInserted = 0
+    for (let i = 0; i < dailyRows.length; i += 100) {
       const { error } = await supabase
         .from('price_history_ah')
-        .upsert(rows.slice(i, i + 100), {
+        .upsert(dailyRows.slice(i, i + 100), {
           onConflict:       'base_item_id, variant_key, granularity, bucket_date',
           ignoreDuplicates: true,
         })
-      if (error) { console.error('Upsert error:', error.message); errors++ }
-      else inserted += Math.min(100, rows.length - i)
+      if (!error) dailyInserted += Math.min(100, dailyRows.length - i)
     }
 
-    // 4. TRUNCATE buffer → repart à 0 demain
-    await supabase.from('ah_scan_buffer').delete().lte('scan_date', new Date().toISOString().split('T')[0])
-
-    const daily_exact = rows.filter(r => r.granularity === 'DAILY_EXACT').length
-    const daily       = rows.filter(r => r.granularity === 'DAILY').length
+    // 4. TRUNCATE buffer
+    await supabase.from('ah_scan_buffer')
+      .delete()
+      .lte('scan_date', new Date().toISOString().split('T')[0])
 
     return NextResponse.json({
-      success:        true,
-      variants_today: buffer.length,
-      rows_generated: rows.length,
-      daily_inserted: inserted,
-      daily_exact,
-      daily,
-      errors,
+      success:           true,
+      buffer_size:       buffer.length,
+      variants_inserted: variantsInserted,
+      daily_inserted:    dailyInserted,
+      date:              buffer[0]?.scan_date,
     })
 
   } catch (e: any) {
