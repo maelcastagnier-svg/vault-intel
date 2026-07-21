@@ -66,12 +66,11 @@ export async function GET(request: Request) {
   // 4. Applique les mappings dans price_history_ah
   let updated = 0
   for (const m of mappings) {
-    const { count } = await supabase
+    const { error } = await supabase
       .from('price_history_ah')
       .update({ base_item_id: m.hypixel_id })
       .eq('base_item_id', m.skycofl_id)
-      .select('*', { count: 'exact', head: true })
-    updated += count || 0
+    if (!error) updated++
   }
 
   // 5. Sauvegarde le mapping dans item_id_mapping
