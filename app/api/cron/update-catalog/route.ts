@@ -30,21 +30,10 @@ export async function GET(req: NextRequest) {
     if (item.id && item.name) hypixelNames.set(item.id, item.name)
   }
 
-  // 2. Nouveaux items Bazaar
-  const { data: bzItems } = await supabase
-    .from('price_history')
-    .select('item_id')
-    .gt('sell_price', 0)
-    .limit(10000)
-  const bzIds = [...new Set((bzItems || []).map(r => r.item_id))]
-
-  // 3. Nouveaux items AH
-  const { data: ahItems } = await supabase
-    .from('price_history_ah')
-    .select('base_item_id')
-    .not('base_item_id', 'is', null)
-    .limit(10000)
-  const ahIds = [...new Set((ahItems || []).map(r => r.base_item_id))]
+  // 2. Fetch TOUS les items via fonction SQL (pas de limite Supabase)
+  const { data: allDbItems } = await supabase.rpc('get_all_catalog_items')
+  const bzIds = (allDbItems || []).filter((r: any) => r.source === 'bazaar').map((r: any) => r.item_id as string)
+  const ahIds = (allDbItems || []).filter((r: any) => r.source === 'ah').map((r: any) => r.item_id as string)
 
   // 4. Construit les rows avec noms Hypixel si disponible
   const allItems = [
