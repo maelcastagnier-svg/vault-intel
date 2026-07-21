@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     .from('price_history')
     .select('item_id')
     .gt('sell_price', 0)
-    .order('item_id')
+    .limit(10000)
   const bzIds = [...new Set((bzItems || []).map(r => r.item_id))]
 
   // 3. Nouveaux items AH
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
     .from('price_history_ah')
     .select('base_item_id')
     .not('base_item_id', 'is', null)
-    .order('base_item_id')
+    .limit(10000)
   const ahIds = [...new Set((ahItems || []).map(r => r.base_item_id))]
 
   // 4. Construit les rows avec noms Hypixel si disponible
