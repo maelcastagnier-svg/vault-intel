@@ -1,7 +1,7 @@
 @AGENTS.md
 # CLAUDE.md — Vault (contexte projet pour Claude Code)
 
-> Basé sur la session la plus récente disponible (21 juillet). En cas de 
+> Basé sur la session la plus récente disponible (22 juillet). En cas de 
 > divergence avec une session antérieure sur le même sujet, cette version fait foi.
 
 ## Vision
@@ -62,22 +62,65 @@ avoir de clause WHERE pour que les upserts Supabase JS fonctionnent ; colonne
 `POWER_WITHER_BOOTS` est le vrai ID Hypixel des Necron's Boots ; SkyCofl et 
 Hypixel partagent les mêmes IDs d'items.
 
-## Evolve — architecture planifiée le 21 juillet (source de vérité actuelle)
+## Evolve — état réel (mis à jour session du 22 juillet, source de vérité actuelle)
 
-- Sync joueur via **API Hypixel** (pas SkyCrypt — approche abandonnée)
-- **4 onglets** : Daily Missions, Milestones, Skills, Personal Money Making
-- Scaffolding initial du frontend **écrit mais non finalisé** à la pause de session
-- Backend `evolve-sync` (état antérieur, probablement toujours valide sous 
-  réserve de vérification) : niveaux skills JS pur, Senither Weight via 
-  `weight_formulas`, stage par networth, `setup_route` JS pur, 1 appel Claude 
-  pour résumé/actions/money making personnalisé
-- **Limite connue** : networth réel (NBT inventaire joueur — différent du NBT 
-  AH déjà décodé) jamais finalisé, `networth = purse + bank` uniquement
+**Pipeline mort supprimé** : `api/evolve` (register + webhook n8n) et `cron/evolve-sync` 
+(jamais présent dans `vercel.json`, donc jamais actif en prod malgré du code fonctionnel) 
+ont été supprimés, avec les tables orphelines `weight_formulas` (18 lignes, coefficients 
+Senither) et `skill_unlocks` (vide). `game_stage` uniformisé en MAJUSCULES 
+(EARLY/MID/END/LATE) sur `player_data`, y compris le default en base.
 
-⚠️ **Ne pas se fier à l'ancien design "Improvement/Route/Skills/Money" avec 
-skin 2D discuté le 13 juillet** — remplacé par l'architecture du 21 juillet 
-ci-dessus. Si le code trouvé dans le repo correspond encore à l'ancienne 
-version, le signaler avant de continuer.
+**Backend fonctionnel (nouveau pipeline, remplace l'ancien) :**
+- `api/player/sync` — sync GET on-demand (UUID via Mojang, profil via Hypixel), écrit 
+  skills/slayers/dungeons/collections/pets/fairy_souls/game_stage/networth (purse+bank 
+  uniquement) dans `player_data`. Pas de cron automatique, re-sync manuel côté frontend.
+- `api/player/missions` — génère/retourne les missions journalières dans `player_missions`.
+- `api/player/milestones` — skill/slayer/dungeon/fairy_soul/collection progress en JS pur 
+  depuis `player_data`. Caps de skill et paliers de collection vérifiés via 
+  `/v2/resources/skyblock/skills` et `/v2/resources/skyblock/collections` (table interne 
+  `collections` seedée, 87 items). Slayers marqués `verified: false` dans le JSON — 
+  aucune source fiable trouvée pour les seuils de tier (ni resource Hypixel, ni wiki 
+  exploitable) : le frontend doit afficher un badge "à vérifier" dessus, jamais les 
+  présenter comme des faits.
+- `api/player/money-making` — lecture seule de `claude_analysis` (section 
+  `money_making_{tier}`), retourne active+vault filtrés par `game_stage` du joueur. 
+  Aucun appel Claude, aucune écriture.
+
+**⚠️ Frontend pas branché.** `EvolveSection.tsx` existe mais code encore l'ANCIEN 
+design "Improvement/Route/Skills/Money" du 13 juillet, et n'est même pas importé dans 
+`page.tsx` — l'onglet Evolve du dashboard affiche un "coming soon" statique. À 
+reconstruire avec les vrais onglets (Daily Missions, Milestones, Skills, Personal 
+Money Making) une fois le backend stabilisé. Ne pas réutiliser le code de 
+`EvolveSection.tsx` tel quel.
+
+**Personal Money Making — EN PAUSE.** L'endpoint existe (filtrage JS lecture seule, 
+voir ci-dessus) mais l'appel Claude personnalisé n'est pas branché : `inventory_summary` 
+sur `player_data` n'est qu'un flag de présence booléen 
+(`{"armor":"has_armor","equipment":"has_equipment","wardrobe":null}`), pas un détail 
+d'items équipés. Décision : plutôt que promettre une analyse "basée sur ton équipement" 
+sans donnée réelle, on construit d'abord le décodage NBT complet (voir chantier 
+ci-dessous) avant de coder l'appel Claude.
+
+## Chantier en cours — NBT joueur + Skyblock Level/XP Guide (démarré 22 juillet)
+
+Remplace l'ancienne limite "networth = purse+bank uniquement" :
+
+1. **Décodage NBT complet joueur** : armure équipée, inventaire, backpacks, enderchest, 
+   accessory bag. Même format binaire base64-gzip que `ah-collect` (déjà live sur les 
+   enchères AH), mais jamais encore appliqué à l'inventaire d'un joueur — chantier séparé, 
+   pas un simple réemploi du décodeur existant.
+2. **Vrai networth** — calculé depuis les items réels décodés × prix marché déjà 
+   collecté en interne, plus purse+bank.
+3. **Skyblock Level + XP Guide** comme référentiel de tiers/milestones, en remplacement 
+   ou complément du découpage EARLY/MID/END/LATE actuel (basé sur networth + avg skill).
+4. **Historique de progression par snapshots** — mesurer la vitesse de progression 
+   early→mid→end→late d'un joueur dans le temps, et permettre la comparaison entre joueurs.
+
+**Prochaine étape immédiate à la reprise** : vérifier si un "Skyblock XP Guide" (niveau 
+SkyBlock → XP cumulée) existe déjà dans une table Supabase interne ou via l'API Hypixel 
+(`/v2/resources/skyblock/...`) **avant** de le construire — même principe que pour 
+skills/collections cette session (voir règle 7 ci-dessous) : ne jamais coder en dur 
+sans avoir vérifié la source d'abord.
 
 ## Money Making — non retouché depuis le 13 juillet, donc toujours la référence
 
@@ -104,14 +147,32 @@ version, le signaler avant de continuer.
    codé en dur. Si aucune source fiable n'existe en interne, aller la chercher 
    via l'API Hypixel plutôt que d'inventer une valeur plausible.
 
+## Philosophie d'évolution continue
+
+Rien dans Vault n'est "définitivement terminé". Chaque section du dashboard 
+(Flash Alerts, Money Making, Radar, Patch Analysis, Evolve) et chaque système 
+de collecte (ah-collect, bazaar-collect, historic-import) est amené à être 
+revisité et amélioré au fil du temps — soit pour optimiser la performance/le 
+coût, soit pour enrichir la précision et la personnalisation. 
+
+"✅ Terminé" dans ce document signifie "fonctionnel et validé à ce stade", 
+PAS "ne plus jamais y toucher". Ne jamais refuser une évolution en argumentant 
+qu'une section a déjà été validée — vérifier plutôt si le changement demandé 
+est cohérent avec la direction du projet, et si oui, avancer dessus normalement, 
+en actualisant ce document en conséquence.
+
 ## Prochaines étapes
 
-1. **Vérifier l'état réel du code Evolve dans le repo** (scaffolding du 21 
-   juillet vs éventuel reliquat du 13 juillet) avant de continuer à construire
-2. Construire/finaliser le frontend Evolve (4 onglets : Daily Missions, 
-   Milestones, Skills, Personal Money Making)
-3. Vérifier si le bug `upsert_scan_buffer_batch` est résolu
-4. Migration vers `item_variant_hourly_buckets` (conçu, pas branché)
+1. **Vérifier si le Skyblock XP Guide existe déjà** (table Supabase interne ou 
+   API Hypixel) avant de le construire pour le chantier NBT joueur / Skyblock Level
+2. Décodage NBT complet joueur (armure, inventaire, backpacks, enderchest, 
+   accessory bag) + vrai networth
+3. Historique de progression par snapshots (vitesse early→mid→end→late, 
+   comparaison entre joueurs)
+4. Reconstruire le frontend Evolve (4 onglets : Daily Missions, Milestones, 
+   Skills, Personal Money Making) une fois le backend NBT/XP Guide stabilisé
+5. Vérifier si le bug `upsert_scan_buffer_batch` est résolu
+6. Migration vers `item_variant_hourly_buckets` (conçu, pas branché)
 
 ## Ce que je ne veux PAS
 
