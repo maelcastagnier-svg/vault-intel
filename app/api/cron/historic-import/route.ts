@@ -12,7 +12,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const PER_TYPE = 20
+const PER_TYPE = 10
 const SKYCOFL_HEADERS = {
   'Authorization': `Bearer ${process.env.SKYCOFL_ACCOUNT_TOKEN}`,
   'Accept': 'application/json'
