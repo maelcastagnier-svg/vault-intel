@@ -56,8 +56,15 @@ export async function GET(req: NextRequest) {
       `https://api.hypixel.net/v2/uuid?name=${encodeURIComponent(username)}`,
       { headers: { 'API-Key': HYPIXEL_KEY } }
     )
-    if (!uuidRes.ok) return NextResponse.json({ error: 'Player not found' }, { status: 404 })
-    const uuidData = await uuidRes.json()
+    const uuidText = await uuidRes.text()
+    if (!uuidRes.ok) return NextResponse.json({ 
+      error: 'Player not found', 
+      status: uuidRes.status,
+      key_defined: !!HYPIXEL_KEY,
+      key_length: HYPIXEL_KEY?.length,
+      response: uuidText.slice(0, 200)
+    }, { status: 404 })
+    const uuidData = JSON.parse(uuidText)
     const uuid     = uuidData.uuid
     if (!uuid) return NextResponse.json({ error: 'Invalid username' }, { status: 404 })
 
