@@ -32,32 +32,31 @@ export async function GET(request: Request) {
     .from('items_catalog')
     .select('item_id, item_name, source')
 
-  // 3. Met à jour les noms
-  let updated    = 0
-  let not_found  = 0
+  // 3. Met à jour les noms par batch
+  let updated   = 0
+  let not_found = 0
   const samples: { item_id: string; old: string; new: string }[] = []
+  const toUpdate: { item_id: string; item_name: string }[] = []
 
   for (const item of catalog || []) {
     const hypixelName = hypixelNames.get(item.item_id)
-
-    if (!hypixelName) {
-      not_found++
-      continue
-    }
-
+    if (!hypixelName) { not_found++; continue }
     if (hypixelName !== item.item_name) {
-      const { error } = await supabase
-        .from('items_catalog')
-        .update({ item_name: hypixelName })
-        .eq('item_id', item.item_id)
-
-      if (!error) {
-        if (samples.length < 15) {
-          samples.push({ item_id: item.item_id, old: item.item_name, new: hypixelName })
-        }
-        updated++
-      }
+      if (samples.length < 15) samples.push({ item_id: item.item_id, old: item.item_name, new: hypixelName })
+      toUpdate.push({ item_id: item.item_id, item_name: hypixelName })
     }
+  }
+
+  // Update par batch de 100 via upsert
+  for (let i = 0; i < toUpdate.length; i += 100) {
+    const batch = toUpdate.slice(i, i + 100)
+    const { error } = await supabase
+      .from('items_catalog')
+      .upsert(batch.map(r => ({
+        item_id:   r.item_id,
+        item_name: r.item_name,
+      })), { onConflict: 'item_id' })
+    if (!error) updated += batch.length
   }
 
   return NextResponse.json({
