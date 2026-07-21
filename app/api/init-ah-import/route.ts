@@ -1,40 +1,37 @@
-// app/api/admin/init-ah-import/route.ts
-// ONE-SHOT : peuple historic_import_progress avec les vrais tags SkyCofl
-// Lance UNE SEULE FOIS puis supprime cette route
+// app/api/init-ah-import/route.ts
+// ONE-SHOT : peuple historic_import_progress avec tous les vrais tags SkyCofl
+// Supporte les flags string "AUCTION" et bitmask numérique (bit 4 = AUCTION)
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+
+export const maxDuration = 60
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+function isAuction(flags: any): boolean {
+  if (typeof flags === 'string') return flags === 'AUCTION'
+  if (typeof flags === 'number') return (flags & 4) !== 0 // bit AUCTION
+  return false
+}
+
 export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // 1. Fetch tous les items depuis SkyCofl
+  // 1. Fetch tous les items SkyCofl
   const res = await fetch('https://sky.coflnet.com/api/items', {
-    headers: {
-      'Authorization': `Bearer ${process.env.SKYCOFL_ACCOUNT_TOKEN}`,
-      'Accept': 'application/json'
-    }
+    headers: { 'Accept': 'application/json' }
   })
+  const items: { name: string; tag: string; flags: any }[] = await res.json()
 
-  if (!res.ok) throw new Error(`SkyCofl items list: ${res.status}`)
+  // 2. Filtre AUCTION (string ou bitmask)
+  const auctionItems = items.filter(i => i.tag && isAuction(i.flags))
 
-  const items: { name: string | null; tag: string; flags: string | number }[] = await res.json()
-
-  // 2. Filtre uniquement les items AUCTION avec un tag valide
-  const auctionItems = items.filter(i =>
-    i.tag &&
-    i.tag.length > 0 &&
-    !i.tag.includes(':') &&  // exclut les items avec format invalide (FISHING_ROD:12)
-    i.flags === 'AUCTION'    // uniquement AUCTION
-  )
-
-  // 3. Récupère les items déjà dans historic_import_progress
+  // 3. Récupère les items déjà en DB
   const { data: existing } = await supabase
     .from('historic_import_progress')
     .select('item_id')
@@ -42,13 +39,13 @@ export async function GET(request: Request) {
 
   const existingIds = new Set((existing || []).map(e => e.item_id))
 
-  // 4. Insère uniquement les nouveaux items SkyCofl
+  // 4. Insère les nouveaux
   const toInsert = auctionItems
     .filter(i => !existingIds.has(i.tag))
     .map(i => ({
       item_id:           i.tag,
       item_type:         'AH',
-      liquidity:         'HIGH',  // SkyCofl a de la data = HIGH par défaut
+      liquidity:         'HIGH',
       status:            'pending',
       years_completed:   0,
       last_processed_at: null,
@@ -62,31 +59,20 @@ export async function GET(request: Request) {
     if (!error) inserted += Math.min(200, toInsert.length - i)
   }
 
-  // 5. Marque les anciens items AH qui ne sont pas dans SkyCofl comme dead
-  // (évite de les retenter indéfiniment)
-  const skycoflTags = new Set(auctionItems.map(i => i.tag))
-  const { data: oldItems } = await supabase
-    .from('historic_import_progress')
-    .select('item_id')
-    .eq('item_type', 'AH')
-    .eq('status', 'pending')
-
-  const deadItems = (oldItems || []).filter(i => !skycoflTags.has(i.item_id))
-  if (deadItems.length > 0) {
-    for (let i = 0; i < deadItems.length; i += 200) {
-      await supabase
-        .from('historic_import_progress')
-        .update({ status: 'done', last_processed_at: new Date().toISOString() })
-        .in('item_id', deadItems.slice(i, i + 200).map(d => d.item_id))
-    }
+  // 5. Stats par type de flag
+  const flagStats: Record<string, number> = {}
+  for (const item of auctionItems) {
+    const key = String(item.flags)
+    flagStats[key] = (flagStats[key] || 0) + 1
   }
 
   return NextResponse.json({
     success:              true,
-    skycofl_auction_items: auctionItems.length,
+    total_skycofl:        items.length,
+    skycofl_auction:      auctionItems.length,
     already_existing:     existingIds.size,
     newly_inserted:       inserted,
-    marked_dead:          deadItems.length,
+    flag_breakdown:       flagStats,
     sample_new:           toInsert.slice(0, 5).map(i => i.item_id),
   })
 }
