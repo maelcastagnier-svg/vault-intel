@@ -37,7 +37,7 @@ export async function GET(request: Request) {
       variant_key_base: b.variant_key_base,
       item_name:        b.item_name,
       granularity:      b.scan_count >= 3 ? 'DAILY_EXACT' : 'DAILY',
-      bucket_date:      TODAY,
+      bucket_date:      b.scan_date,  // date réelle du scan, pas TODAY
       avg_price:        b.avg_price,
       sell_price:       b.min_price,
       buy_price:        b.avg_price,
