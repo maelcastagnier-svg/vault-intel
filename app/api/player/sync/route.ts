@@ -109,7 +109,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 6. Pets
+    // 6. Collections
+    const collections: Record<string, number> = member.collection || {}
+
+    // 7. Pets
     const pets = (member.pets_data?.pets || []).slice(0, 20).map((p: any) => ({
       type:     p.type,
       tier:     p.tier,
@@ -118,29 +121,29 @@ export async function GET(req: NextRequest) {
       heldItem: p.heldItem,
     }))
 
-    // 7. Inventaire summary (items équipés)
+    // 8. Inventaire summary (items équipés)
     const inventorySummary = {
       armor:     member.inventory?.inv_armor?.data ? 'has_armor' : null,
       equipment: member.inventory?.equipment_contents?.data ? 'has_equipment' : null,
       wardrobe:  member.inventory?.wardrobe_contents?.data ? 'has_wardrobe' : null,
     }
 
-    // 8. Networth approximatif
+    // 9. Networth approximatif
     const purse    = Math.round(member.currencies?.coin_purse ?? 0)
     const bank     = Math.round(profile.banking?.balance ?? 0)
     const networth = purse + bank
 
-    // 9. Fairy souls
+    // 10. Fairy souls
     const fairySouls = member.fairy_soul?.total_collected ?? 0
 
-    // 10. Game stage
+    // 11. Game stage
     const maxSlayerXP = Math.max(...Object.values(slayers).map((s: any) => s.xp || 0))
     const gameStage   = detectGameStage(skillLevels, Object.fromEntries(Object.entries(slayers).map(([k, v]: any) => [k, v.xp])), networth)
 
-    // 11. Skin URL
+    // 12. Skin URL
     const skinUrl = `https://crafatar.com/renders/body/${uuid}?overlay=true&scale=4`
 
-    // 12. Upsert dans player_data
+    // 13. Upsert dans player_data
     const playerRecord = {
       user_id:           userId || null,
       hypixel_username:  username,
@@ -151,6 +154,7 @@ export async function GET(req: NextRequest) {
       skills:            skillLevels,
       slayers,
       dungeons,
+      collections,
       pets,
       inventory_summary: inventorySummary,
       fairy_souls:       fairySouls,
