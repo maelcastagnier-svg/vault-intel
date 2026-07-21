@@ -1,82 +1,73 @@
 // app/api/cron/historic-import/route.ts
-// Import historique SkyCofl — AH + Bazaar
-// 400 = item inexistant dans SkyCofl → marqué dead → skippé
+// Import historique SkyCofl → price_history_ah
+// Applique le mapping SkyCofl ID → Hypixel ID
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { extractVariantFromName } from '@/lib/text-variant-extractor'
+
+export const maxDuration = 60
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const PER_TYPE       = 20
-const SKYCOFL_TOKEN  = process.env.SKYCOFL_ACCOUNT_TOKEN!
+const PER_RUN = 20
 const SKYCOFL_HEADERS = {
-  'Authorization': `Bearer ${SKYCOFL_TOKEN}`,
+  'Authorization': `Bearer ${process.env.SKYCOFL_ACCOUNT_TOKEN}`,
   'Accept':        'application/json'
+}
+
+// Mapping SkyCofl ID → Hypixel ID
+const SKYCOFL_TO_HYPIXEL: Record<string, string> = {
+  // Necron set
+  'POWER_WITHER_HELMET':     'NECRON_HELMET',
+  'POWER_WITHER_CHESTPLATE': 'NECRON_CHESTPLATE',
+  'POWER_WITHER_LEGGINGS':   'NECRON_LEGGINGS',
+  'POWER_WITHER_BOOTS':      'NECRON_BOOTS',
+  // Storm set
+  'SPEED_WITHER_HELMET':     'STORM_HELMET',
+  'SPEED_WITHER_CHESTPLATE': 'STORM_CHESTPLATE',
+  'SPEED_WITHER_LEGGINGS':   'STORM_LEGGINGS',
+  'SPEED_WITHER_BOOTS':      'STORM_BOOTS',
+  // Maxor set
+  'TANK_WITHER_HELMET':      'MAXOR_HELMET',
+  'TANK_WITHER_CHESTPLATE':  'MAXOR_CHESTPLATE',
+  'TANK_WITHER_LEGGINGS':    'MAXOR_LEGGINGS',
+  'TANK_WITHER_BOOTS':       'MAXOR_BOOTS',
+  // Goldor set
+  'WISE_WITHER_HELMET':      'GOLDOR_HELMET',
+  'WISE_WITHER_CHESTPLATE':  'GOLDOR_CHESTPLATE',
+  'WISE_WITHER_LEGGINGS':    'GOLDOR_LEGGINGS',
+  'WISE_WITHER_BOOTS':       'GOLDOR_BOOTS',
+  // Shadow Assassin set
+  'WITHER_HELMET':            'SHADOW_ASSASSIN_HELMET',
+  'WITHER_CHESTPLATE':        'SHADOW_ASSASSIN_CHESTPLATE',
+  'WITHER_LEGGINGS':          'SHADOW_ASSASSIN_LEGGINGS',
+  'WITHER_BOOTS':             'SHADOW_ASSASSIN_BOOTS',
+  // Starred items
+  'STARRED_MIDAS_SWORD':      'MIDAS_SWORD',
+  'STARRED_MIDAS_STAFF':      'MIDAS_STAFF',
+  'STARRED_DAEDALUS_AXE':     'DAEDALUS_AXE',
 }
 
 function getDailyBucket(ts: Date): string {
   return ts.toISOString().split('T')[0]
 }
 
-function getMonthlyBucket(ts: Date): string {
-  return `${ts.getUTCFullYear()}-${String(ts.getUTCMonth() + 1).padStart(2, '0')}-01`
-}
-
-function toBaseItemId(baseName: string): string {
-  return baseName.toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '')
-}
-
-// 400/404/403 = item inexistant dans SkyCofl → dead
 function isDeadError(msg: string): boolean {
-  return msg.includes('400') ||
-         msg.includes('404') ||
-         msg.includes('403') ||
-         msg.includes('No data') ||
+  return msg.includes('400') || msg.includes('404') ||
+         msg.includes('403') || msg.includes('No data') ||
          msg.includes('item_not_found')
 }
 
-// ── Bazaar ────────────────────────────────────────────────────
-async function importBazaar(item_id: string): Promise<number> {
+async function importAH(skycofl_id: string): Promise<number> {
   const res = await fetch(
-    `https://sky.coflnet.com/api/bazaar/${item_id}/history`,
-    { headers: SKYCOFL_HEADERS }
-  )
-  if (!res.ok) throw new Error(`Bazaar ${res.status}`)
-
-  const points: { buy: number; sell: number; sellVolume: number; timestamp: string }[] = await res.json()
-  if (!Array.isArray(points) || points.length === 0) throw new Error('No data')
-
-  let inserted = 0
-  for (let i = 0; i < points.length; i += 50) {
-    const batch = points.slice(i, i + 50)
-    await Promise.all(batch.map(p =>
-      supabase.rpc('upsert_bazaar_price_bucket', {
-        p_item_id:     item_id,
-        p_item_name:   item_id.replace(/_/g, ' '),
-        p_buy_price:   p.buy,
-        p_sell_price:  p.sell,
-        p_avg_price:   (p.buy + p.sell) / 2,
-        p_volume:      p.sellVolume ?? 0,
-        p_bucket_date: getDailyBucket(new Date(p.timestamp))
-      })
-    ))
-    inserted += batch.length
-  }
-  return inserted
-}
-
-// ── AH ───────────────────────────────────────────────────────
-async function importAH(item_id: string, liquidity: 'HIGH' | 'LOW'): Promise<number> {
-  const res = await fetch(
-    `https://sky.coflnet.com/api/item/price/${encodeURIComponent(item_id)}/history/full`,
+    `https://sky.coflnet.com/api/item/price/${encodeURIComponent(skycofl_id)}/history/full`,
     { headers: SKYCOFL_HEADERS }
   )
 
   if (!res.ok) {
-    // Essaye de lire le message d'erreur pour identifier item_not_found
     const text = await res.text().catch(() => '')
     throw new Error(`AH ${res.status} ${text.slice(0, 100)}`)
   }
@@ -84,12 +75,10 @@ async function importAH(item_id: string, liquidity: 'HIGH' | 'LOW'): Promise<num
   const points: { min: number; max: number; avg: number; volume: number; time: string }[] = await res.json()
   if (!Array.isArray(points) || points.length === 0) throw new Error('No data')
 
-  // Extrait variante depuis le nom de l'item
-  const item_name    = item_id.replace(/_/g, ' ')
-  const v            = extractVariantFromName(item_name)
-  const base_item_id = toBaseItemId(v.baseName) || item_id
-  const variant_key  = v.variantKey || 'nostar_norecomb_noreforge'
-  const isHigh       = liquidity === 'HIGH'
+  // Applique le mapping SkyCofl → Hypixel si disponible
+  const base_item_id = SKYCOFL_TO_HYPIXEL[skycofl_id] || skycofl_id
+  const item_name    = base_item_id.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+  const variant_key  = 'nostar_norecomb_noreforge'  // historique brut SkyCofl = base
 
   let inserted = 0
   for (let i = 0; i < points.length; i += 50) {
@@ -99,114 +88,70 @@ async function importAH(item_id: string, liquidity: 'HIGH' | 'LOW'): Promise<num
       return supabase.rpc('upsert_ah_price_bucket', {
         p_base_item_id: base_item_id,
         p_variant_key:  variant_key,
-        p_total_stars:  v.totalStars ?? 0,
-        p_is_recomb:    v.recombobulated ?? false,
-        p_reforge:      v.reforge ?? null,
+        p_total_stars:  0,
+        p_is_recomb:    false,
+        p_reforge:      null,
         p_buy_price:    p.max ?? p.avg,
         p_sell_price:   p.min ?? p.avg,
         p_avg_price:    p.avg,
         p_volume:       p.volume ?? 0,
         p_granularity:  'DAILY',
-        p_bucket_date:  getDailyBucket(ts)
+        p_bucket_date:  getDailyBucket(ts),
       })
     }))
-    // Compte les insertions réussies
     inserted += results.filter(r => !r.error).length
   }
   return inserted
 }
 
-// ── Process un item ───────────────────────────────────────────
-async function processItem(item: { item_id: string; item_type: string; liquidity: string }) {
+async function processItem(item: { item_id: string; item_type: string }) {
   try {
-    const rows = item.item_type === 'BAZAAR'
-      ? await importBazaar(item.item_id)
-      : await importAH(item.item_id, item.liquidity as 'HIGH' | 'LOW')
+    const rows = await importAH(item.item_id)
 
     await supabase.from('historic_import_progress')
-      .update({
-        status:            'done',
-        years_completed:   3,
-        last_processed_at: new Date().toISOString()
-      })
+      .update({ status: 'done', years_completed: 3, last_processed_at: new Date().toISOString() })
       .eq('item_id', item.item_id)
 
-    return { item_id: item.item_id, type: item.item_type, rows, ok: true }
+    return { item_id: item.item_id, rows, ok: true, dead: false, error: '' }
 
   } catch (err: any) {
     const dead = isDeadError(err.message)
-
     await supabase.from('historic_import_progress')
-      .update({
-        status:            dead ? 'done' : 'pending',
-        last_processed_at: new Date().toISOString()
-      })
+      .update({ status: 'done', last_processed_at: new Date().toISOString() })
       .eq('item_id', item.item_id)
-
-    return {
-      item_id: item.item_id,
-      type:    item.item_type,
-      rows:    0,
-      ok:      false,
-      dead,
-      error:   err.message.slice(0, 150)
-    }
+    return { item_id: item.item_id, rows: 0, ok: false, dead, error: err.message.slice(0, 100) }
   }
 }
 
-// ── Handler ───────────────────────────────────────────────────
 export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  try {
-    const [bazaarRes, ahRes] = await Promise.all([
-      supabase.from('historic_import_progress')
-        .select('item_id, item_type, liquidity')
-        .eq('status', 'pending')
-        .eq('item_type', 'BAZAAR')
-        .order('item_id', { ascending: true })
-        .limit(PER_TYPE),
-      supabase.from('historic_import_progress')
-        .select('item_id, item_type, liquidity')
-        .eq('status', 'pending')
-        .eq('item_type', 'AH')
-        .order('item_id', { ascending: true })
-        .limit(PER_TYPE),
-    ])
+  const { data: items } = await supabase
+    .from('historic_import_progress')
+    .select('item_id, item_type')
+    .eq('status', 'pending')
+    .eq('item_type', 'AH')
+    .order('item_id', { ascending: true })
+    .limit(PER_RUN)
 
-    const items = [...(bazaarRes.data || []), ...(ahRes.data || [])]
-
-    if (items.length === 0) {
-      return NextResponse.json({ message: 'All items done! 🎉' })
-    }
-
-    const results = []
-    for (const item of items) {
-      results.push(await processItem(item))
-    }
-
-    const successful = results.filter(r => r.ok)
-    const dead       = results.filter(r => !r.ok && r.dead)
-    const failed     = results.filter(r => !r.ok && !r.dead)
-
-    return NextResponse.json({
-      success:    true,
-      processed:  results.length,
-      bazaar:     results.filter(r => r.type === 'BAZAAR').length,
-      ah:         results.filter(r => r.type === 'AH').length,
-      successful: successful.length,
-      dead:       dead.length,
-      failed:     failed.length,
-      total_rows: results.reduce((s, r) => s + r.rows, 0),
-      // Affiche les erreurs non-dead pour debug
-      errors:     failed.map(r => ({ item_id: r.item_id, error: r.error })),
-      // Affiche un sample des succès
-      sample_ok:  successful.slice(0, 3).map(r => ({ item_id: r.item_id, rows: r.rows })),
-    })
-
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!items || items.length === 0) {
+    return NextResponse.json({ message: 'All items done! 🎉' })
   }
+
+  const results = []
+  for (const item of items) {
+    results.push(await processItem(item))
+  }
+
+  return NextResponse.json({
+    success:    true,
+    processed:  results.length,
+    successful: results.filter(r => r.ok).length,
+    dead:       results.filter(r => r.dead).length,
+    total_rows: results.reduce((s, r) => s + r.rows, 0),
+    errors:     results.filter(r => !r.ok && !r.dead).map(r => ({ item_id: r.item_id, error: r.error })),
+    sample_ok:  results.filter(r => r.ok).slice(0, 3).map(r => ({ item_id: r.item_id, rows: r.rows })),
+  })
 }
