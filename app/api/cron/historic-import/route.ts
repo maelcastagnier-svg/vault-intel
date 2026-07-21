@@ -44,6 +44,7 @@ async function importBazaar(item_id: string): Promise<number> {
     const results = await Promise.all(points.slice(i, i + 50).map(p =>
       supabase.rpc('upsert_bazaar_price_bucket', {
         p_item_id:     item_id,
+        p_item_name:   item_id.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c: string) => c.toUpperCase()),
         p_buy_price:   p.buy   ?? 0,
         p_sell_price:  p.sell  ?? 0,
         p_avg_price:   ((p.buy ?? 0) + (p.sell ?? 0)) / 2,
@@ -136,7 +137,9 @@ export async function GET(request: Request) {
   if (items.length === 0) return NextResponse.json({ message: 'All done! 🎉' })
 
   const results = []
-  for (const item of items) results.push(await processItem(item))
+  for (const item of items) {
+    results.push(await processItem(item))
+  }
 
   return NextResponse.json({
     success:    true,
