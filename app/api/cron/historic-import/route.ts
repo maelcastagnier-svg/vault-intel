@@ -1,9 +1,9 @@
 // app/api/cron/historic-import/route.ts
-// Import historique SkyCofl → price_history_ah
-// Applique le mapping SkyCofl ID → Hypixel ID
+// Import historique complet :
+// BAZAAR → Hypixel API (1933 items officiels) → SkyCofl history → price_history
+// AH     → SkyCofl AUCTION (3798 items)       → SkyCofl history → price_history_ah
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
-import { extractVariantFromName } from '@/lib/text-variant-extractor'
 
 export const maxDuration = 60
 
@@ -12,43 +12,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const PER_RUN = 20
+const PER_TYPE = 20
 const SKYCOFL_HEADERS = {
   'Authorization': `Bearer ${process.env.SKYCOFL_ACCOUNT_TOKEN}`,
-  'Accept':        'application/json'
-}
-
-// Mapping SkyCofl ID → Hypixel ID
-const SKYCOFL_TO_HYPIXEL: Record<string, string> = {
-  // Necron set
-  'POWER_WITHER_HELMET':     'NECRON_HELMET',
-  'POWER_WITHER_CHESTPLATE': 'NECRON_CHESTPLATE',
-  'POWER_WITHER_LEGGINGS':   'NECRON_LEGGINGS',
-  'POWER_WITHER_BOOTS':      'NECRON_BOOTS',
-  // Storm set
-  'SPEED_WITHER_HELMET':     'STORM_HELMET',
-  'SPEED_WITHER_CHESTPLATE': 'STORM_CHESTPLATE',
-  'SPEED_WITHER_LEGGINGS':   'STORM_LEGGINGS',
-  'SPEED_WITHER_BOOTS':      'STORM_BOOTS',
-  // Maxor set
-  'TANK_WITHER_HELMET':      'MAXOR_HELMET',
-  'TANK_WITHER_CHESTPLATE':  'MAXOR_CHESTPLATE',
-  'TANK_WITHER_LEGGINGS':    'MAXOR_LEGGINGS',
-  'TANK_WITHER_BOOTS':       'MAXOR_BOOTS',
-  // Goldor set
-  'WISE_WITHER_HELMET':      'GOLDOR_HELMET',
-  'WISE_WITHER_CHESTPLATE':  'GOLDOR_CHESTPLATE',
-  'WISE_WITHER_LEGGINGS':    'GOLDOR_LEGGINGS',
-  'WISE_WITHER_BOOTS':       'GOLDOR_BOOTS',
-  // Shadow Assassin set
-  'WITHER_HELMET':            'SHADOW_ASSASSIN_HELMET',
-  'WITHER_CHESTPLATE':        'SHADOW_ASSASSIN_CHESTPLATE',
-  'WITHER_LEGGINGS':          'SHADOW_ASSASSIN_LEGGINGS',
-  'WITHER_BOOTS':             'SHADOW_ASSASSIN_BOOTS',
-  // Starred items
-  'STARRED_MIDAS_SWORD':      'MIDAS_SWORD',
-  'STARRED_MIDAS_STAFF':      'MIDAS_STAFF',
-  'STARRED_DAEDALUS_AXE':     'DAEDALUS_AXE',
+  'Accept': 'application/json'
 }
 
 function getDailyBucket(ts: Date): string {
@@ -61,12 +28,40 @@ function isDeadError(msg: string): boolean {
          msg.includes('item_not_found')
 }
 
-async function importAH(skycofl_id: string): Promise<number> {
+// ── BAZAAR ────────────────────────────────────────────────────
+async function importBazaar(item_id: string): Promise<number> {
   const res = await fetch(
-    `https://sky.coflnet.com/api/item/price/${encodeURIComponent(skycofl_id)}/history/full`,
+    `https://sky.coflnet.com/api/bazaar/${encodeURIComponent(item_id)}/history`,
     { headers: SKYCOFL_HEADERS }
   )
+  if (!res.ok) throw new Error(`Bazaar ${res.status}`)
 
+  const points: { buy: number; sell: number; sellVolume: number; buyVolume: number; timestamp: string }[] = await res.json()
+  if (!Array.isArray(points) || points.length === 0) throw new Error('No data')
+
+  let inserted = 0
+  for (let i = 0; i < points.length; i += 50) {
+    const results = await Promise.all(points.slice(i, i + 50).map(p =>
+      supabase.rpc('upsert_bazaar_price_bucket', {
+        p_item_id:     item_id,
+        p_buy_price:   p.buy   ?? 0,
+        p_sell_price:  p.sell  ?? 0,
+        p_avg_price:   ((p.buy ?? 0) + (p.sell ?? 0)) / 2,
+        p_volume:      p.sellVolume ?? p.buyVolume ?? 0,
+        p_bucket_date: getDailyBucket(new Date(p.timestamp))
+      })
+    ))
+    inserted += results.filter(r => !r.error).length
+  }
+  return inserted
+}
+
+// ── AH ───────────────────────────────────────────────────────
+async function importAH(item_id: string): Promise<number> {
+  const res = await fetch(
+    `https://sky.coflnet.com/api/item/price/${encodeURIComponent(item_id)}/history/full`,
+    { headers: SKYCOFL_HEADERS }
+  )
   if (!res.ok) {
     const text = await res.text().catch(() => '')
     throw new Error(`AH ${res.status} ${text.slice(0, 100)}`)
@@ -75,19 +70,13 @@ async function importAH(skycofl_id: string): Promise<number> {
   const points: { min: number; max: number; avg: number; volume: number; time: string }[] = await res.json()
   if (!Array.isArray(points) || points.length === 0) throw new Error('No data')
 
-  // Applique le mapping SkyCofl → Hypixel si disponible
-  const base_item_id = SKYCOFL_TO_HYPIXEL[skycofl_id] || skycofl_id
-  const item_name    = base_item_id.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
-  const variant_key  = 'nostar_norecomb_noreforge'  // historique brut SkyCofl = base
-
   let inserted = 0
   for (let i = 0; i < points.length; i += 50) {
-    const batch = points.slice(i, i + 50)
-    const results = await Promise.all(batch.map(p => {
+    const results = await Promise.all(points.slice(i, i + 50).map(p => {
       const ts = new Date(typeof p.time === 'number' ? p.time * 1000 : p.time)
       return supabase.rpc('upsert_ah_price_bucket', {
-        p_base_item_id: base_item_id,
-        p_variant_key:  variant_key,
+        p_base_item_id: item_id,
+        p_variant_key:  'nostar_norecomb_noreforge',
         p_total_stars:  0,
         p_is_recomb:    false,
         p_reforge:      null,
@@ -104,50 +93,56 @@ async function importAH(skycofl_id: string): Promise<number> {
   return inserted
 }
 
+// ── Process item ─────────────────────────────────────────────
 async function processItem(item: { item_id: string; item_type: string }) {
   try {
-    const rows = await importAH(item.item_id)
+    const rows = item.item_type === 'BAZAAR'
+      ? await importBazaar(item.item_id)
+      : await importAH(item.item_id)
 
     await supabase.from('historic_import_progress')
       .update({ status: 'done', years_completed: 3, last_processed_at: new Date().toISOString() })
       .eq('item_id', item.item_id)
 
-    return { item_id: item.item_id, rows, ok: true, dead: false, error: '' }
-
+    return { item_id: item.item_id, type: item.item_type, rows, ok: true, dead: false, error: '' }
   } catch (err: any) {
     const dead = isDeadError(err.message)
     await supabase.from('historic_import_progress')
       .update({ status: 'done', last_processed_at: new Date().toISOString() })
       .eq('item_id', item.item_id)
-    return { item_id: item.item_id, rows: 0, ok: false, dead, error: err.message.slice(0, 100) }
+    return { item_id: item.item_id, type: item.item_type, rows: 0, ok: false, dead, error: err.message.slice(0, 100) }
   }
 }
 
+// ── Handler ──────────────────────────────────────────────────
 export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data: items } = await supabase
-    .from('historic_import_progress')
-    .select('item_id, item_type')
-    .eq('status', 'pending')
-    .eq('item_type', 'AH')
-    .order('item_id', { ascending: true })
-    .limit(PER_RUN)
+  // Fetch items pending (BAZAAR en priorité)
+  const [{ data: bzItems }, { data: ahItems }] = await Promise.all([
+    supabase.from('historic_import_progress')
+      .select('item_id, item_type')
+      .eq('status', 'pending').eq('item_type', 'BAZAAR')
+      .order('item_id').limit(PER_TYPE),
+    supabase.from('historic_import_progress')
+      .select('item_id, item_type')
+      .eq('status', 'pending').eq('item_type', 'AH')
+      .order('item_id').limit(PER_TYPE),
+  ])
 
-  if (!items || items.length === 0) {
-    return NextResponse.json({ message: 'All items done! 🎉' })
-  }
+  const items = [...(bzItems || []), ...(ahItems || [])]
+  if (items.length === 0) return NextResponse.json({ message: 'All done! 🎉' })
 
   const results = []
-  for (const item of items) {
-    results.push(await processItem(item))
-  }
+  for (const item of items) results.push(await processItem(item))
 
   return NextResponse.json({
     success:    true,
     processed:  results.length,
+    bazaar:     results.filter(r => r.type === 'BAZAAR').length,
+    ah:         results.filter(r => r.type === 'AH').length,
     successful: results.filter(r => r.ok).length,
     dead:       results.filter(r => r.dead).length,
     total_rows: results.reduce((s, r) => s + r.rows, 0),
