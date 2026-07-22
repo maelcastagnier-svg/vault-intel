@@ -279,6 +279,37 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // 5b. Heart of the Mountain / Skill Tree (mining + foraging) — vérifié contre le code
+    // source de hypixel-api-reborn : les perks/nodes ne vivent PAS dans member.mining_core
+    // (qui ne contient que powder/crystals/forge) mais dans member.skill_tree, un champ
+    // séparé. On stocke les niveaux de node bruts (ex: mining_speed:9) plutôt que de
+    // dériver un "tier" — la table XP→tier (getLevelByXp type mining_tree) n'a pas de
+    // source vérifiée en interne, donc pas codée en dur ici (règle : jamais de constante
+    // de jeu reconstituée de mémoire).
+    function extractSkillTree(tree: 'mining' | 'foraging', tokenKey: 'mountain' | 'forest') {
+      const nodes = member.skill_tree?.nodes?.[tree] || {}
+      return {
+        nodes:            Object.fromEntries(Object.entries(nodes).filter(([k]) => !k.startsWith('toggle_'))),
+        experience:       member.skill_tree?.experience?.[tree] ?? 0,
+        tokens_spent:     member.skill_tree?.tokens_spent?.[tokenKey] ?? 0,
+        selected_ability: member.skill_tree?.selected_ability?.[tree] ?? null,
+      }
+    }
+    const powderOf = (type: string) => ({
+      powder: member.mining_core?.[`powder_${type}`] ?? 0,
+      spent:  member.mining_core?.[`powder_spent_${type}`] ?? 0,
+    })
+    const hotmProgress = {
+      mining:          extractSkillTree('mining', 'mountain'),
+      foraging:        extractSkillTree('foraging', 'forest'),
+      powder: {
+        mithril:  powderOf('mithril'),
+        gemstone: powderOf('gemstone'),
+        glacite:  powderOf('glacite'),
+      },
+      pickaxe_ability: member.mining_core?.selected_pickaxe_ability ?? null,
+    }
+
     // 6. Collections
     const collections: Record<string, number> = member.collection || {}
 
@@ -453,6 +484,7 @@ export async function GET(req: NextRequest) {
       backpacks:             backpacks,
       personal_vault_items:  personalVaultItems,
       wardrobe_slots:        wardrobeSlots,
+      hotm_progress:         hotmProgress,
       fairy_souls:       fairySouls,
       skin_url:          skinUrl,
       game_stage:        gameStage,
@@ -477,6 +509,7 @@ export async function GET(req: NextRequest) {
       skills:     skillLevels,
       networth,
       networth_breakdown: networthBreakdown,
+      hotm_progress: hotmProgress,
       skin_url:   skinUrl,
     })
 
