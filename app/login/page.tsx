@@ -1,9 +1,7 @@
 'use client'
 import { useState } from 'react'
-import { createClient } from '../../lib/supabase'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { createClient as createAdmin } from '@supabase/supabase-js'
 
 export default function Login() {
   const [identifier, setIdentifier] = useState('')
@@ -11,37 +9,27 @@ export default function Login() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError('')
 
-    let email = identifier
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier, password })
+    })
 
-    if (!identifier.includes('@')) {
-      const res = await fetch('/api/get-email-by-username', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: identifier })
-      })
-      const data = await res.json()
-      if (!data.email) {
-        setError('Username not found')
-        setLoading(false)
-        return
-      }
-      email = data.email
-    }
-
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      setError(error.message)
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setError(data.error || 'Invalid credentials')
       setLoading(false)
-    } else {
-      router.push('/dashboard')
+      return
     }
+
+    router.push('/dashboard')
+    router.refresh()
   }
 
   return (
