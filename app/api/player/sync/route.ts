@@ -36,32 +36,169 @@ function getSkillLevel(skillName: string, xp: number): number {
 }
 
 // Decode un blob NBT multi-items en liste plate (inventaire, enderchest, accessory bag...)
+// Garde variant_key_full/variant_key_base : cles de jointure prix (price_history_ah),
+// sans elles le calcul de networth ne peut matcher aucun prix.
 function decodeItemList(bytesBase64: string | undefined) {
   if (!bytesBase64) return []
   return decodeItemListBytes(bytesBase64)
     .map((item, index) => item ? { slot: index, ...item } : null)
     .filter((item): item is NonNullable<typeof item> => !!item)
     .map(item => ({
-      slot:         item.slot,
-      item_id:      item.item_id,
-      item_name:    item.item_name,
-      item_count:   item.item_count,
-      reforge:      item.reforge,
-      stars:        item.total_stars,
-      is_recomb:    item.is_recomb,
-      enchantments: item.enchantments,
-      gems:         item.gems,
+      slot:             item.slot,
+      item_id:          item.item_id,
+      item_name:        item.item_name,
+      item_count:       item.item_count,
+      reforge:          item.reforge,
+      stars:            item.total_stars,
+      is_recomb:        item.is_recomb,
+      enchantments:     item.enchantments,
+      gems:             item.gems,
+      variant_key_full: item.variant_key_full,
+      variant_key_base: item.variant_key_base,
     }))
 }
 
+// Champs minimaux necessaires pour pricer un item (utilise par calculateNetworth)
+type PriceableItem = { item_id: string; variant_key_full: string; variant_key_base: string; item_count: number }
+
+// Seuils networth alignes sur les bandes deja validees de Money Making (TIER_CONFIG,
+// money-making-agent/route.ts) — 0-50M/50M-500M/500M-5B/5B+ — plutot que d'en inventer
+// de nouveaux. Remplace les anciens seuils (5M/100M/1B) calibres a l'epoque ou
+// networth = purse+bank uniquement, desormais obsoletes puisque networth inclut le gear.
+// Amelioration incrementale, pas la version finale : a terme game_stage devrait etre un
+// score composite (skills + catacombs/slayer + qualite reelle du gear), pas juste
+// networth+avgSkill — voir CLAUDE.md.
 function detectGameStage(skills: Record<string, number>, slayers: Record<string, number>, networth: number): string {
   const avgSkill  = Object.values(skills).reduce((s, v) => s + v, 0) / Object.keys(skills).length
   const maxSlayer = Math.max(...Object.values(slayers))
 
-  if (networth < 5_000_000  || avgSkill < 10) return 'EARLY'
-  if (networth < 100_000_000 || avgSkill < 25) return 'MID'
-  if (networth < 1_000_000_000 || avgSkill < 40) return 'END'
+  if (networth < 50_000_000   || avgSkill < 10) return 'EARLY'
+  if (networth < 500_000_000  || avgSkill < 25) return 'MID'
+  if (networth < 5_000_000_000 || avgSkill < 40) return 'END'
   return 'LATE'
+}
+
+// ── Networth ──────────────────────────────────────────────────
+type CategoryBreakdown = { value: number; items_priced: number; items_unpriced: number }
+type NetworthBreakdown = {
+  total: number
+  purse: number
+  bank: number
+  items_total: number
+  categories: Record<string, CategoryBreakdown>
+  calculated_at: string
+}
+
+// Garde la ligne au bucket_date le plus recent par cle (evite un ORDER BY + DISTINCT ON
+// cote SQL, fait ici cote JS sur un resultat deja filtre/petit)
+function pickLatestPriceByKey(rows: { key: string; price: number; date: string }[]): Map<string, number> {
+  const latest = new Map<string, { price: number; date: string }>()
+  for (const r of rows) {
+    if (r.price <= 0) continue
+    const prev = latest.get(r.key)
+    if (!prev || r.date > prev.date) latest.set(r.key, { price: r.price, date: r.date })
+  }
+  return new Map(Array.from(latest, ([k, v]) => [k, v.price]))
+}
+
+function betterPrice(sellPrice: any, avgPrice: any): number {
+  const sell = Number(sellPrice) || 0
+  if (sell > 0) return sell
+  return Number(avgPrice) || 0
+}
+
+// Calcule le networth complet (purse+bank+items) en 2 requetes batch (pas une par item) :
+// 1) price_history_ah pour tous les item_id concernes (variant_key exact, puis variant_key_base
+//    en repli) 2) price_history (source BAZAAR) pour les item_id restants, non trouves en AH.
+// Jamais bloquant : un item sans prix trouve vaut 0, ne fait pas echouer le sync.
+async function calculateNetworth(
+  supabase: any,
+  purse: number,
+  bank: number,
+  categorizedItems: Record<string, PriceableItem[]>
+): Promise<NetworthBreakdown> {
+  const allItems     = Object.values(categorizedItems).flat()
+  const uniqueItemIds = Array.from(new Set(allItems.map(i => i.item_id)))
+  const emptyCategories = Object.fromEntries(
+    Object.keys(categorizedItems).map(k => [k, { value: 0, items_priced: 0, items_unpriced: 0 } as CategoryBreakdown])
+  )
+
+  if (uniqueItemIds.length === 0) {
+    return { total: purse + bank, purse, bank, items_total: 0, categories: emptyCategories, calculated_at: new Date().toISOString() }
+  }
+
+  const sinceDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+  // ── Tier 1+2 : price_history_ah, exact (variant_key) puis base (variant_key_base) ──
+  const { data: ahRows } = await supabase
+    .from('price_history_ah')
+    .select('base_item_id, variant_key, variant_key_base, sell_price, avg_price, bucket_date')
+    .in('base_item_id', uniqueItemIds)
+    .gte('bucket_date', sinceDate)
+
+  const exactRows: { key: string; price: number; date: string }[] = []
+  const baseRows:  { key: string; price: number; date: string }[] = []
+  const itemIdsWithAhPrice = new Set<string>()
+
+  for (const row of (ahRows || []) as any[]) {
+    const price = betterPrice(row.sell_price, row.avg_price)
+    if (price <= 0) continue
+    exactRows.push({ key: `${row.base_item_id}|${row.variant_key}`, price, date: row.bucket_date })
+    itemIdsWithAhPrice.add(row.base_item_id)
+    if (row.variant_key_base) {
+      baseRows.push({ key: `${row.base_item_id}|${row.variant_key_base}`, price, date: row.bucket_date })
+    }
+  }
+
+  const exactPriceMap = pickLatestPriceByKey(exactRows)
+  const basePriceMap  = pickLatestPriceByKey(baseRows)
+
+  // ── Tier 3 : price_history (BAZAAR), uniquement pour les item_id absents de l'AH ──
+  const bazaarCandidateIds = uniqueItemIds.filter(id => !itemIdsWithAhPrice.has(id))
+  let bazaarPriceMap = new Map<string, number>()
+
+  if (bazaarCandidateIds.length > 0) {
+    const { data: bazaarRows } = await supabase
+      .from('price_history')
+      .select('item_id, sell_price, avg_price, bucket_date')
+      .eq('source', 'BAZAAR')
+      .in('item_id', bazaarCandidateIds)
+      .gte('bucket_date', sinceDate)
+
+    const rows = ((bazaarRows || []) as any[])
+      .map(row => ({ key: row.item_id, price: betterPrice(row.sell_price, row.avg_price), date: row.bucket_date }))
+    bazaarPriceMap = pickLatestPriceByKey(rows)
+  }
+
+  const priceForItem = (item: PriceableItem): number => {
+    const exact = exactPriceMap.get(`${item.item_id}|${item.variant_key_full}`)
+    if (exact !== undefined) return exact
+    const base = basePriceMap.get(`${item.item_id}|${item.variant_key_base}`)
+    if (base !== undefined) return base
+    return bazaarPriceMap.get(item.item_id) ?? 0
+  }
+
+  const categories: Record<string, CategoryBreakdown> = {}
+  let itemsTotal = 0
+
+  for (const [category, items] of Object.entries(categorizedItems)) {
+    let value = 0, priced = 0, unpriced = 0
+    for (const item of items) {
+      const unitPrice = priceForItem(item)
+      if (unitPrice > 0) { value += unitPrice * (item.item_count || 1); priced++ }
+      else { unpriced++ }
+    }
+    categories[category] = { value: Math.round(value), items_priced: priced, items_unpriced: unpriced }
+    itemsTotal += value
+  }
+
+  return {
+    total:       Math.round(purse + bank + itemsTotal),
+    purse, bank,
+    items_total: Math.round(itemsTotal),
+    categories,
+    calculated_at: new Date().toISOString(),
+  }
 }
 
 // ── Handler ───────────────────────────────────────────────────
@@ -171,13 +308,16 @@ export async function GET(req: NextRequest) {
         const suffix = Object.keys(ARMOR_SLOT_SUFFIXES).find(s => item.item_id.endsWith(`_${s}`))
         const slotKey = suffix ? ARMOR_SLOT_SUFFIXES[suffix] : `slot_${index}`
         equippedArmor[slotKey] = {
-          item_id:      item.item_id,
-          item_name:    item.item_name,
-          reforge:      item.reforge,
-          stars:        item.total_stars,
-          is_recomb:    item.is_recomb,
-          enchantments: item.enchantments,
-          gems:         item.gems,
+          item_id:          item.item_id,
+          item_name:        item.item_name,
+          reforge:          item.reforge,
+          stars:            item.total_stars,
+          is_recomb:        item.is_recomb,
+          enchantments:     item.enchantments,
+          gems:             item.gems,
+          item_count:       1,
+          variant_key_full: item.variant_key_full,
+          variant_key_base: item.variant_key_base,
         }
       })
     }
@@ -188,13 +328,16 @@ export async function GET(req: NextRequest) {
       ? decodeItemListBytes(bagData)
           .filter((item): item is NonNullable<typeof item> => !!item)
           .map(item => ({
-            item_id:      item.item_id,
-            item_name:    item.item_name,
-            reforge:      item.reforge,
-            stars:        item.total_stars,
-            is_recomb:    item.is_recomb,
-            enchantments: item.enchantments,
-            gems:         item.gems,
+            item_id:          item.item_id,
+            item_name:        item.item_name,
+            reforge:          item.reforge,
+            stars:            item.total_stars,
+            is_recomb:        item.is_recomb,
+            enchantments:     item.enchantments,
+            gems:             item.gems,
+            item_count:       1,
+            variant_key_full: item.variant_key_full,
+            variant_key_base: item.variant_key_base,
           }))
       : []
 
@@ -238,18 +381,38 @@ export async function GET(req: NextRequest) {
         return { slot: Number(key), helmet, chestplate, leggings, boots }
       })
       .filter(s => s.helmet || s.chestplate || s.leggings || s.boots)
-      .map(s => ({
-        slot: s.slot,
-        helmet:     s.helmet     ? { item_id: s.helmet.item_id,     item_name: s.helmet.item_name,     reforge: s.helmet.reforge,     stars: s.helmet.total_stars,     enchantments: s.helmet.enchantments,     gems: s.helmet.gems }     : null,
-        chestplate: s.chestplate ? { item_id: s.chestplate.item_id, item_name: s.chestplate.item_name, reforge: s.chestplate.reforge, stars: s.chestplate.total_stars, enchantments: s.chestplate.enchantments, gems: s.chestplate.gems } : null,
-        leggings:   s.leggings   ? { item_id: s.leggings.item_id,   item_name: s.leggings.item_name,   reforge: s.leggings.reforge,   stars: s.leggings.total_stars,   enchantments: s.leggings.enchantments,   gems: s.leggings.gems }   : null,
-        boots:      s.boots      ? { item_id: s.boots.item_id,      item_name: s.boots.item_name,      reforge: s.boots.reforge,      stars: s.boots.total_stars,      enchantments: s.boots.enchantments,      gems: s.boots.gems }      : null,
-      }))
+      .map(s => {
+        const piece = (item: typeof s.helmet) => item ? {
+          item_id: item.item_id, item_name: item.item_name, reforge: item.reforge, stars: item.total_stars,
+          enchantments: item.enchantments, gems: item.gems, item_count: 1,
+          variant_key_full: item.variant_key_full, variant_key_base: item.variant_key_base,
+        } : null
+        return {
+          slot:       s.slot,
+          helmet:     piece(s.helmet),
+          chestplate: piece(s.chestplate),
+          leggings:   piece(s.leggings),
+          boots:      piece(s.boots),
+        }
+      })
 
-    // 9. Networth approximatif
-    const purse    = Math.round(member.currencies?.coin_purse ?? 0)
-    const bank     = Math.round(profile.banking?.balance ?? 0)
-    const networth = purse + bank
+    // 9. Networth complet — purse+bank + valeur de marche de tous les items decodes
+    const purse = Math.round(member.currencies?.coin_purse ?? 0)
+    const bank  = Math.round(profile.banking?.balance ?? 0)
+
+    const categorizedItems: Record<string, PriceableItem[]> = {
+      equipped_armor:       Object.values(equippedArmor) as PriceableItem[],
+      equipped_accessories: equippedAccessories as PriceableItem[],
+      inventory_items:      inventoryItems as PriceableItem[],
+      ender_chest_items:    enderChestItems as PriceableItem[],
+      backpacks:            backpacks.flatMap(bp => bp.items) as PriceableItem[],
+      personal_vault_items: personalVaultItems as PriceableItem[],
+      wardrobe_slots:       wardrobeSlots.flatMap(s => [s.helmet, s.chestplate, s.leggings, s.boots])
+                               .filter((p): p is NonNullable<typeof p> => !!p) as PriceableItem[],
+    }
+
+    const networthBreakdown = await calculateNetworth(supabase, purse, bank, categorizedItems)
+    const networth = networthBreakdown.total
 
     // 10. Fairy souls
     const fairySouls = member.fairy_soul?.total_collected ?? 0
@@ -270,6 +433,7 @@ export async function GET(req: NextRequest) {
       purse,
       bank,
       networth,
+      networth_breakdown: networthBreakdown,
       skills:            skillLevels,
       slayers,
       dungeons,
@@ -306,6 +470,7 @@ export async function GET(req: NextRequest) {
       game_stage: gameStage,
       skills:     skillLevels,
       networth,
+      networth_breakdown: networthBreakdown,
       skin_url:   skinUrl,
     })
 

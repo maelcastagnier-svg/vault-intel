@@ -156,23 +156,38 @@ Remplace l'ancienne limite "networth = purse+bank uniquement" :
      des données de profil/inventaire joueur, jamais l'état du monde/des chunks. Ce n'est 
      pas une question de permission ou de setting à activer, la donnée n'existe simplement 
      pas dans la réponse JSON de Hypixel.
-   - **Wardrobe (tenues sauvegardées, `member.loadout.armor`, jusqu'à 27 slots × 4 pièces)** 
-     — pas encore décodé, décision à prendre : **ce ne sont PAS des doublons** de l'armure 
-     déjà comptée. Le wardrobe permute avec `inv_armor` (l'armure équipée), donc toute 
-     tenue stockée dans un slot wardrobe non porté est invisible ailleurs (pas dans 
-     `inv_armor`, pas dans l'inventaire/enderchest/backpacks) — un joueur avec un set PvP 
-     de côté pendant qu'il porte son set Mining perdrait cette valeur dans le networth si 
-     on l'ignore. Utile pour le networth complet, moins prioritaire pour Money Making 
-     personnalisé (juste un éventuel "tu as un set inutilisé, pense à le porter pour X"). 
-     Format identique (NBT base64-gzip par pièce), complexité un peu plus haute (27 slots 
-     à boucler) mais pas un blocage technique.
+   - **Wardrobe (tenues sauvegardées, `member.loadout.armor`, objet indexé par slot "1".."27" 
+     × 4 pièces)** ✅ **fait et en prod**. Confirmé **PAS des doublons** de l'armure déjà 
+     comptée : le wardrobe permute avec `inv_armor` (l'armure équipée), donc toute tenue 
+     stockée dans un slot non porté est invisible ailleurs (pas dans `inv_armor`, pas dans 
+     l'inventaire/enderchest/backpacks). Validé sur Cucumber : 5 slots débloqués, 3 pleins 
+     avec de vrais sets complets (Wise Yog, Ancient Necron's ✪✪✪✪✪, Necrotic Aurora ✪✪✪✪✪).
    - **Découverte notée, pas creusée** : chaque item NBT (armure au moins) porte un champ 
      `extra.donated_museum` (+ `timestamp`, `boosters`) absent des items d'AH — probablement 
      un flag/timestamp indiquant si une copie de cet item a été donnée au musée. Pourrait 
      donner un raccourci pour le blocage Musée (évite l'appel `/v2/skyblock/museum` séparé) 
      mais à valider avant d'en dépendre — pas urgent.
-2. **Vrai networth** — calculé depuis les items réels décodés × prix marché déjà 
-   collecté en interne, plus purse+bank.
+2. **Vrai networth** (en cours, 23 juillet) — calculé depuis les items réels décodés × prix 
+   marché déjà collecté en interne (`price_history_ah` exact puis `variant_key_base`, 
+   fallback `price_history` source BAZAAR pour les matériaux bruts — **pas** `bazaar_1h`, 
+   table de scan volatile à 25 lignes, pas une couverture réelle), plus purse+bank. 
+   Breakdown détaillé par catégorie stocké dans `player_data.networth_breakdown` (jsonb), 
+   `networth` devient le vrai total. Nécessite d'abord de stocker `variant_key_full`/
+   `variant_key_base`/`item_count` sur chaque item décodé (jetés jusqu'ici lors du mapping 
+   vers le format de stockage "friendly") — sans ça, impossible de matcher un prix.
+   - **`detectGameStage` recalibré en même temps** : les seuils networth actuels 
+     (5M/100M/1B) datent de l'époque "networth = purse+bank uniquement" et sous-comptaient 
+     largement les joueurs bien équipés. Alignés sur les bandes déjà validées de Money 
+     Making (0-50M / 50M-500M / 500M-5B / 5B+) plutôt que d'inventer de nouveaux seuils — 
+     élimine aussi l'incohérence entre les deux définitions de EARLY/MID/END/LATE qui 
+     coexistaient dans le code.
+   - **⚠️ Amélioration future notée, pas la version finale** : `game_stage` ne devrait à 
+     terme pas se baser sur le networth (un item cher hérité/acheté ne reflète pas 
+     l'avancement réel du joueur), mais sur un score composite de puissance/avancement 
+     global — skills, niveaux catacombs/slayer, qualité réelle de l'équipement (étoiles/
+     reforge/enchants présents) — avec le networth comme un signal parmi d'autres, pas 
+     dominant. Le recalibrage actuel (seuils Money Making) est une amélioration 
+     incrémentale sur la même logique existante, pas cette refonte.
 3. **Skyblock Level + XP Guide** comme référentiel de tiers/milestones, en remplacement 
    ou complément du découpage EARLY/MID/END/LATE actuel (basé sur networth + avg skill).
 4. **Historique de progression par snapshots** — mesurer la vitesse de progression 
