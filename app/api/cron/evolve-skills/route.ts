@@ -29,18 +29,61 @@ const SKILL_CARDS = [
 
 const SLAYER_BOSSES = ['zombie', 'spider', 'wolf', 'enderman', 'blaze', 'vampire'] as const
 
+function describeItem(item: any): string {
+  if (!item) return ''
+  return (item.item_name || item.item_id || 'unknown item') +
+    (item.total_stars ? ` ${'✪'.repeat(Math.min(item.total_stars, 5))}` : '') +
+    (item.reforge ? ` (${item.reforge})` : '') +
+    (item.is_recomb ? ' [recomb]' : '')
+}
+
+// Rassemble tout ce que le joueur possede mais ne porte pas actuellement — inventaire,
+// enderchest, backpacks, Personal Vault, wardrobe (tenues sauvegardees, swap gratuit).
+// Sans ca, "current" ne voit que equipped_armor/equipped_accessories et le prompt peut
+// recommander un achat pour un item deja possede mais range ailleurs.
+function collectOwnedButUnequipped(player: any): string {
+  const lines: string[] = []
+
+  for (const item of (player.inventory_items || [])) {
+    const d = describeItem(item)
+    if (d) lines.push(`${d} [Inventory]`)
+  }
+  for (const item of (player.ender_chest_items || [])) {
+    const d = describeItem(item)
+    if (d) lines.push(`${d} [Ender Chest]`)
+  }
+  for (const bp of (player.backpacks || [])) {
+    for (const item of (bp.items || [])) {
+      const d = describeItem(item)
+      if (d) lines.push(`${d} [${bp.icon_item_name || 'Backpack'}]`)
+    }
+  }
+  for (const item of (player.personal_vault_items || [])) {
+    const d = describeItem(item)
+    if (d) lines.push(`${d} [Personal Vault]`)
+  }
+  for (const slot of (player.wardrobe_slots || [])) {
+    for (const piece of ['helmet', 'chestplate', 'leggings', 'boots']) {
+      const d = describeItem(slot[piece])
+      if (d) lines.push(`${d} [Wardrobe slot ${slot.slot}]`)
+    }
+  }
+
+  const MAX = 400
+  if (lines.length > MAX) return lines.slice(0, MAX).join('\n') + `\n... (${lines.length - MAX} more items truncated)`
+  return lines.join('\n') || 'Nothing else owned'
+}
+
 // ── Formate l'état d'un joueur pour le prompt ───────────────────
 function formatPlayerContext(player: any, library: string): string {
   const armor = Object.entries(player.equipped_armor || {})
-    .map(([slot, item]: [string, any]) =>
-      `${slot}: ${item?.item_name || item?.item_id || 'empty'}` +
-      (item?.total_stars ? ` ${'✪'.repeat(Math.min(item.total_stars, 5))}` : '') +
-      (item?.reforge ? ` (${item.reforge})` : '') +
-      (item?.is_recomb ? ' [recomb]' : '')
-    ).join('\n') || 'None equipped'
+    .map(([slot, item]: [string, any]) => `${slot}: ${describeItem(item) || 'empty'}`)
+    .join('\n') || 'None equipped'
 
   const accessories = (player.equipped_accessories || [])
     .map((a: any) => a.item_name || a.item_id).join(', ') || 'None'
+
+  const ownedElsewhere = collectOwnedButUnequipped(player)
 
   const hotm = player.hotm_progress || {}
   const hotmLine = (tree: string) => {
@@ -73,6 +116,12 @@ ${armor}
 
 === EQUIPPED ACCESSORIES (${(player.equipped_accessories || []).length}) ===
 ${accessories}
+
+=== OWNED BUT NOT CURRENTLY EQUIPPED (inventory, ender chest, backpacks, Personal Vault, wardrobe) ===
+Check this list BEFORE ever recommending a purchase — if something here already covers the
+target, it's a free swap, not an upgrade to buy. Wardrobe items swap for free instantly.
+Everything else requires physically moving/equipping it but costs nothing.
+${ownedElsewhere}
 
 === HEART OF THE MOUNTAIN / SKILL TREE ===
 ${hotmLine('mining')}
@@ -111,17 +160,25 @@ Each card has:
 
 === TARGET CALIBRATION — the most important rule ===
 The target must be reachable from where THIS player actually is, not a generic tier goal:
-- Use their PURSE specifically (not networth, not game_stage) to judge what they can afford right now.
-  A player can be MID-tier overall (large networth from gear on other skills) while being genuinely
-  under-invested on one specific system — that's still "can afford it, just hasn't prioritized it",
-  a different case from a player who truly cannot afford anything yet.
+- BEFORE ever proposing a purchase, check the OWNED BUT NOT CURRENTLY EQUIPPED list. If an item there
+  already satisfies (or beats) what you were about to recommend buying, target.type = "free_swap":
+  budget_estimate = 0, and requirements/reasoning must name the exact item(s) and where they currently
+  are (e.g. "already own: Ancient Necron's Chestplate/Leggings/Boots in Wardrobe slot 2 — swap for free
+  in the Wardrobe menu, no purchase needed"). Recommending a purchase for something already owned is the
+  single worst failure mode for this feature — worse than an unreachable target, because it wastes real
+  money the player didn't need to spend.
+- Use their PURSE specifically (not networth, not game_stage) to judge what they can afford right now,
+  for whatever gap remains AFTER checking owned items above. A player can be MID-tier overall (large
+  networth from gear on other skills) while being genuinely under-invested on one specific system —
+  that's still "can afford it, just hasn't prioritized it", a different case from a player who truly
+  cannot afford anything yet.
 - If a system is not yet unlocked/started at all (e.g. Catacombs never entered, no slayer kills on a
   boss), target.type = "unlock_access" — the goal is starting the system, not optimizing a yield that
   doesn't exist yet.
 - If the player has little to no capital anywhere (very low purse, EARLY game_stage, most skills near
   level 0), the target must be their realistic FIRST step into that system — a starter tool/setup within
   their actual budget, never a mid/end-game item. Getting this wrong (recommending something unreachable
-  to a near-zero player) is the single worst failure mode for this feature.
+  to a near-zero player) is also a critical failure mode for this feature.
 - The general method library given as reference is for INSPIRATION on what methods exist in the game —
   never copy its coins/h numbers directly, they were calculated for a generic tier setup, not this player.
 
@@ -147,7 +204,7 @@ guess as precise fact.
         "confidence": "HIGH"
       },
       "target": {
-        "type": "upgrade",
+        "type": "free_swap | upgrade | unlock_access",
         "goal": "...",
         "requirements": ["..."],
         "budget_estimate": 0,
