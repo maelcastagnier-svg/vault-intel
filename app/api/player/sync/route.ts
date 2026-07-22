@@ -156,6 +156,22 @@ export async function GET(req: NextRequest) {
       })
     }
 
+    // 8c. Accessory bag décodé (member.inventory.bag_contents.talisman_bag.data)
+    const bagData = member.inventory?.bag_contents?.talisman_bag?.data
+    const equippedAccessories = bagData
+      ? decodeItemListBytes(bagData)
+          .filter((item): item is NonNullable<typeof item> => !!item)
+          .map(item => ({
+            item_id:      item.item_id,
+            item_name:    item.item_name,
+            reforge:      item.reforge,
+            stars:        item.total_stars,
+            is_recomb:    item.is_recomb,
+            enchantments: item.enchantments,
+            gems:         item.gems,
+          }))
+      : []
+
     // 9. Networth approximatif
     const purse    = Math.round(member.currencies?.coin_purse ?? 0)
     const bank     = Math.round(profile.banking?.balance ?? 0)
@@ -185,7 +201,8 @@ export async function GET(req: NextRequest) {
       collections,
       pets,
       inventory_summary: inventorySummary,
-      equipped_armor:    equippedArmor,
+      equipped_armor:        equippedArmor,
+      equipped_accessories:  equippedAccessories,
       fairy_souls:       fairySouls,
       skin_url:          skinUrl,
       game_stage:        gameStage,

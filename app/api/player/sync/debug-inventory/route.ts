@@ -1,11 +1,20 @@
-// app/api/player/sync/debug-accessories/route.ts
-// TEMPORAIRE — teste decodeItemListBytes sur l'accessory bag (member.inventory.bag_contents.talisman_bag.data)
+// app/api/player/sync/debug-inventory/route.ts
+// TEMPORAIRE — teste decodeItemListBytes sur inv_contents et ender_chest_contents
 // d'un vrai joueur. Lecture seule, n'ecrit rien dans player_data. A supprimer une fois valide.
-// GET /api/player/sync/debug-accessories?username=X
+// GET /api/player/sync/debug-inventory?username=X
 import { NextRequest, NextResponse } from 'next/server'
 import { decodeItemListBytes } from '../../../../../lib/skyblock-item-decoder'
 
 const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
+
+function summarize(bytesBase64: string | undefined) {
+  if (!bytesBase64) return { present: false, raw_slot_count: 0, item_count: 0, items: [] }
+  const decoded = decodeItemListBytes(bytesBase64)
+  const items = decoded
+    .map((item, index) => item ? { slot: index, ...item } : null)
+    .filter(Boolean)
+  return { present: true, raw_slot_count: decoded.length, item_count: items.length, items }
+}
 
 export async function GET(req: NextRequest) {
   const username = req.nextUrl.searchParams.get('username')
@@ -29,25 +38,15 @@ export async function GET(req: NextRequest) {
     const member = profile.members?.[uuid.replace(/-/g, '')]
     if (!member) return NextResponse.json({ error: 'Player data not found in profile' }, { status: 404 })
 
-    const bagData = member.inventory?.bag_contents?.talisman_bag?.data
-    if (!bagData) {
-      return NextResponse.json({
-        error: 'No talisman_bag data on this profile',
-        available_bag_keys: Object.keys(member.inventory?.bag_contents || {}),
-      }, { status: 404 })
-    }
-
-    const decoded = decodeItemListBytes(bagData)
-    const accessories = decoded
-      .map((item, index) => item ? { slot: index, ...item } : null)
-      .filter(Boolean)
+    const inventory = summarize(member.inventory?.inv_contents?.data)
+    const enderChest = summarize(member.inventory?.ender_chest_contents?.data)
 
     return NextResponse.json({
       username,
       uuid,
-      raw_slot_count: decoded.length,
-      accessory_count: accessories.length,
-      accessories,
+      inventory,
+      ender_chest: enderChest,
+      available_inventory_keys: Object.keys(member.inventory || {}),
     })
   } catch (e: any) {
     return NextResponse.json({ error: e.message || 'Server error' }, { status: 500 })
