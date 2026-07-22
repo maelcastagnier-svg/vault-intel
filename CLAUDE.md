@@ -102,6 +102,59 @@ avec seulement 3 data_points à un prix ~40x supérieur aux variantes voisines �
 — 2-3 enchères aberrantes suffisent à polluer durablement le prix d'une variante rare. 
 À traiter si ça devient un problème visible, pas bloquant aujourd'hui.
 
+### Audit complémentaire (22 juillet, suite) — vérification post-fix
+
+- **`game_mechanics_misc` — RLS était désactivé, corrigé immédiatement** (trouvé par 
+  l'advisory Supabase automatique lors de l'audit) : table de 8615 lignes lisible ET 
+  **écrivable** par n'importe qui via la clé anon publique, contrairement au trou d'auth 
+  Evolve documenté plus haut qui était sans conséquence (rien ne l'appelait). RLS activé + 
+  policy SELECT publique (contenu de jeu, lecture publique voulue), aucune policy 
+  d'écriture (INSERT/UPDATE/DELETE bloqués pour anon/authenticated ; le service role des 
+  crons bypass RLS de toute façon, donc `wiki-auto-sync` continue de fonctionner). Audit 
+  élargi à toutes les tables publiques : c'était la seule avec RLS désactivé.
+  - Trouvé au passage (pas corrigé, hors scope de cette session) : 2 vues `SECURITY 
+    DEFINER` (`distinct_items`, `method_feedback_summary`) remontées en ERROR par le 
+    linter Supabase — s'exécutent avec les droits du créateur plutôt que de l'appelant, 
+    contournant potentiellement RLS. À investiguer avant de toucher au RLS d'autres tables.
+- **`price_history_ah` — résidus `historic-import` du 21 juillet (59 lignes/53 items 
+  mélangeant reforges réelles et placeholder)** : historique figé, sans risque, ne se 
+  reproduira plus maintenant que le cron est coupé. Pas d'action nécessaire.
+- **`variant_key_base` sur `price_history_ah_variants` — pas de vraie moyenne agrégée** : 
+  confirmé que c'est une fonctionnalité jamais construite (le fallback JS prend le prix 
+  de la ligne exacte la plus récente partageant la même base, pas une moyenne pondérée du 
+  groupe), pas un bug. À revisiter seulement si le pricing par variante exacte manque 
+  trop souvent de données en pratique.
+
+## ⚠️ Chantier futur (documenté, pas commencé) — Pipeline données mécaniques à reconstruire
+
+Trouvé lors de l'audit complet de collecte du 22 juillet : **30 tables de mécaniques de 
+jeu sur 44 n'ont aucune provenance traçable** dans le code actuel ni dans tout l'historique 
+git (`sblevel_tasks`, `fairy_soul_locations`, `sack_contents`, `museum_sets`, 
+`museum_item_xp`, `item_upgrade_chains`, les 7 tables `garden_*` dédiées, 
+`gemstone_slot_costs`, `essence_shop_upgrades`, `pet_stat_progression`, 
+`george_pet_prices`, `npc_locations`, `dungeon_classes`, `dungeon_rng_scores`, 
+`slayer_rng_scores`, `hotm_perks`, `hotf_perks`, `skills`, `forge_recipes`, 
+`accessory_powers`, `magical_power_by_rarity`, `rift_guide`, `trophy_fish_thresholds`, 
+`skymart_shop`, `hoppity_prestige`, `island_warps`, `minion_tier_xp`, 
+`glacite_tunnel_waypoints`, `hotm_hotf_powders`, `player_base_stats`, `game_zones`, 
+`accessory_upgrade_paths`) — peuplées par un processus hors dépôt (SQL manuel via 
+dashboard Supabase probablement), sans aucun mécanisme de mise à jour.
+
+Les 2 seuls pipelines documentés qui alimentaient une partie du reste (`neu_constants_raw`/
+`reforges`/`enchantments` via NEU-REPO, `collections` via l'API Hypixel) ont été supprimés 
+le 16 juillet (commit `7df1fa4`, "remove unused crons") — plus aucune resynchronisation 
+depuis. `game_mechanics_misc` reste la seule table encore activement resynchronisée 
+(`wiki-auto-sync`, `*/30min`), mais toujours sur l'ancien Fandom (`hypixel-skyblock.fandom.com`, 
+troncature à 8000 caractères) — jamais migrée vers `hypixelskyblock.minecraft.wiki`, 
+le wiki officiel validé plus fiable lors de la session précédente.
+
+**Conséquence** : ce référentiel mécanique est figé. Il reste valide aujourd'hui, mais ne 
+suivra aucun futur patch Hypixel tant que ce chantier n'est pas fait — dette silencieuse, 
+pas un bug actif. **Pas à traiter maintenant** — trop large pour une session, nécessite 
+son propre chantier dédié (recréer/remplacer `neu-sync` et `skyblock-resources-sync`, 
+migrer `wiki-auto-sync` vers le wiki officiel, retracer la provenance des 30 tables 
+orphelines une par une). Ne pas mélanger avec Evolve ou Money Making.
+
 ## Evolve — état réel (mis à jour session du 22 juillet, source de vérité actuelle)
 
 **Pipeline mort supprimé** : `api/evolve` (register + webhook n8n) et `cron/evolve-sync` 
