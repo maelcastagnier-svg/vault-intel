@@ -3,6 +3,7 @@
 // GET /api/player/sync?username=Steve
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { decodeItemListBytes } from '../../../../lib/skyblock-item-decoder'
 
 export const maxDuration = 30
 
@@ -128,6 +129,33 @@ export async function GET(req: NextRequest) {
       wardrobe:  member.inventory?.wardrobe_contents?.data ? 'has_wardrobe' : null,
     }
 
+    // 8b. Armure équipée décodée (NBT, réutilise le décodeur ah-collect en mode multi-items)
+    // Ordre confirmé sur un vrai profil : slot 0=boots, 1=leggings, 2=chestplate, 3=helmet.
+    // On dérive quand même le "slot" depuis le suffixe de item_id plutôt que l'index brut,
+    // pour rester correct si Hypixel change un jour l'ordre.
+    const ARMOR_SLOT_SUFFIXES: Record<string, string> = {
+      HELMET: 'helmet', CHESTPLATE: 'chestplate', LEGGINGS: 'leggings', BOOTS: 'boots',
+    }
+    const armorData = member.inventory?.inv_armor?.data
+    const equippedArmor: Record<string, any> = {}
+    if (armorData) {
+      const decoded = decodeItemListBytes(armorData)
+      decoded.forEach((item, index) => {
+        if (!item) return
+        const suffix = Object.keys(ARMOR_SLOT_SUFFIXES).find(s => item.item_id.endsWith(`_${s}`))
+        const slotKey = suffix ? ARMOR_SLOT_SUFFIXES[suffix] : `slot_${index}`
+        equippedArmor[slotKey] = {
+          item_id:      item.item_id,
+          item_name:    item.item_name,
+          reforge:      item.reforge,
+          stars:        item.total_stars,
+          is_recomb:    item.is_recomb,
+          enchantments: item.enchantments,
+          gems:         item.gems,
+        }
+      })
+    }
+
     // 9. Networth approximatif
     const purse    = Math.round(member.currencies?.coin_purse ?? 0)
     const bank     = Math.round(profile.banking?.balance ?? 0)
@@ -157,6 +185,7 @@ export async function GET(req: NextRequest) {
       collections,
       pets,
       inventory_summary: inventorySummary,
+      equipped_armor:    equippedArmor,
       fairy_souls:       fairySouls,
       skin_url:          skinUrl,
       game_stage:        gameStage,

@@ -151,17 +151,10 @@ function buildVariantKeys(d: Omit<DecodedItem, 'variant_key_full' | 'variant_key
   return { variant_key_full, variant_key_base }
 }
 
-// ── Décodeur principal ────────────────────────────────────────
-export function decodeItemBytes(itemBytesBase64: string): DecodedItem | null {
+// ── Decode un item deja extrait du NBT (compound "i[n]") ───────
+// Reutilise par decodeItemBytes (AH, 1 item) et decodeItemListBytes (inventaire joueur, N items)
+export function decodeItemNBT(itemNbt: Record<string, any>): DecodedItem | null {
   try {
-    const compressed = Buffer.from(itemBytesBase64, 'base64')
-    const raw        = gunzipSync(compressed)
-    const nbt        = parseNBT(raw)
-
-    const items = getNBT(nbt, 'i') as any[]
-    if (!Array.isArray(items) || items.length === 0) return null
-
-    const itemNbt = items[0] as Record<string, any>
     const tag     = (itemNbt.tag             || {}) as Record<string, any>
     const display = (tag.display             || {}) as Record<string, any>
     const extra   = (tag.ExtraAttributes     || {}) as Record<string, any>
@@ -265,5 +258,41 @@ export function decodeItemBytes(itemBytesBase64: string): DecodedItem | null {
 
   } catch {
     return null
+  }
+}
+
+// ── Decode un blob base64-gzip contenant UN item (AH item_bytes) ──
+export function decodeItemBytes(itemBytesBase64: string): DecodedItem | null {
+  try {
+    const compressed = Buffer.from(itemBytesBase64, 'base64')
+    const raw        = gunzipSync(compressed)
+    const nbt        = parseNBT(raw)
+
+    const items = getNBT(nbt, 'i') as any[]
+    if (!Array.isArray(items) || items.length === 0) return null
+
+    return decodeItemNBT(items[0] as Record<string, any>)
+  } catch {
+    return null
+  }
+}
+
+// ── Decode un blob base64-gzip contenant PLUSIEURS items (inventaire joueur : ──
+// inv_armor, inv_contents, ender_chest_contents, etc.) — un slot vide donne null,
+// l'ordre du tableau retourne correspond a l'ordre des slots dans le blob source.
+export function decodeItemListBytes(itemBytesBase64: string): (DecodedItem | null)[] {
+  try {
+    const compressed = Buffer.from(itemBytesBase64, 'base64')
+    const raw        = gunzipSync(compressed)
+    const nbt        = parseNBT(raw)
+
+    const items = getNBT(nbt, 'i') as any[]
+    if (!Array.isArray(items)) return []
+
+    return items.map(itemNbt =>
+      itemNbt && Object.keys(itemNbt).length > 0 ? decodeItemNBT(itemNbt as Record<string, any>) : null
+    )
+  } catch {
+    return []
   }
 }
