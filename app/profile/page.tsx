@@ -33,7 +33,6 @@ export default function Profile() {
       const res = await fetch('/api/subscription', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: user.email })
       })
       const sub = await res.json()
       if (sub) {
@@ -51,7 +50,6 @@ export default function Profile() {
     const res = await fetch('/api/cancel-subscription', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: user.email })
     })
     const data = await res.json()
     if (data.success) {

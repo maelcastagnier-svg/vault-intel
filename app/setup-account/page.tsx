@@ -50,7 +50,7 @@ function SetupForm() {
     await fetch('/api/update-username', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, username })
+      body: JSON.stringify({ username })
     })
 
     router.push('/confirm-email')
