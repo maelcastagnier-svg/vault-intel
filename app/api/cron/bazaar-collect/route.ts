@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
+export const maxDuration = 60
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -34,7 +36,14 @@ export async function GET(request: Request) {
       throw new Error('Hypixel API returned no products')
     }
 
-    const items: BazaarItem[] = (
+    // Hypixel renvoie tout le catalogue Bazaar en un seul fetch — on en tire deux listes
+    // distinctes depuis les mêmes données, pas deux collectes séparées :
+    //  - allItems : tout produit avec un prix valide, pour l'historique price_history
+    //    (chaque item doit avoir son point quotidien, illiquide ou non — un volume faible
+    //    est une donnée légitime, pas du bruit à exclure)
+    //  - flipCandidates : sous-ensemble filtré spread 10-80%, top 25, pour bazaar_1h
+    //    (scope volontairement restreint, sert uniquement la feature Bazaar Flip)
+    const allItems: BazaarItem[] = (
       Object.entries(data.products) as [string, any][]
     )
       .map(([item_id, product]) => {
@@ -46,7 +55,7 @@ export async function GET(request: Request) {
         const vol  = qs.buyVolume || 0
         const avg  = (buy + sell) / 2
 
-        if (sell <= 0 || buy <= 0 || vol < 500_000 || sell < 500) return null
+        if (sell <= 0 || buy <= 0) return null
 
         const spread     = buy - sell
         const spread_pct = Math.round(((buy - sell) / sell) * 10000) / 100
@@ -63,14 +72,16 @@ export async function GET(request: Request) {
         } as BazaarItem
       })
       .filter((i): i is BazaarItem => i !== null)
+
+    const flipCandidates = allItems
       .filter(i => i.spread_pct >= 10 && i.spread_pct <= 80)
       .sort((a, b) => b.spread_pct - a.spread_pct)
       .slice(0, TOP_ITEMS)
 
-    // 1. Snapshot bazaar_1h (DELETE + INSERT)
+    // 1. Snapshot bazaar_1h (DELETE + INSERT) — flip candidates uniquement
     await supabase.from('bazaar_1h').delete().neq('item_id', '')
     await supabase.from('bazaar_1h').insert(
-      items.map(item => ({
+      flipCandidates.map(item => ({
         item_id:    item.item_id,
         item_name:  item.item_name,
         buy_price:  item.buy_price,
@@ -84,29 +95,28 @@ export async function GET(request: Request) {
       }))
     )
 
-    // 2. Upsert price_history (bucket DAILY)
+    // 2. Upsert price_history (bucket DAILY) — catalogue complet, batché
     const bucketDate = new Date().toISOString().split('T')[0]
 
-    for (let i = 0; i < items.length; i += 20) {
-      await Promise.all(
-        items.slice(i, i + 20).map(item =>
-          supabase.rpc('upsert_bazaar_price_bucket', {
-            p_item_id:     item.item_id,
-            p_item_name:   item.item_name,
-            p_buy_price:   item.buy_price,
-            p_sell_price:  item.sell_price,
-            p_avg_price:   item.avg_price,
-            p_volume:      item.volume,
-            p_bucket_date: bucketDate
-          }).then()
-        )
-      )
+    for (let i = 0; i < allItems.length; i += 500) {
+      const batch = allItems.slice(i, i + 500).map(item => ({
+        item_id:     item.item_id,
+        item_name:   item.item_name,
+        buy_price:   item.buy_price,
+        sell_price:  item.sell_price,
+        avg_price:   item.avg_price,
+        volume:      item.volume,
+        bucket_date: bucketDate,
+      }))
+      const { error } = await supabase.rpc('upsert_bazaar_price_bucket_batch', { p_rows: batch })
+      if (error) console.error('Bazaar batch upsert error', i, error)
     }
 
     return NextResponse.json({
-      success:       true,
-      items_scanned: items.length,
-      bucket_date:   bucketDate
+      success:              true,
+      items_total:          allItems.length,
+      flip_candidates:      flipCandidates.length,
+      bucket_date:          bucketDate
     })
 
   } catch (error: any) {
