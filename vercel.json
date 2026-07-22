@@ -5,6 +5,7 @@
     { "path": "/api/cron/ah-aggregate",         "schedule": "59 23 * * *" },
     { "path": "/api/cron/patch-collect",        "schedule": "0 0 * * *"   },
     { "path": "/api/cron/money-making-agent",   "schedule": "0 6 * * 1"   },
+    { "path": "/api/cron/evolve-skills",        "schedule": "30 6 * * 1"  },
     { "path": "/api/cron/setup-generate-agent", "schedule": "0 7 * * 1"   },
     { "path": "/api/cron/patch-analysis-agent", "schedule": "0 6 * * *"   },
     { "path": "/api/cron/radar-agent",          "schedule": "0 7 * * *"   },
