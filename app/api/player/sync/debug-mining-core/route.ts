@@ -41,6 +41,10 @@ export async function GET(req: NextRequest) {
       cute_name:   profile.cute_name,
       has_mining_core: !!member.mining_core,
       mining_core: member.mining_core ?? null,
+      has_skill_tree: !!member.skill_tree,
+      skill_tree: member.skill_tree ?? null,
+      has_forge: !!member.forge,
+      forge: member.forge ?? null,
     })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
