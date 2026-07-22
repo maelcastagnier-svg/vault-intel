@@ -259,7 +259,7 @@ export async function runEvolveSkills(filterProfileIds?: string[]) {
           },
           body: JSON.stringify({
             model:      MODEL,
-            max_tokens: 8000,
+            max_tokens: 16000,
             system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
             messages: [{ role: 'user', content: context }],
           }),
