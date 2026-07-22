@@ -213,16 +213,91 @@ password via Supabase Auth) à un compte Hypixel de façon vérifiée.**
 Le chantier NBT qui la reportait est maintenant terminé — c'est la prochaine priorité 
 avant Evolve (voir Prochaines étapes). **Bloquant** avant toute exposition publique.
 
-**Personal Money Making — débloqué, pas encore fait.** L'endpoint existe (filtrage JS 
-lecture seule, voir ci-dessus) mais l'appel Claude personnalisé n'est toujours pas 
-branché. Le blocage d'origine (`inventory_summary` n'était qu'un flag booléen de 
-présence, pas un détail d'items) n'existe plus : le chantier NBT est terminé, 
-`player_data` contient maintenant le détail réel de l'équipement/inventaire 
-(`equipped_armor`, `equipped_accessories`, `inventory_items`, `ender_chest_items`, 
-`backpacks`, `personal_vault_items`, `wardrobe_slots`) + le vrai `networth_breakdown`. 
-Reste à coder : l'appel Claude personnalisé qui exploite ces données pour une analyse 
-"basée sur ton équipement réel" — prochain chantier Evolve après la sécurité auth 
-(voir Prochaines étapes).
+**Personal Money Making — absorbé par la section Skills, voir ci-dessous.** Ancien plan 
+(table `player_money_making`, 5 méthodes actives + 5 futures) abandonné avant d'être codé : 
+remplacé par une architecture plus large et plus granulaire (par système de progression, 
+pas par méthode globale). Ne pas reproposer l'ancien format.
+
+## ✅ Evolve — nouvelle architecture à 3 sections (22 juillet, remplace l'ancien plan à 4 onglets)
+
+Evolve devient **Skills / Milestones / Daily Missions**. Une 4e section premium sera 
+définie plus tard (piste probable : progression globale/networth dans le temps, une fois 
+qu'on aura un historique de snapshots — voir Prochaines étapes).
+
+### ✅ Section Skills — TERMINÉ et testé (22 juillet)
+
+Le cœur du produit. Fusionne l'ancien "Skills" et "Personal Money Making" en une seule 
+logique : pour chaque système de progression actionnable, une carte à deux volets — 
+**état actuel réel** (setup réellement possédé + coins/h dérivé de ce setup, jamais un 
+chiffre générique de tier) vs **target atteignable** (le prochain pas concret, calibré sur 
+le `purse` réel du joueur, pas juste son `game_stage`/networth global).
+
+**9 systèmes actionnables** : Farming, Mining, Combat, Foraging, Fishing, Alchemy, 
+Enchanting, Dungeoneering (Catacombs), Slayer (1 carte, 6 sous-cartes par boss : 
+Zombie/Spider/Wolf/Enderman/Blaze/Vampire — pas 5, corrigé lors du design).
+
+**Exclus, avec justification** (à ne pas reproposer sans nouvelle donnée) :
+- **Carpentry** : aucun produit revendable, débloque juste des slots de minions.
+- **Taming** : booste l'XP des pets, ne génère pas de coins directement. Angle 
+  money-making réel adjacent (élever/revendre des pets, `george_pet_prices` existe déjà) 
+  mais structurellement différent (flip, pas rendement/heure) — carte séparée éventuelle, 
+  pas "Taming".
+- **Hunting** : multiplicateur du taux de drop de Combat, pas une boucle de farm 
+  indépendante.
+- **Social** : aucun lien avec le rendement économique.
+
+**Garde-fou principal (le point le plus important du design)** : jamais halluciner un item 
+que le joueur ne possède pas — `current` grounded strictly sur `equipped_armor`/
+`equipped_accessories`/`hotm_progress`/slayers/dungeons décodés. Pour un joueur sans setup 
+(early game), la target ne doit jamais viser un objectif hors de portée — calibrée sur le 
+`purse` réel, pas un objectif générique de fin de jeu. Si un système n'est pas encore 
+débloqué (ex : Catacombs jamais entré), `target.type = "unlock_access"` plutôt qu'optimiser 
+un rendement qui n'existe pas.
+
+**Validé sur 2 profils réels avant merge** (Voxui09) :
+- **Cucumber** (MID, purse 154.8M, networth 749M) — révèle un vrai cas "moyens mais skill 
+  négligé" : carte Dungeoneering a correctement identifié 220 runs Catacombs / Floor 7 
+  (vraie progression) mais armure **Groovy Fig** équipée (un set Foraging, aucun stat 
+  donjon) — a recommandé Maxor's/Necron's comme achat le plus rentable disponible plutôt 
+  que d'inventer un problème ailleurs. Carte Mining a honnêtement marqué `confidence: LOW` 
+  faute de donnée d'outil fiable, au lieu d'inventer un chiffre précis.
+- **Orange** (EARLY, purse 8 100, networth 8 100, tous skills niveau 0) — profil quasi-vide 
+  réel de Voxui09, synced explicitement via `profile_id` pour valider le garde-fou early-
+  game. Résultat correct : targets Farming/Mining = outil de base ~100 coins (dans le 
+  budget), Slayer a correctement séparé Zombie (accessible maintenant) d'Enderman/Blaze/
+  Vampire (correctement marqués hors de portée, zones non débloquées) plutôt que de 
+  proposer un objectif générique de fin de jeu.
+
+**Implémentation :**
+- `member.skill_tree` (PAS `member.mining_core`, qui ne contient que powder/crystals/
+  forge) décodé dans `player/sync` → `player_data.hotm_progress` (jsonb : nodes bruts 
+  mining+foraging, ex `mining_speed: 9`, pas de tier dérivé — aucune table XP→tier vérifiée 
+  en interne, donc pas codée en dur). Vérifié contre le code source de `hypixel-api-reborn` 
+  avant codage (les perks HOTM ne vivent pas où on l'aurait supposé).
+- `lib/money-making-constants.ts` — `TIER_CONFIG`/`GAME_TRUTHS` extraits de 
+  `money-making-agent`, partagés par les deux crons (plus de dérive entre les benchmarks 
+  coins/h généraux et personnalisés).
+- `app/api/cron/evolve-skills/route.ts` — cron hebdomadaire (lundi 6h30, 30 min après 
+  `money-making-agent` pour lire sa bibliothèque déjà fraîche comme référence/inspiration, 
+  jamais copiée telle quelle). 1 appel Claude par profil synced (`claude-sonnet-4-6`, 
+  `max_tokens: 8000`, `maxDuration: 300` — 120s ne suffisait pas pour la sortie structurée 
+  des 9 cartes + 6 sous-cartes slayer).
+- Table `player_skill_cards` (1 ligne par joueur par profil, upsert hebdomadaire, pas de 
+  log quotidien — la boucle de progression est un effet de la fraîcheur des données 
+  recalculées à chaque run, pas une logique "target atteinte" à tracker séparément). RLS 
+  activé, **zéro policy** (verrouillé service-role uniquement, comme `player_data` — pas 
+  la policy lecture publique utilisée pour le contenu de jeu générique comme 
+  `game_mechanics_misc`, ce sont des données personnelles par joueur).
+- Rendu visuel 3D du setup (skin + armure superposée) : chantier séparé, pas fait, 
+  structure de données uniquement pour l'instant.
+
+**⚠️ Trouvé en marge, pas corrigé** : `player_missions` a des policies RLS totalement 
+publiques (SELECT/INSERT/UPDATE, `USING (true)`) — n'importe qui peut lire/modifier les 
+missions de n'importe quel joueur via la clé anon. Même famille de problème que le bug 
+`game_mechanics_misc` déjà corrigé, mais sur des données personnelles cette fois. Pas 
+traité cette session (hors scope de la demande), à corriger avec la même logique que 
+`player_skill_cards`/`player_data` (RLS verrouillé, service role uniquement) quand le 
+chantier sécurité auth sera fait.
 
 ## ✅ Chantier NBT joueur + networth réel — TERMINÉ (22 juillet)
 
@@ -390,24 +465,24 @@ en actualisant ce document en conséquence.
 
 ## Prochaines étapes
 
-**Avant de continuer Evolve, deux chantiers distincts (pas de dépendance entre eux) :**
 1. **Sécurité auth — BLOQUANT avant tout branchement frontend d'Evolve.** Voir section 
    dédiée ci-dessus : `supabase.auth.getUser()` côté serveur sur toutes les routes 
-   `player/*`, flux de liaison compte Vault ↔ Hypixel username. Pas commencé.
-2. **Personal Money Making — débloqué par le chantier NBT, pas encore fait.** L'appel 
-   Claude personnalisé reste à coder maintenant que les données réelles d'équipement/
-   inventaire existent (voir section Evolve ci-dessus). Pas commencé.
-
-**Ensuite, dans l'ordre déjà validé :**
-3. **Milestones** — valider tiers Intermediate→Master contre `sblevel_tasks` (Starter+
+   `player/*`, flux de liaison compte Vault ↔ Hypixel username. Au passage, corriger le 
+   même problème sur `player_missions` (RLS public trouvé cette session, voir section Skills). 
+   Pas commencé.
+2. **Milestones** — valider tiers Intermediate→Master contre `sblevel_tasks` (Starter+
    Amateur déjà validés, voir section Milestones vs Daily Missions)
-4. **Daily Missions** — une fois Milestones entièrement vérifié, piocher dedans
-5. Historique de progression par snapshots (vitesse early→mid→end→late, 
-   comparaison entre joueurs)
-6. Reconstruire le frontend Evolve (4 onglets : Daily Missions, Milestones, 
-   Skills, Personal Money Making) une fois le backend stabilisé
+3. **Daily Missions** — une fois Milestones entièrement vérifié, piocher dedans
+4. Historique de progression par snapshots (vitesse early→mid→end→late, 
+   comparaison entre joueurs) — piste pour la 4e section Evolve premium
+5. Reconstruire le frontend Evolve (3 onglets : Skills, Milestones, Daily Missions) 
+   une fois Milestones stabilisé — le backend Skills est déjà fait (voir section dédiée)
+6. Rendu visuel 3D du setup (skin + armure superposée) pour la section Skills — chantier 
+   séparé, pas commencé
 7. Migration vers `item_variant_hourly_buckets` (conçu, pas branché)
 8. Filtrage outlier sur variantes AH à faible `data_points` (voir section infra collecte)
+9. Pipeline données mécaniques à reconstruire (voir section dédiée) — chantier large, 
+   sa propre session
 
 ## Ce que je ne veux PAS
 
