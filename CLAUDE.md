@@ -20,6 +20,75 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Sécurité compte/facturation — audit complet + failles corrigées (22 juillet)
+
+Audit de sécurité exhaustif demandé avant les tests utilisateurs (RLS toutes tables, 
+routes `player/*`, vues `SECURITY DEFINER`, routes cron, secrets côté client). Rien de 
+critique trouvé côté `player/*` au-delà de ce qui était déjà documenté (voir section 
+Sécurité Evolve plus bas) — mais l'audit a débordé vers les routes compte/abonnement, 
+jamais vérifiées avant, et c'est là qu'étaient les vraies failles.
+
+**🔴 Trouvé et corrigé — chaîne d'attaque complète sur le compte/facturation :**
+- `subscriptions` avait une policy RLS nommée *"Users can read own subscription"* mais 
+  `USING (true)` — en réalité lecture publique totale de `email`/`username`/
+  `stripe_customer_id`/`stripe_subscription_id`/`plan`/`status` pour tout le monde via 
+  la clé anon. **Corrigé** : policy scopée sur `email = auth.email()`, `TO authenticated` 
+  seulement. `user_id` existe comme colonne mais n'est rempli par aucun chemin d'écriture 
+  actuel (webhook, update-username) — scoping fait sur `email`, pas `user_id` (dette 
+  notée, pas bloquante : migrer vers `auth.uid() = user_id` plus tard si `user_id` est 
+  un jour rempli proprement).
+- `/api/get-email-by-username` prenait un `username` et retournait l'`email` associé, 
+  zéro auth, zéro rate-limit — oracle d'énumération complet. **Supprimée entièrement** 
+  (pas de rate-limiting : pas d'infra existante, et l'alternative "token temporaire" 
+  demande de toute façon la même plomberie serveur). Le login par username est refait 
+  entièrement côté serveur à la place (voir ci-dessous).
+- `/api/update-username`, `/api/cancel-subscription`, `/api/subscription` prenaient tous 
+  un `email` en paramètre client, zéro vérification de session — n'importe qui connaissant 
+  (ou énumérant via le point précédent) un email pouvait renommer le compte de quelqu'un 
+  d'autre, résilier son vrai abonnement Stripe, ou lire son plan. **Corrigé** : les 3 
+  routes appellent maintenant `auth.getUser()` via un client Supabase serveur lié aux 
+  cookies, n'agissent que sur l'email de la session réelle, ignorent tout email fourni 
+  par le client.
+
+**Infrastructure ajoutée** : `lib/supabase-server.ts` (`createServerClient` de 
+`@supabase/ssr`, lié aux cookies via `next/headers`) — première utilisation dans ce 
+projet, jusqu'ici seul `createBrowserClient` existait. Réutilisable pour le chantier 
+`player/*` à venir (même pattern d'auth serveur nécessaire).
+
+**`/api/login`** (nouvelle route) remplace le flux "résoudre username → email côté 
+client → `signInWithPassword`" : résout maintenant le username en interne, ne renvoie 
+jamais l'email au client, pose la session directement via les cookies de la réponse. 
+Corrige au passage un second petit oracle (le login distinguait "Username not found" 
+d'un mot de passe faux — une seule erreur générique "Invalid credentials" maintenant).
+
+**Testé end-to-end sur un vrai compte jetable** (créé/supprimé à chaque fois, jamais 
+laissé en base) : login par email et par username, erreurs génériques sur mauvais 
+mot de passe/username inconnu, et sur les 3 routes corrigées — appel avec la session 
+réelle (fonctionne, agit sur le bon compte), sans session (401), et avec un email 
+différent injecté dans le body (complètement ignoré, prouvé en observant que la réponse 
+reste scopée à la session réelle).
+
+**🟡 Trouvé, pas corrigé cette session** :
+- `method_feedback_summary` (vue `SECURITY DEFINER`) — `anon`/`authenticated` ont SELECT 
+  dessus, bypass le RLS de `method_feedback` (RLS actif, zéro policy). Table vide 
+  aujourd'hui donc impact nul, mais fuira tout commentaire/vote communautaire dès qu'elle 
+  aura des données. `distinct_items` (l'autre vue `SECURITY DEFINER`) : risque nul, lit 
+  `price_history` déjà publique légitimement.
+- `player_missions` ET `player_progress` — policies RLS SELECT/INSERT/UPDATE totalement 
+  publiques (`USING (true)`). Même famille que le bug `subscriptions` corrigé ci-dessus, 
+  mais sur des données de jeu personnelles. À corriger avec le chantier `player/*`.
+- Routes `player/*` (`sync`, `missions`, `milestones`, `money-making`) — toujours zéro 
+  auth serveur, déjà documenté dans la section Sécurité Evolve, confirmé toujours vrai 
+  par cet audit. Prochaine étape de ce chantier sécurité.
+- Aucun flux de liaison Vault ↔ Hypixel username n'existe — confirmé par recherche 
+  exhaustive (backend + frontend). `setup-account` ne crée qu'un compte Vault (email/
+  password/username d'affichage), aucun rapport avec un pseudo Hypixel.
+
+**Aparté sans rapport à la sécurité** : `.env.local` contient une clé anon Supabase 
+legacy désactivée depuis le 8 juillet — la prod utilise la nouvelle clé 
+`sb_publishable_...`. `npm run dev` local est probablement cassé tant que ce fichier 
+n'est pas mis à jour (fichier local, pas dans le dépôt, à corriger côté développeur).
+
 ## NBT — pipeline live (confirmé, pas différé)
 
 `ah-collect` décode le NBT binaire base64-gzip de chaque enchère BIN en concurrence 
