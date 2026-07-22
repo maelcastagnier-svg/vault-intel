@@ -223,6 +223,29 @@ export async function GET(req: NextRequest) {
         }
       })
 
+    // 8g. Wardrobe (tenues sauvegardees, member.loadout.armor — objet indexe par slot "1".."27",
+    // PAS des doublons de inv_armor : une tenue non portee est invisible partout ailleurs)
+    const decodeOne = (bytesBase64: string | undefined) =>
+      bytesBase64 ? decodeItemListBytes(bytesBase64).find(i => i) ?? null : null
+
+    const loadoutArmor = member.loadout?.armor || {}
+    const wardrobeSlots = Object.entries(loadoutArmor)
+      .map(([key, slotData]: [string, any]) => {
+        const helmet     = decodeOne(slotData?.HELMET?.data)
+        const chestplate = decodeOne(slotData?.CHESTPLATE?.data)
+        const leggings   = decodeOne(slotData?.LEGGINGS?.data)
+        const boots      = decodeOne(slotData?.BOOTS?.data)
+        return { slot: Number(key), helmet, chestplate, leggings, boots }
+      })
+      .filter(s => s.helmet || s.chestplate || s.leggings || s.boots)
+      .map(s => ({
+        slot: s.slot,
+        helmet:     s.helmet     ? { item_id: s.helmet.item_id,     item_name: s.helmet.item_name,     reforge: s.helmet.reforge,     stars: s.helmet.total_stars,     enchantments: s.helmet.enchantments,     gems: s.helmet.gems }     : null,
+        chestplate: s.chestplate ? { item_id: s.chestplate.item_id, item_name: s.chestplate.item_name, reforge: s.chestplate.reforge, stars: s.chestplate.total_stars, enchantments: s.chestplate.enchantments, gems: s.chestplate.gems } : null,
+        leggings:   s.leggings   ? { item_id: s.leggings.item_id,   item_name: s.leggings.item_name,   reforge: s.leggings.reforge,   stars: s.leggings.total_stars,   enchantments: s.leggings.enchantments,   gems: s.leggings.gems }   : null,
+        boots:      s.boots      ? { item_id: s.boots.item_id,      item_name: s.boots.item_name,      reforge: s.boots.reforge,      stars: s.boots.total_stars,      enchantments: s.boots.enchantments,      gems: s.boots.gems }      : null,
+      }))
+
     // 9. Networth approximatif
     const purse    = Math.round(member.currencies?.coin_purse ?? 0)
     const bank     = Math.round(profile.banking?.balance ?? 0)
@@ -259,6 +282,7 @@ export async function GET(req: NextRequest) {
       ender_chest_items:     enderChestItems,
       backpacks:             backpacks,
       personal_vault_items:  personalVaultItems,
+      wardrobe_slots:        wardrobeSlots,
       fairy_souls:       fairySouls,
       skin_url:          skinUrl,
       game_stage:        gameStage,
