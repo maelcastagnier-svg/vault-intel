@@ -241,7 +241,6 @@ export async function runEvolveSkills(filterProfileIds?: string[]) {
     success: true,
     players_processed: players.length,
     saved,
-    results,
     errors: results.filter(r => 'error' in r).map((r: any) => ({ uuid: r.player.hypixel_uuid, error: r.error })),
   }
 }
