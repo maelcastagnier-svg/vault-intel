@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { TIER_CONFIG, GAME_TRUTHS } from '../../../../lib/money-making-constants'
 
-export const maxDuration = 120
+export const maxDuration = 300
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

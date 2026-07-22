@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { runEvolveSkills } from '../route'
 
-export const maxDuration = 120
+export const maxDuration = 300
 
 export async function GET(req: NextRequest) {
   const profileIdsParam = req.nextUrl.searchParams.get('profile_ids')
