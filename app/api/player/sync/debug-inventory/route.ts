@@ -44,6 +44,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       username,
       uuid,
+      profile_id: profile.profile_id,
+      profile_selected: !!profile.selected,
+      member_top_level_keys: Object.keys(member),
       inventory,
       ender_chest: enderChest,
       available_inventory_keys: Object.keys(member.inventory || {}),
