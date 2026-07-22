@@ -93,6 +93,31 @@ reconstruire avec les vrais onglets (Daily Missions, Milestones, Skills, Persona
 Money Making) une fois le backend stabilisé. Ne pas réutiliser le code de 
 `EvolveSection.tsx` tel quel.
 
+## ⚠️ Sécurité Evolve — TODO bloquant AVANT mise en prod publique (trouvé 22 juillet)
+
+Investigation menée cette session : **aucun mécanisme ne lie un compte Vault (email/
+password via Supabase Auth) à un compte Hypixel de façon vérifiée.**
+
+- Aucun `middleware.ts` — aucune route API n'a de protection d'auth au niveau framework.
+- `player/sync`, `player/missions`, `player/milestones`, `player/money-making` lisent 
+  `username`/`user_id` comme de simples query params, sans jamais appeler 
+  `supabase.auth.getUser()` côté serveur. Elles utilisent le client Supabase 
+  **service role** (bypass RLS total). Résultat : `GET /api/player/sync?username=N%27IMPORTE_QUI&user_id=N%27IMPORTE_QUOI` 
+  fonctionne pour n'importe qui, connecté ou non, et attribue les données au `user_id` 
+  fourni sans vérifier que l'appelant est bien cette personne.
+- Sans conséquence *aujourd'hui* uniquement parce que rien dans le frontend n'appelle 
+  encore ces routes (`EvolveSection.tsx` n'est pas branché dans `page.tsx`, et pointait 
+  de toute façon vers `api/evolve`, supprimé ce chantier).
+
+**TODO avant de rebrancher `EvolveSection.tsx` dans `page.tsx` :**
+1. Toutes les routes `player/*` doivent vérifier `supabase.auth.getUser()` côté serveur 
+   — jamais faire confiance à un `user_id` passé en query param.
+2. Il faut un flux de liaison de compte Vault ↔ Hypixel username explicite après 
+   connexion (le compte Vault ne connaît aujourd'hui aucun pseudo Hypixel à la création).
+
+Pas à corriger maintenant — le chantier NBT est prioritaire. Mais **bloquant** avant 
+toute exposition publique d'Evolve.
+
 **Personal Money Making — EN PAUSE.** L'endpoint existe (filtrage JS lecture seule, 
 voir ci-dessus) mais l'appel Claude personnalisé n'est pas branché : `inventory_summary` 
 sur `player_data` n'est qu'un flag de présence booléen 
