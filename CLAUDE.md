@@ -130,16 +130,42 @@ ci-dessous) avant de coder l'appel Claude.
 
 Remplace l'ancienne limite "networth = purse+bank uniquement" :
 
-1. **Décodage NBT complet joueur** : armure équipée ✅ **fait et en prod** (voir ci-dessous), 
-   inventaire, backpacks, enderchest, accessory bag restent à faire. Même format binaire 
-   base64-gzip que `ah-collect`, mais le décodeur ne peut pas être appelé tel quel : 
-   `decodeItemBytes` (AH) suppose un seul item par blob (`items[0]`), alors qu'un blob 
-   d'inventaire joueur encode une liste de plusieurs items. `lib/skyblock-item-decoder.ts` 
-   a été refactorisé : logique par-item extraite dans `decodeItemNBT`, réutilisée par 
-   `decodeItemBytes` (inchangé, AH) et la nouvelle `decodeItemListBytes` (multi-items, 
-   joueur). `player/sync` décode `inv_armor` et écrit `player_data.equipped_armor` 
-   (jsonb : item_name/reforge/stars/enchantments/gems par slot), validé sur un vrai 
-   joueur (Voxui09, 4/4 pièces correctement décodées) avant merge.
+1. **Décodage NBT complet joueur** — ✅ **fait et en prod** pour tout ce qui est exposé 
+   par l'API Hypixel côté inventaire joueur : armure équipée (`equipped_armor`), accessory 
+   bag (`equipped_accessories`), inventaire principal (`inventory_items`), enderchest 
+   (`ender_chest_items`), backpacks (`backpacks`), Personal Vault (`personal_vault_items`). 
+   Tout validé sur un vrai joueur (Voxui09/Cucumber) avant merge, routes de debug 
+   temporaires supprimées après validation à chaque fois.
+   - Même format binaire base64-gzip que `ah-collect`, mais le décodeur ne pouvait pas 
+     être appelé tel quel : `decodeItemBytes` (AH) suppose un seul item par blob 
+     (`items[0]`), alors qu'un blob d'inventaire joueur encode une liste de plusieurs 
+     items. `lib/skyblock-item-decoder.ts` refactorisé : logique par-item extraite dans 
+     `decodeItemNBT`, réutilisée par `decodeItemBytes` (inchangé, AH) et la nouvelle 
+     `decodeItemListBytes` (multi-items, joueur).
+   - Backpacks : `backpack_icons` et `backpack_contents` sont deux objets indexés par la 
+     **même clé slot** (vérifié explicitement contre le code source de `hypixel-api-reborn`, 
+     pas supposé par ordre de tableau) — 8 sacs / 116 items confirmés sur Cucumber.
+   - Personal Vault (`member.inventory.personal_vault_contents`) — c'est la feature nommée 
+     "Vault" du jeu, **différente** des coffres posés sur l'île ou des items dans le monde 
+     de l'île (voir limite API ci-dessous). Même format simple que inv_contents/enderchest.
+   - **⚠️ Limite API confirmée (pas un chantier en attente, une vraie impossibilité)** : 
+     les coffres posés sur l'île et les items présents dans le monde de l'île **ne sont 
+     pas exposés par l'API Hypixel publique**, à aucun endroit. Recherche exhaustive faite 
+     dans tout l'arbre de structures de `hypixel-api-reborn` (lib TS activement maintenue, 
+     modélise le schéma complet de l'API) — aucun champ de ce type n'existe. L'API expose 
+     des données de profil/inventaire joueur, jamais l'état du monde/des chunks. Ce n'est 
+     pas une question de permission ou de setting à activer, la donnée n'existe simplement 
+     pas dans la réponse JSON de Hypixel.
+   - **Wardrobe (tenues sauvegardées, `member.loadout.armor`, jusqu'à 27 slots × 4 pièces)** 
+     — pas encore décodé, décision à prendre : **ce ne sont PAS des doublons** de l'armure 
+     déjà comptée. Le wardrobe permute avec `inv_armor` (l'armure équipée), donc toute 
+     tenue stockée dans un slot wardrobe non porté est invisible ailleurs (pas dans 
+     `inv_armor`, pas dans l'inventaire/enderchest/backpacks) — un joueur avec un set PvP 
+     de côté pendant qu'il porte son set Mining perdrait cette valeur dans le networth si 
+     on l'ignore. Utile pour le networth complet, moins prioritaire pour Money Making 
+     personnalisé (juste un éventuel "tu as un set inutilisé, pense à le porter pour X"). 
+     Format identique (NBT base64-gzip par pièce), complexité un peu plus haute (27 slots 
+     à boucler) mais pas un blocage technique.
    - **Découverte notée, pas creusée** : chaque item NBT (armure au moins) porte un champ 
      `extra.donated_museum` (+ `timestamp`, `boosters`) absent des items d'AH — probablement 
      un flag/timestamp indiquant si une copie de cet item a été donnée au musée. Pourrait 
