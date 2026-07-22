@@ -47,8 +47,9 @@ function detectGameStage(skills: Record<string, number>, slayers: Record<string,
 
 // ── Handler ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
-  const username = req.nextUrl.searchParams.get('username')
-  const userId   = req.nextUrl.searchParams.get('user_id')
+  const username  = req.nextUrl.searchParams.get('username')
+  const userId    = req.nextUrl.searchParams.get('user_id')
+  const profileId = req.nextUrl.searchParams.get('profile_id')
   if (!username) return NextResponse.json({ error: 'username required' }, { status: 400 })
 
   try {
@@ -72,9 +73,15 @@ export async function GET(req: NextRequest) {
     const profileData = await profileRes.json()
     const profiles    = profileData.profiles || []
 
-    // Prend le profil le plus récent (selected=true sinon dernier)
-    const profile = profiles.find((p: any) => p.selected) || profiles[profiles.length - 1]
-    if (!profile) return NextResponse.json({ error: 'No Skyblock profile found' }, { status: 404 })
+    // Un joueur a potentiellement plusieurs profils Skyblock (coop, iles abandonnees, etc.),
+    // chacun avec sa propre progression stockee independamment (voir profile_id sur player_data).
+    // Si profile_id est fourni explicitement, on cible ce profil precis. Sinon, on prend le profil
+    // "selected" cote Hypixel — ca reflete le profil que le joueur a actuellement ouvert en jeu,
+    // c'est le bon defaut, pas un fallback approximatif.
+    const profile = profileId
+      ? profiles.find((p: any) => p.profile_id === profileId)
+      : profiles.find((p: any) => p.selected) || profiles[profiles.length - 1]
+    if (!profile) return NextResponse.json({ error: 'No matching Skyblock profile found' }, { status: 404 })
 
     const member = profile.members?.[uuid.replace(/-/g, '')]
     if (!member) return NextResponse.json({ error: 'Player data not found in profile' }, { status: 404 })
@@ -192,6 +199,7 @@ export async function GET(req: NextRequest) {
       user_id:           userId || null,
       hypixel_username:  username,
       hypixel_uuid:      uuid,
+      profile_id:        profile.profile_id,
       purse,
       bank,
       networth,
@@ -213,7 +221,7 @@ export async function GET(req: NextRequest) {
 
     const { error } = await supabase
       .from('player_data')
-      .upsert(playerRecord, { onConflict: 'hypixel_uuid' })
+      .upsert(playerRecord, { onConflict: 'hypixel_uuid,profile_id' })
 
     if (error) throw error
 
@@ -221,6 +229,8 @@ export async function GET(req: NextRequest) {
       success:    true,
       username,
       uuid,
+      profile_id: profile.profile_id,
+      cute_name:  profile.cute_name ?? null,
       game_stage: gameStage,
       skills:     skillLevels,
       networth,

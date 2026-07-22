@@ -86,13 +86,16 @@ const FAIRY_SOUL_LADDER = [50, 100, 150, 200, 255]
 const COLLECTION_TOP_N = 10
 
 export async function GET(req: NextRequest) {
-  const uuid = req.nextUrl.searchParams.get('uuid')
+  const uuid      = req.nextUrl.searchParams.get('uuid')
+  const profileId = req.nextUrl.searchParams.get('profile_id')
   if (!uuid) return NextResponse.json({ error: 'uuid required' }, { status: 400 })
+  if (!profileId) return NextResponse.json({ error: 'profile_id required' }, { status: 400 })
 
   const { data: player, error } = await supabase
     .from('player_data')
     .select('skills, slayers, dungeons, fairy_souls, collections')
     .eq('hypixel_uuid', uuid)
+    .eq('profile_id', profileId)
     .single()
 
   if (error || !player) return NextResponse.json({ error: 'Player not synced yet' }, { status: 404 })

@@ -1,7 +1,9 @@
 // app/api/player/missions/route.ts
 // Génère ou retourne les missions journalières du joueur
-// GET /api/player/missions?uuid={uuid}
+// GET /api/player/missions?uuid={uuid}&profile_id={profile_id}
 // POST /api/player/missions/complete → marque mission comme terminée
+// Un joueur peut avoir plusieurs profils Skyblock, chacun avec sa propre progression
+// (voir player_data.profile_id) — profile_id est donc requis ici aussi.
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -77,14 +79,17 @@ function generateMissions(player: any): any[] {
 
 // ── GET : retourne ou génère les missions ─────────────────────
 export async function GET(req: NextRequest) {
-  const uuid = req.nextUrl.searchParams.get('uuid')
+  const uuid      = req.nextUrl.searchParams.get('uuid')
+  const profileId = req.nextUrl.searchParams.get('profile_id')
   if (!uuid) return NextResponse.json({ error: 'uuid required' }, { status: 400 })
+  if (!profileId) return NextResponse.json({ error: 'profile_id required' }, { status: 400 })
 
   // Vérifie si des missions existent pour aujourd'hui
   const { data: existing } = await supabase
     .from('player_missions')
     .select('*')
     .eq('hypixel_uuid', uuid)
+    .eq('profile_id', profileId)
     .eq('mission_date', TODAY)
     .order('created_at')
 
@@ -98,6 +103,7 @@ export async function GET(req: NextRequest) {
     .from('player_missions')
     .select('*')
     .eq('hypixel_uuid', uuid)
+    .eq('profile_id', profileId)
     .eq('mission_date', yesterday)
     .eq('completed', false)
 
@@ -118,6 +124,7 @@ export async function GET(req: NextRequest) {
     .from('player_data')
     .select('*')
     .eq('hypixel_uuid', uuid)
+    .eq('profile_id', profileId)
     .single()
 
   if (!player) return NextResponse.json({ error: 'Player not synced yet' }, { status: 404 })
@@ -125,6 +132,7 @@ export async function GET(req: NextRequest) {
   const missionTemplates = generateMissions(player)
   const missionRows = missionTemplates.map(m => ({
     hypixel_uuid:     uuid,
+    profile_id:       profileId,
     mission_date:     TODAY,
     mission_id:       m.id,
     activity:         m.activity,
