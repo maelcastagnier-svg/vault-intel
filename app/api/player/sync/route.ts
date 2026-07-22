@@ -202,6 +202,10 @@ export async function GET(req: NextRequest) {
     const inventoryItems  = decodeItemList(member.inventory?.inv_contents?.data)
     const enderChestItems = decodeItemList(member.inventory?.ender_chest_contents?.data)
 
+    // 8f. Personal Vault (feature nommee "Vault", distincte des coffres poses sur l'ile —
+    // ces derniers ne sont pas exposes par l'API Hypixel, voir CLAUDE.md)
+    const personalVaultItems = decodeItemList(member.inventory?.personal_vault_contents?.data)
+
     // 8e. Backpacks (backpack_icons + backpack_contents, mappes par la meme cle slot —
     // verifie explicitement, pas suppose par ordre de tableau)
     const backpackIcons    = member.inventory?.backpack_icons || {}
@@ -254,6 +258,7 @@ export async function GET(req: NextRequest) {
       inventory_items:       inventoryItems,
       ender_chest_items:     enderChestItems,
       backpacks:             backpacks,
+      personal_vault_items:  personalVaultItems,
       fairy_souls:       fairySouls,
       skin_url:          skinUrl,
       game_stage:        gameStage,
