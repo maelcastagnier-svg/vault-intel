@@ -108,9 +108,15 @@ function betterPrice(sellPrice: any, avgPrice: any): number {
 }
 
 // Calcule le networth complet (purse+bank+items) en 2 requetes batch (pas une par item) :
-// 1) price_history_ah pour tous les item_id concernes (variant_key exact, puis variant_key_base
-//    en repli) 2) price_history (source BAZAAR) pour les item_id restants, non trouves en AH.
-// Jamais bloquant : un item sans prix trouve vaut 0, ne fait pas echouer le sync.
+// 1) price_history_ah_variants pour tous les item_id concernes (variant_key exact, puis
+//    variant_key_base en repli) 2) price_history (source BAZAAR) pour les item_id restants,
+//    non trouves en AH. Jamais bloquant : un item sans prix trouve vaut 0, ne fait pas echouer
+//    le sync.
+// IMPORTANT : price_history_ah (sans suffixe) n'est PAS utilisable ici — ses rows DAILY sont
+// une moyenne unique par item toutes variantes confondues, ecrites avec un variant_key
+// placeholder ('nostar_norecomb_noreforge', voir ah-aggregate/route.ts) qui ne correspond a
+// aucun etat reel d'item. Seule price_history_ah_variants contient un variant_key/variant_key_base
+// fiable par variante (deja filtre scan_count >= 3 a l'ecriture).
 async function calculateNetworth(
   supabase: any,
   purse: number,
@@ -129,9 +135,9 @@ async function calculateNetworth(
 
   const sinceDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
-  // ── Tier 1+2 : price_history_ah, exact (variant_key) puis base (variant_key_base) ──
+  // ── Tier 1+2 : price_history_ah_variants, exact (variant_key) puis base (variant_key_base) ──
   const { data: ahRows } = await supabase
-    .from('price_history_ah')
+    .from('price_history_ah_variants')
     .select('base_item_id, variant_key, variant_key_base, sell_price, avg_price, bucket_date')
     .in('base_item_id', uniqueItemIds)
     .gte('bucket_date', sinceDate)
