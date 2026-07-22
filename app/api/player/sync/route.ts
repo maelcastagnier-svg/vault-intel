@@ -202,6 +202,23 @@ export async function GET(req: NextRequest) {
     const inventoryItems  = decodeItemList(member.inventory?.inv_contents?.data)
     const enderChestItems = decodeItemList(member.inventory?.ender_chest_contents?.data)
 
+    // 8e. Backpacks (backpack_icons + backpack_contents, mappes par la meme cle slot —
+    // verifie explicitement, pas suppose par ordre de tableau)
+    const backpackIcons    = member.inventory?.backpack_icons || {}
+    const backpackContents = member.inventory?.backpack_contents || {}
+    const backpacks = Object.keys(backpackIcons)
+      .filter(slot => backpackContents[slot]?.data)
+      .map(slot => {
+        const iconData = backpackIcons[slot]?.data
+        const icon = iconData ? decodeItemListBytes(iconData).find(i => i) : null
+        return {
+          slot:           Number(slot),
+          icon_item_id:   icon?.item_id ?? null,
+          icon_item_name: icon?.item_name ?? null,
+          items:          decodeItemList(backpackContents[slot]?.data),
+        }
+      })
+
     // 9. Networth approximatif
     const purse    = Math.round(member.currencies?.coin_purse ?? 0)
     const bank     = Math.round(profile.banking?.balance ?? 0)
@@ -236,6 +253,7 @@ export async function GET(req: NextRequest) {
       equipped_accessories:  equippedAccessories,
       inventory_items:       inventoryItems,
       ender_chest_items:     enderChestItems,
+      backpacks:             backpacks,
       fairy_souls:       fairySouls,
       skin_url:          skinUrl,
       game_stage:        gameStage,
