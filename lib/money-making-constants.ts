@@ -32,6 +32,7 @@ export const TIER_CONFIG = {
 } as const
 
 export type TierKey = keyof typeof TIER_CONFIG
+export type TierConfig = (typeof TIER_CONFIG)[TierKey]
 
 export const GAME_TRUTHS = `
 === SLAYER SYSTEM (mandatory — always describe this way) ===

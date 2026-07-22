@@ -2,7 +2,7 @@
 // Lundi 6h UTC — analyse comparative + bibliothèque + feedback communautaire
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { TIER_CONFIG, GAME_TRUTHS } from '../../../../lib/money-making-constants'
+import { TIER_CONFIG, GAME_TRUTHS, type TierConfig } from '../../../../lib/money-making-constants'
 
 export const maxDuration = 120
 
@@ -55,7 +55,7 @@ function formatContext(ctx: any, existingMethods: any[], feedbackData: any[]): s
 }
 
 // ─── Prompt ──────────────────────────────────────────────────
-function buildPrompt(tier: string, config: typeof TIER_CONFIG.early): string {
+function buildPrompt(tier: string, config: TierConfig): string {
   const gearBudget = config.max_gear_cost >= 1_000_000_000
     ? (config.max_gear_cost / 1_000_000_000).toFixed(0) + 'B'
     : (config.max_gear_cost / 1_000_000).toFixed(0) + 'M'
