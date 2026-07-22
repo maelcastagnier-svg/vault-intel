@@ -210,32 +210,27 @@ async function calculateNetworth(
 
 // ── Handler ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
-  // Auth de base : il faut une session Vault reelle pour appeler cette route.
-  // user_id vient de la session authentifiee, plus jamais d'un query param
-  // falsifiable. Ne resout pas encore "quel compte Hypixel appartient a quel
-  // utilisateur" (aucun flux de liaison n'existe pour l'instant — voir CLAUDE.md),
-  // mais ferme deja l'abus anonyme total.
+  // Auth reelle : session Vault requise, et cette session doit avoir lie un compte
+  // Hypixel via /api/link-hypixel-account. Plus aucun username/uuid accepte en query
+  // param — uniquement le compte reellement lie a cet utilisateur authentifie.
   const serverClient = await createServerSupabaseClient()
   const { data: { user: authUser } } = await serverClient.auth.getUser()
   if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const username  = req.nextUrl.searchParams.get('username')
+  const { data: link } = await supabase
+    .from('hypixel_account_links')
+    .select('hypixel_uuid, hypixel_username')
+    .eq('user_id', authUser.id)
+    .single()
+  if (!link) return NextResponse.json({ error: 'No Hypixel account linked. Link one first via /api/link-hypixel-account' }, { status: 400 })
+
+  const username  = link.hypixel_username
   const userId    = authUser.id
   const profileId = req.nextUrl.searchParams.get('profile_id')
-  if (!username) return NextResponse.json({ error: 'username required' }, { status: 400 })
 
   try {
-    // 1. UUID depuis Mojang API (pas Hypixel)
-    const mojangRes  = await fetch(
-      `https://api.mojang.com/users/profiles/minecraft/${encodeURIComponent(username)}`
-    )
-    if (!mojangRes.ok) return NextResponse.json({ error: 'Player not found on Mojang' }, { status: 404 })
-    const mojangData = await mojangRes.json()
-    const uuid = mojangData.id
-      ? `${mojangData.id.slice(0,8)}-${mojangData.id.slice(8,12)}-${mojangData.id.slice(12,16)}-${mojangData.id.slice(16,20)}-${mojangData.id.slice(20)}`
-      : null
-    if (!uuid) return NextResponse.json({ error: 'Invalid username' }, { status: 404 })
-    if (!uuid) return NextResponse.json({ error: 'Invalid username' }, { status: 404 })
+    // UUID deja resolu et fige au moment de la liaison — pas besoin de rappeler Mojang.
+    const uuid = link.hypixel_uuid
 
     // 2. Profil Skyblock
     const profileRes  = await fetch(

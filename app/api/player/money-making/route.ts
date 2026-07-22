@@ -15,15 +15,21 @@ const supabase = createClient(
 )
 
 export async function GET(req: NextRequest) {
-  // Auth de base : session Vault reelle requise. Meme limite que sync — ne verifie
-  // pas encore que ce uuid appartient a cet utilisateur (pas de flux de liaison).
+  // Auth reelle : session Vault requise, et cette session doit avoir lie un compte
+  // Hypixel via /api/link-hypixel-account. Plus de uuid accepte en query param.
   const serverClient = await createServerSupabaseClient()
   const { data: { user: authUser } } = await serverClient.auth.getUser()
   if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const uuid      = req.nextUrl.searchParams.get('uuid')
+  const { data: link } = await supabase
+    .from('hypixel_account_links')
+    .select('hypixel_uuid')
+    .eq('user_id', authUser.id)
+    .single()
+  if (!link) return NextResponse.json({ error: 'No Hypixel account linked. Link one first via /api/link-hypixel-account' }, { status: 400 })
+
+  const uuid      = link.hypixel_uuid
   const profileId = req.nextUrl.searchParams.get('profile_id')
-  if (!uuid) return NextResponse.json({ error: 'uuid required' }, { status: 400 })
   if (!profileId) return NextResponse.json({ error: 'profile_id required' }, { status: 400 })
 
   const { data: player, error: playerError } = await supabase
