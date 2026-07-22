@@ -4,6 +4,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { decodeItemListBytes } from '../../../../lib/skyblock-item-decoder'
+import { createClient as createServerSupabaseClient } from '../../../../lib/supabase-server'
 
 export const maxDuration = 30
 
@@ -209,8 +210,17 @@ async function calculateNetworth(
 
 // ── Handler ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
+  // Auth de base : il faut une session Vault reelle pour appeler cette route.
+  // user_id vient de la session authentifiee, plus jamais d'un query param
+  // falsifiable. Ne resout pas encore "quel compte Hypixel appartient a quel
+  // utilisateur" (aucun flux de liaison n'existe pour l'instant — voir CLAUDE.md),
+  // mais ferme deja l'abus anonyme total.
+  const serverClient = await createServerSupabaseClient()
+  const { data: { user: authUser } } = await serverClient.auth.getUser()
+  if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const username  = req.nextUrl.searchParams.get('username')
-  const userId    = req.nextUrl.searchParams.get('user_id')
+  const userId    = authUser.id
   const profileId = req.nextUrl.searchParams.get('profile_id')
   if (!username) return NextResponse.json({ error: 'username required' }, { status: 400 })
 

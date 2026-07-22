@@ -6,6 +6,7 @@
 // (voir player_data.profile_id) — profile_id est donc requis ici aussi.
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient as createServerSupabaseClient } from '../../../../lib/supabase-server'
 
 export const maxDuration = 30
 
@@ -13,8 +14,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
-
-const TODAY = new Date().toISOString().split('T')[0]
 
 // ── Génère missions selon profil joueur ───────────────────────
 function generateMissions(player: any): any[] {
@@ -79,6 +78,16 @@ function generateMissions(player: any): any[] {
 
 // ── GET : retourne ou génère les missions ─────────────────────
 export async function GET(req: NextRequest) {
+  // Auth de base : session Vault reelle requise. Meme limite que sync — ne verifie
+  // pas encore que ce uuid appartient a cet utilisateur (pas de flux de liaison).
+  const serverClient = await createServerSupabaseClient()
+  const { data: { user: authUser } } = await serverClient.auth.getUser()
+  if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // Recalculee a chaque requete — jamais au niveau module (meme bug que ah-collect :
+  // une instance serverless qui reste chaude fait derailler la date apres minuit UTC).
+  const TODAY = new Date().toISOString().split('T')[0]
+
   const uuid      = req.nextUrl.searchParams.get('uuid')
   const profileId = req.nextUrl.searchParams.get('profile_id')
   if (!uuid) return NextResponse.json({ error: 'uuid required' }, { status: 400 })

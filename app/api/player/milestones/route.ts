@@ -3,6 +3,7 @@
 // GET /api/player/milestones?uuid={uuid}
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient as createServerSupabaseClient } from '../../../../lib/supabase-server'
 
 export const maxDuration = 30
 
@@ -86,6 +87,12 @@ const FAIRY_SOUL_LADDER = [50, 100, 150, 200, 255]
 const COLLECTION_TOP_N = 10
 
 export async function GET(req: NextRequest) {
+  // Auth de base : session Vault reelle requise. Meme limite que sync — ne verifie
+  // pas encore que ce uuid appartient a cet utilisateur (pas de flux de liaison).
+  const serverClient = await createServerSupabaseClient()
+  const { data: { user: authUser } } = await serverClient.auth.getUser()
+  if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const uuid      = req.nextUrl.searchParams.get('uuid')
   const profileId = req.nextUrl.searchParams.get('profile_id')
   if (!uuid) return NextResponse.json({ error: 'uuid required' }, { status: 400 })
