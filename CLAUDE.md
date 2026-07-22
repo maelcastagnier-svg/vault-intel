@@ -105,10 +105,21 @@ ci-dessous) avant de coder l'appel Claude.
 
 Remplace l'ancienne limite "networth = purse+bank uniquement" :
 
-1. **Décodage NBT complet joueur** : armure équipée, inventaire, backpacks, enderchest, 
-   accessory bag. Même format binaire base64-gzip que `ah-collect` (déjà live sur les 
-   enchères AH), mais jamais encore appliqué à l'inventaire d'un joueur — chantier séparé, 
-   pas un simple réemploi du décodeur existant.
+1. **Décodage NBT complet joueur** : armure équipée ✅ **fait et en prod** (voir ci-dessous), 
+   inventaire, backpacks, enderchest, accessory bag restent à faire. Même format binaire 
+   base64-gzip que `ah-collect`, mais le décodeur ne peut pas être appelé tel quel : 
+   `decodeItemBytes` (AH) suppose un seul item par blob (`items[0]`), alors qu'un blob 
+   d'inventaire joueur encode une liste de plusieurs items. `lib/skyblock-item-decoder.ts` 
+   a été refactorisé : logique par-item extraite dans `decodeItemNBT`, réutilisée par 
+   `decodeItemBytes` (inchangé, AH) et la nouvelle `decodeItemListBytes` (multi-items, 
+   joueur). `player/sync` décode `inv_armor` et écrit `player_data.equipped_armor` 
+   (jsonb : item_name/reforge/stars/enchantments/gems par slot), validé sur un vrai 
+   joueur (Voxui09, 4/4 pièces correctement décodées) avant merge.
+   - **Découverte notée, pas creusée** : chaque item NBT (armure au moins) porte un champ 
+     `extra.donated_museum` (+ `timestamp`, `boosters`) absent des items d'AH — probablement 
+     un flag/timestamp indiquant si une copie de cet item a été donnée au musée. Pourrait 
+     donner un raccourci pour le blocage Musée (évite l'appel `/v2/skyblock/museum` séparé) 
+     mais à valider avant d'en dépendre — pas urgent.
 2. **Vrai networth** — calculé depuis les items réels décodés × prix marché déjà 
    collecté en interne, plus purse+bank.
 3. **Skyblock Level + XP Guide** comme référentiel de tiers/milestones, en remplacement 
@@ -116,11 +127,48 @@ Remplace l'ancienne limite "networth = purse+bank uniquement" :
 4. **Historique de progression par snapshots** — mesurer la vitesse de progression 
    early→mid→end→late d'un joueur dans le temps, et permettre la comparaison entre joueurs.
 
-**Prochaine étape immédiate à la reprise** : vérifier si un "Skyblock XP Guide" (niveau 
-SkyBlock → XP cumulée) existe déjà dans une table Supabase interne ou via l'API Hypixel 
-(`/v2/resources/skyblock/...`) **avant** de le construire — même principe que pour 
-skills/collections cette session (voir règle 7 ci-dessous) : ne jamais coder en dur 
-sans avoir vérifié la source d'abord.
+## Evolve — Milestones vs Daily Missions (architecture clarifiée 22 juillet)
+
+**Milestones** = le guide de complétion 100% du jeu, permanent et complet. Basé sur 
+`sblevel_tasks` (99 lignes, déjà en base — pas le "SkyBlock Guide" externe, voir 
+investigation ci-dessous) réparti sur les 7 tiers Hypixel (Starter→Amateur→Intermediate→
+Skilled→Expert→Professional→Master) selon la difficulté réelle en jeu. Pour chaque 
+joueur : classe son tier actuel par tâche, montre explicitement ce qu'il a manqué dans 
+les tiers précédents (pas juste le tier courant), trace le chemin complet restant 
+jusqu'à 100% de complétion absolue. C'est LA référence de progression du joueur, 
+recalculée à chaque re-sync.
+
+**Daily Missions** = sélection quotidienne dynamique piochée dans les tâches Milestones 
+non complétées de ce joueur, filtrée pour ne montrer que ce qui est réalisable rapidement 
+à l'instant T (pas des objectifs de plusieurs semaines). Dépend de Milestones comme 
+source de données — pas une structure indépendante.
+
+**Ordre de construction** : Milestones d'abord (fondation complète), Daily Missions 
+ensuite (vient piocher dedans une fois Milestones fonctionnel).
+
+### Investigation "SkyBlock Guide" externe (22 juillet) — sources insuffisantes, pivot vers `sblevel_tasks`
+
+- **Fandom wiki** (`game_mechanics_misc`) : Starter complet et validé (120/120 tâches, 
+  vérifiées item par item). Amateur et au-delà tronqués à 8000 caractères par notre 
+  propre scraper (`wiki-auto-sync/route.ts:100`, `content.slice(0,8000)` — limite qu'on 
+  s'impose nous-même, corrigeable si besoin plus tard).
+- **Weird Gloop** (`hypixelskyblock.minecraft.wiki`) : plus riche que Fandom pour Starter 
+  (120/120 exact, avec Museum + Mob Types absents de Fandom), mais Amateur réel = 148 
+  tâches sur les 247 annoncées par sa propre page sommaire — la page sommaire porte 
+  elle-même un bandeau "This section needs to be reworked as its content is outdated" 
+  (dernière modif 3 juillet 2026). Pas fiable au-delà de Starter.
+- **`NotEnoughUpdates-REPO`** (actif, poussé en 2026) : aucun fichier Guide/tiers. 
+  Contient `sblevels.json` (= notre `sblevel_tasks`, confirme la source) et 
+  `leveling.json` (XP skills identique à `player/sync`, caps de skill en désaccord sur 
+  3 points avec l'API Hypixel — foraging/farming/taming à trancher, et vraies données 
+  `slayer_xp` par **niveau** 1-9 — différent des **tiers** 1-5 déjà utilisés en 
+  `verified:false` dans `milestones/route.ts`, pas encore exploitées, à ne pas confondre).
+- **SkyHanni + SkyHanni-REPO** (très actifs, poussés le jour même) : la feature 
+  "SkyblockGuide" lit l'UI du jeu en direct (regex sur tooltips), aucune donnée statique 
+  bundlée. Skytils probablement pareil (pas vérifié en détail).
+- **Conclusion** : aucune source externe ne maintient le détail par-tier au-delà de 
+  Starter. On construit notre propre répartition sur `sblevel_tasks` plutôt que 
+  d'attendre une source complète qui n'existe pas.
 
 ## Money Making — non retouché depuis le 13 juillet, donc toujours la référence
 
@@ -163,16 +211,17 @@ en actualisant ce document en conséquence.
 
 ## Prochaines étapes
 
-1. **Vérifier si le Skyblock XP Guide existe déjà** (table Supabase interne ou 
-   API Hypixel) avant de le construire pour le chantier NBT joueur / Skyblock Level
-2. Décodage NBT complet joueur (armure, inventaire, backpacks, enderchest, 
+1. **Milestones** — valider la proposition de répartition de `sblevel_tasks` sur les 
+   7 tiers + le design de calcul par-joueur (perf, pas de recalcul lourd) avant de coder
+2. **Daily Missions** — une fois Milestones fonctionnel, piocher dedans (pas avant)
+3. Décodage NBT complet joueur (armure, inventaire, backpacks, enderchest, 
    accessory bag) + vrai networth
-3. Historique de progression par snapshots (vitesse early→mid→end→late, 
+4. Historique de progression par snapshots (vitesse early→mid→end→late, 
    comparaison entre joueurs)
-4. Reconstruire le frontend Evolve (4 onglets : Daily Missions, Milestones, 
+5. Reconstruire le frontend Evolve (4 onglets : Daily Missions, Milestones, 
    Skills, Personal Money Making) une fois le backend NBT/XP Guide stabilisé
-5. Vérifier si le bug `upsert_scan_buffer_batch` est résolu
-6. Migration vers `item_variant_hourly_buckets` (conçu, pas branché)
+6. Vérifier si le bug `upsert_scan_buffer_batch` est résolu
+7. Migration vers `item_variant_hourly_buckets` (conçu, pas branché)
 
 ## Ce que je ne veux PAS
 
