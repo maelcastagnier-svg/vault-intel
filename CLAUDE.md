@@ -39,9 +39,11 @@ laissées (inactivité réelle du marché).
   Volume réduit de ~3,4M lignes/jour à ~2212 lignes/jour.
 - Cron `ah-aggregate` (23h59) : consolide le buffer en bucket DAILY/DAILY_EXACT 
   dans `price_history_ah`, puis vide le buffer.
-- `price_history_ah_variants` — table séparée pour les données NBT de variantes.
-- **Bug potentiellement encore ouvert** : `scan_count` ne progressait pas au-delà 
-  de 1 en prod malgré une fonction validée manuellement — à vérifier en premier.
+- `price_history_ah_variants` — table séparée pour les données NBT de variantes, 
+  c'est la source fiable pour pricer une variante précise (voir bug networth ci-dessous).
+- **Bug scan_count → confirmé résolu (22 juillet)** : vérifié en base, `scan_count` monte 
+  correctement au-delà de 1000 sur les variantes liquides. La fonction était déjà correcte, 
+  ce n'était pas un bug de code — juste jamais reconfirmé en prod avant cette session.
 
 **Historic import restructuré :** boucle directe sur la liste SkyCofl (plus sur 
 IDs internes Hypixel). SkyCofl utilise des flags numériques bitmask (pas 
@@ -62,6 +64,44 @@ avoir de clause WHERE pour que les upserts Supabase JS fonctionnent ; colonne
 `POWER_WITHER_BOOTS` est le vrai ID Hypixel des Necron's Boots ; SkyCofl et 
 Hypixel partagent les mêmes IDs d'items.
 
+## ✅ Infra collecte — 3 bugs corrigés (22 juillet, audit complet du pipeline)
+
+Audit demandé suite à un soupçon (infondé) d'absence de données AH 5★ sur Necron's Armor 
+— les données existaient déjà, c'était le bug networth documenté plus haut. L'audit a 
+en revanche fait remonter 3 vrais bugs actifs, tous corrigés et déployés le jour même :
+
+1. **`historic-import` — crash loop de 10+ jours, supprimé de `vercel.json`.** Planifié 
+   `*/2 * * * *` en continu alors que c'est un job de rattrapage ponctuel (SkyCofl → 
+   `price_history`/`price_history_ah`). Chaque invocation timeout à 60s depuis au moins 
+   le 11 juillet (308 timeouts sur 7 jours, confirmé via `mcp__vercel__get_runtime_errors`) 
+   — ne terminait jamais un batch, pur gaspillage d'invocations Vercel + quota SkyCofl/
+   Hypixel. Route laissée intacte (`app/api/cron/historic-import/route.ts`) pour une 
+   refonte future (déclenchement manuel ou pagination avec état persisté), juste retirée 
+   du cron.
+2. **`ah-collect` — `TODAY` figé au cold start, corrigé.** `const TODAY = new Date()...` 
+   était calculé au niveau module, pas dans le handler. Sur une instance serverless qui 
+   reste chaude (cron chaque minute), cette date ne se recalculait jamais tant que 
+   l'instance ne redémarrait pas → `scan_date` dérivait silencieusement vers la veille 
+   après minuit UTC. Confirmé en base : des lignes `scan_date` d'hier absorbaient encore 
+   des scans d'aujourd'hui (`scan_count` > 1000). Fix : `TODAY` recalculé à chaque requête, 
+   à l'intérieur du handler `GET`.
+3. **`bazaar-collect` — ne scannait que le top 25 par spread%, corrigé.** Hypixel renvoie 
+   déjà tout le catalogue Bazaar en un seul fetch (pas de pagination comme l'AH), mais le 
+   code ne gardait que le top 25 (`spread_pct` 10-80%) avant d'écrire dans `price_history` 
+   — tout item avec un spread durablement hors de cette bande n'avait jamais aucun point 
+   quotidien. Découplé en deux usages de la même donnée déjà en mémoire : `bazaar_1h` 
+   (feature Bazaar Flip) garde le filtre top 25/spread inchangé ; `price_history` reçoit 
+   maintenant tout le catalogue (`buy > 0 && sell > 0` uniquement, aucun plancher de 
+   volume/prix — un item peu liquide doit quand même avoir son point du jour) via une 
+   nouvelle fonction batchée `upsert_bazaar_price_bucket_batch`. Testé sur un run réel en 
+   prod : items couverts passés de 46 à 1544 en un seul cycle de cron.
+
+**⚠️ Point en attente, pas urgent** : pas de filtrage d'outlier sur les variantes AH à 
+faible `data_points` (seuil de fiabilité minimum = 3). Trouvé en passant : une variante 
+avec seulement 3 data_points à un prix ~40x supérieur aux variantes voisines équivalentes 
+— 2-3 enchères aberrantes suffisent à polluer durablement le prix d'une variante rare. 
+À traiter si ça devient un problème visible, pas bloquant aujourd'hui.
+
 ## Evolve — état réel (mis à jour session du 22 juillet, source de vérité actuelle)
 
 **Pipeline mort supprimé** : `api/evolve` (register + webhook n8n) et `cron/evolve-sync` 
@@ -72,8 +112,10 @@ Senither) et `skill_unlocks` (vide). `game_stage` uniformisé en MAJUSCULES
 
 **Backend fonctionnel (nouveau pipeline, remplace l'ancien) :**
 - `api/player/sync` — sync GET on-demand (UUID via Mojang, profil via Hypixel), écrit 
-  skills/slayers/dungeons/collections/pets/fairy_souls/game_stage/networth (purse+bank 
-  uniquement) dans `player_data`. Pas de cron automatique, re-sync manuel côté frontend.
+  skills/slayers/dungeons/collections/pets/fairy_souls/game_stage/networth dans 
+  `player_data`. `networth` est le **vrai total** (purse+bank+items décodés, voir 
+  chantier NBT + networth ci-dessous), plus `networth_breakdown` (jsonb, détail par 
+  catégorie). Pas de cron automatique, re-sync manuel côté frontend.
 - `api/player/missions` — génère/retourne les missions journalières dans `player_missions`.
 - `api/player/milestones` — skill/slayer/dungeon/fairy_soul/collection progress en JS pur 
   depuis `player_data`. Caps de skill et paliers de collection vérifiés via 
@@ -115,25 +157,29 @@ password via Supabase Auth) à un compte Hypixel de façon vérifiée.**
 2. Il faut un flux de liaison de compte Vault ↔ Hypixel username explicite après 
    connexion (le compte Vault ne connaît aujourd'hui aucun pseudo Hypixel à la création).
 
-Pas à corriger maintenant — le chantier NBT est prioritaire. Mais **bloquant** avant 
-toute exposition publique d'Evolve.
+Le chantier NBT qui la reportait est maintenant terminé — c'est la prochaine priorité 
+avant Evolve (voir Prochaines étapes). **Bloquant** avant toute exposition publique.
 
-**Personal Money Making — EN PAUSE.** L'endpoint existe (filtrage JS lecture seule, 
-voir ci-dessus) mais l'appel Claude personnalisé n'est pas branché : `inventory_summary` 
-sur `player_data` n'est qu'un flag de présence booléen 
-(`{"armor":"has_armor","equipment":"has_equipment","wardrobe":null}`), pas un détail 
-d'items équipés. Décision : plutôt que promettre une analyse "basée sur ton équipement" 
-sans donnée réelle, on construit d'abord le décodage NBT complet (voir chantier 
-ci-dessous) avant de coder l'appel Claude.
+**Personal Money Making — débloqué, pas encore fait.** L'endpoint existe (filtrage JS 
+lecture seule, voir ci-dessus) mais l'appel Claude personnalisé n'est toujours pas 
+branché. Le blocage d'origine (`inventory_summary` n'était qu'un flag booléen de 
+présence, pas un détail d'items) n'existe plus : le chantier NBT est terminé, 
+`player_data` contient maintenant le détail réel de l'équipement/inventaire 
+(`equipped_armor`, `equipped_accessories`, `inventory_items`, `ender_chest_items`, 
+`backpacks`, `personal_vault_items`, `wardrobe_slots`) + le vrai `networth_breakdown`. 
+Reste à coder : l'appel Claude personnalisé qui exploite ces données pour une analyse 
+"basée sur ton équipement réel" — prochain chantier Evolve après la sécurité auth 
+(voir Prochaines étapes).
 
-## Chantier en cours — NBT joueur + Skyblock Level/XP Guide (démarré 22 juillet)
+## ✅ Chantier NBT joueur + networth réel — TERMINÉ (22 juillet)
 
-Remplace l'ancienne limite "networth = purse+bank uniquement" :
+Remplace l'ancienne limite "networth = purse+bank uniquement". Statut final :
 
-1. **Décodage NBT complet joueur** — ✅ **fait et en prod** pour tout ce qui est exposé 
-   par l'API Hypixel côté inventaire joueur : armure équipée (`equipped_armor`), accessory 
-   bag (`equipped_accessories`), inventaire principal (`inventory_items`), enderchest 
-   (`ender_chest_items`), backpacks (`backpacks`), Personal Vault (`personal_vault_items`). 
+1. **Décodage NBT complet joueur** — ✅ **fait et en prod**, les 7 catégories exposées 
+   par l'API Hypixel côté inventaire joueur, chacune sa colonne jsonb sur `player_data` : 
+   armure équipée (`equipped_armor`), accessory bag (`equipped_accessories`), inventaire 
+   principal (`inventory_items`), enderchest (`ender_chest_items`), backpacks 
+   (`backpacks`), Personal Vault (`personal_vault_items`), wardrobe (`wardrobe_slots`). 
    Tout validé sur un vrai joueur (Voxui09/Cucumber) avant merge, routes de debug 
    temporaires supprimées après validation à chaque fois.
    - Même format binaire base64-gzip que `ah-collect`, mais le décodeur ne pouvait pas 
@@ -167,20 +213,29 @@ Remplace l'ancienne limite "networth = purse+bank uniquement" :
      un flag/timestamp indiquant si une copie de cet item a été donnée au musée. Pourrait 
      donner un raccourci pour le blocage Musée (évite l'appel `/v2/skyblock/museum` séparé) 
      mais à valider avant d'en dépendre — pas urgent.
-2. **Vrai networth** (en cours, 23 juillet) — calculé depuis les items réels décodés × prix 
-   marché déjà collecté en interne (`price_history_ah` exact puis `variant_key_base`, 
-   fallback `price_history` source BAZAAR pour les matériaux bruts — **pas** `bazaar_1h`, 
-   table de scan volatile à 25 lignes, pas une couverture réelle), plus purse+bank. 
-   Breakdown détaillé par catégorie stocké dans `player_data.networth_breakdown` (jsonb), 
-   `networth` devient le vrai total. Nécessite d'abord de stocker `variant_key_full`/
-   `variant_key_base`/`item_count` sur chaque item décodé (jetés jusqu'ici lors du mapping 
-   vers le format de stockage "friendly") — sans ça, impossible de matcher un prix.
+2. **Vrai networth** — ✅ **fait, en prod, validé sur Cucumber** (748 978 005 vs 164 935 046 
+   avant le fix ci-dessous, cohérent avec purse 154M + plusieurs sets ✪✪✪✪✪ complets). 
+   Calculé depuis les items réels décodés × prix marché déjà collecté en interne, plus 
+   purse+bank. Breakdown détaillé par catégorie stocké dans `player_data.networth_breakdown` 
+   (jsonb : purse, bank, items_total, et par catégorie value/items_priced/items_unpriced), 
+   `networth` est le vrai total. Chaque item décodé porte `variant_key_full`/
+   `variant_key_base`/`item_count` (sans ça, impossible de matcher un prix).
+   - **Bug critique trouvé et corrigé** : `calculateNetworth` interrogeait `price_history_ah` 
+     pour le matching par variante — mais cette table (granularité DAILY) est une **moyenne 
+     par item toutes variantes confondues**, écrite avec un `variant_key` placeholder 
+     (`'nostar_norecomb_noreforge'`) qui ne correspond à l'état réel d'aucun item. Résultat : 
+     armure/accessoires/wardrobe pricés à 0 quel que soit le tier. La vraie source par-variante 
+     est `price_history_ah_variants` (déjà filtrée `scan_count >= 3` à l'écriture) — 
+     `calculateNetworth` pointe maintenant dessus. `price_history_ah` reste utilisée ailleurs 
+     (vue item agrégée) mais **ne doit jamais servir à pricer une variante précise**.
    - **`detectGameStage` recalibré en même temps** : les seuils networth actuels 
      (5M/100M/1B) datent de l'époque "networth = purse+bank uniquement" et sous-comptaient 
      largement les joueurs bien équipés. Alignés sur les bandes déjà validées de Money 
      Making (0-50M / 50M-500M / 500M-5B / 5B+) plutôt que d'inventer de nouveaux seuils — 
      élimine aussi l'incohérence entre les deux définitions de EARLY/MID/END/LATE qui 
-     coexistaient dans le code.
+     coexistaient dans le code. Le gate est un OR sur networth ET avg skill (le plus 
+     restrictif des deux fixe le stage) — validé sur Cucumber : networth 748M (> seuil END) 
+     mais avg skill ~23 (< 25) → reste bloqué en MID, comportement voulu.
    - **⚠️ Amélioration future notée, pas la version finale** : `game_stage` ne devrait à 
      terme pas se baser sur le networth (un item cher hérité/acheté ne reflète pas 
      l'avancement réel du joueur), mais sur un score composite de puissance/avancement 
@@ -211,6 +266,11 @@ source de données — pas une structure indépendante.
 
 **Ordre de construction** : Milestones d'abord (fondation complète), Daily Missions 
 ensuite (vient piocher dedans une fois Milestones fonctionnel).
+
+**Milestones V1 — Starter + Amateur validés, reste `verified: false`.** Les tiers 
+Intermediate→Master ne sont pas encore vérifiés tâche par tâche contre `sblevel_tasks` 
+— même logique que les slayers ailleurs dans ce document : à afficher avec un badge 
+"à vérifier" côté frontend tant que ce n'est pas fait, jamais comme des faits validés.
 
 ### Investigation "SkyBlock Guide" externe (22 juillet) — sources insuffisantes, pivot vers `sblevel_tasks`
 
@@ -277,17 +337,24 @@ en actualisant ce document en conséquence.
 
 ## Prochaines étapes
 
-1. **Milestones** — valider la proposition de répartition de `sblevel_tasks` sur les 
-   7 tiers + le design de calcul par-joueur (perf, pas de recalcul lourd) avant de coder
-2. **Daily Missions** — une fois Milestones fonctionnel, piocher dedans (pas avant)
-3. Décodage NBT complet joueur (armure, inventaire, backpacks, enderchest, 
-   accessory bag) + vrai networth
-4. Historique de progression par snapshots (vitesse early→mid→end→late, 
+**Avant de continuer Evolve, deux chantiers distincts (pas de dépendance entre eux) :**
+1. **Sécurité auth — BLOQUANT avant tout branchement frontend d'Evolve.** Voir section 
+   dédiée ci-dessus : `supabase.auth.getUser()` côté serveur sur toutes les routes 
+   `player/*`, flux de liaison compte Vault ↔ Hypixel username. Pas commencé.
+2. **Personal Money Making — débloqué par le chantier NBT, pas encore fait.** L'appel 
+   Claude personnalisé reste à coder maintenant que les données réelles d'équipement/
+   inventaire existent (voir section Evolve ci-dessus). Pas commencé.
+
+**Ensuite, dans l'ordre déjà validé :**
+3. **Milestones** — valider tiers Intermediate→Master contre `sblevel_tasks` (Starter+
+   Amateur déjà validés, voir section Milestones vs Daily Missions)
+4. **Daily Missions** — une fois Milestones entièrement vérifié, piocher dedans
+5. Historique de progression par snapshots (vitesse early→mid→end→late, 
    comparaison entre joueurs)
-5. Reconstruire le frontend Evolve (4 onglets : Daily Missions, Milestones, 
-   Skills, Personal Money Making) une fois le backend NBT/XP Guide stabilisé
-6. Vérifier si le bug `upsert_scan_buffer_batch` est résolu
+6. Reconstruire le frontend Evolve (4 onglets : Daily Missions, Milestones, 
+   Skills, Personal Money Making) une fois le backend stabilisé
 7. Migration vers `item_variant_hourly_buckets` (conçu, pas branché)
+8. Filtrage outlier sur variantes AH à faible `data_points` (voir section infra collecte)
 
 ## Ce que je ne veux PAS
 
