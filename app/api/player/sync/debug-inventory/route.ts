@@ -32,10 +32,29 @@ export async function GET(req: NextRequest) {
     const profileRes = await fetch(`https://api.hypixel.net/v2/skyblock/profiles?uuid=${uuid}`, { headers: { 'API-Key': HYPIXEL_KEY } })
     const profileData = await profileRes.json()
     const profiles = profileData.profiles || []
-    const profile = profiles.find((p: any) => p.selected) || profiles[profiles.length - 1]
+
+    const cleanUuid = uuid.replace(/-/g, '')
+    const allProfilesSummary = profiles.map((p: any) => {
+      const m = p.members?.[cleanUuid] || {}
+      return {
+        profile_id:  p.profile_id,
+        cute_name:   p.cute_name,
+        selected:    !!p.selected,
+        purse:       m.currencies?.coin_purse ?? null,
+        bank:        p.banking?.balance ?? null,
+        has_inventory_key: !!m.inventory,
+        member_top_level_keys: Object.keys(m),
+      }
+    })
+
+    // Pour ce debug : privilegie le profil avec le plus de purse (proxy simple d'activite reelle)
+    // plutot que "selected", qui peut pointer vers un profil neuf/vide.
+    const profile = [...profiles].sort((a: any, b: any) =>
+      (b.members?.[cleanUuid]?.currencies?.coin_purse ?? 0) - (a.members?.[cleanUuid]?.currencies?.coin_purse ?? 0)
+    )[0]
     if (!profile) return NextResponse.json({ error: 'No Skyblock profile found' }, { status: 404 })
 
-    const member = profile.members?.[uuid.replace(/-/g, '')]
+    const member = profile.members?.[cleanUuid]
     if (!member) return NextResponse.json({ error: 'Player data not found in profile' }, { status: 404 })
 
     const inventory = summarize(member.inventory?.inv_contents?.data)
@@ -44,7 +63,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       username,
       uuid,
-      profile_id: profile.profile_id,
+      all_profiles: allProfilesSummary,
+      used_profile_id: profile.profile_id,
       profile_selected: !!profile.selected,
       member_top_level_keys: Object.keys(member),
       inventory,
