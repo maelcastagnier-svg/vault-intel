@@ -68,21 +68,36 @@ réelle (fonctionne, agit sur le bon compte), sans session (401), et avec un ema
 différent injecté dans le body (complètement ignoré, prouvé en observant que la réponse 
 reste scopée à la session réelle).
 
-**🟡 Trouvé, pas corrigé cette session** :
+**✅ Suite corrigée le même jour — `player/*` + liaison de compte :**
+- `player_missions` et `player_progress` avaient les mêmes policies RLS 
+  SELECT/INSERT/UPDATE totalement publiques que `subscriptions`. Ni l'une ni l'autre 
+  n'a de colonne `user_id` pour scoper une policy par utilisateur — verrouillées à zéro 
+  policy (service role uniquement), même posture que `player_data`/`player_skill_cards`.
+- Les 4 routes `player/*` (`sync`, `missions`, `milestones`, `money-making`) exigent 
+  maintenant une vraie session Vault (`auth.getUser()` via `lib/supabase-server.ts`).
+- **Flux de liaison Vault ↔ Hypixel construit** : nouvelle table `hypixel_account_links` 
+  (`user_id` clé primaire, `hypixel_uuid` `UNIQUE`, RLS scopée à `user_id = auth.uid()`). 
+  "Premier arrivant, premier servi" — pas de preuve cryptographique d'appartenance, 
+  choix assumé et proportionné : les données de jeu exposées ensuite (skills, slayers, 
+  collections...) sont déjà publiques via l'API Hypixel officielle pour quiconque connaît 
+  le pseudo, le vrai risque à couvrir était le spam d'écriture (déclencher sync/missions 
+  sur un compte qui n'est pas le sien), pas une fuite de données déjà publiques. Nouvelle 
+  route `POST /api/link-hypixel-account` (résout le pseudo via Mojang, refuse si déjà 
+  lié à un autre compte Vault), UI minimale à `/link-hypixel` (pas stylée, à reprendre 
+  avec le reste du design plus tard). Les 4 routes `player/*` n'acceptent plus aucun 
+  `username`/`uuid` client — uniquement le compte réellement lié à la session.
+- **Testé end-to-end sur 2 vrais comptes jetables** (créés/supprimés à chaque fois) : 
+  liaison réussie sur un vrai pseudo Hypixel (Voxui09), `sync`/`milestones`/
+  `money-making`/`missions` fonctionnels à travers le lien avec de vraies données 
+  (Cucumber), un second compte sans lien correctement rejeté (400), une tentative de 
+  lier un pseudo déjà revendiqué par un autre compte Vault correctement rejetée (409).
+
+**🟡 Trouvé, toujours pas corrigé** :
 - `method_feedback_summary` (vue `SECURITY DEFINER`) — `anon`/`authenticated` ont SELECT 
   dessus, bypass le RLS de `method_feedback` (RLS actif, zéro policy). Table vide 
   aujourd'hui donc impact nul, mais fuira tout commentaire/vote communautaire dès qu'elle 
   aura des données. `distinct_items` (l'autre vue `SECURITY DEFINER`) : risque nul, lit 
   `price_history` déjà publique légitimement.
-- `player_missions` ET `player_progress` — policies RLS SELECT/INSERT/UPDATE totalement 
-  publiques (`USING (true)`). Même famille que le bug `subscriptions` corrigé ci-dessus, 
-  mais sur des données de jeu personnelles. À corriger avec le chantier `player/*`.
-- Routes `player/*` (`sync`, `missions`, `milestones`, `money-making`) — toujours zéro 
-  auth serveur, déjà documenté dans la section Sécurité Evolve, confirmé toujours vrai 
-  par cet audit. Prochaine étape de ce chantier sécurité.
-- Aucun flux de liaison Vault ↔ Hypixel username n'existe — confirmé par recherche 
-  exhaustive (backend + frontend). `setup-account` ne crée qu'un compte Vault (email/
-  password/username d'affichage), aucun rapport avec un pseudo Hypixel.
 
 **Aparté sans rapport à la sécurité** : `.env.local` contient une clé anon Supabase 
 legacy désactivée depuis le 8 juillet — la prod utilise la nouvelle clé 
@@ -257,30 +272,18 @@ reconstruire avec les vrais onglets (Daily Missions, Milestones, Skills, Persona
 Money Making) une fois le backend stabilisé. Ne pas réutiliser le code de 
 `EvolveSection.tsx` tel quel.
 
-## ⚠️ Sécurité Evolve — TODO bloquant AVANT mise en prod publique (trouvé 22 juillet)
+## ✅ Sécurité Evolve — TODO résolu (trouvé 22 juillet, corrigé le même jour)
 
-Investigation menée cette session : **aucun mécanisme ne lie un compte Vault (email/
-password via Supabase Auth) à un compte Hypixel de façon vérifiée.**
+Les deux points bloquants identifiés dans l'investigation initiale sont maintenant faits, 
+voir la section "Sécurité compte/facturation" tout en haut de ce document pour le détail 
+complet (audit, fixes, tests end-to-end) :
+1. Les 4 routes `player/*` vérifient `supabase.auth.getUser()` côté serveur.
+2. Flux de liaison Vault ↔ Hypixel construit (`hypixel_account_links` + 
+   `/api/link-hypixel-account` + UI minimale `/link-hypixel`).
 
-- Aucun `middleware.ts` — aucune route API n'a de protection d'auth au niveau framework.
-- `player/sync`, `player/missions`, `player/milestones`, `player/money-making` lisent 
-  `username`/`user_id` comme de simples query params, sans jamais appeler 
-  `supabase.auth.getUser()` côté serveur. Elles utilisent le client Supabase 
-  **service role** (bypass RLS total). Résultat : `GET /api/player/sync?username=N%27IMPORTE_QUI&user_id=N%27IMPORTE_QUOI` 
-  fonctionne pour n'importe qui, connecté ou non, et attribue les données au `user_id` 
-  fourni sans vérifier que l'appelant est bien cette personne.
-- Sans conséquence *aujourd'hui* uniquement parce que rien dans le frontend n'appelle 
-  encore ces routes (`EvolveSection.tsx` n'est pas branché dans `page.tsx`, et pointait 
-  de toute façon vers `api/evolve`, supprimé ce chantier).
-
-**TODO avant de rebrancher `EvolveSection.tsx` dans `page.tsx` :**
-1. Toutes les routes `player/*` doivent vérifier `supabase.auth.getUser()` côté serveur 
-   — jamais faire confiance à un `user_id` passé en query param.
-2. Il faut un flux de liaison de compte Vault ↔ Hypixel username explicite après 
-   connexion (le compte Vault ne connaît aujourd'hui aucun pseudo Hypixel à la création).
-
-Le chantier NBT qui la reportait est maintenant terminé — c'est la prochaine priorité 
-avant Evolve (voir Prochaines étapes). **Bloquant** avant toute exposition publique.
+Toujours pas fait avant de rebrancher `EvolveSection.tsx` dans `page.tsx` : reconstruire 
+le frontend lui-même (l'ancien design du 13 juillet ne correspond plus à l'architecture 
+Skills/Milestones/Daily Missions) — c'est un chantier produit, plus un chantier sécurité.
 
 **Personal Money Making — absorbé par la section Skills, voir ci-dessous.** Ancien plan 
 (table `player_money_making`, 5 méthodes actives + 5 futures) abandonné avant d'être codé : 
@@ -551,24 +554,21 @@ en actualisant ce document en conséquence.
 
 ## Prochaines étapes
 
-1. **Sécurité auth — BLOQUANT avant tout branchement frontend d'Evolve.** Voir section 
-   dédiée ci-dessus : `supabase.auth.getUser()` côté serveur sur toutes les routes 
-   `player/*`, flux de liaison compte Vault ↔ Hypixel username. Au passage, corriger le 
-   même problème sur `player_missions` (RLS public trouvé cette session, voir section Skills). 
-   Pas commencé.
-2. **Milestones** — valider tiers Intermediate→Master contre `sblevel_tasks` (Starter+
+1. **Milestones** — valider tiers Intermediate→Master contre `sblevel_tasks` (Starter+
    Amateur déjà validés, voir section Milestones vs Daily Missions)
-3. **Daily Missions** — une fois Milestones entièrement vérifié, piocher dedans
-4. Historique de progression par snapshots (vitesse early→mid→end→late, 
+2. **Daily Missions** — une fois Milestones entièrement vérifié, piocher dedans
+3. Historique de progression par snapshots (vitesse early→mid→end→late, 
    comparaison entre joueurs) — piste pour la 4e section Evolve premium
-5. Reconstruire le frontend Evolve (3 onglets : Skills, Milestones, Daily Missions) 
+4. Reconstruire le frontend Evolve (3 onglets : Skills, Milestones, Daily Missions) 
    une fois Milestones stabilisé — le backend Skills est déjà fait (voir section dédiée)
-6. Rendu visuel 3D du setup (skin + armure superposée) pour la section Skills — chantier 
+5. Rendu visuel 3D du setup (skin + armure superposée) pour la section Skills — chantier 
    séparé, pas commencé
-7. Migration vers `item_variant_hourly_buckets` (conçu, pas branché)
-8. Filtrage outlier sur variantes AH à faible `data_points` (voir section infra collecte)
-9. Pipeline données mécaniques à reconstruire (voir section dédiée) — chantier large, 
+6. Migration vers `item_variant_hourly_buckets` (conçu, pas branché)
+7. Filtrage outlier sur variantes AH à faible `data_points` (voir section infra collecte)
+8. Pipeline données mécaniques à reconstruire (voir section dédiée) — chantier large, 
    sa propre session
+9. `method_feedback_summary` (vue `SECURITY DEFINER`) à corriger avant que 
+   `method_feedback` ait de vraies données (voir section sécurité)
 
 ## Ce que je ne veux PAS
 
