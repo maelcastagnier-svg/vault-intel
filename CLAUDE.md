@@ -280,8 +280,9 @@ un rendement qui n'existe pas.
 - `app/api/cron/evolve-skills/route.ts` — cron hebdomadaire (lundi 6h30, 30 min après 
   `money-making-agent` pour lire sa bibliothèque déjà fraîche comme référence/inspiration, 
   jamais copiée telle quelle). 1 appel Claude par profil synced (`claude-sonnet-4-6`, 
-  `max_tokens: 8000`, `maxDuration: 300` — 120s ne suffisait pas pour la sortie structurée 
-  des 9 cartes + 6 sous-cartes slayer).
+  `max_tokens: 16000`, `maxDuration: 300` — 120s/8000 tokens insuffisants pour la sortie 
+  structurée des 9 cartes + 6 sous-cartes slayer, les deux relevés après un vrai échec 
+  en prod, pas en anticipant).
 - Table `player_skill_cards` (1 ligne par joueur par profil, upsert hebdomadaire, pas de 
   log quotidien — la boucle de progression est un effet de la fraîcheur des données 
   recalculées à chaque run, pas une logique "target atteinte" à tracker séparément). RLS 
@@ -290,6 +291,22 @@ un rendement qui n'existe pas.
   `game_mechanics_misc`, ce sont des données personnelles par joueur).
 - Rendu visuel 3D du setup (skin + armure superposée) : chantier séparé, pas fait, 
   structure de données uniquement pour l'instant.
+
+**⚠️ Bug trouvé et corrigé après le premier test (22 juillet, même jour)** : le prompt ne 
+regardait que `equipped_armor`/`equipped_accessories` pour construire `current` — jamais 
+`inventory_items`, `ender_chest_items`, `backpacks`, `personal_vault_items`, ni 
+`wardrobe_slots`. Conséquence réelle constatée sur Cucumber : la carte Dungeoneering 
+recommandait d'**acheter** un set Necron's/Maxor's (80-150M) alors qu'un set Ancient 
+Necron's ✪✪✪✪✪ complet dormait déjà en Wardrobe slot 2, et qu'un set Ancient Crimson 
+✪✪✪✪✪, un set Ancient Shadow Assassin ✪✪✪✪✪ complet, et un Livid Dagger ✪✪✪✪✪ dormaient 
+dans le Jumbo Backpack — tous des swaps gratuits. Corrigé par `collectOwnedButUnequipped()` 
+qui scanne les 5 emplacements non couverts et les envoie taggés par localisation, plus un 
+nouveau `target.type: "free_swap"` (`budget_estimate: 0`, nomme l'item exact + son 
+emplacement) distinct de `"upgrade"`. Le prompt marque maintenant explicitement 
+"recommander un achat pour un item déjà possédé" comme le pire échec possible de la 
+fonctionnalité — pire qu'une target hors de portée, parce que ça fait dépenser de l'argent 
+réel pour rien. Revalidé sur Cucumber après fix : la carte propose bien le swap gratuit 
+en nommant l'emplacement exact.
 
 **⚠️ Trouvé en marge, pas corrigé** : `player_missions` a des policies RLS totalement 
 publiques (SELECT/INSERT/UPDATE, `USING (true)`) — n'importe qui peut lire/modifier les 
