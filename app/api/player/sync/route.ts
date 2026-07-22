@@ -35,6 +35,25 @@ function getSkillLevel(skillName: string, xp: number): number {
   return calcSkillLevel(xp, xpTable)
 }
 
+// Decode un blob NBT multi-items en liste plate (inventaire, enderchest, accessory bag...)
+function decodeItemList(bytesBase64: string | undefined) {
+  if (!bytesBase64) return []
+  return decodeItemListBytes(bytesBase64)
+    .map((item, index) => item ? { slot: index, ...item } : null)
+    .filter((item): item is NonNullable<typeof item> => !!item)
+    .map(item => ({
+      slot:         item.slot,
+      item_id:      item.item_id,
+      item_name:    item.item_name,
+      item_count:   item.item_count,
+      reforge:      item.reforge,
+      stars:        item.total_stars,
+      is_recomb:    item.is_recomb,
+      enchantments: item.enchantments,
+      gems:         item.gems,
+    }))
+}
+
 function detectGameStage(skills: Record<string, number>, slayers: Record<string, number>, networth: number): string {
   const avgSkill  = Object.values(skills).reduce((s, v) => s + v, 0) / Object.keys(skills).length
   const maxSlayer = Math.max(...Object.values(slayers))
@@ -179,6 +198,10 @@ export async function GET(req: NextRequest) {
           }))
       : []
 
+    // 8d. Inventaire principal + enderchest décodés (member.inventory.inv_contents / ender_chest_contents)
+    const inventoryItems  = decodeItemList(member.inventory?.inv_contents?.data)
+    const enderChestItems = decodeItemList(member.inventory?.ender_chest_contents?.data)
+
     // 9. Networth approximatif
     const purse    = Math.round(member.currencies?.coin_purse ?? 0)
     const bank     = Math.round(profile.banking?.balance ?? 0)
@@ -211,6 +234,8 @@ export async function GET(req: NextRequest) {
       inventory_summary: inventorySummary,
       equipped_armor:        equippedArmor,
       equipped_accessories:  equippedAccessories,
+      inventory_items:       inventoryItems,
+      ender_chest_items:     enderChestItems,
       fairy_souls:       fairySouls,
       skin_url:          skinUrl,
       game_stage:        gameStage,
