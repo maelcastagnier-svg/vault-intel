@@ -15,7 +15,6 @@ const supabase = createClient(
 
 const HYPIXEL_AH_URL = 'https://api.hypixel.net/v2/skyblock/auctions'
 const TOP_ITEMS      = 300
-const TODAY          = new Date().toISOString().split('T')[0]
 
 // ── Fetch toutes les pages en parallèle ──────────────────────
 async function fetchAllAuctions(): Promise<{ auctions: any[]; totalPages: number }> {
@@ -44,6 +43,11 @@ export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  // Recalcule a chaque invocation — une instance serverless qui reste chaude
+  // (cron toutes les minutes) ne doit jamais figer cette date au cold start,
+  // sinon scan_date derive silencieusement vers la veille apres minuit UTC.
+  const TODAY = new Date().toISOString().split('T')[0]
 
   // Anti-doublon
   const { data: lock } = await supabase
