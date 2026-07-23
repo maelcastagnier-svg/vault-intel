@@ -141,11 +141,8 @@ const FAIRY_SOULS_BY_TIER: Record<string, number> = {
   Master:       255,
 }
 
-export async function GET(request: Request) {
-  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+// Reutilisable par le handler cron et par un test direct (meme pattern que runEvolveSkills).
+export async function runMilestonesSync() {
   const logId = await startSync('milestones-sync')
   const results: Record<string, any> = {}
   let totalRows = 0
@@ -200,5 +197,13 @@ export async function GET(request: Request) {
     { results }
   )
 
-  return NextResponse.json({ success: !hadError, total_tasks: totalRows, results })
+  return { success: !hadError, total_tasks: totalRows, results }
+}
+
+export async function GET(request: Request) {
+  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const result = await runMilestonesSync()
+  return NextResponse.json(result)
 }
