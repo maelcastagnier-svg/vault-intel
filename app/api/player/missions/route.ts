@@ -1,20 +1,20 @@
 // app/api/player/missions/route.ts
-// Refonte complète (23 juillet) — remplace l'ancien générateur indépendant (if/else codés
-// en dur sur skills/slayers/dungeons, aucun lien avec Milestones) par un vrai pioche dans
-// les tâches Milestones non complétées du joueur, comme prévu depuis le 22 juillet
-// (voir CLAUDE.md, section "Milestones vs Daily Missions").
+// Pioche dans les tâches Milestones non complétées du joueur (voir CLAUDE.md, section
+// "Milestones vs Daily Missions"). Simplifié le 23 juillet suite à la restructuration de
+// milestone_tasks en granularité individuelle : chaque tâche Milestones EST déjà une
+// requirement individuelle (plus besoin de casser des tâches composites en sous-requirements
+// ici, computeMilestones le fait directement).
 //
 // Logique : trouve le tier ACTUEL du joueur (le premier tier, Starter→Master, qui a encore
-// au moins une tâche data_available:true non complétée), casse ses tâches composites en
-// requirements individuelles non satisfaites (ex: "Skill Level Up" 7/10 -> 3 missions
-// concrètes, une par skill manquant), classe par proximité de complétion (current/target)
-// pour prioriser les victoires rapides, garde les 5 premières. Jamais de tier supérieur au
-// tier actuel — reste "réalisable à l'instant T", pas des objectifs de plusieurs semaines.
-// Aucune donnée data_available:false n'est jamais utilisée (musée, essence, minions...).
+// au moins une tâche data_available:true non complétée), classe ses tâches calculables non
+// complétées par proximité de complétion (current/target) pour prioriser les victoires
+// rapides, garde les 5 premières. Jamais un tier au-dessus du tier actuel — reste
+// "réalisable à l'instant T", pas des objectifs de plusieurs semaines. Aucune donnée
+// data_available:false n'est jamais utilisée (musée, essence, minions, uncollected...).
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServerSupabaseClient } from '../../../../lib/supabase-server'
-import { computeMilestones } from '../milestones/route'
+import { computeMilestones, EvaluatedTask } from '../milestones/route'
 
 export const maxDuration = 30
 
@@ -23,7 +23,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const TIER_ORDER = ['Starter', 'Amateur', 'Intermediate', 'Skilled', 'Expert', 'Professional', 'Master']
 const TIER_DIFFICULTY: Record<string, string> = {
   Starter: 'EASY', Amateur: 'EASY',
   Intermediate: 'MEDIUM', Skilled: 'MEDIUM',
@@ -32,15 +31,7 @@ const TIER_DIFFICULTY: Record<string, string> = {
 
 const MAX_MISSIONS = 5
 
-type MissionCandidate = {
-  tier: string
-  task_name: string
-  task_title: string
-  label: string
-  unit: string
-  current: number
-  target: number
-}
+type MissionCandidate = { tier: string; task: EvaluatedTask }
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
@@ -53,48 +44,35 @@ export async function buildMissionCandidates(uuid: string, profileId: string): P
 
   for (const tierData of result.tiers) {
     const allTasks = [...tierData.wiki_tasks, ...tierData.vault_tasks]
-    const computable = allTasks.filter((t: any) => t.data_available)
+    const computable = allTasks.filter(t => t.data_available)
     if (computable.length === 0) continue // rien de mesurable ici, tier suivant
-    const allDone = computable.every((t: any) => t.completed)
+    const allDone = computable.every(t => t.met)
     if (allDone) continue // tier deja acquis (pour ce qu'on sait verifier), tier suivant
 
-    // Tier actuel trouve : casse les tâches incomplètes en requirements individuelles
-    const candidates: MissionCandidate[] = []
-    for (const task of computable) {
-      if (task.completed) continue
-      for (const req of task.requirements_detail as any[]) {
-        if (req.met) continue
-        candidates.push({
-          tier: tierData.tier,
-          task_name: task.name,
-          task_title: task.task_title,
-          label: req.label, unit: req.unit,
-          current: req.current, target: req.target,
-        })
-      }
-    }
-    // Classe par proximite de completion (current/target desc) — victoires rapides d'abord
-    candidates.sort((a, b) => (b.current / b.target) - (a.current / a.target))
-    return candidates.slice(0, MAX_MISSIONS)
+    // Tier actuel trouve : classe les taches non completees par proximite de completion
+    const incomplete = computable.filter(t => !t.met)
+    incomplete.sort((a, b) => (b.current! / b.target!) - (a.current! / a.target!))
+    return incomplete.slice(0, MAX_MISSIONS).map(task => ({ tier: tierData.tier, task }))
   }
   return [] // tous les tiers verifiables sont completes
 }
 
 function toMissionRow(c: MissionCandidate, uuid: string, profileId: string, today: string) {
+  const { task, tier } = c
   return {
     hypixel_uuid:     uuid,
     profile_id:       profileId,
     mission_date:     today,
-    mission_id:       slugify(`${c.tier}_${c.task_title}_${c.label}`),
-    activity:         c.unit === 'level' ? 'SKILL' : c.unit === 'Fairy Souls' ? 'FAIRY_SOULS' : 'COLLECTION',
-    title:            `Reach ${c.label}`,
-    description:      `Part of the ${c.tier} tier's "${c.task_title}" milestone.`,
-    difficulty:       TIER_DIFFICULTY[c.tier] || 'MEDIUM',
-    progress:         Math.round(c.current),
-    progress_target:  Math.round(c.target),
-    progress_unit:    c.unit,
+    mission_id:       slugify(`${tier}_${task.task_title}_${task.label}`),
+    activity:         task.target === null ? 'OTHER' : task.label.includes('Fairy Souls') ? 'FAIRY_SOULS' : /level \d+$/.test(task.label) ? 'SKILL' : 'COLLECTION',
+    title:            `Reach ${task.label}`,
+    description:      `Part of the ${tier} tier's "${task.task_title}" milestone.`,
+    difficulty:       TIER_DIFFICULTY[tier] || 'MEDIUM',
+    progress:         Math.round(task.current ?? 0),
+    progress_target:  Math.round(task.target ?? 0),
+    progress_unit:    task.category,
     pct_contribution: 0,
-    coins_reward:     0, // pas de recompense inventee — aucun modele economique verifie pour une requirement partielle
+    coins_reward:     0, // pas de recompense inventee — aucun modele economique verifie
     xp_reward:        0,
     completed:        false,
     carried_over:     false,
