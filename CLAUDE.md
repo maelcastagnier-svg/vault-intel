@@ -742,14 +742,20 @@ en actualisant ce document en conséquence.
 
 ## Prochaines étapes
 
-1. **🔴 `HYPIXEL_API_KEY` morte — bloque maintenant plus que la Phase 2.** `403 Invalid 
-   API key` confirmé (pas un rate-limit — headers de quota absents, pas un `429`) lors du 
-   test Phase 2 du chantier collecte totale le 23 juillet, **toujours pas résolu** — 
-   reconfirmé le même jour en testant `GET /api/player/sync` avec un vrai compte : 
-   n'importe quel joueur Pro+ qui clique "Sync now" aujourd'hui reçoit une 404 silencieuse 
-   ("No matching Skyblock profile found") au lieu de ses vraies données. En attente que la 
-   clé soit vérifiée/régénérée côté `developer.hypixel.net`. Phase 0 (infra) et Phase 1 
-   (Classes de donjon) du chantier collecte totale restent terminées et validées.
+1. **✅ `HYPIXEL_API_KEY` — rechargée manuellement, fonctionnelle (23 juillet).** Après le 
+   `403 Invalid API key` confirmé en Phase 2 puis reconfirmé sur `/api/player/sync` avec 
+   un vrai compte, la clé a été rechargée manuellement côté Vercel — revérifiée en direct 
+   (`200`, `success:true`, profils réels renvoyés). **C'est une clé de dev qui expire 
+   régulièrement** (prochaine échéance ~25/07) — rechargement manuel à refaire à chaque 
+   expiration tant que le produit n'est pas passé en clé de production (démarche de 
+   validation officielle auprès de Hypixel, prévue une fois le produit terminé). 
+   **`player/sync` détecte maintenant explicitement ce cas** : un `401`/`403`/
+   `success:false` de l'API Hypixel est loggé dans `sync_log` avec un message clair 
+   ("HYPIXEL_API_KEY invalide ou expirée — à régénérer sur developer.hypixel.net") au lieu 
+   de se traduire silencieusement en 404 "No matching Skyblock profile found" — c'est 
+   exactement comme ça que la panne Phase 2 était passée inaperçue jusqu'à l'audit manuel. 
+   Phase 0 (infra) et Phase 1 (Classes de donjon) du chantier collecte totale restent 
+   terminées et validées ; Phase 2 (Boss kills) peut reprendre.
 2. Étendre la couverture `data_available:true` de Milestones/Daily Missions au fur et à 
    mesure que le chantier collecte totale avance (essence, musée, minions, accessoires 
    précis...) — les 12 catégories `uncollected` ajoutées le 23 juillet passeront à 
