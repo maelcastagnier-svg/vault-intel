@@ -1,6 +1,18 @@
 // app/api/player/milestones/route.ts
-// Calcule les paliers de progression du joueur — JS pur depuis player_data déjà collecté
-// GET /api/player/milestones?uuid={uuid}
+// Refonte complète (23 juillet) — remplace l'ancien système de paliers codés en dur
+// (skill levels/slayer XP/dungeon floors/fairy souls/top-10 collections, un flat array)
+// par le vrai guide de complétion à 7 tiers (Starter->Master), sourcé de milestone_tasks
+// (rempli par le cron milestones-sync depuis le wiki officiel + Fairy Souls en tâche Vault).
+//
+// Progression calculée UNIQUEMENT pour les tâches dont TOUTES les requirements sont d'un
+// type qu'on peut vérifier avec certitude contre des données déjà collectées et validées :
+// - skill      -> player_data.skills[skill] (niveau déjà calculé, pas de conversion XP)
+// - collection -> player_data.collections + table `collections` (tiers réels, déjà utilisée
+//                 et vérifiée dans l'ancien système)
+// - fairy_souls -> player_data.fairy_souls (comptage déjà vérifié, table fairy_soul_locations)
+// Toute tâche contenant ne serait-ce qu'une requirement d'un autre type (item/mobtype —
+// accessoires précis, minions, musée, essence, dojo...) reste data_available:false : on
+// n'invente jamais un statut de complétion sans savoir vraiment le vérifier.
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServerSupabaseClient } from '../../../../lib/supabase-server'
@@ -12,80 +24,148 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-type Milestone = {
-  category: 'skill' | 'slayer' | 'dungeon' | 'fairy_soul' | 'collection'
-  label: string
-  current: number
-  target: number
-  progress_pct: number
-  completed: boolean
-  // false uniquement pour les slayers : seuils non confirmes contre une source structuree
-  // (voir commentaire sur SLAYER_TIER_XP). Le frontend doit afficher un badge "a verifier"
-  // plutot que de presenter target/progress_pct comme fiables quand verified === false.
-  verified: boolean
+const TIER_ORDER = ['Starter', 'Amateur', 'Intermediate', 'Skilled', 'Expert', 'Professional', 'Master']
+
+type Requirement =
+  | { type: 'skill'; skill: string; level: number }
+  | { type: 'collection'; item_name: string; tier: number }
+  | { type: 'fairy_souls'; target: number }
+  | { type: 'mobtype'; name: string }
+  | { type: 'item'; item_name: string }
+
+type TaskRow = {
+  tier: string; source: string; name: string; task_title: string
+  description: string; xp: number; requirements: Requirement[]
 }
 
-function buildMilestone(category: Milestone['category'], label: string, current: number, ladder: number[], verified = true): Milestone {
-  const maxTarget = ladder[ladder.length - 1]
-  const target = ladder.find(t => current < t) ?? maxTarget
-  const completed = current >= maxTarget
-  return {
-    category,
-    label,
-    current,
-    target,
-    progress_pct: Math.min(100, Math.round((current / target) * 100)),
-    completed,
-    verified,
+type EvaluatedTask = {
+  name: string
+  task_title: string
+  description: string
+  xp: number
+  data_available: boolean
+  progress_pct: number | null
+  completed: boolean | null
+  requirements_met: number | null
+  requirements_total: number
+}
+
+// Logique reutilisable par le handler GET (auth reelle) et par des tests directs
+// (meme pattern que runEvolveSkills dans evolve-skills/route.ts).
+export async function computeMilestones(uuid: string, profileId: string) {
+  const { data: player, error } = await supabase
+    .from('player_data')
+    .select('skills, collections, fairy_souls')
+    .eq('hypixel_uuid', uuid)
+    .eq('profile_id', profileId)
+    .single()
+
+  if (error || !player) return { error: 'Player not synced yet', status: 404 }
+
+  const { data: taskRows } = await supabase
+    .from('milestone_tasks')
+    .select('tier, source, name, task_title, description, xp, requirements')
+    .order('tier')
+
+  if (!taskRows || taskRows.length === 0) {
+    return { error: 'Milestone tasks not synced yet', status: 503 }
   }
+
+  // Collections referencees par au moins une requirement 'collection' -> 1 seule requete batch
+  const collectionNames = new Set<string>()
+  for (const row of taskRows as TaskRow[]) {
+    for (const r of row.requirements || []) {
+      if (r.type === 'collection') collectionNames.add(r.item_name)
+    }
+  }
+  const { data: collectionDefs } = collectionNames.size > 0
+    ? await supabase.from('collections').select('item_id, item_name, tiers').in('item_name', Array.from(collectionNames))
+    : { data: [] as any[] }
+
+  const collectionTiersByName = new Map<string, number[]>()
+  const collectionItemIdByName = new Map<string, string>()
+  for (const def of collectionDefs || []) {
+    try {
+      const tiers = JSON.parse(def.tiers) as { tier: number; amount_required: number }[]
+      collectionTiersByName.set(def.item_name, tiers.map(t => t.amount_required))
+      collectionItemIdByName.set(def.item_name, def.item_id)
+    } catch { /* tiers malformees, requirement ignoree */ }
+  }
+
+  const skills      = player.skills || {}
+  const collections = player.collections || {}
+  const fairySouls  = player.fairy_souls ?? 0
+
+  function evaluateRequirement(r: Requirement): boolean | null {
+    if (r.type === 'skill') {
+      return (skills[r.skill] ?? 0) >= r.level
+    }
+    if (r.type === 'collection') {
+      const itemId = collectionItemIdByName.get(r.item_name)
+      const tierAmounts = collectionTiersByName.get(r.item_name)
+      if (!itemId || !tierAmounts || !tierAmounts[r.tier - 1]) return null
+      return (collections[itemId] ?? 0) >= tierAmounts[r.tier - 1]
+    }
+    if (r.type === 'fairy_souls') {
+      return fairySouls >= r.target
+    }
+    return null // item / mobtype : pas verifiable aujourd'hui
+  }
+
+  function evaluateTask(row: TaskRow): EvaluatedTask {
+    const reqs = row.requirements || []
+    const results = reqs.map(evaluateRequirement)
+    const allVerifiable = reqs.length > 0 && results.every(r => r !== null)
+
+    if (!allVerifiable) {
+      return {
+        name: row.name, task_title: row.task_title, description: row.description, xp: row.xp,
+        data_available: false, progress_pct: null, completed: null,
+        requirements_met: null, requirements_total: reqs.length,
+      }
+    }
+
+    const met = results.filter(r => r === true).length
+    return {
+      name: row.name, task_title: row.task_title, description: row.description, xp: row.xp,
+      data_available: true,
+      progress_pct: Math.round((met / reqs.length) * 100),
+      completed: met === reqs.length,
+      requirements_met: met,
+      requirements_total: reqs.length,
+    }
+  }
+
+  const byTier = new Map<string, { wiki_tasks: EvaluatedTask[]; vault_tasks: EvaluatedTask[] }>()
+  for (const tier of TIER_ORDER) byTier.set(tier, { wiki_tasks: [], vault_tasks: [] })
+
+  for (const row of taskRows as TaskRow[]) {
+    const bucket = byTier.get(row.tier)
+    if (!bucket) continue
+    const evaluated = evaluateTask(row)
+    if (row.source === 'vault') bucket.vault_tasks.push(evaluated)
+    else bucket.wiki_tasks.push(evaluated)
+  }
+
+  const tiers = TIER_ORDER.map(tier => {
+    const { wiki_tasks, vault_tasks } = byTier.get(tier)!
+    const all = [...wiki_tasks, ...vault_tasks]
+    const computable = all.filter(t => t.data_available)
+    const completed  = computable.filter(t => t.completed)
+    return {
+      tier,
+      wiki_tasks,
+      vault_tasks,
+      tasks_total:      all.length,
+      tasks_computable: computable.length,
+      tasks_completed:  completed.length,
+    }
+  })
+
+  return { tiers }
 }
 
-// ── Skills — paliers 25/30/35/40/45/50/55, filtrés par cap reel de chaque skill.
-// Caps source: https://api.hypixel.net/v2/resources/skyblock/skills (verifie 2026-07-21).
-// 'hunting' existe cote Hypixel mais n'est pas encore synchronise par player/sync -> exclu ici.
-const SKILL_CAPS: Record<string, number> = {
-  farming: 60, mining: 60, combat: 60, foraging: 54, fishing: 50,
-  enchanting: 60, alchemy: 50, carpentry: 50, taming: 60,
-  runecrafting: 25, social: 25,
-}
-const SKILL_LABELS: Record<string, string> = {
-  farming: 'Farming', mining: 'Mining', combat: 'Combat', foraging: 'Foraging',
-  fishing: 'Fishing', enchanting: 'Enchanting', alchemy: 'Alchemy', carpentry: 'Carpentry',
-  runecrafting: 'Runecrafting', taming: 'Taming', social: 'Social',
-}
-const SKILL_LADDER = [25, 30, 35, 40, 45, 50, 55]
-
-// ── Slayers — XP requis pour débloquer le tier suivant.
-// Pas de source fiable trouvée en interne pour ces seuils : /v2/resources/skyblock/slayers n'existe pas
-// cote Hypixel, et le contenu wiki scrape dans game_mechanics_misc (categorie slayer_wiki) est un dump de
-// tableau HTML sans labels exploitables. Valeurs ci-dessous = connaissance publique Hypixel, non verifiees
-// contre une source structuree — a corriger si un joueur signale un tier errone.
-const SLAYER_TIER_XP: Record<string, number[]> = {
-  zombie:   [5, 15, 200, 1000, 5000],
-  spider:   [5, 15, 200, 1000, 5000],
-  wolf:     [5, 15, 200, 1000],
-  enderman: [5, 15, 200, 1000, 5000],
-  blaze:    [10, 30, 250, 1500, 5000],
-  vampire:  [20, 75, 500, 2000],
-}
-const SLAYER_LABELS: Record<string, string> = {
-  zombie: 'Zombie', spider: 'Spider', wolf: 'Wolf', enderman: 'Enderman', blaze: 'Blaze', vampire: 'Vampire',
-}
-
-// ── Dungeons — floors 1 à 7 ──
-const DUNGEON_FLOOR_LADDER = [1, 2, 3, 4, 5, 6, 7]
-const DUNGEON_LABELS: Record<string, string> = {
-  catacombs: 'Catacombs Floor',
-  master_catacombs: 'Master Mode Floor',
-}
-
-// ── Fairy souls — total en jeu : 255 (source: table interne fairy_soul_locations, count(*)=255).
-const FAIRY_SOUL_LADDER = [50, 100, 150, 200, 255]
-
-// ── Collections — paliers exacts par item, table interne `collections` seedee depuis
-// https://api.hypixel.net/v2/resources/skyblock/collections (verifie 2026-07-21).
-const COLLECTION_TOP_N = 10
-
+// ── Handler ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   // Auth reelle : session Vault requise, et cette session doit avoir lie un compte
   // Hypixel via /api/link-hypixel-account. Plus de uuid accepte en query param.
@@ -100,73 +180,10 @@ export async function GET(req: NextRequest) {
     .single()
   if (!link) return NextResponse.json({ error: 'No Hypixel account linked. Link one first via /api/link-hypixel-account' }, { status: 400 })
 
-  const uuid      = link.hypixel_uuid
   const profileId = req.nextUrl.searchParams.get('profile_id')
   if (!profileId) return NextResponse.json({ error: 'profile_id required' }, { status: 400 })
 
-  const { data: player, error } = await supabase
-    .from('player_data')
-    .select('skills, slayers, dungeons, fairy_souls, collections')
-    .eq('hypixel_uuid', uuid)
-    .eq('profile_id', profileId)
-    .single()
-
-  if (error || !player) return NextResponse.json({ error: 'Player not synced yet' }, { status: 404 })
-
-  const { data: collectionDefs } = await supabase
-    .from('collections')
-    .select('collection_id, tiers')
-
-  const milestones: Milestone[] = []
-
-  // ── Skills ──────────────────────────────────────────────────
-  const skills = player.skills || {}
-  for (const [key, cap] of Object.entries(SKILL_CAPS)) {
-    const level = skills[key] ?? 0
-    const ladder = SKILL_LADDER.filter(t => t <= cap)
-    if (ladder.length === 0) continue
-    milestones.push(buildMilestone('skill', SKILL_LABELS[key], level, ladder))
-  }
-
-  // ── Slayers ─────────────────────────────────────────────────
-  const slayers = player.slayers || {}
-  for (const [key, ladder] of Object.entries(SLAYER_TIER_XP)) {
-    const xp = slayers[key]?.xp ?? 0
-    const tierReached = ladder.filter(t => xp >= t).length
-    const m = buildMilestone('slayer', '', xp, ladder, false)
-    m.label = `${SLAYER_LABELS[key]} — Tier ${Math.min(tierReached + 1, ladder.length)}`
-    milestones.push(m)
-  }
-
-  // ── Dungeons ────────────────────────────────────────────────
-  const dungeons = player.dungeons || {}
-  for (const [type, label] of Object.entries(DUNGEON_LABELS)) {
-    const highestFloor = dungeons[type]?.highest_floor
-    if (highestFloor === undefined || highestFloor === null) continue
-    const floor = Math.max(0, highestFloor)
-    milestones.push(buildMilestone('dungeon', label, floor, DUNGEON_FLOOR_LADDER))
-  }
-
-  // ── Fairy souls ─────────────────────────────────────────────
-  const souls = player.fairy_souls ?? 0
-  milestones.push(buildMilestone('fairy_soul', 'Fairy Souls', souls, FAIRY_SOUL_LADDER))
-
-  // ── Collections — top 10 les plus proches du prochain palier (seuils exacts, table `collections`) ──
-  const collectionLadders = new Map<string, number[]>()
-  for (const def of collectionDefs || []) {
-    try {
-      const tiers = JSON.parse(def.tiers) as { tier: number; amount_required: number }[]
-      collectionLadders.set(def.collection_id, tiers.map(t => t.amount_required))
-    } catch { /* tiers malformees, item ignore */ }
-  }
-
-  const collections = player.collections || {}
-  const collectionMilestones = Object.entries(collections)
-    .filter(([item, amount]) => (amount as number) > 0 && collectionLadders.has(item))
-    .map(([item, amount]) => buildMilestone('collection', item, amount as number, collectionLadders.get(item)!))
-    .sort((a, b) => b.progress_pct - a.progress_pct)
-    .slice(0, COLLECTION_TOP_N)
-  milestones.push(...collectionMilestones)
-
-  return NextResponse.json({ milestones })
+  const result = await computeMilestones(link.hypixel_uuid, profileId)
+  if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.status })
+  return NextResponse.json(result)
 }

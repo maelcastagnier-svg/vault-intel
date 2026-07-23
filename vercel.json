@@ -12,6 +12,7 @@
     { "path": "/api/cron/wiki-auto-sync",       "schedule": "*/30 * * * *"},
     { "path": "/api/cron/update-catalog",       "schedule": "0 2 * * *"   },
     { "path": "/api/cron/neu-sync",             "schedule": "0 5 * * 1"   },
-    { "path": "/api/cron/skyblock-resources-sync", "schedule": "0 1 * * *" }
+    { "path": "/api/cron/skyblock-resources-sync", "schedule": "0 1 * * *" },
+    { "path": "/api/cron/milestones-sync",       "schedule": "0 6 1 * *"  }
   ]
 }
