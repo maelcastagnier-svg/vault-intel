@@ -1,16 +1,14 @@
 // app/api/player/missions/route.ts
 // Pioche dans les tâches Milestones non complétées du joueur (voir CLAUDE.md, section
-// "Milestones vs Daily Missions"). Simplifié le 23 juillet suite à la restructuration de
-// milestone_tasks en granularité individuelle : chaque tâche Milestones EST déjà une
-// requirement individuelle (plus besoin de casser des tâches composites en sous-requirements
-// ici, computeMilestones le fait directement).
+// "Milestones vs Daily Missions").
 //
-// Logique : trouve le tier ACTUEL du joueur (le premier tier, Starter→Master, qui a encore
-// au moins une tâche data_available:true non complétée), classe ses tâches calculables non
-// complétées par proximité de complétion (current/target) pour prioriser les victoires
-// rapides, garde les 5 premières. Jamais un tier au-dessus du tier actuel — reste
-// "réalisable à l'instant T", pas des objectifs de plusieurs semaines. Aucune donnée
-// data_available:false n'est jamais utilisée (musée, essence, minions, uncollected...).
+// Logique (révisée 23 juillet — 10 missions, mélange tier actuel + tiers déjà débloqués) :
+// trouve le tier ACTUEL (le premier tier, Starter→Master, qui a encore au moins une tâche
+// data_available:true non complétée), puis pioche dans CE tier ET tous les tiers AVANT lui
+// (déjà débloqués par construction, jamais totalement vidés de leurs restes) — jamais un
+// tier après le tier actuel, qui reste non débloqué. Classe par proximité de complétion
+// (current/target) pour prioriser les victoires rapides, garde les 10 premières. Aucune
+// donnée data_available:false n'est jamais utilisée (musée, essence, minions, uncollected...).
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { requirePlan } from '../../../../lib/get-plan'
@@ -29,7 +27,7 @@ const TIER_DIFFICULTY: Record<string, string> = {
   Expert: 'HARD', Professional: 'HARD', Master: 'HARD',
 }
 
-const MAX_MISSIONS = 5
+const MAX_MISSIONS = 10
 
 type MissionCandidate = { tier: string; task: EvaluatedTask }
 
@@ -37,24 +35,33 @@ function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
 }
 
-// ── Trouve le tier actuel + les missions candidates ────────────────────────
+// ── Trouve le tier actuel, puis pioche dans lui + tous les tiers avant lui ─────
 export async function buildMissionCandidates(uuid: string, profileId: string): Promise<MissionCandidate[] | null> {
   const result = await computeMilestones(uuid, profileId)
   if ('error' in result) return null
 
-  for (const tierData of result.tiers) {
-    const allTasks = [...tierData.wiki_tasks, ...tierData.vault_tasks]
-    const computable = allTasks.filter(t => t.data_available)
-    if (computable.length === 0) continue // rien de mesurable ici, tier suivant
-    const allDone = computable.every(t => t.met)
-    if (allDone) continue // tier deja acquis (pour ce qu'on sait verifier), tier suivant
-
-    // Tier actuel trouve : classe les taches non completees par proximite de completion
-    const incomplete = computable.filter(t => !t.met)
-    incomplete.sort((a, b) => (b.current! / b.target!) - (a.current! / a.target!))
-    return incomplete.slice(0, MAX_MISSIONS).map(task => ({ tier: tierData.tier, task }))
+  // Index du tier actuel = le premier tier qui a au moins une tache calculable non
+  // completee. Un tier sans aucune tache calculable est transparent (ni bloquant ni
+  // debloque en soi) — passe au suivant sans arreter la recherche. Si tout est fini
+  // partout, currentTierIndex reste hors bornes et unlockedTiers couvre les 7 tiers.
+  let currentTierIndex = result.tiers.length
+  for (let i = 0; i < result.tiers.length; i++) {
+    const computable = [...result.tiers[i].wiki_tasks, ...result.tiers[i].vault_tasks].filter(t => t.data_available)
+    if (computable.length === 0) continue
+    if (!computable.every(t => t.met)) { currentTierIndex = i; break }
   }
-  return [] // tous les tiers verifiables sont completes
+
+  const unlockedTiers = result.tiers.slice(0, currentTierIndex + 1)
+  const incomplete: MissionCandidate[] = []
+  for (const tierData of unlockedTiers) {
+    const computable = [...tierData.wiki_tasks, ...tierData.vault_tasks].filter(t => t.data_available)
+    for (const task of computable) {
+      if (!task.met) incomplete.push({ tier: tierData.tier, task })
+    }
+  }
+
+  incomplete.sort((a, b) => (b.task.current! / b.task.target!) - (a.task.current! / a.task.target!))
+  return incomplete.slice(0, MAX_MISSIONS)
 }
 
 function toMissionRow(c: MissionCandidate, uuid: string, profileId: string, today: string) {
