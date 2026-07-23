@@ -269,10 +269,30 @@ mécanisme de mise à jour. Les 2 seuls pipelines qui en alimentaient une partie
 été supprimés le 16 juillet (commit `7df1fa4`) sans jamais être reconstruits jusqu'à 
 maintenant.
 
-**Prochaine étape** : Phase 1 (Classes de donjon) — référence déjà partiellement en 
-base (`dungeon_classes`, 15 lignes) à vérifier/compléter, `player/sync` à étendre pour 
-capturer `member.dungeons.player_classes` (structure brute à vérifier avant codage, 
-même méthode que le chantier NBT). Pas commencé.
+**✅ Phase 1 — Classes de donjon — TERMINÉ et validé sur Cucumber (23 juillet) :**
+- `dungeon_classes` (table de référence, 15 lignes) **jugée fiable, gardée telle 
+  quelle** — pas un résidu à refaire. Ce n'est pas une table de seuils numériques mais 
+  un guide descriptif (3 paliers par classe : niveau 1/20/50, `key_ability`/
+  `scaling_stat`/`notes`) — contenu vérifié cohérent avec les mécaniques Skyblock 
+  connues (Berserk/Strength, Healer+Mage/Intelligence, Tank/Defense, Archer/Crit 
+  Damage). Utile comme contenu explicatif, pas pour du calcul de progression.
+- `member.dungeons.player_classes` vérifié sur le vrai profil Cucumber avant codage : 
+  objet `{healer/mage/berserk/archer/tank: {experience}}`, **aucun champ "level" fourni 
+  par l'API**. Catacombs et les classes utilisent chacun leur propre courbe XP→niveau, 
+  distincte des skills classiques — aucune source vérifiée en interne (ni 
+  `/v2/resources/skyblock/skills`, ni table interne), donc **XP brute stockée sans 
+  niveau dérivé**, même principe que `hotm_progress`. Bonus trouvé au passage : 
+  `member.dungeons.selected_dungeon_class` (classe actuellement équipée) — capturé 
+  aussi (`dungeons.selected_class`).
+- Ajouté dans `player/sync`, nesté dans la colonne `dungeons` existante (`dungeons.classes` 
+  + `dungeons.selected_class`) — pas de migration, pas de nouvelle colonne nécessaire.
+- Validé sur Cucumber via une route debug temporaire (supprimée après validation) 
+  reproduisant exactement le mapping : `berserk` 354 564 XP (classe sélectionnée, 
+  cohérent avec 220 runs Catacombs), `archer` 158 641, `tank` 53 541, `mage` 42 470, 
+  `healer` 21 165.
+
+**Prochaine étape** : Phase 2 (Boss kills — Kuudra tiers, Arachne, Dragons de l'End). 
+Pas commencé — structure brute à vérifier sur un vrai profil avant codage.
 
 ## Evolve — état réel (mis à jour session du 22 juillet, source de vérité actuelle)
 
