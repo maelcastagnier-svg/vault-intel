@@ -209,35 +209,70 @@ avec seulement 3 data_points à un prix ~40x supérieur aux variantes voisines �
   groupe), pas un bug. À revisiter seulement si le pricing par variante exacte manque 
   trop souvent de données en pratique.
 
-## ⚠️ Chantier futur (documenté, pas commencé) — Pipeline données mécaniques à reconstruire
+## 🚧 Chantier en cours — Collecte totale (données de référence + progression joueur)
 
-Trouvé lors de l'audit complet de collecte du 22 juillet : **30 tables de mécaniques de 
-jeu sur 44 n'ont aucune provenance traçable** dans le code actuel ni dans tout l'historique 
-git (`sblevel_tasks`, `fairy_soul_locations`, `sack_contents`, `museum_sets`, 
-`museum_item_xp`, `item_upgrade_chains`, les 7 tables `garden_*` dédiées, 
+Démarré le 23 juillet, suite logique du "pipeline données mécaniques à reconstruire" 
+identifié le 22 (voir historique ci-dessous) mais élargi : reconstruire aussi bien le 
+référentiel de jeu (Volet 1) que la progression joueur (Volet 2, `player/sync`) qui 
+manque encore pour que Milestones/Money Making personnalisé calculent sur du réel. 
+Ordre validé : organisation **par zone verticale** (référence + progression du même 
+système ensemble), pas par volet séquentiel — un mob_wiki sans compteur joueur ou 
+l'inverse ne sert à rien seul. Zones dans l'ordre d'impact : Phase 0 (infra) → 
+Classes de donjon → Boss kills → Banque/Fast travel → Essence → Minions → Bestiary → 
+Rift → Long tail misc (dojo/harp/abiphone/community shop/festivals).
+
+**✅ Phase 0 — infra commune — TERMINÉ et validé en prod (23 juillet) :**
+- **`sync_log`** (nouvelle table, service-role only) — chaque cron y log 
+  `started_at/finished_at/status/rows_written/details/error`. Objectif direct : un job 
+  cassé ou muet doit être visible en une requête, plus le pattern `historic-import`/
+  `ah-collect TODAY` (bug silencieux des jours durant, trouvé seulement par audit manuel).
+- **`neu-sync`** reconstruit (`app/api/cron/neu-sync/route.ts`, hebdo lundi 5h) — liste 
+  des 40 fichiers confirmée par appel réel à l'API GitHub (pas supposée). Cache brut 
+  systématique dans `neu_constants_raw` pour les 40 fichiers. 3 mappings dérivés vérifiés 
+  champ par champ contre le JSON réel avant codage (`reforges.json`→`reforges`, structure 
+  imbriquée par rareté — pas le format plat que devinait l'ancien code supprimé le 
+  16 juillet ; `trophyfish.json`→`trophy_fish_thresholds` ; `essenceshops.json`→
+  `essence_shop_upgrades`). Les autres fichiers (pets, gemstones, attribute_shards, 
+  bestiary, reforgestones, rift_guide, leveling...) restent en cache brut seulement — 
+  mapping repris zone par zone, pas deviné ici pour gagner du temps.
+- **`skyblock-resources-sync`** reconstruit (quotidien 1h) — skills (ladder complet 
+  1→cap depuis l'API officielle), collections (refresh), item_stats (nouveau, items 
+  avec un champ `stats` réel).
+- **`wiki-auto-sync`** migré de `hypixel-skyblock.fandom.com` vers le wiki officiel 
+  `hypixelskyblock.minecraft.wiki` (même API MediaWiki, vérifié par appel réel), 
+  troncature à 8000 caractères levée (limite auto-imposée, jamais une contrainte 
+  réelle), état de pagination réinitialisé proprement (nouvelle source = nouveau 
+  page set, l'ancien continue_token Fandom n'avait plus de sens).
+- **Validé en prod sur 2 runs réels consécutifs** (route debug temporaire, supprimée 
+  après validation) : neu-sync 40/40 fichiers, 683 lignes dérivées (300 reforges + 
+  365 essence_shop_upgrades + 18 trophy_fish_thresholds — **comptes identiques** aux 
+  données déjà chargées manuellement, confirme les mappings corrects). 
+  skyblock-resources-sync : `skills` passé de 25 lignes (quelques niveaux repères 
+  chargés à la main) à 587 (ladder complet officiel) ; `item_stats` de 0 à 1363 ; 
+  `collections` refresh à 87 (stable). wiki-auto-sync confirmé fonctionnel sur le 
+  nouveau domaine, contenu complet stocké. Les 2 runs ont produit des comptes 
+  identiques (683/2029), confirmant que les upserts sont stables/idempotents.
+  `vercel.json` mis à jour avec les 2 nouveaux crons.
+
+**Historique — pourquoi ce chantier existe** : audit du 22 juillet ayant trouvé 
+**30 tables de mécaniques de jeu sur 44 sans provenance traçable** dans le code ni 
+l'historique git (`sblevel_tasks`, `fairy_soul_locations`, `sack_contents`, 
+`museum_sets`, `museum_item_xp`, `item_upgrade_chains`, les 7 tables `garden_*`, 
 `gemstone_slot_costs`, `essence_shop_upgrades`, `pet_stat_progression`, 
 `george_pet_prices`, `npc_locations`, `dungeon_classes`, `dungeon_rng_scores`, 
 `slayer_rng_scores`, `hotm_perks`, `hotf_perks`, `skills`, `forge_recipes`, 
 `accessory_powers`, `magical_power_by_rarity`, `rift_guide`, `trophy_fish_thresholds`, 
 `skymart_shop`, `hoppity_prestige`, `island_warps`, `minion_tier_xp`, 
 `glacite_tunnel_waypoints`, `hotm_hotf_powders`, `player_base_stats`, `game_zones`, 
-`accessory_upgrade_paths`) — peuplées par un processus hors dépôt (SQL manuel via 
-dashboard Supabase probablement), sans aucun mécanisme de mise à jour.
+`accessory_upgrade_paths`) — peuplées par un processus hors dépôt (SQL manuel), sans 
+mécanisme de mise à jour. Les 2 seuls pipelines qui en alimentaient une partie avaient 
+été supprimés le 16 juillet (commit `7df1fa4`) sans jamais être reconstruits jusqu'à 
+maintenant.
 
-Les 2 seuls pipelines documentés qui alimentaient une partie du reste (`neu_constants_raw`/
-`reforges`/`enchantments` via NEU-REPO, `collections` via l'API Hypixel) ont été supprimés 
-le 16 juillet (commit `7df1fa4`, "remove unused crons") — plus aucune resynchronisation 
-depuis. `game_mechanics_misc` reste la seule table encore activement resynchronisée 
-(`wiki-auto-sync`, `*/30min`), mais toujours sur l'ancien Fandom (`hypixel-skyblock.fandom.com`, 
-troncature à 8000 caractères) — jamais migrée vers `hypixelskyblock.minecraft.wiki`, 
-le wiki officiel validé plus fiable lors de la session précédente.
-
-**Conséquence** : ce référentiel mécanique est figé. Il reste valide aujourd'hui, mais ne 
-suivra aucun futur patch Hypixel tant que ce chantier n'est pas fait — dette silencieuse, 
-pas un bug actif. **Pas à traiter maintenant** — trop large pour une session, nécessite 
-son propre chantier dédié (recréer/remplacer `neu-sync` et `skyblock-resources-sync`, 
-migrer `wiki-auto-sync` vers le wiki officiel, retracer la provenance des 30 tables 
-orphelines une par une). Ne pas mélanger avec Evolve ou Money Making.
+**Prochaine étape** : Phase 1 (Classes de donjon) — référence déjà partiellement en 
+base (`dungeon_classes`, 15 lignes) à vérifier/compléter, `player/sync` à étendre pour 
+capturer `member.dungeons.player_classes` (structure brute à vérifier avant codage, 
+même méthode que le chantier NBT). Pas commencé.
 
 ## Evolve — état réel (mis à jour session du 22 juillet, source de vérité actuelle)
 
@@ -554,19 +589,22 @@ en actualisant ce document en conséquence.
 
 ## Prochaines étapes
 
-1. **Milestones** — valider tiers Intermediate→Master contre `sblevel_tasks` (Starter+
-   Amateur déjà validés, voir section Milestones vs Daily Missions)
-2. **Daily Missions** — une fois Milestones entièrement vérifié, piocher dedans
-3. Historique de progression par snapshots (vitesse early→mid→end→late, 
+1. **Chantier collecte totale — Phase 1 (Classes de donjon)** — en cours, voir section 
+   dédiée. Phase 0 (infra neu-sync/skyblock-resources-sync/wiki-auto-sync/sync_log) 
+   terminée et validée en prod le 23 juillet.
+2. **Milestones** — valider tiers Intermediate→Master contre `sblevel_tasks` (Starter+
+   Amateur déjà validés, voir section Milestones vs Daily Missions) — dépend en partie 
+   des zones du chantier collecte totale (essence, bestiary, boss kills...) pour 
+   débloquer les tâches actuellement non calculables faute de donnée joueur
+3. **Daily Missions** — une fois Milestones entièrement vérifié, piocher dedans
+4. Historique de progression par snapshots (vitesse early→mid→end→late, 
    comparaison entre joueurs) — piste pour la 4e section Evolve premium
-4. Reconstruire le frontend Evolve (3 onglets : Skills, Milestones, Daily Missions) 
+5. Reconstruire le frontend Evolve (3 onglets : Skills, Milestones, Daily Missions) 
    une fois Milestones stabilisé — le backend Skills est déjà fait (voir section dédiée)
-5. Rendu visuel 3D du setup (skin + armure superposée) pour la section Skills — chantier 
+6. Rendu visuel 3D du setup (skin + armure superposée) pour la section Skills — chantier 
    séparé, pas commencé
-6. Migration vers `item_variant_hourly_buckets` (conçu, pas branché)
-7. Filtrage outlier sur variantes AH à faible `data_points` (voir section infra collecte)
-8. Pipeline données mécaniques à reconstruire (voir section dédiée) — chantier large, 
-   sa propre session
+7. Migration vers `item_variant_hourly_buckets` (conçu, pas branché)
+8. Filtrage outlier sur variantes AH à faible `data_points` (voir section infra collecte)
 9. `method_feedback_summary` (vue `SECURITY DEFINER`) à corriger avant que 
    `method_feedback` ait de vraies données (voir section sécurité)
 
