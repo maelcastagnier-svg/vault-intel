@@ -284,6 +284,23 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // 5c. Classes de donjon (Phase 1 du chantier collecte totale) — vérifié sur un vrai
+    // profil (Cucumber) : member.dungeons.player_classes est un objet {healer/mage/
+    // berserk/archer/tank: {experience}}, aucun champ "level" fourni par l'API. Catacombs
+    // et les classes utilisent chacun leur propre courbe XP→niveau, distincte des skills
+    // classiques — aucune source vérifiée en interne pour cette courbe (pas dans
+    // /v2/resources/skyblock/skills, pas dans une table interne), donc XP brute stockée
+    // sans niveau dérivé, même principe que hotm_progress. selected_dungeon_class est un
+    // bonus utile (classe actuellement équipée par le joueur).
+    const dungeonClassData = member.dungeons?.player_classes || {}
+    dungeons.classes = Object.fromEntries(
+      Object.entries(dungeonClassData as Record<string, any>).map(([className, data]) => [
+        className,
+        { experience: data.experience ?? 0 },
+      ])
+    )
+    dungeons.selected_class = member.dungeons?.selected_dungeon_class ?? null
+
     // 5b. Heart of the Mountain / Skill Tree (mining + foraging) — vérifié contre le code
     // source de hypixel-api-reborn : les perks/nodes ne vivent PAS dans member.mining_core
     // (qui ne contient que powder/crystals/forge) mais dans member.skill_tree, un champ

@@ -15,7 +15,18 @@ export async function GET() {
   const profile = (data.profiles || []).find((p: any) => p.profile_id === PROFILE_ID)
   const member = profile?.members?.[UUID.replace(/-/g, '')]
 
+  // Reproduit exactement le mapping ajouté dans player/sync (5c.) pour valider la
+  // transformation sur des données réelles avant de la considérer branchée.
+  const dungeonClassData = member?.dungeons?.player_classes || {}
+  const classes = Object.fromEntries(
+    Object.entries(dungeonClassData as Record<string, any>).map(([className, data]: [string, any]) => [
+      className,
+      { experience: data.experience ?? 0 },
+    ])
+  )
+  const selected_class = member?.dungeons?.selected_dungeon_class ?? null
+
   return NextResponse.json({
-    dungeons: member?.dungeons ?? null,
+    mapped_result: { classes, selected_class },
   })
 }
