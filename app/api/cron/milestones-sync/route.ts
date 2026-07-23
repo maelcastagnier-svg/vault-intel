@@ -141,6 +141,28 @@ const FAIRY_SOULS_BY_TIER: Record<string, number> = {
   Master:       255,
 }
 
+// ── Autres catégories sblevel_tasks confirmées absentes du guide wiki (réconciliation
+// des 53 tâches réelles sblevel_tasks contre les 184 tâches wiki, 23 juillet) — ajoutées
+// en data_available:false (requirement type "uncollected") plutôt que masquées, pour que
+// Milestones reste honnête sur "184 tâches trackées aujourd'hui + X en attente de collecte"
+// au lieu de donner l'impression que le guide s'arrête où on peut déjà calculer. Placement
+// de tier = jugement éditorial (aucun seuil numérique n'est affiché tant que
+// data_available reste false, donc rien n'est inventé), pas une constante de jeu.
+const VAULT_GAP_TASKS: { tier: string; task_key: string; name: string; task_title: string; description: string }[] = [
+  { tier: 'Starter',      task_key: 'complete_objectives',    name: 'Objectives',    task_title: 'Complete Tutorial Objectives', description: 'Complete the early SkyBlock tutorial objectives.' },
+  { tier: 'Starter',      task_key: 'fast_travel_unlocked',   name: 'Fast Travel',   task_title: 'Unlock Fast Travel Zones',     description: 'Unlock fast travel access to more zones/islands.' },
+  { tier: 'Amateur',      task_key: 'mining_fiesta',          name: 'Mining Fiesta', task_title: 'Participate in Mining Fiesta', description: 'Take part in the seasonal Mining Fiesta event.' },
+  { tier: 'Amateur',      task_key: 'spooky_festival',        name: 'Spooky Festival', task_title: 'Participate in Spooky Festival', description: 'Take part in the seasonal Spooky Festival event.' },
+  { tier: 'Amateur',      task_key: 'fishing_festival',       name: 'Fishing Festival', task_title: 'Participate in Fishing Festival', description: 'Take part in the seasonal Fishing Festival event.' },
+  { tier: 'Amateur',      task_key: 'jacob_farming_contest',  name: 'Jacob Contest', task_title: "Participate in Jacob's Farming Contest", description: "Take part in Jacob's Farming Contest event." },
+  { tier: 'Amateur',      task_key: 'farming',                name: 'Farming Activity', task_title: 'Farming Activity', description: 'Cumulative farming activity (crops harvested), distinct from Farming skill level.' },
+  { tier: 'Amateur',      task_key: 'fishing',                name: 'Fishing Activity', task_title: 'Fishing Activity', description: 'Cumulative fishing activity (fish caught), distinct from Fishing skill level.' },
+  { tier: 'Amateur',      task_key: 'mining',                 name: 'Mining Activity', task_title: 'Mining Activity', description: 'Cumulative mining activity (blocks mined), distinct from Mining skill level.' },
+  { tier: 'Intermediate', task_key: 'essence_crimson_shop',   name: 'Crimson Essence Shop', task_title: 'Crimson Essence Shop', description: 'Purchase upgrades from the Crimson Essence shop.' },
+  { tier: 'Intermediate', task_key: 'unlocking_relays',       name: 'Crystal Hollows Relays', task_title: 'Unlock Relays', description: 'Unlock fast travel relays in the Crystal Hollows.' },
+  { tier: 'Professional', task_key: 'mythological_kills',     name: 'Mythological Creatures', task_title: 'Mythological Kills', description: 'Defeat mythological creatures during the Griffin burrow event.' },
+]
+
 // Reutilisable par le handler cron et par un test direct (meme pattern que runEvolveSkills).
 export async function runMilestonesSync() {
   const logId = await startSync('milestones-sync')
@@ -173,8 +195,9 @@ export async function runMilestonesSync() {
     }
   }
 
-  // Tâches Vault (Fairy Souls)
-  const vaultRows = Object.entries(FAIRY_SOULS_BY_TIER).map(([tier, target]) => ({
+  // Tâches Vault — Fairy Souls (calculable) + les 12 catégories sblevel_tasks confirmées
+  // absentes du wiki (data_available:false, montrées comme roadmap en attente de collecte).
+  const fairySoulsRows = Object.entries(FAIRY_SOULS_BY_TIER).map(([tier, target]) => ({
     tier, source: 'vault',
     name: 'Fairy Souls', task_title: 'Collect Fairy Souls',
     description: `Find and collect ${target} Fairy Souls across the islands.`,
@@ -183,11 +206,20 @@ export async function runMilestonesSync() {
     task_key: 'fairy_souls',
     updated_at: new Date().toISOString(),
   }))
+  const gapRows = VAULT_GAP_TASKS.map(t => ({
+    tier: t.tier, source: 'vault',
+    name: t.name, task_title: t.task_title, description: t.description,
+    xp: 0,
+    requirements: [{ type: 'uncollected', task_key: t.task_key }],
+    task_key: t.task_key,
+    updated_at: new Date().toISOString(),
+  }))
+  const vaultRows = [...fairySoulsRows, ...gapRows]
   const { error: vaultErr } = await supabase
     .from('milestone_tasks')
     .upsert(vaultRows, { onConflict: 'tier, source, name, task_title' })
-  if (vaultErr) { hadError = true; results['vault_fairy_souls'] = { success: false, error: vaultErr.message } }
-  else { results['vault_fairy_souls'] = { success: true, tasks: vaultRows.length }; totalRows += vaultRows.length }
+  if (vaultErr) { hadError = true; results['vault_tasks'] = { success: false, error: vaultErr.message } }
+  else { results['vault_tasks'] = { success: true, tasks: vaultRows.length }; totalRows += vaultRows.length }
 
   const failedTiers = Object.entries(results).filter(([, r]: any) => !r.success)
   await finishSync(

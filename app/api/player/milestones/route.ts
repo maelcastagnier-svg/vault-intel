@@ -32,6 +32,7 @@ type Requirement =
   | { type: 'fairy_souls'; target: number }
   | { type: 'mobtype'; name: string }
   | { type: 'item'; item_name: string }
+  | { type: 'uncollected'; task_key: string } // categorie sblevel_tasks sans donnee joueur collectee — toujours data_available:false
 
 type TaskRow = {
   tier: string; source: string; name: string; task_title: string
