@@ -26,6 +26,11 @@ export async function GET() {
   const member = profile?.members?.[UUID.replace(/-/g, '')]
 
   return NextResponse.json({
+    api_success: data.success,
+    api_cause:   data.cause ?? null,
+    profiles_count: (data.profiles || []).length,
+    profile_found: !!profile,
+    member_found:  !!member,
     top_level_keys: member ? Object.keys(member) : [],
     nether_island_player_data: member?.nether_island_player_data ?? null,
     keys_with_dragon:  findKeysContaining(member, 'dragon'),
