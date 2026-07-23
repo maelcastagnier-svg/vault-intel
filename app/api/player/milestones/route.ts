@@ -86,8 +86,10 @@ export async function computeMilestones(uuid: string, profileId: string) {
   const collectionItemIdByName = new Map<string, string>()
   for (const def of collectionDefs || []) {
     try {
-      const tiers = JSON.parse(def.tiers) as { tier: number; amount_required: number }[]
-      collectionTiersByName.set(def.item_name, tiers.map(t => t.amount_required))
+      // Champ reel confirme en base : "amountRequired" (camelCase), pas "amount_required" —
+      // c'etait deja silencieusement casse dans l'ancien milestones/route.ts (meme faute).
+      const tiers = JSON.parse(def.tiers) as { tier: number; amountRequired: number }[]
+      collectionTiersByName.set(def.item_name, tiers.map(t => t.amountRequired))
       collectionItemIdByName.set(def.item_name, def.item_id)
     } catch { /* tiers malformees, requirement ignoree */ }
   }
