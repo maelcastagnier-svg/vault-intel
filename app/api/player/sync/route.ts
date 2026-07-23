@@ -241,7 +241,25 @@ export async function GET(req: NextRequest) {
       { headers: { 'API-Key': HYPIXEL_KEY } }
     )
     const profileData = await profileRes.json()
-    const profiles    = profileData.profiles || []
+
+    // Detection explicite cle invalide/expiree — avant, un 403/401 silencieux se traduisait
+    // juste en "profiles: []" puis "No matching Skyblock profile found", indiscernable d'un
+    // vrai probleme de profil (confirme le 23 juillet : c'est exactement ce qui s'est passe
+    // en Phase 2 du chantier collecte totale, decouvert seulement par audit manuel).
+    if (profileRes.status === 401 || profileRes.status === 403 || profileData.success === false) {
+      const message = 'HYPIXEL_API_KEY invalide ou expiree — a regenerer sur developer.hypixel.net'
+      await supabase.from('sync_log').insert({
+        job_name:     'player-sync',
+        finished_at:  new Date().toISOString(),
+        status:       'error',
+        rows_written: 0,
+        error:        message,
+        details:      { http_status: profileRes.status, cause: profileData.cause || null, hypixel_uuid: uuid, hypixel_username: username },
+      })
+      return NextResponse.json({ error: message }, { status: 502 })
+    }
+
+    const profiles = profileData.profiles || []
 
     // Un joueur a potentiellement plusieurs profils Skyblock (coop, iles abandonnees, etc.),
     // chacun avec sa propre progression stockee independamment (voir profile_id sur player_data).
