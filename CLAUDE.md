@@ -20,6 +20,50 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Gating par tier d'abonnement (Free/Alert/Pro/Elite) — implémenté et corrigé une faille réelle (23 juillet)
+
+Plans validés : **Free** (0$, Flash Alerts dégradé top-5 + Patch Analysis Live résumé 
+seulement, aucune liaison Hypixel possible) → **Alert** (4,99$, Flash Alerts + Patch 
+Analysis complets) → **Pro** (19,99$, +Radar +Money Making Active +Evolve Skills/
+Milestones complets) → **Elite** (39,99$, +Money Making Vault Exclusive +Evolve Daily 
+Missions +accès anticipé).
+
+**🔴 Trouvé en auditant l'architecture avant de coder — faille réelle, pas juste une 
+lacune** : `/api/market-data` n'avait **aucune vérification d'auth**, servait déjà tout 
+le contenu payant (Money Making 4 tiers + Vault Exclusive, Patch Analysis complet, Radar) 
+à n'importe quelle requête anonyme. `ah_live`, `bazaar_1h`, `price_history`, 
+`price_history_ah`, `price_history_ah_variants` avaient des policies RLS `USING(true)` — 
+lisibles par n'importe qui avec la clé anon, interrogées **directement depuis le 
+navigateur** (`FlashAlertsPage.tsx`/`LiveRankedFeed.tsx`/`RadarSection.tsx`), donc aucune 
+route Next.js ne pouvait jamais les protéger. Les 4 routes `player/*` vérifiaient l'auth 
+et la liaison Hypixel mais jamais le plan — un compte Free qui liait un Hypixel avait déjà 
+accès complet à Evolve.
+
+**Deux couches, un seul point de vérité chacune** :
+- `lib/get-plan.ts` (`getUserPlan`/`requirePlan`) — lit `subscriptions` par l'email de la 
+  session authentifiée réelle, jamais un paramètre client. Vérifié à **chaque appel**, 
+  pas seulement à la liaison du compte Hypixel (un downgrade après coup ne laisse pas 
+  l'accès ouvert).
+- `has_plan(min_plan)` fonction SQL + nouvelles policies RLS sur les 5 tables interrogées 
+  directement par le navigateur — même principe côté DB, là où aucune route Next.js ne 
+  peut intervenir.
+- `lib/gate-content.ts` — filtrage de contenu partagé (`filterMoneyMaking` retire Vault 
+  Exclusive sauf Elite, `filterPatchInsight`/`filterPatchAnalysisContent` réduit à 
+  titre+`direct_impact` pour Free, Live uniquement — vérifié contre le vrai schéma 
+  `insight_patch` avant de coder).
+
+**Aperçu Free sans nouvelle infra de délai** : vues `ah_live_free_preview`/
+`bazaar_1h_free_preview` (top 5, jamais `best_auction_uuid`) — possédées par `postgres`, 
+contournent volontairement le RLS désormais restreint de `ah_live`/`bazaar_1h` pour cet 
+aperçu précis et rien d'autre. Même mécanisme que les vues `SECURITY DEFINER` déjà notées 
+comme risque sur `method_feedback_summary`/`distinct_items` (toujours pas corrigées, 
+tables vides), mais cette fois scopé et documenté sciemment plutôt que subi.
+
+**Pas encore fait** : les tabs Flash/Patches du dashboard restent `['alert','pro','elite']` 
+— le frontend ne sait pas encore afficher l'aperçu Free dégradé (backend prêt : vues + 
+`/api/market-data` filtré). Tab Evolve corrigé `['elite']` → `['pro','elite']` (Skills/
+Milestones sont Pro, pas Elite).
+
 ## ✅ Sécurité compte/facturation — audit complet + failles corrigées (22 juillet)
 
 Audit de sécurité exhaustif demandé avant les tests utilisateurs (RLS toutes tables, 
