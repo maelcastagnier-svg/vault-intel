@@ -1,6 +1,10 @@
 // app/api/patch-insights/route.ts
+// Gate par plan ajoute le 23 juillet (voir lib/get-plan.ts) — Free : titre + impact 1
+// phrase, patches Live uniquement. Alert+ : contenu complet, Live + Alpha.
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getUserPlan } from '../../../lib/get-plan'
+import { filterPatchInsight } from '../../../lib/gate-content'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,6 +13,8 @@ const supabase = createClient(
 
 export async function GET() {
   try {
+    const { plan } = await getUserPlan()
+
     const { data, error } = await supabase
       .from('insight_patch')
       .select('*')
@@ -27,7 +33,9 @@ export async function GET() {
       predicted_items: Array.isArray(p.predicted_items) ? p.predicted_items : [],
     }))
 
-    return NextResponse.json(normalized)
+    const gated = normalized.map(p => filterPatchInsight(p, plan)).filter(Boolean)
+
+    return NextResponse.json(gated)
   } catch {
     return NextResponse.json([])
   }

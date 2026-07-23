@@ -17,7 +17,7 @@
 // dojo...) reste data_available:false : jamais de statut de complétion inventé.
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient as createServerSupabaseClient } from '../../../../lib/supabase-server'
+import { requirePlan } from '../../../../lib/get-plan'
 
 export const maxDuration = 30
 
@@ -157,16 +157,15 @@ export async function computeMilestones(uuid: string, profileId: string) {
 
 // ── Handler ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
-  // Auth reelle : session Vault requise, et cette session doit avoir lie un compte
-  // Hypixel via /api/link-hypixel-account. Plus de uuid accepte en query param.
-  const serverClient = await createServerSupabaseClient()
-  const { data: { user: authUser } } = await serverClient.auth.getUser()
-  if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Evolve Milestones reserve Pro+. Verifie a chaque appel (pas seulement a la liaison du
+  // compte Hypixel) — un downgrade apres liaison ne doit pas laisser l'acces ouvert.
+  const gate = await requirePlan('pro')
+  if (!gate.ok) return gate.response
 
   const { data: link } = await supabase
     .from('hypixel_account_links')
     .select('hypixel_uuid')
-    .eq('user_id', authUser.id)
+    .eq('user_id', gate.user.id)
     .single()
   if (!link) return NextResponse.json({ error: 'No Hypixel account linked. Link one first via /api/link-hypixel-account' }, { status: 400 })
 

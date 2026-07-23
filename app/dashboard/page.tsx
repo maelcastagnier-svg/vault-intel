@@ -116,7 +116,7 @@ export default function Dashboard() {
     { label:'💰 Money',   plans:['pro','elite']          },
     { label:'🔧 Patches', plans:['alert','pro','elite']  },
     { label:'📡 Radar',   plans:['pro','elite']          },
-    { label:'🧬 Evolve',  plans:['elite']                },
+    { label:'🧬 Evolve',  plans:['pro','elite']          },
   ]
 
   const hasAccess = (plans: string[]) => plans.includes(plan)

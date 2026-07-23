@@ -7,7 +7,7 @@
 // utilisateur Vault.
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { createClient as createServerSupabaseClient } from '../../../lib/supabase-server'
+import { requirePlan } from '../../../lib/get-plan'
 
 const adminClient = createAdminClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,9 +15,11 @@ const adminClient = createAdminClient(
 )
 
 export async function POST(req: NextRequest) {
-  const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  // Reserve Pro+ — Free et Alert n'ont pas acces a Evolve, pas de raison de pouvoir lier
+  // un compte Hypixel avant d'avoir un plan qui en fait quelque chose.
+  const gate = await requirePlan('pro')
+  if (!gate.ok) return gate.response
+  const { user } = gate
 
   const { username } = await req.json()
   if (!username || typeof username !== 'string') {

@@ -2,10 +2,11 @@
 // Personal Money Making — lecture seule des recommandations deja generees par l'agent
 // Money Making general (cron/money-making-agent), filtrees sur le tier du joueur.
 // Aucun appel Claude ici, aucune ecriture.
-// GET /api/player/money-making?uuid={uuid}&profile_id={profile_id}
+// GET /api/player/money-making?profile_id={profile_id}
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient as createServerSupabaseClient } from '../../../../lib/supabase-server'
+import { requirePlan } from '../../../../lib/get-plan'
+import { filterMoneyMaking } from '../../../../lib/gate-content'
 
 export const maxDuration = 15
 
@@ -15,16 +16,14 @@ const supabase = createClient(
 )
 
 export async function GET(req: NextRequest) {
-  // Auth reelle : session Vault requise, et cette session doit avoir lie un compte
-  // Hypixel via /api/link-hypixel-account. Plus de uuid accepte en query param.
-  const serverClient = await createServerSupabaseClient()
-  const { data: { user: authUser } } = await serverClient.auth.getUser()
-  if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Evolve reserve Pro+ ; Vault Exclusive en plus reserve Elite (voir filterMoneyMaking).
+  const gate = await requirePlan('pro')
+  if (!gate.ok) return gate.response
 
   const { data: link } = await supabase
     .from('hypixel_account_links')
     .select('hypixel_uuid')
-    .eq('user_id', authUser.id)
+    .eq('user_id', gate.user.id)
     .single()
   if (!link) return NextResponse.json({ error: 'No Hypixel account linked. Link one first via /api/link-hypixel-account' }, { status: 400 })
 
@@ -58,11 +57,11 @@ export async function GET(req: NextRequest) {
   let parsed: any = {}
   try { parsed = JSON.parse(analysis.content) } catch { /* content malformed, return empty lists below */ }
 
+  const filtered = filterMoneyMaking(parsed, gate.plan)
+
   return NextResponse.json({
     tier,
-    comparison_summary: parsed.comparison_summary || '',
-    active: parsed.active || [],
-    vault: parsed.vault || [],
+    ...filtered,
     updated_at: analysis.updated_at,
   })
 }

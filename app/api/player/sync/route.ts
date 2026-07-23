@@ -4,7 +4,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { decodeItemListBytes } from '../../../../lib/skyblock-item-decoder'
-import { createClient as createServerSupabaseClient } from '../../../../lib/supabase-server'
+import { requirePlan } from '../../../../lib/get-plan'
 import { runEvolveSkills } from '../../cron/evolve-skills/route'
 
 // 300s pour couvrir le sync lui-meme + la generation Skills chainee ci-dessous
@@ -215,22 +215,20 @@ async function calculateNetworth(
 
 // ── Handler ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
-  // Auth reelle : session Vault requise, et cette session doit avoir lie un compte
-  // Hypixel via /api/link-hypixel-account. Plus aucun username/uuid accepte en query
-  // param — uniquement le compte reellement lie a cet utilisateur authentifie.
-  const serverClient = await createServerSupabaseClient()
-  const { data: { user: authUser } } = await serverClient.auth.getUser()
-  if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Evolve (Skills, chaine ci-dessous via runEvolveSkills) reserve Pro+. Verifie a chaque
+  // appel, pas seulement a la liaison du compte Hypixel.
+  const gate = await requirePlan('pro')
+  if (!gate.ok) return gate.response
 
   const { data: link } = await supabase
     .from('hypixel_account_links')
     .select('hypixel_uuid, hypixel_username')
-    .eq('user_id', authUser.id)
+    .eq('user_id', gate.user.id)
     .single()
   if (!link) return NextResponse.json({ error: 'No Hypixel account linked. Link one first via /api/link-hypixel-account' }, { status: 400 })
 
   const username  = link.hypixel_username
-  const userId    = authUser.id
+  const userId    = gate.user.id
   const profileId = req.nextUrl.searchParams.get('profile_id')
 
   try {

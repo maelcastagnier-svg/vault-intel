@@ -3,6 +3,7 @@
 // GET  → récupère le feedback agrégé pour une méthode
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requirePlan } from '../../../../lib/get-plan'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,6 +12,10 @@ const supabase = createClient(
 
 // POST /api/method/vote
 export async function POST(req: NextRequest) {
+  // Sous-feature de Money Making, reserve Pro+.
+  const gate = await requirePlan('pro')
+  if (!gate.ok) return gate.response
+
   try {
     const { method_id, tier, vote, comment } = await req.json()
 
@@ -34,6 +39,9 @@ export async function POST(req: NextRequest) {
 
 // GET /api/method/vote?method_id=X&tier=Y
 export async function GET(req: NextRequest) {
+  const gate = await requirePlan('pro')
+  if (!gate.ok) return gate.response
+
   try {
     const { searchParams } = new URL(req.url)
     const method_id = searchParams.get('method_id')

@@ -13,7 +13,7 @@
 // data_available:false n'est jamais utilisée (musée, essence, minions, uncollected...).
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient as createServerSupabaseClient } from '../../../../lib/supabase-server'
+import { requirePlan } from '../../../../lib/get-plan'
 import { computeMilestones, EvaluatedTask } from '../milestones/route'
 
 export const maxDuration = 30
@@ -81,16 +81,15 @@ function toMissionRow(c: MissionCandidate, uuid: string, profileId: string, toda
 
 // ── GET : retourne ou génère les missions ─────────────────────
 export async function GET(req: NextRequest) {
-  // Auth reelle : session Vault requise, et cette session doit avoir lie un compte
-  // Hypixel via /api/link-hypixel-account. Plus de uuid accepte en query param.
-  const serverClient = await createServerSupabaseClient()
-  const { data: { user: authUser } } = await serverClient.auth.getUser()
-  if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Daily Missions reserve Elite (Skills/Milestones sont Pro, Daily Missions est la
+  // couche d'engagement au-dessus, reservee au tier le plus eleve — voir CLAUDE.md).
+  const gate = await requirePlan('elite')
+  if (!gate.ok) return gate.response
 
   const { data: link } = await supabase
     .from('hypixel_account_links')
     .select('hypixel_uuid')
-    .eq('user_id', authUser.id)
+    .eq('user_id', gate.user.id)
     .single()
   if (!link) return NextResponse.json({ error: 'No Hypixel account linked. Link one first via /api/link-hypixel-account' }, { status: 400 })
 

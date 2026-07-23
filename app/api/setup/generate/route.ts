@@ -3,6 +3,7 @@
 // Le setup est pré-généré par setup-generate-agent (lundi 7h)
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requirePlan } from '../../../../lib/get-plan'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,6 +20,10 @@ function methodKey(method: any): string {
 }
 
 export async function POST(req: NextRequest) {
+  // Sous-feature de Money Making, reserve Pro+.
+  const gate = await requirePlan('pro')
+  if (!gate.ok) return gate.response
+
   try {
     const { method, tier } = await req.json()
     if (!method || !tier) {
