@@ -520,80 +520,84 @@ Remplace l'ancienne limite "networth = purse+bank uniquement". Statut final :
 4. **Historique de progression par snapshots** — mesurer la vitesse de progression 
    early→mid→end→late d'un joueur dans le temps, et permettre la comparaison entre joueurs.
 
-## ✅ Evolve — Milestones — REFONTE COMPLÈTE TERMINÉE ET VALIDÉE (23 juillet)
+## ✅ Evolve — Milestones — REFONTE COMPLÈTE TERMINÉE ET VALIDÉE (23 juillet, 2 passes)
 
 Remplace intégralement l'ancien système (paliers codés en dur : skill levels/slayer 
 XP/dungeon floors/fairy souls/top-10 collections, un flat array) par le vrai guide de 
 complétion à 7 tiers (Starter→Amateur→Intermediate→Skilled→Expert→Professional→Master).
 
 **Source des tâches — hybride, décidé après audit de ce qui existait déjà en base :**
-- **Tâches "wiki"** (184 au total, 8 à 35 par tier) — scrapées en direct depuis le wiki 
-  officiel (`hypixelskyblock.minecraft.wiki`, page `SkyBlock Guide/Tasks/<Tier>`), 
-  jamais l'ancien scrape Fandom tronqué à 8000 caractères qui traînait dans 
-  `game_mechanics_misc` depuis le 20 juillet (`skyblock_guide_tasks_*`, confirmé stale : 
-  Intermediate→Master coupés à 8000 caractères alors que le contenu réel Fandom fait 
-  11760-15353 caractères selon les pages). Chaque page est une table wikitext à 5 
-  colonnes (Image/Name/Task/Description/XP) — parser dédié dans `milestones-sync` qui 
-  décode aussi les templates `{{Skl|Skill|Numeral}}` et `{{Coll|Item Numeral}}` (chiffres 
-  romains → arabe, ex: `LX`→60 — confirmé cohérent avec le cap skill 60 déjà vérifié 
-  ailleurs dans le code, pas une supposition).
-- **Tâches "vault"** (Fairy Souls uniquement, 5 lignes sur Amateur/Intermediate/Skilled/
-  Expert/Master) — la seule catégorie `sblevel_tasks` confirmée **absente** du guide wiki 
-  (recherche exhaustive dans les 7 pages : aucune mention "Fairy Soul"). Réutilise 
-  l'échelle déjà vérifiée `[50,100,150,200,255]` (source `fairy_soul_locations`, 
-  count=255) de l'ancien système plutôt que d'en inventer une nouvelle.
-- **Pivot abandonné** : la piste initiale (construire les 7 tiers uniquement depuis 
-  `sblevel_tasks`, sans le wiki) a été écartée après avoir constaté que quasiment toutes 
-  ses 9 catégories (essence, dungeon classes, community shop, bank, dojo, harp songs, 
-  abiphone, rift, kuudra, arachne...) sont déjà couvertes nativement par les tâches du 
-  guide wiki — les dupliquer aurait été redondant, pas complémentaire.
+- **Tâches "wiki"** — scrapées en direct depuis le wiki officiel 
+  (`hypixelskyblock.minecraft.wiki`, page `SkyBlock Guide/Tasks/<Tier>`), jamais l'ancien 
+  scrape Fandom tronqué à 8000 caractères. Parser dédié dans `milestones-sync` qui décode 
+  les templates `{{Skl|Skill|Numeral}}` et `{{Coll|Item Numeral}}` (chiffres romains → 
+  arabe, ex: `LX`→60 — cohérent avec le cap skill 60 déjà vérifié ailleurs).
+- **Tâches "vault"** — Fairy Souls (échelle déjà vérifiée `[50,100,150,200,255]`) + 12 
+  catégories `sblevel_tasks` confirmées absentes du guide wiki (réconciliation des 53 
+  tâches réelles sblevel_tasks contre les tâches wiki) : `fast_travel_unlocked`, 
+  `essence_crimson_shop`, les 4 tâches d'event (`mining_fiesta`/`spooky_festival`/
+  `fishing_festival`/`jacob_farming_contest`), `unlocking_relays`, `mythological_kills`, 
+  `complete_objectives`, et les 3 `skill_related_task` (activité brute farming/mining/
+  fishing). Requirement type `uncollected`, toujours `data_available:false` — montrées 
+  comme roadmap en attente plutôt que masquées.
 
-**Calcul de progression — strictement limité à ce qui est vérifiable aujourd'hui :**
-Une tâche composite (une ligne du wiki, ex: "Collections" liste 18 items+tiers en UNE 
-tâche) n'affiche une progression que si **toutes** ses requirements sont d'un type qu'on 
+**⚠️ 2e passe (même jour) — écart massif découvert et corrigé.** La 1ère version stockait 
+1 ligne `milestone_tasks` par catégorie composite du wikitable (ex: "Collections" = 1 
+ligne regroupant 18 requirements), donnant 179-196 lignes pour 7 tiers. Or la page 
+overview `SkyBlock Guide` (tableau "Stages", vérifié par fetch direct) annonce 
+**2237 tâches individuelles** au total : Starter 120, Amateur 247, Intermediate 448, 
+Skilled 507, Expert 479, Professional 294, Master 142. Restructuration complète : 
+**chaque requirement individuelle est maintenant sa propre ligne** `milestone_tasks` 
+(même granularité que ce que Daily Missions utilisait déjà en interne) — 1616 tâches wiki 
++ 17 vault = 1633 lignes au total après restructuration, contre 289 avant.
+
+**Honnêteté sur l'écart restant** : même après restructuration, on reste sous les 2237 
+annoncés (1633 vs 2237, ~73%). Cause confirmée, pas un bug de notre côté : la page 
+overview marque elle-même sa section "Tasks" `{{Outdated|section=yes}}`, et les 
+sous-pages par tier sont démontrées incomplètes au-delà de Starter/Master — validé par 
+deux méthodes indépendantes (somme des requirements sur le wikitext ET comptage `<li>` 
+sur le HTML rendu, qui s'accordent à quelques unités près). Nouvelle table 
+`milestone_tier_totals` stocke le total annoncé par tier (scrapé automatiquement depuis 
+la même page overview à chaque run de `milestones-sync`), exposée dans l'API 
+(`tasks_known` vs `tasks_announced`) pour que Milestones affiche honnêtement "X tâches 
+connues sur ~Y annoncées" plutôt que de laisser croire que le compte scrapé est le vrai 
+total du jeu. Répartition connue/annoncée par tier (23 juillet) : Starter 134/120, 
+Amateur 148/247, Intermediate 279/448, Skilled 392/507, Expert 310/479, 
+Professional 217/294, Master 136/142 — cohérent avec "Starter et Master quasi complets 
+(les tiers les plus édités), le grind du milieu délaissé par les contributeurs wiki".
+
+**Calcul de progression — strictement limité à ce qui est vérifiable aujourd'hui :** une 
+tâche individuelle n'affiche une progression que si sa requirement est d'un type qu'on 
 sait vérifier avec certitude : `skill` (niveau déjà calculé dans `player_data.skills`, 
 pas de reconversion XP) et `collection` (via `player_data.collections` + la table 
-`collections` déjà vérifiée). Dès qu'une requirement est de type `item` (accessoire 
-précis, minion, item de musée...) ou `mobtype`, la tâche entière reste 
-`data_available: false` — jamais de progression partielle inventée sur une tâche 
-partiellement vérifiable. La plupart des tâches (musée, essence, dojo, abiphone, 
-minions, accessoires précis...) resteront `data_available: false` tant que le chantier 
-de collecte totale (voir section dédiée) n'aura pas étendu `player/sync` à ces zones.
+`collections` déjà vérifiée). Tout le reste (`item`/`mobtype`/`uncollected` — accessoires 
+précis, minions, musée, essence, dojo...) reste `data_available: false` jusqu'à ce que le 
+chantier de collecte totale étende `player/sync` à ces zones.
 
-**Bug trouvé et corrigé pendant la validation** : la colonne `tiers` de la table 
-`collections` utilise la clé JSON `amountRequired` (camelCase), pas `amount_required` — 
-l'ancien `milestones/route.ts` faisait déjà cette même erreur silencieusement (jamais 
-remarqué faute de test end-to-end réel), donc le "top 10 collections" de l'ancien 
-système ne fonctionnait probablement jamais correctement non plus.
+**2 bugs réels trouvés et corrigés pendant la validation :**
+1. La colonne `tiers` de la table `collections` utilise la clé JSON `amountRequired` 
+   (camelCase), pas `amount_required` — l'ancien `milestones/route.ts` faisait déjà 
+   cette même erreur silencieusement, donc son "top 10 collections" ne fonctionnait 
+   probablement jamais correctement.
+2. Postgres rejette un batch `ON CONFLICT DO UPDATE` contenant deux fois la même clé de 
+   conflit ("cannot affect row a second time") — le wiki liste réellement certains items 
+   deux fois dans une même catégorie (ex: "Pyrochaos Dagger" apparaît deux fois dans le 
+   musée de Master). Dédupliqué avant upsert (garde la première occurrence, même tâche 
+   réelle, aucune perte).
 
-**Infra** : table `milestone_tasks` (public en lecture, service-role en écriture) + cron 
-`milestones-sync` (mensuel, le 1er à 6h — contenu de guide statique, se resynchronise 
-automatiquement si le wiki change). `player/milestones/route.ts` restructuré autour de 
-`computeMilestones(uuid, profileId)`, exportée et réutilisable (même pattern que 
-`runEvolveSkills`).
+**Infra** : `milestone_tasks` (granularité individuelle) + `milestone_tier_totals` 
+(totaux annoncés) + cron `milestones-sync` (mensuel, le 1er à 6h). 
+`player/milestones/route.ts` restructuré autour de `computeMilestones(uuid, profileId)`, 
+exportée et réutilisable (même pattern que `runEvolveSkills`).
 
-**Validé sur Cucumber et Orange (23 juillet)** :
+**Validé sur Cucumber et Orange, les deux passes (23 juillet)** :
 - **Cucumber** (MID, 220 runs Catacombs) : progression réelle et cohérente, décroissante 
-  avec la difficulté des tiers — Skill Level Up 70% (Starter/Amateur) → 56% (Intermediate) 
-  → 33% (Skilled) → 11% (Expert/Professional) → 0% (Master) ; Collections 67% (Starter) 
-  → 8% (Professional) → 0% (Master) ; Fairy Souls 100% au palier 50 (Amateur) mais 0% au 
-  palier 100 (Intermediate) — cohérent avec un total quelque part entre 50 et 99.
-- **Orange** (EARLY, profil quasi-vide, tous skills niveau 0) : 0% strictement partout, 
-  sur les 7 tiers — confirme le même garde-fou early-game déjà validé pour Skills 
-  (jamais de progression fictive sur un profil vide).
-
-**✅ Réconciliation `sblevel_tasks` complétée (23 juillet)** — les 53 tâches réelles 
-(hors métadonnées XP) confrontées aux 184 tâches wiki : 12 catégories confirmées absentes 
-du guide (au-delà de Fairy Souls, déjà ajouté) — `fast_travel_unlocked`, 
-`essence_crimson_shop` (les 7 autres essences sont couvertes, curieusement pas Crimson), 
-les 4 tâches d'event (`mining_fiesta`/`spooky_festival`/`fishing_festival`/
-`jacob_farming_contest`), `unlocking_relays`, `mythological_kills`, 
-`complete_objectives`, et les 3 `skill_related_task` (activité brute farming/mining/
-fishing, distinct du niveau de skill). Ajoutées en tâches `source:'vault'`, requirement 
-type `uncollected`, toujours `data_available:false` — montrées comme roadmap en attente 
-plutôt que masquées, pour que Milestones reste honnête sur "196 tâches trackées, 179 wiki 
-+ 17 vault (5 Fairy Souls calculables + 12 en attente de collecte)" plutôt que de donner 
-l'impression que le guide s'arrête où on peut déjà calculer.
+  avec la difficulté des tiers — complétion (tâches calculables) 19/28 (Starter) → 
+  31/51 (Amateur) → 26/55 (Intermediate) → 16/56 (Skilled) → 5/43 (Expert) → 2/21 
+  (Professional) → 0/10 (Master).
+- **Orange** (EARLY, profil quasi-vide, tous skills niveau 0) : 0 complétion strictement 
+  partout, sur les 7 tiers — confirme le même garde-fou early-game déjà validé pour 
+  Skills (jamais de progression fictive sur un profil vide).
 
 ## ✅ Evolve — Daily Missions — RECONSTRUITE, dépend enfin réellement de Milestones (23 juillet)
 
@@ -603,9 +607,9 @@ skills/slayers/dungeons, aucun lien avec Milestones). Nouvelle logique
 1. Trouve le **tier actuel** du joueur : le premier tier (Starter→Master) qui a encore au 
    moins une tâche `data_available:true` non complétée. Un tier avec zéro tâche 
    calculable, ou dont toutes les tâches calculables sont déjà faites, est sauté.
-2. Casse les tâches composites de ce tier en requirements individuelles non satisfaites 
-   (ex : "Skill Level Up" 7/10 → jusqu'à 3 missions concrètes, une par skill sous la 
-   cible — via le nouveau `requirements_detail` exposé par `computeMilestones`).
+2. Prend ses tâches calculables non complétées directement — depuis la restructuration de 
+   `milestone_tasks` en granularité individuelle (voir section Milestones), chaque ligne 
+   EST déjà une requirement individuelle, plus besoin de casser une tâche composite ici.
 3. Classe par ratio `current/target` décroissant (le plus proche de la complétion en 
    premier — vraie victoire rapide dérivée de données réelles, jamais un temps estimé 
    inventé), garde les 5 premières.
