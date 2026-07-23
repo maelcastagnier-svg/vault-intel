@@ -38,6 +38,14 @@ type TaskRow = {
   description: string; xp: number; requirements: Requirement[]
 }
 
+type RequirementDetail = {
+  label: string           // ex: "Farming level 4", "Wheat Collection IV"
+  unit: string            // ex: "level", "Wheat" — pour progress_unit cote missions
+  current: number
+  target: number
+  met: boolean
+}
+
 type EvaluatedTask = {
   name: string
   task_title: string
@@ -48,6 +56,7 @@ type EvaluatedTask = {
   completed: boolean | null
   requirements_met: number | null
   requirements_total: number
+  requirements_detail: RequirementDetail[] // seulement rempli si data_available
 }
 
 // Logique reutilisable par le handler GET (auth reelle) et par des tests directs
@@ -98,36 +107,41 @@ export async function computeMilestones(uuid: string, profileId: string) {
   const collections = player.collections || {}
   const fairySouls  = player.fairy_souls ?? 0
 
-  function evaluateRequirement(r: Requirement): boolean | null {
+  function capitalize(s: string): string { return s.charAt(0).toUpperCase() + s.slice(1) }
+
+  function evaluateRequirement(r: Requirement): RequirementDetail | null {
     if (r.type === 'skill') {
-      return (skills[r.skill] ?? 0) >= r.level
+      const current = skills[r.skill] ?? 0
+      return { label: `${capitalize(r.skill)} level ${r.level}`, unit: 'level', current, target: r.level, met: current >= r.level }
     }
     if (r.type === 'collection') {
       const itemId = collectionItemIdByName.get(r.item_name)
       const tierAmounts = collectionTiersByName.get(r.item_name)
       if (!itemId || !tierAmounts || !tierAmounts[r.tier - 1]) return null
-      return (collections[itemId] ?? 0) >= tierAmounts[r.tier - 1]
+      const target  = tierAmounts[r.tier - 1]
+      const current = collections[itemId] ?? 0
+      return { label: `${r.item_name} Collection ${r.tier}`, unit: r.item_name, current, target, met: current >= target }
     }
     if (r.type === 'fairy_souls') {
-      return fairySouls >= r.target
+      return { label: `Collect ${r.target} Fairy Souls`, unit: 'Fairy Souls', current: fairySouls, target: r.target, met: fairySouls >= r.target }
     }
     return null // item / mobtype : pas verifiable aujourd'hui
   }
 
   function evaluateTask(row: TaskRow): EvaluatedTask {
     const reqs = row.requirements || []
-    const results = reqs.map(evaluateRequirement)
-    const allVerifiable = reqs.length > 0 && results.every(r => r !== null)
+    const details = reqs.map(evaluateRequirement)
+    const allVerifiable = reqs.length > 0 && details.every((d): d is RequirementDetail => d !== null)
 
     if (!allVerifiable) {
       return {
         name: row.name, task_title: row.task_title, description: row.description, xp: row.xp,
         data_available: false, progress_pct: null, completed: null,
-        requirements_met: null, requirements_total: reqs.length,
+        requirements_met: null, requirements_total: reqs.length, requirements_detail: [],
       }
     }
 
-    const met = results.filter(r => r === true).length
+    const met = details.filter(d => d!.met).length
     return {
       name: row.name, task_title: row.task_title, description: row.description, xp: row.xp,
       data_available: true,
@@ -135,6 +149,7 @@ export async function computeMilestones(uuid: string, profileId: string) {
       completed: met === reqs.length,
       requirements_met: met,
       requirements_total: reqs.length,
+      requirements_detail: details as RequirementDetail[],
     }
   }
 
