@@ -8,6 +8,23 @@ import MoneyMakingSection from '../../components/MoneyMakingSection'
 import PatchSection       from '../../components/PatchSection'
 import RadarSection       from '../../components/RadarSection'
 
+function DashboardFooter() {
+  return (
+    <footer style={{
+      maxWidth: 1060, margin: '2rem auto 0', padding: '1.25rem 2rem',
+      borderTop: '1px solid rgba(255,255,255,0.05)', textAlign: 'center',
+    }}>
+      <p style={{ fontSize: 11, color: '#4a4a45' }}>© 2026 Vault Intelligence. All rights reserved.</p>
+      <p style={{ fontSize: 11, color: '#4a4a45', marginTop: 4 }}>
+        Not affiliated with Hypixel or Mojang.{' '}
+        <a href="/privacy" style={{ color: '#6b6960', textDecoration: 'none' }}>Privacy</a>
+        {' · '}
+        <a href="/terms" style={{ color: '#6b6960', textDecoration: 'none' }}>Terms</a>
+      </p>
+    </footer>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────
@@ -247,6 +264,7 @@ export default function Dashboard() {
           </>
         )}
       </div>
+      <DashboardFooter />
     </>
   )
 }

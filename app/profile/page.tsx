@@ -11,6 +11,10 @@ export default function Profile() {
   const [loading, setLoading] = useState(true)
   const [canceling, setCanceling] = useState(false)
   const [message, setMessage] = useState('')
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteInput, setDeleteInput] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const router = useRouter()
   const supabase = createClient()
 
@@ -66,6 +70,22 @@ export default function Profile() {
     router.push('/')
   }
 
+  async function handleDeleteAccount() {
+    if (deleteInput !== 'DELETE') return
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      const res = await fetch('/api/delete-account', { method: 'POST' })
+      const data = await res.json()
+      if (!data.success) { setDeleteError(data.error || 'Something went wrong. Please try again or contact support.'); setDeleting(false); return }
+      await supabase.auth.signOut()
+      router.push('/')
+    } catch {
+      setDeleteError('Something went wrong. Please try again or contact support.')
+      setDeleting(false)
+    }
+  }
+
   if (loading) return (
     <div style={{ background: '#0a0a0a', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#c9a84c', fontFamily: 'Space Mono, monospace' }}>
       Loading...
@@ -101,6 +121,23 @@ export default function Profile() {
         .message { padding: 0.75rem; border-radius: 6px; font-size: 0.85rem; margin-top: 1rem; text-align: center; background: rgba(27,175,122,0.1); color: #1baf7a; border: 1px solid rgba(27,175,122,0.2); }
         .back { display: inline-flex; align-items: center; gap: 0.5rem; color: #6b6960; text-decoration: none; font-size: 0.85rem; margin-bottom: 1.5rem; }
         .back:hover { color: #c9a84c; }
+        .danger-card { border-color: rgba(227,73,72,0.25); }
+        .danger-text { font-size: 0.85rem; color: #9b9b8f; line-height: 1.6; margin-bottom: 1rem; }
+        .danger-text ul { margin: 0.5rem 0 0.5rem 1.1rem; }
+        .danger-text a { color: #c9a84c; }
+        .btn-danger { width: 100%; background: transparent; border: 1px solid rgba(227,73,72,0.4); color: #e34948; padding: 0.85rem; border-radius: 6px; font-size: 0.9rem; font-weight: 600; cursor: pointer; font-family: 'Space Grotesk', sans-serif; transition: all 0.2s; }
+        .btn-danger:hover { background: rgba(227,73,72,0.1); }
+        .confirm-box { margin-top: 1rem; padding: 1rem; background: rgba(227,73,72,0.06); border: 1px solid rgba(227,73,72,0.3); border-radius: 8px; }
+        .confirm-box label { display: block; font-size: 0.75rem; color: #6b6960; margin-bottom: 0.5rem; }
+        .confirm-box input { width: 100%; background: #1a1917; border: 1px solid rgba(227,73,72,0.3); border-radius: 6px; padding: 0.65rem 0.85rem; color: #e8e6df; font-size: 0.9rem; font-family: 'Space Mono', monospace; outline: none; margin-bottom: 0.75rem; }
+        .confirm-actions { display: flex; gap: 0.5rem; }
+        .btn-confirm-delete { flex: 1; background: #e34948; color: #fff; border: none; padding: 0.7rem; border-radius: 6px; font-size: 0.85rem; font-weight: 700; cursor: pointer; font-family: 'Space Grotesk', sans-serif; }
+        .btn-confirm-delete:disabled { opacity: 0.35; cursor: not-allowed; }
+        .btn-cancel-delete { flex: 1; background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #6b6960; padding: 0.7rem; border-radius: 6px; font-size: 0.85rem; cursor: pointer; font-family: 'Space Grotesk', sans-serif; }
+        .delete-error { font-size: 0.8rem; color: #e34948; margin-top: 0.75rem; }
+        .legal-footer { text-align: center; margin-top: 2rem; font-size: 0.75rem; color: #4a4a45; }
+        .legal-footer a { color: #6b6960; text-decoration: none; margin: 0 0.5rem; }
+        .legal-footer a:hover { color: #c9a84c; }
       `}</style>
 
       <nav>
@@ -159,6 +196,53 @@ export default function Profile() {
           ) : (
             <a href="/#pricing" className="btn-upgrade">Upgrade plan</a>
           )}
+        </div>
+
+        <div className="card danger-card">
+          <div className="card-title">Danger zone</div>
+          <div className="danger-text">
+            Deleting your account is permanent and cannot be undone. It will:
+            <ul>
+              <li>Immediately cancel any active subscription (no further charges)</li>
+              <li>Remove your synced SkyBlock game data, Skills cards, missions and progress</li>
+              <li>Remove your linked Hypixel account</li>
+              <li>Remove your subscription/billing record</li>
+              <li>Delete your Vault account itself</li>
+            </ul>
+            See our <a href="/privacy">Privacy Policy</a> for details.
+          </div>
+
+          {!showDeleteConfirm ? (
+            <button className="btn-danger" onClick={() => setShowDeleteConfirm(true)}>Delete my account</button>
+          ) : (
+            <div className="confirm-box">
+              <label>Type <strong>DELETE</strong> to confirm — this cannot be undone</label>
+              <input
+                type="text"
+                value={deleteInput}
+                onChange={e => setDeleteInput(e.target.value)}
+                placeholder="DELETE"
+                autoFocus
+              />
+              <div className="confirm-actions">
+                <button
+                  className="btn-cancel-delete"
+                  onClick={() => { setShowDeleteConfirm(false); setDeleteInput(''); setDeleteError('') }}
+                  disabled={deleting}
+                >Cancel</button>
+                <button
+                  className="btn-confirm-delete"
+                  onClick={handleDeleteAccount}
+                  disabled={deleteInput !== 'DELETE' || deleting}
+                >{deleting ? 'Deleting...' : 'Permanently delete'}</button>
+              </div>
+              {deleteError && <div className="delete-error">{deleteError}</div>}
+            </div>
+          )}
+        </div>
+
+        <div className="legal-footer">
+          <a href="/privacy">Privacy Policy</a>·<a href="/terms">Terms of Service</a>
         </div>
       </div>
     </>

@@ -82,6 +82,8 @@ export default function Home() {
         .channel-desc { font-size: 0.8rem; color: var(--muted); line-height: 1.5; }
         footer { border-top: 1px solid var(--border); padding: 2rem 2.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
         footer p { font-size: 0.8rem; color: var(--muted); }
+        footer a { color: var(--muted); text-decoration: none; }
+        footer a:hover { color: #c9a84c; }
       `}</style>
 
       <nav>
@@ -177,7 +179,7 @@ export default function Home() {
 
       <footer>
         <p>© 2026 Vault Intelligence. All rights reserved.</p>
-        <p>Not affiliated with Hypixel or Mojang.</p>
+        <p>Not affiliated with Hypixel or Mojang. <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></p>
       </footer>
     </>
   );
