@@ -663,42 +663,44 @@ exportée et réutilisable (même pattern que `runEvolveSkills`).
   partout, sur les 7 tiers — confirme le même garde-fou early-game déjà validé pour 
   Skills (jamais de progression fictive sur un profil vide).
 
-## ✅ Evolve — Daily Missions — RECONSTRUITE, dépend enfin réellement de Milestones (23 juillet)
+## ✅ Evolve — Daily Missions — RECONSTRUITE, dépend enfin réellement de Milestones (23 juillet, révisée le même jour : 10 quêtes, mélange tiers débloqués)
 
 Remplace l'ancien générateur indépendant (`generateMissions()`, if/else codés en dur sur 
-skills/slayers/dungeons, aucun lien avec Milestones). Nouvelle logique 
+skills/slayers/dungeons, aucun lien avec Milestones). Logique actuelle 
 (`buildMissionCandidates()`, exportée et testable) :
 1. Trouve le **tier actuel** du joueur : le premier tier (Starter→Master) qui a encore au 
    moins une tâche `data_available:true` non complétée. Un tier avec zéro tâche 
-   calculable, ou dont toutes les tâches calculables sont déjà faites, est sauté.
-2. Prend ses tâches calculables non complétées directement — depuis la restructuration de 
+   calculable, ou dont toutes les tâches calculables sont déjà faites, est sauté (transparent, 
+   ni bloquant ni "actuel" en soi).
+2. Pioche dans **ce tier ET tous les tiers avant lui** (déjà débloqués par construction) — 
+   jamais un tier après le tier actuel, qui reste non débloqué. Depuis la restructuration de 
    `milestone_tasks` en granularité individuelle (voir section Milestones), chaque ligne 
    EST déjà une requirement individuelle, plus besoin de casser une tâche composite ici.
-3. Classe par ratio `current/target` décroissant (le plus proche de la complétion en 
-   premier — vraie victoire rapide dérivée de données réelles, jamais un temps estimé 
-   inventé), garde les 5 premières.
-4. Ne va jamais chercher dans un tier supérieur au tier actuel — reste "réalisable à 
-   l'instant T" par construction, pas besoin d'un modèle de difficulté/durée séparé.
+3. Classe l'ensemble combiné par ratio `current/target` décroissant (le plus proche de la 
+   complétion en premier — vraie victoire rapide dérivée de données réelles, jamais un temps 
+   estimé inventé), garde les **10** premières (relevé de 5 à 10 le 23 juillet).
 
 **Aucune récompense inventée** : `coins_reward`/`xp_reward` mis à 0 sur chaque mission 
 (l'ancien système avait des valeurs codées en dur sans base réelle — pas reconduit).
 
-**Validé sur Cucumber et Orange (23 juillet)** :
-- **Cucumber** (MID) : `Alchemy level 4 (3/4)`, `Cobblestone Collection 4 (206/1000)`, 
-  `Coal Collection 2 (2/100)`, `Leather Collection 2 (1/100)`, 5e mission variable entre 
-  `Carpentry level 4` et `Raw Chicken Collection 2` (tous deux à 0/cible — égalité 
-  honnête, l'ordre entre candidats strictement à égalité n'est pas garanti stable, limite 
-  mineure connue, pas un bug). Révèle ses skills/collections réellement négligés malgré 
-  son avancement général.
-- **Orange** (EARLY, profil vide) : 5 cibles triviales (niveau 4 dans un skill, ou tier 
-  bas d'une collection à 0) — jamais de mission hors de portée, même garde-fou early-game 
-  que Skills et Milestones.
+**Validé sur Cucumber et Orange (23 juillet, après la révision à 10)** — via route debug 
+temporaire appelant directement `buildMissionCandidates()`, supprimée après validation :
+- **Cucumber** (MID) : 9 candidats retournés, tous du tier Starter (`Alchemy level 4 3/4`, 
+  `Cobblestone/Coal/Leather/Raw Chicken/Raw Mutton/Gravel Collection`, `Carpentry level 4`, 
+  `Hunting level 4`) — Starter n'est pas encore fini pour ce joueur (skills annexes 
+  négligés malgré son avancement général), donc `currentTierIndex = 0` et il n'y a aucun 
+  tier "avant" à mélanger. Comportement correct, pas un bug — le mélange multi-tier ne 
+  s'active que quand un joueur a un tier antérieur fini mais avec des restes calculables 
+  encore incomplets, cas non rencontré sur ces deux profils de test.
+- **Orange** (EARLY, profil vide) : 10 candidats, tous Starter niveau 4 (tous les skills à 
+  0/4) + 1 collection — jamais de mission hors de portée, même garde-fou early-game que 
+  Skills et Milestones.
 
-**Limite connue, mineure** : parmi des candidats strictement à égalité (ratio 0/0 par 
-exemple), l'ordre de sélection des 5 missions n'est pas garanti stable d'un run à l'autre 
-(dépend de l'ordre de retour Postgres, pas de tri secondaire). Toutes les valeurs 
-affichées restent réelles et honnêtes — juste l'ensemble exact des 5 peut varier entre 
-deux requêtes le même jour pour un joueur avec beaucoup de candidats à zéro. Pas bloquant, 
+**Limite connue, mineure, inchangée** : parmi des candidats strictement à égalité (ratio 
+0/0 par exemple), l'ordre de sélection n'est pas garanti stable d'un run à l'autre (dépend 
+de l'ordre de retour Postgres, pas de tri secondaire). Toutes les valeurs affichées 
+restent réelles et honnêtes — juste l'ensemble exact des 10 peut varier entre deux 
+requêtes le même jour pour un joueur avec beaucoup de candidats à zéro. Pas bloquant, 
 amélioration possible plus tard (tri secondaire déterministe).
 
 ## Money Making — non retouché depuis le 13 juillet, donc toujours la référence
