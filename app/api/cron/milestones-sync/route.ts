@@ -215,12 +215,26 @@ export async function runMilestonesSync() {
       const wikitext = await fetchTierPage(tier)
       const tasks = parseTierPage(wikitext)
 
-      const rows = tasks.map(t => ({
-        tier, source: 'wiki',
-        category: t.category, task_title: t.task_title, label: t.label,
-        group_xp: t.group_xp, requirement: t.requirement, task_key: null,
-        updated_at: new Date().toISOString(),
-      }))
+      // Deduplique sur la cle unique (tier,source,category,task_title,label) avant upsert —
+      // le wiki liste reellement certains items 2x dans une meme categorie (ex: "Pyrochaos
+      // Dagger" apparait deux fois dans le musee de Master), et Postgres rejette un batch
+      // "ON CONFLICT DO UPDATE" qui contient deux fois la meme cle (erreur confirmee en
+      // prod : "cannot affect row a second time"). Garder la premiere occurrence suffit,
+      // c'est la meme tache reelle, pas une perte d'info.
+      const seen = new Set<string>()
+      const rows = tasks
+        .map(t => ({
+          tier, source: 'wiki',
+          category: t.category, task_title: t.task_title, label: t.label,
+          group_xp: t.group_xp, requirement: t.requirement, task_key: null,
+          updated_at: new Date().toISOString(),
+        }))
+        .filter(r => {
+          const key = `${r.category}::${r.task_title}::${r.label}`
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
 
       let inserted = 0
       for (let i = 0; i < rows.length; i += 200) {
