@@ -7,6 +7,7 @@ import FlashAlertsPage    from '../../components/FlashAlertsPage'
 import MoneyMakingSection from '../../components/MoneyMakingSection'
 import PatchSection       from '../../components/PatchSection'
 import RadarSection       from '../../components/RadarSection'
+import EvolveSection      from './EvolveSection'
 
 function DashboardFooter() {
   return (
@@ -256,11 +257,7 @@ export default function Dashboard() {
             {tab === 3 && <RadarSection marketData={marketData} dataLoading={dataLoading} />}
 
             {/* ── EVOLVE ── */}
-            {tab === 4 && (
-              <div style={{ textAlign:'center', padding:'4rem', color:'#2a2a28', fontSize:11, fontFamily:'Space Mono, monospace', letterSpacing:'0.08em' }}>
-                🧬 Evolve — coming soon
-              </div>
-            )}
+            {tab === 4 && <EvolveSection />}
           </>
         )}
       </div>
