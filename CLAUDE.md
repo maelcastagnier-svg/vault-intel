@@ -520,53 +520,73 @@ Remplace l'ancienne limite "networth = purse+bank uniquement". Statut final :
 4. **Historique de progression par snapshots** — mesurer la vitesse de progression 
    early→mid→end→late d'un joueur dans le temps, et permettre la comparaison entre joueurs.
 
-## Evolve — Milestones vs Daily Missions (architecture clarifiée 22 juillet)
+## ✅ Evolve — Milestones — REFONTE COMPLÈTE TERMINÉE ET VALIDÉE (23 juillet)
 
-**Milestones** = le guide de complétion 100% du jeu, permanent et complet. Basé sur 
-`sblevel_tasks` (99 lignes, déjà en base — pas le "SkyBlock Guide" externe, voir 
-investigation ci-dessous) réparti sur les 7 tiers Hypixel (Starter→Amateur→Intermediate→
-Skilled→Expert→Professional→Master) selon la difficulté réelle en jeu. Pour chaque 
-joueur : classe son tier actuel par tâche, montre explicitement ce qu'il a manqué dans 
-les tiers précédents (pas juste le tier courant), trace le chemin complet restant 
-jusqu'à 100% de complétion absolue. C'est LA référence de progression du joueur, 
-recalculée à chaque re-sync.
+Remplace intégralement l'ancien système (paliers codés en dur : skill levels/slayer 
+XP/dungeon floors/fairy souls/top-10 collections, un flat array) par le vrai guide de 
+complétion à 7 tiers (Starter→Amateur→Intermediate→Skilled→Expert→Professional→Master).
 
-**Daily Missions** = sélection quotidienne dynamique piochée dans les tâches Milestones 
-non complétées de ce joueur, filtrée pour ne montrer que ce qui est réalisable rapidement 
-à l'instant T (pas des objectifs de plusieurs semaines). Dépend de Milestones comme 
-source de données — pas une structure indépendante.
+**Source des tâches — hybride, décidé après audit de ce qui existait déjà en base :**
+- **Tâches "wiki"** (184 au total, 8 à 35 par tier) — scrapées en direct depuis le wiki 
+  officiel (`hypixelskyblock.minecraft.wiki`, page `SkyBlock Guide/Tasks/<Tier>`), 
+  jamais l'ancien scrape Fandom tronqué à 8000 caractères qui traînait dans 
+  `game_mechanics_misc` depuis le 20 juillet (`skyblock_guide_tasks_*`, confirmé stale : 
+  Intermediate→Master coupés à 8000 caractères alors que le contenu réel Fandom fait 
+  11760-15353 caractères selon les pages). Chaque page est une table wikitext à 5 
+  colonnes (Image/Name/Task/Description/XP) — parser dédié dans `milestones-sync` qui 
+  décode aussi les templates `{{Skl|Skill|Numeral}}` et `{{Coll|Item Numeral}}` (chiffres 
+  romains → arabe, ex: `LX`→60 — confirmé cohérent avec le cap skill 60 déjà vérifié 
+  ailleurs dans le code, pas une supposition).
+- **Tâches "vault"** (Fairy Souls uniquement, 5 lignes sur Amateur/Intermediate/Skilled/
+  Expert/Master) — la seule catégorie `sblevel_tasks` confirmée **absente** du guide wiki 
+  (recherche exhaustive dans les 7 pages : aucune mention "Fairy Soul"). Réutilise 
+  l'échelle déjà vérifiée `[50,100,150,200,255]` (source `fairy_soul_locations`, 
+  count=255) de l'ancien système plutôt que d'en inventer une nouvelle.
+- **Pivot abandonné** : la piste initiale (construire les 7 tiers uniquement depuis 
+  `sblevel_tasks`, sans le wiki) a été écartée après avoir constaté que quasiment toutes 
+  ses 9 catégories (essence, dungeon classes, community shop, bank, dojo, harp songs, 
+  abiphone, rift, kuudra, arachne...) sont déjà couvertes nativement par les tâches du 
+  guide wiki — les dupliquer aurait été redondant, pas complémentaire.
 
-**Ordre de construction** : Milestones d'abord (fondation complète), Daily Missions 
-ensuite (vient piocher dedans une fois Milestones fonctionnel).
+**Calcul de progression — strictement limité à ce qui est vérifiable aujourd'hui :**
+Une tâche composite (une ligne du wiki, ex: "Collections" liste 18 items+tiers en UNE 
+tâche) n'affiche une progression que si **toutes** ses requirements sont d'un type qu'on 
+sait vérifier avec certitude : `skill` (niveau déjà calculé dans `player_data.skills`, 
+pas de reconversion XP) et `collection` (via `player_data.collections` + la table 
+`collections` déjà vérifiée). Dès qu'une requirement est de type `item` (accessoire 
+précis, minion, item de musée...) ou `mobtype`, la tâche entière reste 
+`data_available: false` — jamais de progression partielle inventée sur une tâche 
+partiellement vérifiable. La plupart des tâches (musée, essence, dojo, abiphone, 
+minions, accessoires précis...) resteront `data_available: false` tant que le chantier 
+de collecte totale (voir section dédiée) n'aura pas étendu `player/sync` à ces zones.
 
-**Milestones V1 — Starter + Amateur validés, reste `verified: false`.** Les tiers 
-Intermediate→Master ne sont pas encore vérifiés tâche par tâche contre `sblevel_tasks` 
-— même logique que les slayers ailleurs dans ce document : à afficher avec un badge 
-"à vérifier" côté frontend tant que ce n'est pas fait, jamais comme des faits validés.
+**Bug trouvé et corrigé pendant la validation** : la colonne `tiers` de la table 
+`collections` utilise la clé JSON `amountRequired` (camelCase), pas `amount_required` — 
+l'ancien `milestones/route.ts` faisait déjà cette même erreur silencieusement (jamais 
+remarqué faute de test end-to-end réel), donc le "top 10 collections" de l'ancien 
+système ne fonctionnait probablement jamais correctement non plus.
 
-### Investigation "SkyBlock Guide" externe (22 juillet) — sources insuffisantes, pivot vers `sblevel_tasks`
+**Infra** : table `milestone_tasks` (public en lecture, service-role en écriture) + cron 
+`milestones-sync` (mensuel, le 1er à 6h — contenu de guide statique, se resynchronise 
+automatiquement si le wiki change). `player/milestones/route.ts` restructuré autour de 
+`computeMilestones(uuid, profileId)`, exportée et réutilisable (même pattern que 
+`runEvolveSkills`).
 
-- **Fandom wiki** (`game_mechanics_misc`) : Starter complet et validé (120/120 tâches, 
-  vérifiées item par item). Amateur et au-delà tronqués à 8000 caractères par notre 
-  propre scraper (`wiki-auto-sync/route.ts:100`, `content.slice(0,8000)` — limite qu'on 
-  s'impose nous-même, corrigeable si besoin plus tard).
-- **Weird Gloop** (`hypixelskyblock.minecraft.wiki`) : plus riche que Fandom pour Starter 
-  (120/120 exact, avec Museum + Mob Types absents de Fandom), mais Amateur réel = 148 
-  tâches sur les 247 annoncées par sa propre page sommaire — la page sommaire porte 
-  elle-même un bandeau "This section needs to be reworked as its content is outdated" 
-  (dernière modif 3 juillet 2026). Pas fiable au-delà de Starter.
-- **`NotEnoughUpdates-REPO`** (actif, poussé en 2026) : aucun fichier Guide/tiers. 
-  Contient `sblevels.json` (= notre `sblevel_tasks`, confirme la source) et 
-  `leveling.json` (XP skills identique à `player/sync`, caps de skill en désaccord sur 
-  3 points avec l'API Hypixel — foraging/farming/taming à trancher, et vraies données 
-  `slayer_xp` par **niveau** 1-9 — différent des **tiers** 1-5 déjà utilisés en 
-  `verified:false` dans `milestones/route.ts`, pas encore exploitées, à ne pas confondre).
-- **SkyHanni + SkyHanni-REPO** (très actifs, poussés le jour même) : la feature 
-  "SkyblockGuide" lit l'UI du jeu en direct (regex sur tooltips), aucune donnée statique 
-  bundlée. Skytils probablement pareil (pas vérifié en détail).
-- **Conclusion** : aucune source externe ne maintient le détail par-tier au-delà de 
-  Starter. On construit notre propre répartition sur `sblevel_tasks` plutôt que 
-  d'attendre une source complète qui n'existe pas.
+**Validé sur Cucumber et Orange (23 juillet)** :
+- **Cucumber** (MID, 220 runs Catacombs) : progression réelle et cohérente, décroissante 
+  avec la difficulté des tiers — Skill Level Up 70% (Starter/Amateur) → 56% (Intermediate) 
+  → 33% (Skilled) → 11% (Expert/Professional) → 0% (Master) ; Collections 67% (Starter) 
+  → 8% (Professional) → 0% (Master) ; Fairy Souls 100% au palier 50 (Amateur) mais 0% au 
+  palier 100 (Intermediate) — cohérent avec un total quelque part entre 50 et 99.
+- **Orange** (EARLY, profil quasi-vide, tous skills niveau 0) : 0% strictement partout, 
+  sur les 7 tiers — confirme le même garde-fou early-game déjà validé pour Skills 
+  (jamais de progression fictive sur un profil vide).
+
+**Daily Missions** : toujours l'ancien générateur indépendant codé en dur 
+(`app/api/player/missions/route.ts`, if/else sur skills/slayers/dungeons), **pas encore 
+relié** à ce nouveau Milestones — c'est la prochaine étape logique (voir Prochaines 
+étapes), l'architecture voulue reste "Daily Missions pioche dans les tâches Milestones 
+non complétées", pas une structure indépendante.
 
 ## Money Making — non retouché depuis le 13 juillet, donc toujours la référence
 
@@ -609,14 +629,17 @@ en actualisant ce document en conséquence.
 
 ## Prochaines étapes
 
-1. **Chantier collecte totale — Phase 1 (Classes de donjon)** — en cours, voir section 
-   dédiée. Phase 0 (infra neu-sync/skyblock-resources-sync/wiki-auto-sync/sync_log) 
-   terminée et validée en prod le 23 juillet.
-2. **Milestones** — valider tiers Intermediate→Master contre `sblevel_tasks` (Starter+
-   Amateur déjà validés, voir section Milestones vs Daily Missions) — dépend en partie 
-   des zones du chantier collecte totale (essence, bestiary, boss kills...) pour 
-   débloquer les tâches actuellement non calculables faute de donnée joueur
-3. **Daily Missions** — une fois Milestones entièrement vérifié, piocher dedans
+1. **Chantier collecte totale — Phase 2 (Boss kills) — BLOQUÉ.** `HYPIXEL_API_KEY` 
+   renvoyait un vrai `403 Invalid API key` (pas un rate-limit — headers de quota absents, 
+   pas un `429`) lors du test Phase 2 le 23 juillet. En attente que la clé soit vérifiée/
+   régénérée côté `developer.hypixel.net`. Phase 0 (infra) et Phase 1 (Classes de donjon) 
+   terminées et validées en prod le 23 juillet.
+2. **Daily Missions** — relier le générateur actuel (`app/api/player/missions/route.ts`, 
+   toujours indépendant, règles codées en dur) au nouveau Milestones terminé le 23 juillet 
+   — piocher dans les tâches `data_available:true` non complétées plutôt que générer des 
+   missions déconnectées de la vraie progression du joueur.
+3. Étendre la couverture `data_available:true` de Milestones au fur et à mesure que le 
+   chantier collecte totale avance (essence, musée, minions, accessoires précis...)
 4. Historique de progression par snapshots (vitesse early→mid→end→late, 
    comparaison entre joueurs) — piste pour la 4e section Evolve premium
 5. Reconstruire le frontend Evolve (3 onglets : Skills, Milestones, Daily Missions) 
