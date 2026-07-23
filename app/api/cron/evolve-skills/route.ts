@@ -1,7 +1,14 @@
 // app/api/cron/evolve-skills/route.ts
-// Lundi 6h30 UTC — 30 min après money-making-agent (lit sa bibliothèque déjà fraîche).
-// Pour chaque profil synced : 1 appel Claude qui construit les 9 cartes Skills
-// (état actuel réel vs prochaine target atteignable), stocké dans player_skill_cards.
+// Plus de schedule cron fixe (retiré de vercel.json le 23 juillet, conformité API
+// Hypixel — "no continuous polling of player data ... to offer a history" s'applique
+// à toute réanalyse automatique périodique, pas seulement à l'appel API lui-même).
+// runEvolveSkills() est maintenant appelé en synchrone directement depuis
+// app/api/player/sync/route.ts juste après un sync manuel réussi, filtré sur le seul
+// profil qui vient d'être synced — jamais sur l'ensemble des joueurs, jamais sur un
+// timer. Le handler GET ci-dessous reste utilisable manuellement (CRON_SECRET) pour
+// du debug/backfill ponctuel, mais n'est plus déclenché par aucun schedule.
+// Pour chaque profil : 1 appel Claude qui construit les 9 cartes Skills (état actuel
+// réel vs prochaine target atteignable), stocké dans player_skill_cards.
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { TIER_CONFIG, GAME_TRUTHS } from '../../../../lib/money-making-constants'

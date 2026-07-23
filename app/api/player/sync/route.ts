@@ -5,8 +5,13 @@ import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { decodeItemListBytes } from '../../../../lib/skyblock-item-decoder'
 import { createClient as createServerSupabaseClient } from '../../../../lib/supabase-server'
+import { runEvolveSkills } from '../../cron/evolve-skills/route'
 
-export const maxDuration = 30
+// 300s pour couvrir le sync lui-meme + la generation Skills chainee ci-dessous
+// (meme plafond que evolve-skills seul avant ce chainage). Conformite API Hypixel :
+// runEvolveSkills n'est plus jamais declenche par un cron/timer, uniquement ici,
+// juste apres un sync reussi et explicitement demande par le joueur.
+export const maxDuration = 300
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -521,6 +526,20 @@ export async function GET(req: NextRequest) {
 
     if (error) throw error
 
+    // Chaine la generation des cartes Skills juste apres un sync reussi, filtree sur
+    // ce seul profil — jamais sur l'ensemble de player_data, jamais sur un timer (voir
+    // commentaire en tete de evolve-skills/route.ts). Echec non bloquant : le sync a
+    // reussi independamment, une erreur Claude ne doit pas transformer une reponse
+    // reussie en 500.
+    let skillCards: { success: boolean; error?: string } = { success: false }
+    try {
+      const result = await runEvolveSkills([profile.profile_id])
+      skillCards = { success: !('error' in result) }
+    } catch (e: any) {
+      console.error('runEvolveSkills chained call failed:', e.message)
+      skillCards = { success: false, error: e.message }
+    }
+
     return NextResponse.json({
       success:    true,
       username,
@@ -533,6 +552,7 @@ export async function GET(req: NextRequest) {
       networth_breakdown: networthBreakdown,
       hotm_progress: hotmProgress,
       skin_url:   skinUrl,
+      skill_cards_generated: skillCards.success,
     })
 
   } catch (e: any) {
