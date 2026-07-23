@@ -26,6 +26,12 @@ export async function GET() {
   const member = profile?.members?.[UUID.replace(/-/g, '')]
 
   return NextResponse.json({
+    http_status:     res.status,
+    ratelimit_limit:     res.headers.get('ratelimit-limit'),
+    ratelimit_remaining: res.headers.get('ratelimit-remaining'),
+    ratelimit_reset:     res.headers.get('ratelimit-reset'),
+    retry_after:         res.headers.get('retry-after'),
+    global_ratelimit:    res.headers.get('x-ratelimit-type'),
     api_success: data.success,
     api_cause:   data.cause ?? null,
     profiles_count: (data.profiles || []).length,
