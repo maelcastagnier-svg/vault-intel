@@ -582,11 +582,56 @@ automatiquement si le wiki change). `player/milestones/route.ts` restructuré au
   sur les 7 tiers — confirme le même garde-fou early-game déjà validé pour Skills 
   (jamais de progression fictive sur un profil vide).
 
-**Daily Missions** : toujours l'ancien générateur indépendant codé en dur 
-(`app/api/player/missions/route.ts`, if/else sur skills/slayers/dungeons), **pas encore 
-relié** à ce nouveau Milestones — c'est la prochaine étape logique (voir Prochaines 
-étapes), l'architecture voulue reste "Daily Missions pioche dans les tâches Milestones 
-non complétées", pas une structure indépendante.
+**✅ Réconciliation `sblevel_tasks` complétée (23 juillet)** — les 53 tâches réelles 
+(hors métadonnées XP) confrontées aux 184 tâches wiki : 12 catégories confirmées absentes 
+du guide (au-delà de Fairy Souls, déjà ajouté) — `fast_travel_unlocked`, 
+`essence_crimson_shop` (les 7 autres essences sont couvertes, curieusement pas Crimson), 
+les 4 tâches d'event (`mining_fiesta`/`spooky_festival`/`fishing_festival`/
+`jacob_farming_contest`), `unlocking_relays`, `mythological_kills`, 
+`complete_objectives`, et les 3 `skill_related_task` (activité brute farming/mining/
+fishing, distinct du niveau de skill). Ajoutées en tâches `source:'vault'`, requirement 
+type `uncollected`, toujours `data_available:false` — montrées comme roadmap en attente 
+plutôt que masquées, pour que Milestones reste honnête sur "196 tâches trackées, 179 wiki 
++ 17 vault (5 Fairy Souls calculables + 12 en attente de collecte)" plutôt que de donner 
+l'impression que le guide s'arrête où on peut déjà calculer.
+
+## ✅ Evolve — Daily Missions — RECONSTRUITE, dépend enfin réellement de Milestones (23 juillet)
+
+Remplace l'ancien générateur indépendant (`generateMissions()`, if/else codés en dur sur 
+skills/slayers/dungeons, aucun lien avec Milestones). Nouvelle logique 
+(`buildMissionCandidates()`, exportée et testable) :
+1. Trouve le **tier actuel** du joueur : le premier tier (Starter→Master) qui a encore au 
+   moins une tâche `data_available:true` non complétée. Un tier avec zéro tâche 
+   calculable, ou dont toutes les tâches calculables sont déjà faites, est sauté.
+2. Casse les tâches composites de ce tier en requirements individuelles non satisfaites 
+   (ex : "Skill Level Up" 7/10 → jusqu'à 3 missions concrètes, une par skill sous la 
+   cible — via le nouveau `requirements_detail` exposé par `computeMilestones`).
+3. Classe par ratio `current/target` décroissant (le plus proche de la complétion en 
+   premier — vraie victoire rapide dérivée de données réelles, jamais un temps estimé 
+   inventé), garde les 5 premières.
+4. Ne va jamais chercher dans un tier supérieur au tier actuel — reste "réalisable à 
+   l'instant T" par construction, pas besoin d'un modèle de difficulté/durée séparé.
+
+**Aucune récompense inventée** : `coins_reward`/`xp_reward` mis à 0 sur chaque mission 
+(l'ancien système avait des valeurs codées en dur sans base réelle — pas reconduit).
+
+**Validé sur Cucumber et Orange (23 juillet)** :
+- **Cucumber** (MID) : `Alchemy level 4 (3/4)`, `Cobblestone Collection 4 (206/1000)`, 
+  `Coal Collection 2 (2/100)`, `Leather Collection 2 (1/100)`, 5e mission variable entre 
+  `Carpentry level 4` et `Raw Chicken Collection 2` (tous deux à 0/cible — égalité 
+  honnête, l'ordre entre candidats strictement à égalité n'est pas garanti stable, limite 
+  mineure connue, pas un bug). Révèle ses skills/collections réellement négligés malgré 
+  son avancement général.
+- **Orange** (EARLY, profil vide) : 5 cibles triviales (niveau 4 dans un skill, ou tier 
+  bas d'une collection à 0) — jamais de mission hors de portée, même garde-fou early-game 
+  que Skills et Milestones.
+
+**Limite connue, mineure** : parmi des candidats strictement à égalité (ratio 0/0 par 
+exemple), l'ordre de sélection des 5 missions n'est pas garanti stable d'un run à l'autre 
+(dépend de l'ordre de retour Postgres, pas de tri secondaire). Toutes les valeurs 
+affichées restent réelles et honnêtes — juste l'ensemble exact des 5 peut varier entre 
+deux requêtes le même jour pour un joueur avec beaucoup de candidats à zéro. Pas bloquant, 
+amélioration possible plus tard (tri secondaire déterministe).
 
 ## Money Making — non retouché depuis le 13 juillet, donc toujours la référence
 
@@ -634,21 +679,20 @@ en actualisant ce document en conséquence.
    pas un `429`) lors du test Phase 2 le 23 juillet. En attente que la clé soit vérifiée/
    régénérée côté `developer.hypixel.net`. Phase 0 (infra) et Phase 1 (Classes de donjon) 
    terminées et validées en prod le 23 juillet.
-2. **Daily Missions** — relier le générateur actuel (`app/api/player/missions/route.ts`, 
-   toujours indépendant, règles codées en dur) au nouveau Milestones terminé le 23 juillet 
-   — piocher dans les tâches `data_available:true` non complétées plutôt que générer des 
-   missions déconnectées de la vraie progression du joueur.
-3. Étendre la couverture `data_available:true` de Milestones au fur et à mesure que le 
-   chantier collecte totale avance (essence, musée, minions, accessoires précis...)
-4. Historique de progression par snapshots (vitesse early→mid→end→late, 
+2. Étendre la couverture `data_available:true` de Milestones/Daily Missions au fur et à 
+   mesure que le chantier collecte totale avance (essence, musée, minions, accessoires 
+   précis...) — les 12 catégories `uncollected` ajoutées le 23 juillet passeront à 
+   calculable une par une
+3. Historique de progression par snapshots (vitesse early→mid→end→late, 
    comparaison entre joueurs) — piste pour la 4e section Evolve premium
-5. Reconstruire le frontend Evolve (3 onglets : Skills, Milestones, Daily Missions) 
-   une fois Milestones stabilisé — le backend Skills est déjà fait (voir section dédiée)
-6. Rendu visuel 3D du setup (skin + armure superposée) pour la section Skills — chantier 
+4. Reconstruire le frontend Evolve (3 onglets : Skills, Milestones, Daily Missions) — 
+   le backend des 3 est maintenant terminé (Skills, Milestones et Daily Missions tous 
+   validés le 23 juillet)
+5. Rendu visuel 3D du setup (skin + armure superposée) pour la section Skills — chantier 
    séparé, pas commencé
-7. Migration vers `item_variant_hourly_buckets` (conçu, pas branché)
-8. Filtrage outlier sur variantes AH à faible `data_points` (voir section infra collecte)
-9. `method_feedback_summary` (vue `SECURITY DEFINER`) à corriger avant que 
+6. Migration vers `item_variant_hourly_buckets` (conçu, pas branché)
+7. Filtrage outlier sur variantes AH à faible `data_points` (voir section infra collecte)
+8. `method_feedback_summary` (vue `SECURITY DEFINER`) à corriger avant que 
    `method_feedback` ait de vraies données (voir section sécurité)
 
 ## Ce que je ne veux PAS
