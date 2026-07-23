@@ -11,6 +11,8 @@
     { "path": "/api/cron/radar-agent",          "schedule": "0 7 * * *"   },
     { "path": "/api/cron/data-retention",       "schedule": "0 3 * * *"   },
     { "path": "/api/cron/wiki-auto-sync",       "schedule": "*/30 * * * *"},
-    { "path": "/api/cron/update-catalog",       "schedule": "0 2 * * *"   }
+    { "path": "/api/cron/update-catalog",       "schedule": "0 2 * * *"   },
+    { "path": "/api/cron/neu-sync",             "schedule": "0 5 * * 1"   },
+    { "path": "/api/cron/skyblock-resources-sync", "schedule": "0 1 * * *" }
   ]
 }

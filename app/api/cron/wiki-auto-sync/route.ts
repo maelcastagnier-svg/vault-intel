@@ -1,11 +1,18 @@
 // app/api/cron/wiki-auto-sync/route.ts
-// Sync automatique hebdomadaire du Fandom Wiki
-// 1. Pagine toutes les pages Fandom
+// Sync automatique du wiki officiel (hypixelskyblock.minecraft.wiki), remplace le
+// Fandom (hypixel-skyblock.fandom.com) — validé plus fiable et plus complet lors de
+// l'investigation Milestones du 22 juillet. Même API MediaWiki, structure identique
+// (vérifié : action=query/list=allpages et action=parse&prop=wikitext répondent pareil),
+// seul le domaine change.
+// 1. Pagine toutes les pages du wiki
 // 2. Fetche le contenu de chaque page
-// 3. Upsert dans game_mechanics_misc
+// 3. Upsert dans game_mechanics_misc — contenu complet, plus de troncature à 8000
+//    caractères (c'était une limite qu'on s'imposait nous-mêmes, jamais une contrainte
+//    de l'API ou de la colonne jsonb)
 // 4. Applique clean_wikitext sur les nouvelles pages
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { startSync, finishSync } from '../../../../lib/sync-log'
 
 export const maxDuration = 120
 
@@ -14,7 +21,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const FANDOM_API = 'https://hypixel-skyblock.fandom.com/api.php'
+const WIKI_API = 'https://hypixelskyblock.minecraft.wiki/api.php'
 
 // Pages à ignorer
 const SKIP_PREFIXES = [
@@ -61,7 +68,7 @@ async function fetchPageBatch(continueToken?: string): Promise<{
   })
   if (continueToken) params.set('apcontinue', continueToken)
 
-  const res  = await fetch(`${FANDOM_API}?${params}`)
+  const res  = await fetch(`${WIKI_API}?${params}`)
   const data = await res.json()
 
   const pages = (data?.query?.allpages || [])
@@ -76,7 +83,7 @@ async function fetchPageBatch(continueToken?: string): Promise<{
 
 // ── Fetch contenu d'une page ─────────────────────────────────
 async function fetchPageContent(title: string): Promise<string> {
-  const url  = `${FANDOM_API}?action=parse&page=${encodeURIComponent(title)}&prop=wikitext&format=json&origin=*`
+  const url  = `${WIKI_API}?action=parse&page=${encodeURIComponent(title)}&prop=wikitext&format=json&origin=*`
   const res  = await fetch(url)
   const data = await res.json()
   return data?.parse?.wikitext?.['*'] || ''
@@ -96,8 +103,8 @@ async function upsertPage(title: string, content: string): Promise<boolean> {
       key,
       value: {
         title,
-        source:  'fandom_wiki',
-        content: content.slice(0, 8000),
+        source:  'hypixelskyblock_wiki',
+        content, // plus de troncature — la limite à 8000 caractères était auto-imposée
         chars:   content.length
       },
       updated_at: new Date().toISOString()
@@ -125,12 +132,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Récupère le token de continuation depuis la dernière exécution
+  // Récupère le token de continuation depuis la dernière exécution.
+  // Clé renommée ('wiki_auto_sync' -> 'wiki_auto_sync_official') suite au changement de
+  // source : le continue_token de la pagination Fandom n'a aucun sens sur le nouveau wiki
+  // (page set totalement différent) — repart de zéro proprement plutôt que de réutiliser
+  // un état incompatible. L'ancienne clé reste en base, inerte, pas de nettoyage nécessaire.
   const { data: stateData } = await supabase
     .from('game_mechanics_misc')
     .select('value')
     .eq('category', '_sync_state')
-    .eq('key', 'wiki_auto_sync')
+    .eq('key', 'wiki_auto_sync_official')
     .single()
 
   const continueToken = stateData?.value?.continue_token || undefined
@@ -138,6 +149,8 @@ export async function GET(req: NextRequest) {
 
   // Si le scan précédent était complet, on recommence depuis le début
   const token = isComplete ? undefined : continueToken
+
+  const logId = await startSync('wiki-auto-sync')
 
   try {
     // Fetch 1 batch de 50 pages
@@ -170,19 +183,25 @@ export async function GET(req: NextRequest) {
     const cleaned = await cleanNewPages()
 
     // Sauvegarde l'état pour la prochaine exécution
+    const totalScraped = (stateData?.value?.total_scraped || 0) + scraped
     await supabase
       .from('game_mechanics_misc')
       .upsert({
         category:   '_sync_state',
-        key:        'wiki_auto_sync',
+        key:        'wiki_auto_sync_official',
         value: {
           continue_token: nextToken || null,
           is_complete:    !nextToken,
           last_run:       new Date().toISOString(),
-          total_scraped:  (stateData?.value?.total_scraped || 0) + scraped
+          total_scraped:  totalScraped
         },
         updated_at: new Date().toISOString()
       }, { onConflict: 'category, key' })
+
+    await finishSync(logId, 'success', inserted, {
+      batch_size: pages.length, scraped, skipped, cleaned,
+      has_more: !!nextToken, total_scraped: totalScraped,
+    })
 
     return NextResponse.json({
       success:      true,
@@ -198,6 +217,7 @@ export async function GET(req: NextRequest) {
 
   } catch (error: any) {
     console.error('wiki-auto-sync error:', error)
+    await finishSync(logId, 'error', 0, undefined, error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
