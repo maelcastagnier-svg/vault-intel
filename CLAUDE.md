@@ -364,12 +364,32 @@ Senither) et `skill_unlocks` (vide). `game_stage` uniformisé en MAJUSCULES
   `money_making_{tier}`), retourne active+vault filtrés par `game_stage` du joueur. 
   Aucun appel Claude, aucune écriture.
 
-**⚠️ Frontend pas branché.** `EvolveSection.tsx` existe mais code encore l'ANCIEN 
-design "Improvement/Route/Skills/Money" du 13 juillet, et n'est même pas importé dans 
-`page.tsx` — l'onglet Evolve du dashboard affiche un "coming soon" statique. À 
-reconstruire avec les vrais onglets (Daily Missions, Milestones, Skills, Personal 
-Money Making) une fois le backend stabilisé. Ne pas réutiliser le code de 
-`EvolveSection.tsx` tel quel.
+**✅ Frontend branché (23 juillet).** L'ancien `EvolveSection.tsx` (design "Improvement/
+Route/Skills/Money" du 13 juillet, appelait `/api/evolve` qui n'existe plus) remplacé 
+entièrement. Structure : `app/dashboard/EvolveSection.tsx` (orchestrateur — lien Hypixel ? 
+sinon 3 sous-tabs lazy-load) + `app/dashboard/evolve/{LinkPrompt,SkillCard,SkillsTab,
+MilestonesTab,MissionsTab,types}.tsx`. Deux routes manquantes découvertes et construites 
+au passage : `GET /api/player/skills` (`evolve-skills` écrivait `player_skill_cards`, 
+rien ne le lisait pour le frontend) et `GET /api/player/status` (bootstrap — 
+`hypixel_account_links` et `player_data` ont zéro policy RLS publique, le navigateur ne 
+peut pas savoir "compte lié ?"/"quel profile_id ?" sans une route dédiée). Pas de sync 
+automatique au montage (jusqu'à 300s) — bouton "Sync now" explicite. Gating non dupliqué 
+— le tab Evolve est déjà `['pro','elite']`, les 5 routes appelées vérifient déjà 
+`requirePlan()` server-side.
+
+**Validé de bout en bout** (Cucumber + Orange en lecture directe des 3 sources de 
+données, puis un vrai compte jetable avec abonnement Elite inséré en base, lié à Voxui09, 
+session réelle testée sur les 4 routes) : la détection "déjà possédé" (free_swap) 
+atteint bien l'UI — la carte Farming de Cucumber recommande d'équiper un set Mantid 
+Cropie déjà présent dans son Large Backpack plutôt qu'un achat, même chose pour son set 
+Shadow Assassin + Livid Dagger sur Zombie Slayer. Orange confirme le garde-fou early-game 
+(target `unlock_access`, objectif ~100 coins). `player_missions` confirmé avec un vrai 
+aller-retour DB via la route réelle (pas seulement la logique de sélection des 
+candidats). **`GET /api/player/sync` reste bloqué par la même clé `HYPIXEL_API_KEY` 
+morte trouvée en Phase 2 du chantier collecte totale** (toujours pas résolue) — les 3 
+routes de lecture (skills/milestones/missions) ne l'appellent pas, donc fonctionnent 
+normalement sur des données déjà synced, mais un vrai joueur ne peut pas rafraîchir son 
+profil tant que la clé n'est pas vérifiée/régénérée côté `developer.hypixel.net`.
 
 ## ✅ Sécurité Evolve — TODO résolu (trouvé 22 juillet, corrigé le même jour)
 
@@ -722,26 +742,28 @@ en actualisant ce document en conséquence.
 
 ## Prochaines étapes
 
-1. **Chantier collecte totale — Phase 2 (Boss kills) — BLOQUÉ.** `HYPIXEL_API_KEY` 
-   renvoyait un vrai `403 Invalid API key` (pas un rate-limit — headers de quota absents, 
-   pas un `429`) lors du test Phase 2 le 23 juillet. En attente que la clé soit vérifiée/
-   régénérée côté `developer.hypixel.net`. Phase 0 (infra) et Phase 1 (Classes de donjon) 
-   terminées et validées en prod le 23 juillet.
+1. **🔴 `HYPIXEL_API_KEY` morte — bloque maintenant plus que la Phase 2.** `403 Invalid 
+   API key` confirmé (pas un rate-limit — headers de quota absents, pas un `429`) lors du 
+   test Phase 2 du chantier collecte totale le 23 juillet, **toujours pas résolu** — 
+   reconfirmé le même jour en testant `GET /api/player/sync` avec un vrai compte : 
+   n'importe quel joueur Pro+ qui clique "Sync now" aujourd'hui reçoit une 404 silencieuse 
+   ("No matching Skyblock profile found") au lieu de ses vraies données. En attente que la 
+   clé soit vérifiée/régénérée côté `developer.hypixel.net`. Phase 0 (infra) et Phase 1 
+   (Classes de donjon) du chantier collecte totale restent terminées et validées.
 2. Étendre la couverture `data_available:true` de Milestones/Daily Missions au fur et à 
    mesure que le chantier collecte totale avance (essence, musée, minions, accessoires 
    précis...) — les 12 catégories `uncollected` ajoutées le 23 juillet passeront à 
    calculable une par une
 3. Historique de progression par snapshots (vitesse early→mid→end→late, 
    comparaison entre joueurs) — piste pour la 4e section Evolve premium
-4. Reconstruire le frontend Evolve (3 onglets : Skills, Milestones, Daily Missions) — 
-   le backend des 3 est maintenant terminé (Skills, Milestones et Daily Missions tous 
-   validés le 23 juillet)
-5. Rendu visuel 3D du setup (skin + armure superposée) pour la section Skills — chantier 
+4. Rendu visuel 3D du setup (skin + armure superposée) pour la section Skills — chantier 
    séparé, pas commencé
-6. Migration vers `item_variant_hourly_buckets` (conçu, pas branché)
-7. Filtrage outlier sur variantes AH à faible `data_points` (voir section infra collecte)
-8. `method_feedback_summary` (vue `SECURITY DEFINER`) à corriger avant que 
+5. Migration vers `item_variant_hourly_buckets` (conçu, pas branché)
+6. Filtrage outlier sur variantes AH à faible `data_points` (voir section infra collecte)
+7. `method_feedback_summary` (vue `SECURITY DEFINER`) à corriger avant que 
    `method_feedback` ait de vraies données (voir section sécurité)
+8. Câbler le frontend Free pour Flash Alerts/Patch Analysis dégradés (backend prêt : 
+   vues preview + `/api/market-data` filtré, voir section gating) — pas fait
 
 ## Ce que je ne veux PAS
 
