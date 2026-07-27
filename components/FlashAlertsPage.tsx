@@ -92,7 +92,8 @@ export default function FlashAlertsPage() {
             fontSize:     12,
             fontWeight:   showBazaar ? 700 : 400,
             background:   showBazaar ? '#1baf7a20' : 'transparent',
-            border:       `1px solid ${showBazaar ? '#1baf7a' : '#2a2a28'}`,
+            border:       `1px solid ${showBazaar ? '#1baf7a' : 'rgba(201,168,76,0.14)'}`,
+            boxShadow:    showBazaar ? '0 0 14px rgba(27,175,122,0.15)' : 'none',
             color:        showBazaar ? '#1baf7a' : '#c8c6bf',
             transition:   'all 0.2s ease'
           }}
@@ -101,12 +102,12 @@ export default function FlashAlertsPage() {
         </div>
 
         <div style={{
-          fontSize:      9,
-          color:         '#6b6960',
+          fontSize:      8,
+          color:         '#8a6e2f',
           margin:        '14px 0 6px',
-          fontFamily:    'Space Mono, monospace',
+          fontFamily:    "'Press Start 2P', monospace",
           textTransform: 'uppercase',
-          letterSpacing: '0.08em'
+          letterSpacing: '0.04em'
         }}>
           AH Categories
         </div>
@@ -132,7 +133,8 @@ export default function FlashAlertsPage() {
                 fontSize:      12,
                 fontWeight:    isActive ? 700 : 400,
                 background:    isActive ? '#2a78d620' : 'transparent',
-                border:        `1px solid ${isActive ? '#2a78d6' : '#2a2a28'}`,
+                border:        `1px solid ${isActive ? '#2a78d6' : 'rgba(201,168,76,0.14)'}`,
+                boxShadow:     isActive ? '0 0 14px rgba(42,120,214,0.15)' : 'none',
                 color:         isActive ? '#2a78d6' : '#c8c6bf',
                 transition:    'all 0.2s ease',
                 textTransform: 'capitalize'

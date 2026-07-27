@@ -19,7 +19,7 @@ function fmtCoins(n: number): string {
 
 function CurrentPanel({ state }: { state: SkillState }) {
   return (
-    <div style={{ background: '#0d0d0c', border: '0.5px solid rgba(255,255,255,0.06)', borderRadius: 8, padding: '12px 14px' }}>
+    <div style={{ background: '#0d0d0c', border: '1px solid rgba(201,168,76,0.15)', borderRadius: 8, padding: '12px 14px' }}>
       <div style={{ fontSize: 9.5, color: '#6b6960', fontFamily: 'Space Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
         Current
       </div>
@@ -44,7 +44,7 @@ function CurrentPanel({ state }: { state: SkillState }) {
 function TargetPanel({ target }: { target: SkillTarget }) {
   const style = TARGET_STYLE[target.type] || TARGET_STYLE.upgrade
   return (
-    <div style={{ background: style.bg, border: `0.5px solid ${style.color}30`, borderRadius: 8, padding: '12px 14px' }}>
+    <div style={{ background: style.bg, border: `1px solid ${style.color}45`, boxShadow: `0 0 16px ${style.color}15`, borderRadius: 8, padding: '12px 14px' }}>
       <span style={{
         display: 'inline-block', fontSize: 10, fontFamily: 'Space Mono, monospace', fontWeight: 700,
         color: style.color, marginBottom: 6,
@@ -82,9 +82,9 @@ export default function SkillCard({
   unlocked?: boolean
 }) {
   return (
-    <div style={{ background: '#111110', border: '0.5px solid rgba(201,168,76,0.15)', borderRadius: 10, padding: 14, marginBottom: 12 }}>
+    <div style={{ background: '#111110', border: '1px solid rgba(201,168,76,0.25)', boxShadow: '0 0 16px rgba(201,168,76,0.06)', borderRadius: 10, padding: 14, marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: '#e8e6df' }}>{icon ? `${icon} ` : ''}{label}</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: '#e8e6df', fontFamily: "'Press Start 2P', monospace", letterSpacing: '0.02em' }}>{icon ? `${icon} ` : ''}{label}</span>
         {unlocked === false && (
           <span style={{ fontSize: 9, fontFamily: 'Space Mono, monospace', color: '#6b6960', border: '1px solid rgba(107,105,96,0.4)', borderRadius: 4, padding: '1px 6px' }}>
             NOT STARTED

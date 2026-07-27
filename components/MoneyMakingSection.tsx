@@ -42,7 +42,7 @@ function Tag({ text, color='#c9a84c' }: { text: string; color?: string }) {
 // ─── Row ──────────────────────────────────────────────────────
 function Row({ icon, label, children }: { icon:string; label:string; children:React.ReactNode }) {
   return (
-    <div style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'8px 0', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
+    <div style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'8px 0', borderBottom:'1px solid rgba(201,168,76,0.04)' }}>
       <span style={{ fontSize:14, width:22, textAlign:'center', flexShrink:0, paddingTop:1 }}>{icon}</span>
       <span style={{ fontSize:8.5, fontFamily:'Space Mono, monospace', color:'#4a4a45', textTransform:'uppercase', letterSpacing:'0.1em', width:76, flexShrink:0, paddingTop:2 }}>{label}</span>
       <div style={{ flex:1, fontSize:11.5, color:'#cac8c0', lineHeight:1.6 }}>{children}</div>
@@ -60,7 +60,7 @@ function SetupPanel({ setup }: { setup: Setup }) {
 
       {/* HOW TO */}
       {(st(setup.how_to)||st(setup.why_best)) && (
-        <div style={{ background:'linear-gradient(135deg,rgba(201,168,76,0.06),rgba(201,168,76,0.02))', border:'1px solid rgba(201,168,76,0.12)', borderRadius:10, padding:'12px 14px', marginBottom:14 }}>
+        <div style={{ background:'linear-gradient(135deg,rgba(201,168,76,0.08),rgba(201,168,76,0.02))', border:'1px solid rgba(201,168,76,0.3)', boxShadow:'0 0 16px rgba(201,168,76,0.1)', borderRadius:10, padding:'12px 14px', marginBottom:14 }}>
           <div style={{ fontSize:8.5, color:'#c9a84c', fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:7, textTransform:'uppercase', fontWeight:700 }}>⚡ How To</div>
           {st(setup.how_to)   && <div style={{ fontSize:12.5, color:'#d8d6cf', lineHeight:1.75 }}>{st(setup.how_to)}</div>}
           {st(setup.why_best) && <div style={{ fontSize:11, color:'#6b6960', marginTop:8, fontStyle:'italic', paddingLeft:10, borderLeft:'2px solid rgba(201,168,76,0.2)' }}>→ {st(setup.why_best)}</div>}
@@ -148,7 +148,7 @@ function VoteModal({ method, tier, onClose, onVoted }: {
 
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.88)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem', backdropFilter:'blur(8px)' }}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:'#0f0f0e', border:'1px solid rgba(255,255,255,0.08)', borderRadius:16, padding:'24px', maxWidth:420, width:'100%', boxShadow:'0 40px 80px rgba(0,0,0,0.8)' }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:'#0f0f0e', border:'1px solid rgba(201,168,76,0.25)', borderRadius:16, padding:'24px', maxWidth:420, width:'100%', boxShadow:'0 40px 80px rgba(0,0,0,0.8), 0 0 30px rgba(201,168,76,0.08)' }}>
         <div style={{ fontSize:9, color:'#c9a84c', fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:10, textTransform:'uppercase' }}>Community Feedback</div>
         <div style={{ fontSize:15, fontWeight:700, color:'#e8e6df', marginBottom:5 }}>Did this work for you?</div>
         <div style={{ fontSize:11.5, color:'#6b6960', marginBottom:20 }}>{st(method.method)}</div>
@@ -161,7 +161,7 @@ function VoteModal({ method, tier, onClose, onVoted }: {
             return (
               <button key={v} onClick={()=>setVote(v)} style={{
                 flex:1, padding:'14px', borderRadius:10, cursor:'pointer', transition:'all 0.15s',
-                border:`1px solid ${active?col:'rgba(255,255,255,0.08)'}`,
+                border:`1px solid ${active?col:'rgba(201,168,76,0.08)'}`,
                 background: active?col+'15':'transparent',
                 color: active?col:'#6b6960',
                 fontFamily:'Space Grotesk, sans-serif', fontWeight:600, fontSize:13,
@@ -182,13 +182,13 @@ function VoteModal({ method, tier, onClose, onVoted }: {
             value={comment} onChange={e=>setComment(e.target.value)}
             placeholder={vote==='doesnt_work'?"What was wrong? (coins/h, gear cost, wrong info...)":"Tips for other players?"}
             maxLength={500} rows={3}
-            style={{ width:'100%', background:'#111110', border:'1px solid rgba(255,255,255,0.08)', borderRadius:9, padding:'10px 13px', color:'#e8e6df', fontFamily:'Space Grotesk, sans-serif', fontSize:12, lineHeight:1.55, resize:'none', outline:'none', boxSizing:'border-box', transition:'border-color 0.15s' }}
+            style={{ width:'100%', background:'#111110', border:'1px solid rgba(201,168,76,0.08)', borderRadius:9, padding:'10px 13px', color:'#e8e6df', fontFamily:'Space Grotesk, sans-serif', fontSize:12, lineHeight:1.55, resize:'none', outline:'none', boxSizing:'border-box', transition:'border-color 0.15s' }}
           />
           <div style={{ fontSize:9, color:'#2a2a28', textAlign:'right', marginTop:3 }}>{comment.length}/500</div>
         </div>
 
         <div style={{ display:'flex', gap:8 }}>
-          <button onClick={onClose} style={{ flex:1, padding:'11px', borderRadius:8, border:'1px solid rgba(255,255,255,0.07)', background:'transparent', color:'#4a4a45', cursor:'pointer', fontFamily:'Space Grotesk, sans-serif', fontSize:12 }}>Cancel</button>
+          <button onClick={onClose} style={{ flex:1, padding:'11px', borderRadius:8, border:'1px solid rgba(201,168,76,0.07)', background:'transparent', color:'#4a4a45', cursor:'pointer', fontFamily:'Space Grotesk, sans-serif', fontSize:12 }}>Cancel</button>
           <button onClick={submit} disabled={!vote||loading} style={{
             flex:2, padding:'11px', borderRadius:8, border:'none',
             background: !vote?'#1a1a18':vote==='works'?'#1baf7a':'#e34948',
@@ -283,10 +283,11 @@ function MethodCard({ method, tier, accentColor, type }: {
           onClick={toggle}
           style={{
             background:   expanded?accentColor+'0d':'#0f0f0e',
-            border:       `1px solid ${expanded?accentColor+'35':'rgba(255,255,255,0.07)'}`,
+            border:       `1px solid ${expanded?accentColor+'50':'rgba(201,168,76,0.1)'}`,
             borderLeft:   `3px solid ${accentColor}`,
             borderRadius: expanded?'10px 10px 0 0':10,
             padding:      '12px 14px', cursor:'pointer', transition:'all 0.15s',
+            boxShadow:    expanded?`0 0 18px ${accentColor}20`:'none',
           }}
         >
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -332,7 +333,7 @@ function MethodCard({ method, tier, accentColor, type }: {
 
         {/* Accordion */}
         {expanded && (
-          <div style={{ border:'1px solid '+accentColor+'22', borderTop:'none', borderRadius:'0 0 10px 10px', overflow:'hidden' }}>
+          <div style={{ border:'1px solid '+accentColor+'35', borderTop:'none', borderRadius:'0 0 10px 10px', overflow:'hidden', boxShadow:`0 0 18px ${accentColor}15` }}>
             {loading ? (
               <div style={{ padding:'24px', textAlign:'center', background:'#0a0a09' }}>
                 <div style={{ fontSize:9.5, color:accentColor, fontFamily:'Space Mono, monospace', letterSpacing:'0.1em', marginBottom:12 }}>LOADING SETUP...</div>
@@ -351,7 +352,7 @@ function MethodCard({ method, tier, accentColor, type }: {
             ) : null}
 
             {/* Feedback bar */}
-            <div style={{ padding:'11px 14px', background:'#0c0c0b', borderTop:'1px solid rgba(255,255,255,0.04)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+            <div style={{ padding:'11px 14px', background:'#0c0c0b', borderTop:'1px solid rgba(201,168,76,0.04)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
               <div style={{ flex:1 }}>
                 {feedback&&feedback.total>0 ? (
                   <div style={{ fontSize:10, color:'#6b6960', fontFamily:'Space Mono, monospace' }}>
@@ -422,15 +423,15 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
           return (
             <button key={t.key} onClick={()=>setMmTier(t.key)} style={{
               flex:1, padding:'12px 8px', borderRadius:10,
-              border:`1px solid ${active?t.color+'50':'rgba(255,255,255,0.06)'}`,
-              background: active?`linear-gradient(135deg,${t.color}12,${t.color}06)`:'#0f0f0e',
+              border:`1px solid ${active?t.color+'70':'rgba(201,168,76,0.1)'}`,
+              background: active?`linear-gradient(135deg,${t.color}18,${t.color}08)`:'#0f0f0e',
               color: active?t.color:'#4a4a45',
               cursor:'pointer', textAlign:'center', transition:'all 0.2s',
               fontFamily:'Space Grotesk, sans-serif', fontWeight:500,
-              boxShadow: active?`0 0 20px ${t.color}15`:'none',
+              boxShadow: active?`0 0 22px ${t.color}30, inset 0 0 16px ${t.color}0a`:'none',
             }}>
               <div style={{ fontSize:18, marginBottom:3 }}>{t.emoji}</div>
-              <div style={{ fontWeight:700, fontSize:12.5 }}>{t.label}</div>
+              <div style={{ fontWeight:700, fontSize:12.5, textShadow: active?`0 0 12px ${t.color}50`:'none' }}>{t.label}</div>
               <div style={{ fontSize:8.5, fontFamily:'Space Mono, monospace', marginTop:2, color:active?t.color+'cc':'#2a2a28' }}>{t.target}</div>
               <div style={{ fontSize:8, color:active?t.color+'66':'#1a1a18', marginTop:1 }}>{t.desc}</div>
             </button>
@@ -439,18 +440,18 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
       </div>
 
       {/* Banner */}
-      <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:summary?10:16, padding:'10px 16px', background:`linear-gradient(135deg,${tier.color}08,${tier.color}03)`, border:'1px solid '+tier.color+'18', borderRadius:9 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:summary?10:16, padding:'10px 16px', background:`linear-gradient(135deg,${tier.color}10,${tier.color}03)`, border:'1px solid '+tier.color+'35', boxShadow:`0 0 16px ${tier.color}15`, borderRadius:9 }}>
         <span style={{ fontSize:20 }}>{tier.emoji}</span>
         <div style={{ flex:1 }}>
           <div style={{ fontSize:11, fontWeight:700, color:tier.color, fontFamily:'Space Mono, monospace', letterSpacing:'0.08em' }}>TARGET {tier.target} minimum · {tier.desc}</div>
           <div style={{ fontSize:10, color:'#3a3a38', marginTop:2 }}>Click any method → full gear setup + community feedback</div>
         </div>
-        <div style={{ fontSize:8.5, fontFamily:'Space Mono, monospace', color:'#3a3a38', padding:'3px 9px', background:'rgba(255,255,255,0.02)', borderRadius:5, border:'1px solid rgba(255,255,255,0.04)' }}>Weekly AI</div>
+        <div style={{ fontSize:8.5, fontFamily:'Space Mono, monospace', color:'#3a3a38', padding:'3px 9px', background:'rgba(201,168,76,0.02)', borderRadius:5, border:'1px solid rgba(201,168,76,0.04)' }}>Weekly AI</div>
       </div>
 
       {/* This week analysis */}
       {summary && (
-        <div style={{ marginBottom:16, padding:'11px 15px', background:'#0f0f0e', border:'1px solid rgba(255,255,255,0.06)', borderRadius:8 }}>
+        <div style={{ marginBottom:16, padding:'11px 15px', background:'#0f0f0e', border:'1px solid rgba(201,168,76,0.06)', borderRadius:8 }}>
           <div style={{ fontSize:8.5, color:'#4a4a45', fontFamily:'Space Mono, monospace', letterSpacing:'0.1em', marginBottom:5, textTransform:'uppercase' }}>📊 This Week's Analysis</div>
           <div style={{ fontSize:11.5, color:'#9b9b8f', lineHeight:1.65 }}>{summary}</div>
         </div>
@@ -466,11 +467,11 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
 
           {/* Active Grind */}
           <div>
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12, padding:'8px 12px', background:'#0f0f0e', border:'1px solid rgba(255,255,255,0.05)', borderRadius:7 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12, padding:'8px 12px', background:`linear-gradient(135deg,${tier.color}0d,${tier.color}03)`, border:`1px solid ${tier.color}30`, boxShadow:`0 0 14px ${tier.color}12`, borderRadius:7 }}>
               <span style={{ fontSize:14 }}>⚔️</span>
               <div>
-                <div style={{ fontSize:9.5, fontWeight:700, fontFamily:'Space Mono, monospace', color:tier.color, letterSpacing:'0.12em', textTransform:'uppercase' }}>Active Grind</div>
-                <div style={{ fontSize:8.5, color:'#2a2a28', marginTop:1 }}>Best verified methods for this tier</div>
+                <div style={{ fontSize:9, fontWeight:700, fontFamily:"'Press Start 2P', monospace", color:tier.color, letterSpacing:'0.04em', textShadow:`0 0 10px ${tier.color}40` }}>ACTIVE GRIND</div>
+                <div style={{ fontSize:8.5, color:'#6b6960', marginTop:3 }}>Best verified methods for this tier</div>
               </div>
             </div>
             {active.slice(0,3).map((m,i)=>(
@@ -480,11 +481,11 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
 
           {/* Vault Exclusive */}
           <div>
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12, padding:'8px 12px', background:'#0f0f0e', border:'1px solid rgba(255,255,255,0.05)', borderRadius:7 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12, padding:'8px 12px', background:'linear-gradient(135deg,rgba(155,89,182,0.09),rgba(155,89,182,0.02))', border:'1px solid rgba(155,89,182,0.3)', boxShadow:'0 0 14px rgba(155,89,182,0.12)', borderRadius:7 }}>
               <span style={{ fontSize:14 }}>⚡</span>
               <div>
-                <div style={{ fontSize:9.5, fontWeight:700, fontFamily:'Space Mono, monospace', color:'#9b59b6', letterSpacing:'0.12em', textTransform:'uppercase' }}>Vault Exclusive</div>
-                <div style={{ fontSize:8.5, color:'#2a2a28', marginTop:1 }}>Non-obvious innovations discovered by AI</div>
+                <div style={{ fontSize:9, fontWeight:700, fontFamily:"'Press Start 2P', monospace", color:'#9b59b6', letterSpacing:'0.04em', textShadow:'0 0 10px rgba(155,89,182,0.4)' }}>VAULT EXCLUSIVE</div>
+                <div style={{ fontSize:8.5, color:'#6b6960', marginTop:3 }}>Non-obvious innovations discovered by AI</div>
               </div>
             </div>
             {vault.slice(0,3).map((m,i)=>(

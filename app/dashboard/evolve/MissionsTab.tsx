@@ -9,9 +9,9 @@ const ACTIVITY_ICONS: Record<string, string> = {
 function MissionCard({ mission }: { mission: MissionRow }) {
   const pct = mission.progress_target > 0 ? Math.min(100, Math.round((mission.progress / mission.progress_target) * 100)) : 0
   return (
-    <div style={{ background: '#111110', border: '0.5px solid rgba(201,168,76,0.15)', borderRadius: 10, padding: 14, marginBottom: 10 }}>
+    <div style={{ background: '#111110', border: '1px solid rgba(201,168,76,0.25)', boxShadow: '0 0 14px rgba(201,168,76,0.06)', borderRadius: 10, padding: 14, marginBottom: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: '#e8e6df' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#e8e6df' }}>
           {ACTIVITY_ICONS[mission.activity] || '🎯'} {mission.title}
         </div>
         <span style={{
@@ -22,8 +22,8 @@ function MissionCard({ mission }: { mission: MissionRow }) {
         </span>
       </div>
       <div style={{ fontSize: 11.5, color: '#9b9b8f', marginBottom: 8 }}>{mission.description}</div>
-      <div style={{ background: '#0a0a0a', borderRadius: 8, height: 8, overflow: 'hidden', marginBottom: 4 }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg, #c9a84c, #1baf7a)', transition: 'width 0.4s' }} />
+      <div style={{ background: '#0a0a0a', border: '1px solid rgba(201,168,76,0.12)', borderRadius: 8, height: 8, overflow: 'hidden', marginBottom: 4 }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg, #c9a84c, #1baf7a)', boxShadow: '0 0 10px rgba(27,175,122,0.5)', transition: 'width 0.4s' }} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontFamily: 'Space Mono, monospace', color: '#9b9b8f' }}>
         <span>{mission.progress}/{mission.progress_target} {mission.progress_unit}</span>

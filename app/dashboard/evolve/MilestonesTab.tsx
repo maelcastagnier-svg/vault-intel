@@ -8,7 +8,7 @@ function TaskRow({ task }: { task: EvaluatedTask }) {
     <div style={{
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       padding: '6px 10px', borderRadius: 6, background: task.met ? 'rgba(27,175,122,0.06)' : '#0d0d0c',
-      border: `0.5px solid ${task.met ? 'rgba(27,175,122,0.2)' : 'rgba(255,255,255,0.05)'}`, marginBottom: 4,
+      border: `0.5px solid ${task.met ? 'rgba(27,175,122,0.2)' : 'rgba(201,168,76,0.05)'}`, marginBottom: 4,
     }}>
       <span style={{ fontSize: 12, color: task.met ? '#1baf7a' : '#e8e6df' }}>
         {task.met ? '✓ ' : ''}{task.label}
@@ -29,8 +29,8 @@ function TierPanel({ tier }: { tier: MilestoneTier }) {
 
   return (
     <div>
-      <div style={{ background: '#0a0a0a', borderRadius: 8, height: 8, overflow: 'hidden', marginBottom: 6 }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg, #c9a84c, #1baf7a)', transition: 'width 0.4s' }} />
+      <div style={{ background: '#0a0a0a', border: '1px solid rgba(201,168,76,0.15)', borderRadius: 8, height: 8, overflow: 'hidden', marginBottom: 6 }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg, #c9a84c, #1baf7a)', boxShadow: '0 0 10px rgba(27,175,122,0.5)', transition: 'width 0.4s' }} />
       </div>
       <div style={{ fontSize: 11.5, color: '#9b9b8f', marginBottom: 12 }}>
         {tier.tasks_completed}/{tier.tasks_computable} trackable tasks complete
@@ -97,12 +97,12 @@ export default function MilestonesTab({ profileId }: { profileId: string }) {
       {data.tiers.map(tier => {
         const isOpen = expandedTier === tier.tier
         return (
-          <div key={tier.tier} style={{ background: '#111110', border: '0.5px solid rgba(201,168,76,0.15)', borderRadius: 10, padding: 14, marginBottom: 10 }}>
+          <div key={tier.tier} style={{ background: '#111110', border: `1px solid rgba(201,168,76,${isOpen?0.4:0.15})`, boxShadow: isOpen?'0 0 20px rgba(201,168,76,0.1)':'none', borderRadius: 10, padding: 14, marginBottom: 10, transition:'all 0.2s' }}>
             <div
               onClick={() => setExpandedTier(isOpen ? null : tier.tier)}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
             >
-              <span style={{ fontSize: 13.5, fontWeight: 700, color: '#e8e6df' }}>{tier.tier}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#e8e6df', fontFamily: "'Press Start 2P', monospace", letterSpacing: '0.02em', textShadow: isOpen?'0 0 10px rgba(201,168,76,0.35)':'none' }}>{tier.tier.toUpperCase()}</span>
               <span style={{ fontSize: 11, color: '#6b6960' }}>{isOpen ? '▲' : '▼'}</span>
             </div>
             {isOpen && <div style={{ marginTop: 12 }}><TierPanel tier={tier} /></div>}

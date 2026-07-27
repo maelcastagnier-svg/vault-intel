@@ -231,9 +231,9 @@ function ItemExplorer() {
   const changePct = firstPrice>0 ? Math.round(((lastPrice-firstPrice)/firstPrice)*100) : 0
 
   return (
-    <div style={{ background:'#0f0f0e', border:'1px solid rgba(255,255,255,0.06)', borderRadius:12, padding:'20px' }}>
-      <div style={{ fontSize:9, color:'#c9a84c', fontFamily:'Space Mono, monospace', letterSpacing:'0.14em', marginBottom:14, textTransform:'uppercase', fontWeight:700 }}>
-        📊 Item Explorer — 4781 items tracked
+    <div style={{ background:'#0f0f0e', border:'1px solid rgba(201,168,76,0.2)', boxShadow:'0 0 20px rgba(201,168,76,0.06)', borderRadius:12, padding:'20px' }}>
+      <div style={{ fontSize:9, color:'#c9a84c', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.03em', marginBottom:14, textShadow:'0 0 10px rgba(201,168,76,0.4)' }}>
+        📊 ITEM EXPLORER — 4781 ITEMS
       </div>
 
       {/* Search */}
@@ -243,14 +243,14 @@ function ItemExplorer() {
           onChange={e=>search(e.target.value)}
           onFocus={()=>query.length>=1&&results.length>0&&setShowDrop(true)}
           placeholder={catLoaded ? "Search any item... (chimera, jungle, necron, hyperion...)" : "Loading catalog..."}
-          style={{ width:'100%', background:'#111110', border:'1px solid rgba(255,255,255,0.08)', borderRadius:9, padding:'11px 14px', color:'#e8e6df', fontFamily:'Space Grotesk, sans-serif', fontSize:13, outline:'none', boxSizing:'border-box' }}
+          style={{ width:'100%', background:'#111110', border:'1px solid rgba(201,168,76,0.08)', borderRadius:9, padding:'11px 14px', color:'#e8e6df', fontFamily:'Space Grotesk, sans-serif', fontSize:13, outline:'none', boxSizing:'border-box' }}
         />
         {showDrop && results.length>0 && (
-          <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, right:0, background:'#111110', border:'1px solid rgba(255,255,255,0.08)', borderRadius:10, maxHeight:280, overflowY:'auto', zIndex:200, boxShadow:'0 20px 50px rgba(0,0,0,0.9)' }}>
+          <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, right:0, background:'#111110', border:'1px solid rgba(201,168,76,0.08)', borderRadius:10, maxHeight:280, overflowY:'auto', zIndex:200, boxShadow:'0 20px 50px rgba(0,0,0,0.9)' }}>
             {results.map((r,i)=>(
               <div key={i} onClick={()=>select(r)}
-                style={{ padding:'10px 14px', cursor:'pointer', display:'flex', alignItems:'center', gap:10, borderBottom:'1px solid rgba(255,255,255,0.03)' }}
-                onMouseEnter={e=>(e.currentTarget.style.background='rgba(255,255,255,0.04)')}
+                style={{ padding:'10px 14px', cursor:'pointer', display:'flex', alignItems:'center', gap:10, borderBottom:'1px solid rgba(201,168,76,0.03)' }}
+                onMouseEnter={e=>(e.currentTarget.style.background='rgba(201,168,76,0.04)')}
                 onMouseLeave={e=>(e.currentTarget.style.background='transparent')}
               >
                 <span style={{ fontSize:8, padding:'2px 6px', borderRadius:4, fontFamily:'Space Mono, monospace', fontWeight:700, color:r.source==='bazaar'?'#1baf7a':'#c9a84c', background:r.source==='bazaar'?'#1baf7a12':'#c9a84c12', border:`1px solid ${r.source==='bazaar'?'#1baf7a':'#c9a84c'}20`, flexShrink:0 }}>
@@ -306,7 +306,7 @@ function ItemExplorer() {
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={history} margin={{ top:5,right:5,bottom:5,left:5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(201,168,76,0.04)" />
                   <XAxis dataKey="date" tickFormatter={d=>fmtDate(d)||d?.slice(11,13)+'h'} tick={{ fill:'#3a3a38',fontSize:9,fontFamily:'Space Mono, monospace' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
                   <YAxis tickFormatter={fmt} tick={{ fill:'#3a3a38',fontSize:9,fontFamily:'Space Mono, monospace' }} tickLine={false} axisLine={false} width={55} />
                   <Tooltip content={<ChartTooltip/>} />
@@ -330,13 +330,13 @@ function ItemExplorer() {
 
           {/* Variants */}
           {!isBazaar && variants.length>0 && (
-            <div style={{ marginTop:16, borderTop:'1px solid rgba(255,255,255,0.05)', paddingTop:14 }}>
+            <div style={{ marginTop:16, borderTop:'1px solid rgba(201,168,76,0.05)', paddingTop:14 }}>
               <div style={{ fontSize:9, color:'#4a4a45', fontFamily:'Space Mono, monospace', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:10 }}>
                 {variants.length} variants tracked
               </div>
               <div style={{ display:'flex', flexDirection:'column', gap:4, maxHeight:260, overflowY:'auto' }}>
                 {/* All */}
-                <div onClick={()=>changeVariant('all')} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:8, cursor:'pointer', background:variant==='all'?'rgba(201,168,76,0.08)':'transparent', border:`1px solid ${variant==='all'?'rgba(201,168,76,0.2)':'rgba(255,255,255,0.04)'}` }}>
+                <div onClick={()=>changeVariant('all')} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:8, cursor:'pointer', background:variant==='all'?'rgba(201,168,76,0.08)':'transparent', border:`1px solid ${variant==='all'?'rgba(201,168,76,0.2)':'rgba(201,168,76,0.04)'}` }}>
                   <div style={{ width:30,height:30,borderRadius:7,background:'rgba(201,168,76,0.1)',border:'1px solid rgba(201,168,76,0.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0 }}>📊</div>
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:11.5,fontWeight:600,color:variant==='all'?'#e8e6df':'#9b9b8f' }}>All variants — trend overview</div>
@@ -353,7 +353,7 @@ function ItemExplorer() {
                   const accent    = isBase?'#c9a84c':hasRecomb?'#9b59b6':hasStars?'#2a78d6':'#4a4a45'
                   const icon      = isBase?'✦':hasStars?`${hasStars[1]}⭐`:'🔹'
                   return (
-                    <div key={v.key} onClick={()=>changeVariant(v.key)} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:8, cursor:'pointer', transition:'all 0.12s', background:isActive?accent+'0d':'transparent', border:`1px solid ${isActive?accent+'30':'rgba(255,255,255,0.04)'}` }}>
+                    <div key={v.key} onClick={()=>changeVariant(v.key)} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:8, cursor:'pointer', transition:'all 0.12s', background:isActive?accent+'0d':'transparent', border:`1px solid ${isActive?accent+'30':'rgba(201,168,76,0.04)'}` }}>
                       <div style={{ width:30,height:30,borderRadius:7,background:accent+'10',border:'1px solid '+accent+'20',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,flexShrink:0,fontFamily:'Space Mono, monospace',color:accent,fontWeight:700 }}>{icon}</div>
                       <div style={{ flex:1,minWidth:0 }}>
                         <div style={{ fontSize:11,fontWeight:600,color:isActive?'#e8e6df':'#9b9b8f',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{v.label}</div>
@@ -386,7 +386,7 @@ function RadarCard({ item, type }: { item: RadarItem; type:'positive'|'negative'
   const [hov,setHov] = useState(false)
   return (
     <div onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}
-      style={{ background:hov?'#141413':'#0f0f0e', border:`1px solid ${hov?sigColor+'30':'rgba(255,255,255,0.06)'}`, borderLeft:`3px solid ${sigColor}`, borderRadius:9, padding:'13px 14px', marginBottom:8, transition:'all 0.15s' }}>
+      style={{ background:hov?'#141413':'#0f0f0e', border:`1px solid ${hov?sigColor+'50':'rgba(201,168,76,0.1)'}`, borderLeft:`3px solid ${sigColor}`, borderRadius:9, padding:'13px 14px', marginBottom:8, transition:'all 0.15s', boxShadow:hov?`0 0 16px ${sigColor}20`:'none' }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8, marginBottom:8 }}>
         <div style={{ flex:1,minWidth:0 }}>
           <div style={{ fontSize:12,fontWeight:700,color:'#e8e6df',marginBottom:2 }}>{item.item_name||item.item_id}</div>
@@ -401,7 +401,7 @@ function RadarCard({ item, type }: { item: RadarItem; type:'positive'|'negative'
       {item.drivers?.length>0&&(
         <div style={{ display:'flex',flexWrap:'wrap',gap:4,marginBottom:8 }}>
           {item.drivers.map((d,i)=>(
-            <span key={i} style={{ fontSize:9,padding:'2px 7px',borderRadius:4,background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.07)',color:'#6b6960',fontFamily:'Space Mono, monospace' }}>
+            <span key={i} style={{ fontSize:9,padding:'2px 7px',borderRadius:4,background:'rgba(201,168,76,0.04)',border:'1px solid rgba(201,168,76,0.07)',color:'#6b6960',fontFamily:'Space Mono, monospace' }}>
               {DRIVER_LABELS[d]||d}
             </span>
           ))}
@@ -422,9 +422,9 @@ function IntelligenceVault({ marketData, dataLoading }: { marketData:Record<stri
   const positive = Array.isArray(radar.positive)?radar.positive.slice(0,10):[]
   const negative = Array.isArray(radar.negative)?radar.negative.slice(0,10):[]
   return (
-    <div style={{ background:'#0f0f0e', border:'1px solid rgba(255,255,255,0.06)', borderRadius:12, padding:'20px' }}>
+    <div style={{ background:'#0f0f0e', border:'1px solid rgba(155,89,182,0.25)', boxShadow:'0 0 20px rgba(155,89,182,0.08)', borderRadius:12, padding:'20px' }}>
       <div style={{ display:'flex',alignItems:'center',gap:10,marginBottom:14 }}>
-        <div style={{ fontSize:8,color:'#9b59b6',fontFamily:"'Press Start 2P', monospace",letterSpacing:'0.04em',textTransform:'uppercase',fontWeight:700 }}>⚡ Vault Intelligence</div>
+        <div style={{ fontSize:8,color:'#9b59b6',fontFamily:"'Press Start 2P', monospace",letterSpacing:'0.04em',textTransform:'uppercase',fontWeight:700,textShadow:'0 0 10px rgba(155,89,182,0.4)' }}>⚡ Vault Intelligence</div>
         <div style={{ fontSize:8.5,color:'#3a3a38',fontFamily:'Space Mono, monospace',marginLeft:'auto' }}>Daily · patches × trends × events</div>
       </div>
       {radar.summary&&(
@@ -437,16 +437,16 @@ function IntelligenceVault({ marketData, dataLoading }: { marketData:Record<stri
       ):(
         <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:16 }}>
           <div>
-            <div style={{ display:'flex',alignItems:'center',gap:7,marginBottom:12,padding:'7px 12px',background:'rgba(27,175,122,0.05)',border:'1px solid rgba(27,175,122,0.1)',borderRadius:7 }}>
+            <div style={{ display:'flex',alignItems:'center',gap:7,marginBottom:12,padding:'7px 12px',background:'linear-gradient(135deg,rgba(27,175,122,0.1),rgba(27,175,122,0.02))',border:'1px solid rgba(27,175,122,0.3)',boxShadow:'0 0 14px rgba(27,175,122,0.12)',borderRadius:7 }}>
               <span style={{ fontSize:13 }}>📈</span>
-              <span style={{ fontSize:9.5,fontWeight:700,color:'#1baf7a',fontFamily:'Space Mono, monospace',letterSpacing:'0.1em',textTransform:'uppercase' }}>Top Opportunities</span>
+              <span style={{ fontSize:9,fontWeight:700,color:'#1baf7a',fontFamily:"'Press Start 2P', monospace",letterSpacing:'0.03em',textShadow:'0 0 10px rgba(27,175,122,0.4)' }}>TOP OPPORTUNITIES</span>
             </div>
             {positive.map((item,i)=><RadarCard key={i} item={item} type="positive"/>)}
           </div>
           <div>
-            <div style={{ display:'flex',alignItems:'center',gap:7,marginBottom:12,padding:'7px 12px',background:'rgba(227,73,72,0.05)',border:'1px solid rgba(227,73,72,0.1)',borderRadius:7 }}>
+            <div style={{ display:'flex',alignItems:'center',gap:7,marginBottom:12,padding:'7px 12px',background:'linear-gradient(135deg,rgba(227,73,72,0.1),rgba(227,73,72,0.02))',border:'1px solid rgba(227,73,72,0.3)',boxShadow:'0 0 14px rgba(227,73,72,0.12)',borderRadius:7 }}>
               <span style={{ fontSize:13 }}>📉</span>
-              <span style={{ fontSize:9.5,fontWeight:700,color:'#e34948',fontFamily:'Space Mono, monospace',letterSpacing:'0.1em',textTransform:'uppercase' }}>Risk Items</span>
+              <span style={{ fontSize:9,fontWeight:700,color:'#e34948',fontFamily:"'Press Start 2P', monospace",letterSpacing:'0.03em',textShadow:'0 0 10px rgba(227,73,72,0.4)' }}>RISK ITEMS</span>
             </div>
             {negative.map((item,i)=><RadarCard key={i} item={item} type="negative"/>)}
           </div>

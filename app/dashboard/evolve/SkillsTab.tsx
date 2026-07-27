@@ -74,10 +74,10 @@ export default function SkillsTab({ profileId }: { profileId: string }) {
             onClick={() => setExpandedSlayer(v => !v)}
             style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer',
-              background: '#111110', border: '0.5px solid rgba(201,168,76,0.15)', borderRadius: 10, padding: '10px 14px', marginBottom: expandedSlayer ? 10 : 12,
+              background: '#111110', border: `1px solid rgba(201,168,76,${expandedSlayer?0.4:0.25})`, boxShadow: expandedSlayer?'0 0 20px rgba(201,168,76,0.1)':'none', borderRadius: 10, padding: '10px 14px', marginBottom: expandedSlayer ? 10 : 12, transition:'all 0.2s',
             }}
           >
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#e8e6df' }}>{SKILL_ICONS.slayer} Slayer — 6 bosses</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#e8e6df', fontFamily: "'Press Start 2P', monospace", letterSpacing: '0.02em' }}>{SKILL_ICONS.slayer} SLAYER — 6 BOSSES</span>
             <span style={{ fontSize: 11, color: '#6b6960' }}>{expandedSlayer ? '▲ collapse' : '▼ expand'}</span>
           </div>
           {expandedSlayer && (slayerCard.bosses || []).map(b => (

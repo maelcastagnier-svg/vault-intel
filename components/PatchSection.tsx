@@ -73,10 +73,10 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
 
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.9)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center', padding:'1.5rem', backdropFilter:'blur(10px)' }}>
-      <div onClick={e => e.stopPropagation()} style={{ background:'#0d0d0c', border:'1px solid '+accentColor+'22', borderTop:'2px solid '+accentColor, borderRadius:16, maxWidth:580, width:'100%', maxHeight:'90vh', overflowY:'auto', boxShadow:'0 40px 100px rgba(0,0,0,0.9)' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:'#0d0d0c', border:'1px solid '+accentColor+'40', borderTop:'2px solid '+accentColor, borderRadius:16, maxWidth:580, width:'100%', maxHeight:'90vh', overflowY:'auto', boxShadow:'0 40px 100px rgba(0,0,0,0.9), 0 0 40px '+accentColor+'15' }}>
 
         {/* Header */}
-        <div style={{ padding:'22px 24px 18px', borderBottom:'1px solid rgba(255,255,255,0.05)', position:'sticky', top:0, background:'#0d0d0c', zIndex:1, borderRadius:'16px 16px 0 0' }}>
+        <div style={{ padding:'22px 24px 18px', borderBottom:'1px solid rgba(201,168,76,0.05)', position:'sticky', top:0, background:'#0d0d0c', zIndex:1, borderRadius:'16px 16px 0 0' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10 }}>
             <div style={{ flex:1 }}>
               <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
@@ -88,13 +88,13 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
               </div>
               <div style={{ fontSize:16, fontWeight:700, color:'#f0d68a', lineHeight:1.3 }}>{s(patch.patch_title)}</div>
             </div>
-            <button onClick={onClose} style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'#6b6960', cursor:'pointer', borderRadius:8, padding:'6px 10px', fontSize:13, flexShrink:0 }}>✕</button>
+            <button onClick={onClose} style={{ background:'rgba(201,168,76,0.04)', border:'1px solid rgba(201,168,76,0.08)', color:'#6b6960', cursor:'pointer', borderRadius:8, padding:'6px 10px', fontSize:13, flexShrink:0 }}>✕</button>
           </div>
           <div style={{ display:'flex', gap:8, marginTop:14, flexWrap:'wrap', alignItems:'center' }}>
             <SignalBadge signal={patch.action_signal} large />
             <ConfBadge conf={patch.confidence} />
             {patch.accuracy_score !== undefined && (
-              <span style={{ fontSize:9, fontFamily:'Space Mono, monospace', color:'#9b9b8f', padding:'2px 8px', background:'rgba(255,255,255,0.04)', borderRadius:5, border:'1px solid rgba(255,255,255,0.07)' }}>
+              <span style={{ fontSize:9, fontFamily:'Space Mono, monospace', color:'#9b9b8f', padding:'2px 8px', background:'rgba(201,168,76,0.04)', borderRadius:5, border:'1px solid rgba(201,168,76,0.07)' }}>
                 Accuracy: {patch.accuracy_score}%
               </span>
             )}
@@ -105,7 +105,7 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
 
           {/* Direct Impact */}
           {s(patch.direct_impact) && (
-            <div style={{ padding:'14px 0', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
+            <div style={{ padding:'14px 0', borderBottom:'1px solid rgba(201,168,76,0.04)' }}>
               <div style={{ fontSize:9, color:accentColor, fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:8, textTransform:'uppercase' }}>🎯 Economic Impact</div>
               <div style={{ fontSize:13, color:'#d8d6cf', lineHeight:1.7 }}>{s(patch.direct_impact)}</div>
             </div>
@@ -113,11 +113,11 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
 
           {/* Items Affected */}
           {items.length > 0 && (
-            <div style={{ padding:'14px 0', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
+            <div style={{ padding:'14px 0', borderBottom:'1px solid rgba(201,168,76,0.04)' }}>
               <div style={{ fontSize:9, color:accentColor, fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:10, textTransform:'uppercase' }}>📦 Items Affected</div>
               <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                 {items.map((item: ItemAffected, i: number) => (
-                  <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', background:'#111110', borderRadius:8, border:'1px solid rgba(255,255,255,0.04)' }}>
+                  <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', background:'#111110', borderRadius:8, border:'1px solid rgba(201,168,76,0.04)' }}>
                     <span style={{ fontSize:18, flexShrink:0 }}>{item.direction==='up'?'📈':item.direction==='down'?'📉':'➡️'}</span>
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:3 }}>
@@ -137,7 +137,7 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
 
           {/* Methods Affected */}
           {methods.length > 0 && (
-            <div style={{ padding:'14px 0', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
+            <div style={{ padding:'14px 0', borderBottom:'1px solid rgba(201,168,76,0.04)' }}>
               <div style={{ fontSize:9, color:accentColor, fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:10, textTransform:'uppercase' }}>⚔️ Methods Affected</div>
               <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
                 {methods.map((m: MethodAffected, i: number) => (
@@ -157,7 +157,7 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
 
           {/* Price Predictions */}
           {predicted.length > 0 && (
-            <div style={{ padding:'14px 0', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
+            <div style={{ padding:'14px 0', borderBottom:'1px solid rgba(201,168,76,0.04)' }}>
               <div style={{ fontSize:9, color:accentColor, fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:10, textTransform:'uppercase' }}>🔮 Price Predictions</div>
               <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                 {predicted.map((p: PredictedItem, i: number) => {
@@ -197,7 +197,7 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
             </div>
           )}
 
-          <div style={{ marginTop:8, padding:'8px 12px', background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)', borderRadius:8, fontSize:9.5, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>
+          <div style={{ marginTop:8, padding:'8px 12px', background:'rgba(201,168,76,0.02)', border:'1px solid rgba(201,168,76,0.05)', borderRadius:8, fontSize:9.5, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>
             Vault auto-validates predictions against live prices every 24h
           </div>
         </div>
@@ -224,11 +224,11 @@ function PatchCard({ patch, isAlpha }: { patch: PatchInsight; isAlpha: boolean }
         onMouseLeave={() => setHov(false)}
         style={{
           background:   hov ? '#141413' : '#0f0f0e',
-          border:       `1px solid ${hov ? accentColor+'30' : 'rgba(255,255,255,0.06)'}`,
+          border:       `1px solid ${hov ? accentColor+'50' : 'rgba(201,168,76,0.12)'}`,
           borderTop:    `2px solid ${dotColor}`,
           borderRadius: 10, padding:'16px 16px 14px',
           marginBottom: 10, transition:'all 0.15s ease',
-          boxShadow:    hov ? `0 8px 30px rgba(0,0,0,0.4)` : 'none',
+          boxShadow:    hov ? `0 8px 30px rgba(0,0,0,0.4), 0 0 18px ${accentColor}20` : 'none',
         }}
       >
         {/* Header */}
@@ -271,7 +271,7 @@ function PatchCard({ patch, isAlpha }: { patch: PatchInsight; isAlpha: boolean }
               </div>
             ))}
             {a(patch.items_affected).length > 4 && (
-              <div style={{ padding:'3px 8px', borderRadius:5, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)', fontSize:9, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>
+              <div style={{ padding:'3px 8px', borderRadius:5, background:'rgba(201,168,76,0.03)', border:'1px solid rgba(201,168,76,0.06)', fontSize:9, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>
                 +{a(patch.items_affected).length - 4}
               </div>
             )}
@@ -283,7 +283,7 @@ function PatchCard({ patch, isAlpha }: { patch: PatchInsight; isAlpha: boolean }
           <ConfBadge conf={patch.confidence} />
           <button
             onClick={() => setModal(true)}
-            style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:6, background:'rgba(201,168,76,0.06)', border:'1px solid rgba(201,168,76,0.18)', color:'#c9a84c', fontSize:9.5, fontFamily:'Space Mono, monospace', cursor:'pointer', fontWeight:700, transition:'all 0.15s' }}
+            style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:6, background:'rgba(201,168,76,0.08)', border:'1px solid rgba(201,168,76,0.35)', boxShadow:'0 0 10px rgba(201,168,76,0.1)', color:'#c9a84c', fontSize:9.5, fontFamily:'Space Mono, monospace', cursor:'pointer', fontWeight:700, transition:'all 0.15s' }}
           >
             DEEP DIVE <span style={{ fontSize:10 }}>→</span>
           </button>
@@ -298,11 +298,11 @@ function PatchCard({ patch, isAlpha }: { patch: PatchInsight; isAlpha: boolean }
 // ─── Column Header ────────────────────────────────────────────
 function ColHeader({ label, dot, count }: { label: string; dot: string; count: number }) {
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16, padding:'10px 14px', background:'#0f0f0e', border:'1px solid rgba(255,255,255,0.05)', borderRadius:8 }}>
+    <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16, padding:'10px 14px', background:`linear-gradient(135deg,${dot}0d,${dot}03)`, border:`1px solid ${dot}30`, boxShadow:`0 0 14px ${dot}12`, borderRadius:8 }}>
       <span style={{ width:8, height:8, borderRadius:'50%', background:dot, display:'inline-block', boxShadow:'0 0 8px '+dot, flexShrink:0 }} />
-      <span style={{ fontSize:10, fontWeight:700, fontFamily:'Space Mono, monospace', color:dot, letterSpacing:'0.14em', textTransform:'uppercase', flex:1 }}>{label}</span>
+      <span style={{ fontSize:9, fontWeight:700, fontFamily:"'Press Start 2P', monospace", color:dot, letterSpacing:'0.03em', flex:1, textShadow:`0 0 10px ${dot}40` }}>{label.toUpperCase()}</span>
       {count > 0 && (
-        <span style={{ fontSize:9, fontFamily:'Space Mono, monospace', color:'#3a3a38', padding:'2px 7px', background:'rgba(255,255,255,0.03)', borderRadius:4 }}>
+        <span style={{ fontSize:9, fontFamily:'Space Mono, monospace', color:'#3a3a38', padding:'2px 7px', background:'rgba(201,168,76,0.03)', borderRadius:4 }}>
           {count} patches
         </span>
       )}
@@ -313,7 +313,7 @@ function ColHeader({ label, dot, count }: { label: string; dot: string; count: n
 // ─── Empty State ──────────────────────────────────────────────
 function EmptyState({ label }: { label: string }) {
   return (
-    <div style={{ padding:'32px 20px', background:'#0f0f0e', borderRadius:10, border:'1px solid rgba(255,255,255,0.04)', textAlign:'center' }}>
+    <div style={{ padding:'32px 20px', background:'#0f0f0e', borderRadius:10, border:'1px solid rgba(201,168,76,0.04)', textAlign:'center' }}>
       <div style={{ fontSize:24, marginBottom:8, opacity:0.3 }}>📋</div>
       <div style={{ fontSize:10, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>{label}</div>
     </div>

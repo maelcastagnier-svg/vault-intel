@@ -262,8 +262,9 @@ export default function LiveRankedFeed({
         height:         ITEM_H,
         marginBottom:   ITEM_GAP,
         background:     '#111110',
-        border:         `0.5px solid ${color}30`,
+        border:         `1px solid ${color}40`,
         borderLeft:     `3px solid ${color}`,
+        boxShadow:      `0 0 12px ${color}0d`,
         borderRadius:   8,
         padding:        '8px 12px',
         display:        'flex',
@@ -333,7 +334,7 @@ export default function LiveRankedFeed({
           display:      'inline-block',
           animation:    countdown <= 3 ? 'pulse 0.5s ease infinite' : undefined
         }} />
-        <span>LIVE</span>
+        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 7, color: '#1baf7a' }}>LIVE</span>
         <span style={{ color: '#3a3a38' }}>·</span>
         <span>next refresh in {countdown}s</span>
       </div>
