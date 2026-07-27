@@ -460,7 +460,7 @@ function IntelligenceVault({ marketData, dataLoading }: { marketData:Record<stri
 export default function RadarSection({ marketData, dataLoading }: { marketData:Record<string,string>; dataLoading:boolean }) {
   return (
     <div style={{ display:'flex',flexDirection:'column',gap:16 }}>
-      <div style={{ padding:'12px 16px',background:'linear-gradient(135deg,rgba(155,89,182,0.06),rgba(155,89,182,0.02))',border:'1px solid rgba(155,89,182,0.12)',borderRadius:10,display:'flex',alignItems:'center',gap:12 }}>
+      <div style={{ padding:'12px 16px',background:'linear-gradient(135deg,rgba(155,89,182,0.1),rgba(155,89,182,0.03))',border:'1px solid rgba(155,89,182,0.45)',boxShadow:'0 0 20px rgba(155,89,182,0.1)',borderRadius:10,display:'flex',alignItems:'center',gap:12 }}>
         <span style={{ fontSize:20 }}>📡</span>
         <div>
           <div style={{ fontSize:9,fontWeight:700,color:'#9b59b6',fontFamily:"'Press Start 2P', monospace",letterSpacing:'0.04em' }}>MARKET RADAR</div>

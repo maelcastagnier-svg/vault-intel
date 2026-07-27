@@ -404,7 +404,7 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
       <style>{`@keyframes mm_pulse{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.6);opacity:1}}`}</style>
 
       {/* Section title -- same branded-banner pattern as Patch Analysis and Radar */}
-      <div style={{ marginBottom:20, padding:'12px 16px', background:'linear-gradient(135deg, rgba(201,168,76,0.06) 0%, rgba(201,168,76,0.02) 100%)', border:'1px solid rgba(201,168,76,0.12)', borderRadius:10, display:'flex', alignItems:'center', gap:12 }}>
+      <div style={{ marginBottom:20, padding:'12px 16px', background:'linear-gradient(135deg, rgba(201,168,76,0.1) 0%, rgba(201,168,76,0.03) 100%)', border:'1px solid rgba(232,192,99,0.4)', boxShadow:'0 0 20px rgba(232,192,99,0.08)', borderRadius:10, display:'flex', alignItems:'center', gap:12 }}>
         <span style={{ fontSize:20 }}>💰</span>
         <div>
           <div style={{ fontSize:9, fontWeight:700, color:'#c9a84c', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.04em' }}>MONEY MAKING</div>

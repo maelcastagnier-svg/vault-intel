@@ -138,8 +138,45 @@ export default function Dashboard() {
         @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
         *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
         html { background:#080807; }
-        body { background:#080807; color:#e8e6df; font-family:'Space Grotesk',sans-serif; min-height:100vh; }
+        /* The dashboard now literally carries the hero scene, not just its hex codes:
+           a heavily darkened, fixed copy of the same hero-background.jpg sits behind
+           the whole app, plus a real cropped strip of it (undarkened) right below the
+           nav so the connection to the marketing hero is immediate, not just numeric. */
+        body {
+          background-color:#080807; color:#e8e6df; font-family:'Space Grotesk',sans-serif; min-height:100vh;
+          background-image: linear-gradient(rgba(8,8,7,0.93), rgba(8,8,7,0.95)), url('/images/hero-background.jpg');
+          background-size: cover; background-position: center 30%; background-attachment: fixed;
+          background-repeat: no-repeat;
+        }
         .pixel { font-family:'Press Start 2P', monospace; }
+
+        .dashboard-hero-strip {
+          position: relative; height: 130px; overflow: hidden;
+          border-bottom: 2px solid rgba(232,192,99,0.4);
+          box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+        }
+        .dashboard-hero-strip::before {
+          content:''; position:absolute; inset:0;
+          background-image: url('/images/hero-background.jpg');
+          background-size: cover; background-position: center 24%;
+        }
+        .dashboard-hero-strip::after {
+          content:''; position:absolute; inset:0;
+          background: linear-gradient(to bottom, rgba(8,8,7,0.55) 0%, rgba(8,8,7,0.25) 50%, rgba(8,8,7,0.85) 100%);
+        }
+        .dashboard-hero-strip-label {
+          position: relative; z-index: 2; height: 100%;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          text-align: center;
+        }
+        .dashboard-hero-strip-label .pixel {
+          font-size: 13px; color: #e8c063; letter-spacing: 0.12em;
+          text-shadow: 0 0 20px rgba(232,192,99,0.7), 0 2px 6px rgba(0,0,0,0.9);
+        }
+        .dashboard-hero-strip-label span {
+          font-size: 11px; color: #d8d0be; margin-top: 8px;
+          text-shadow: 0 2px 6px rgba(0,0,0,0.9);
+        }
         /* globals.css's .section-label was sized for short marketing eyebrows (0.55rem,
            0.15em tracking). Several dashboard panels (FlashAlertsPage, Evolve tabs) reuse
            the same className for much longer descriptive headers -- override to a size
@@ -176,17 +213,23 @@ export default function Dashboard() {
            no extra markup) so the dashboard reads as the same product as the hero. */
         .vault-tabs {
           position:relative;
-          display:flex; gap:2px; margin-bottom:1.5rem; background:#111110;
-          padding:4px; border-radius:6px; width:fit-content;
-          border:1px solid rgba(201,168,76,0.14);
+          display:flex; gap:3px; margin-bottom:1.5rem; background:rgba(17,17,16,0.85);
+          padding:5px; border-radius:6px; width:fit-content;
+          border:1px solid rgba(232,192,99,0.35);
+          box-shadow: 0 0 24px rgba(232,192,99,0.06), inset 0 1px 0 rgba(255,255,255,0.03);
         }
         .vault-tab {
-          padding:7px 16px; border-radius:4px; font-size:12px; border:none;
-          background:transparent; color:#4a4a45; cursor:pointer;
+          padding:8px 18px; border-radius:4px; font-size:12.5px; border:1px solid transparent;
+          background:transparent; color:#6b6960; cursor:pointer;
           font-family:'Space Grotesk',sans-serif; font-weight:500;
           transition:all 0.15s; white-space:nowrap;
         }
-        .vault-tab.active  { background:#1e1a10; color:#e8c063; box-shadow:inset 0 0 0 1px rgba(232,192,99,0.3); }
+        .vault-tab.active  {
+          background:linear-gradient(135deg, rgba(232,192,99,0.16), rgba(232,192,99,0.06));
+          color:#e8c063; border-color:rgba(232,192,99,0.5);
+          box-shadow: 0 0 16px rgba(232,192,99,0.2);
+          text-shadow: 0 0 12px rgba(232,192,99,0.4);
+        }
         .vault-tab.locked  { opacity:0.3; cursor:not-allowed; }
         .vault-tab:not(.locked):not(.active):hover { color:#9b9b8f; }
 
@@ -238,6 +281,15 @@ export default function Dashboard() {
           >Sign out</button>
         </div>
       </nav>
+
+      {/* Same scene as the marketing hero -- makes the shared identity immediate rather
+          than relying on matching hex codes alone. */}
+      <div className="dashboard-hero-strip">
+        <div className="dashboard-hero-strip-label">
+          <div className="pixel">VAULT INTELLIGENCE</div>
+          <span>Real-time market intelligence for Hypixel Skyblock</span>
+        </div>
+      </div>
 
       <div className="vault-main">
         <LiveTicker lastUpdate={lastUpdate} />
