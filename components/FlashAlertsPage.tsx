@@ -83,18 +83,18 @@ export default function FlashAlertsPage() {
       <div>
         <div
           onClick={() => switchTo(null, true)}
+          className="gem-tab-sm"
           style={{
-            padding:      '10px 14px',
-            marginBottom: 6,
-            borderRadius: 8,
+            padding:      '11px 14px 11px 22px',
+            marginBottom: 8,
             cursor:       'pointer',
-            fontFamily:   'Space Mono, monospace',
-            fontSize:     12,
-            fontWeight:   showBazaar ? 700 : 400,
-            background:   showBazaar ? '#1baf7a20' : 'transparent',
-            border:       `1px solid ${showBazaar ? '#1baf7a' : 'rgba(201,168,76,0.14)'}`,
-            boxShadow:    showBazaar ? '0 0 14px rgba(27,175,122,0.15)' : 'none',
-            color:        showBazaar ? '#1baf7a' : '#c8c6bf',
+            fontFamily:   'Space Grotesk, sans-serif',
+            fontSize:     12.5,
+            fontWeight:   showBazaar ? 700 : 500,
+            background:   showBazaar ? 'linear-gradient(135deg,#1baf7a30,#1baf7a0c)' : 'linear-gradient(135deg,rgba(201,168,76,0.08),rgba(201,168,76,0.02))',
+            border:       `1px solid ${showBazaar ? '#1baf7a90' : 'rgba(201,168,76,0.2)'}`,
+            filter:       showBazaar ? 'drop-shadow(0 0 14px rgba(27,175,122,0.4))' : 'drop-shadow(0 0 4px rgba(201,168,76,0.1))',
+            color:        showBazaar ? '#4ce0ab' : '#c8c6bf',
             transition:   'all 0.2s ease'
           }}
         >
@@ -102,14 +102,13 @@ export default function FlashAlertsPage() {
         </div>
 
         <div style={{
-          fontSize:      8,
+          fontSize:      7.5,
           color:         '#8a6e2f',
-          margin:        '14px 0 6px',
+          margin:        '16px 0 8px',
           fontFamily:    "'Press Start 2P', monospace",
-          textTransform: 'uppercase',
           letterSpacing: '0.04em'
         }}>
-          AH Categories
+          AH CATEGORIES
         </div>
 
         {categories.length === 0 && (
@@ -124,18 +123,18 @@ export default function FlashAlertsPage() {
             <div
               key={cat}
               onClick={() => switchTo(cat, false)}
+              className="gem-tab-sm"
               style={{
-                padding:       '10px 14px',
-                marginBottom:  6,
-                borderRadius:  8,
+                padding:       '11px 14px 11px 22px',
+                marginBottom:  8,
                 cursor:        'pointer',
-                fontFamily:    'Space Mono, monospace',
-                fontSize:      12,
-                fontWeight:    isActive ? 700 : 400,
-                background:    isActive ? '#2a78d620' : 'transparent',
-                border:        `1px solid ${isActive ? '#2a78d6' : 'rgba(201,168,76,0.14)'}`,
-                boxShadow:     isActive ? '0 0 14px rgba(42,120,214,0.15)' : 'none',
-                color:         isActive ? '#2a78d6' : '#c8c6bf',
+                fontFamily:    'Space Grotesk, sans-serif',
+                fontSize:      12.5,
+                fontWeight:    isActive ? 700 : 500,
+                background:    isActive ? 'linear-gradient(135deg,#2a78d630,#2a78d60c)' : 'linear-gradient(135deg,rgba(201,168,76,0.08),rgba(201,168,76,0.02))',
+                border:        `1px solid ${isActive ? '#2a78d690' : 'rgba(201,168,76,0.2)'}`,
+                filter:        isActive ? 'drop-shadow(0 0 14px rgba(42,120,214,0.4))' : 'drop-shadow(0 0 4px rgba(201,168,76,0.1))',
+                color:         isActive ? '#6fa8f0' : '#c8c6bf',
                 transition:    'all 0.2s ease',
                 textTransform: 'capitalize'
               }}

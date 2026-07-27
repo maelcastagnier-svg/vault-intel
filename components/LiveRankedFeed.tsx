@@ -191,14 +191,13 @@ export default function LiveRankedFeed({
     return (
       <div
         key={item.id}
+        className="vault-surface gem-tab-sm"
         style={{
           height:         ITEM_H,
           marginBottom:   ITEM_GAP,
-          background:     '#111110',
-          border:         `0.5px solid ${color}30`,
-          borderLeft:     `3px solid ${color}`,
-          borderRadius:   8,
-          padding:        '8px 12px',
+          border:         `1px solid ${color}45`,
+          filter:         `drop-shadow(0 0 8px ${color}15)`,
+          padding:        '8px 14px 8px 26px',
           display:        'flex',
           justifyContent: 'space-between',
           alignItems:     'center',
@@ -211,10 +210,10 @@ export default function LiveRankedFeed({
       >
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{
-            fontSize:     11,
-            fontWeight:   600,
+            fontSize:     13,
+            fontWeight:   700,
             color:        '#e8e6df',
-            fontFamily:   'Space Mono, monospace',
+            fontFamily:   'Space Grotesk, sans-serif',
             overflow:     'hidden',
             textOverflow: 'ellipsis',
             whiteSpace:   'nowrap'
@@ -237,12 +236,13 @@ export default function LiveRankedFeed({
           </div>
         </div>
         <div style={{
-          fontSize:   12,
+          fontSize:   15,
           fontWeight: 700,
           color,
           fontFamily: 'Space Mono, monospace',
           flexShrink: 0,
-          marginLeft: 8
+          marginLeft: 8,
+          textShadow: `0 0 8px ${color}50`,
         }}>
           {isCopied
             ? '✓'
@@ -258,15 +258,13 @@ export default function LiveRankedFeed({
   const renderBazaarCard = (item: BazaarItem, idx: number) => (
     <div
       key={item.id}
+      className="vault-surface gem-tab-sm"
       style={{
         height:         ITEM_H,
         marginBottom:   ITEM_GAP,
-        background:     '#111110',
-        border:         `1px solid ${color}40`,
-        borderLeft:     `3px solid ${color}`,
-        boxShadow:      `0 0 12px ${color}0d`,
-        borderRadius:   8,
-        padding:        '8px 12px',
+        border:         `1px solid ${color}45`,
+        filter:         `drop-shadow(0 0 8px ${color}15)`,
+        padding:        '8px 14px 8px 26px',
         display:        'flex',
         justifyContent: 'space-between',
         alignItems:     'center',
@@ -277,10 +275,10 @@ export default function LiveRankedFeed({
     >
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{
-          fontSize:     11,
-          fontWeight:   600,
+          fontSize:     13,
+          fontWeight:   700,
           color:        '#e8e6df',
-          fontFamily:   'Space Mono, monospace',
+          fontFamily:   'Space Grotesk, sans-serif',
           overflow:     'hidden',
           textOverflow: 'ellipsis',
           whiteSpace:   'nowrap'
@@ -300,12 +298,13 @@ export default function LiveRankedFeed({
         </div>
       </div>
       <div style={{
-        fontSize:   12,
+        fontSize:   15,
         fontWeight: 700,
         color,
         fontFamily: 'Space Mono, monospace',
         flexShrink: 0,
-        marginLeft: 8
+        marginLeft: 8,
+        textShadow: `0 0 8px ${color}50`,
       }}>
         +{item.spread_pct}%
       </div>
