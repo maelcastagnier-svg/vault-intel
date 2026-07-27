@@ -101,8 +101,8 @@ body {
    two common banner sizes on the dashboard; border/box-shadow are clipped
    along with the shape automatically, use filter:drop-shadow on the element
    instead of box-shadow if a glow needs to bleed past the taper. ── */
-.gem-tab-lg { clip-path: polygon(22px 0, 100% 0, 100% 100%, 22px 100%, 0 50%); }
-.gem-tab-sm { clip-path: polygon(14px 0, 100% 0, 100% 100%, 14px 100%, 0 50%); }
+.gem-tab-lg { clip-path: polygon(30px 0, 100% 0, 100% 100%, 30px 100%, 0 50%); }
+.gem-tab-sm { clip-path: polygon(18px 0, 100% 0, 100% 100%, 18px 100%, 0 50%); }
 
 /* ── gold-coin numeric readout, used for coins/h and other headline figures ── */
 .coin-value {
