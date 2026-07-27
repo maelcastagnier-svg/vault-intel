@@ -13,25 +13,28 @@ const PLANS = [
     key: 'free', name: 'Free', price: '€0', period: '',
     desc: 'A taste of Vault intelligence before you commit',
     features: ['Flash Alerts — top 5 preview', 'Patch Analysis — live summary only', 'No Hypixel account link'],
-    cta: 'Get started free', featured: false, priceId: null,
+    // No-payment signup flow doesn't exist yet (account creation today only happens
+    // post-checkout via /setup-account?session_id=...) -- that's its own dedicated
+    // build, not something to improvise here. Disabled placeholder until then.
+    cta: 'Coming soon', featured: false, priceId: null, comingSoon: true,
   },
   {
     key: 'alert', name: 'Alert', price: '€4.99', period: '/month',
     desc: 'For active traders who want real-time signals',
     features: ['Full Flash Alerts (Bazaar + AH)', 'Full Patch Analysis', 'Real-time price anomalies'],
-    cta: 'Get started', featured: false, priceId: PRICES.alert,
+    cta: 'Get started', featured: false, priceId: PRICES.alert, comingSoon: false,
   },
   {
     key: 'pro', name: 'Pro', price: '€19.99', period: '/month',
     desc: 'Full intelligence suite for serious players',
     features: ['Everything in Alert', 'Investment Radar', 'Money Making — Active tiers', 'Evolve: Skills & Milestones'],
-    cta: 'Get started', featured: true, badge: 'Most popular', priceId: PRICES.pro,
+    cta: 'Get started', featured: true, badge: 'Most popular', priceId: PRICES.pro, comingSoon: false,
   },
   {
     key: 'elite', name: 'Elite', price: '€39.99', period: '/month',
     desc: 'The full Vault experience with exclusive AI insights',
     features: ['Everything in Pro', 'Money Making — Vault Exclusive', 'Evolve: Daily Missions', 'Early access to new features'],
-    cta: 'Get started', featured: false, priceId: PRICES.elite,
+    cta: 'Get started', featured: false, priceId: PRICES.elite, comingSoon: false,
   },
 ]
 
@@ -166,6 +169,8 @@ export default function Home() {
         .plan-cta { display: block; width: 100%; text-align: center; padding: 0.7rem; border-radius: 4px; font-size: 0.875rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border); color: var(--text); background: transparent; font-family: 'Space Grotesk', sans-serif; transition: all 0.2s; text-decoration: none; }
         .plan.featured .plan-cta { background: var(--gold); color: var(--black); border-color: var(--gold); }
         .plan-cta:hover { opacity: 0.85; }
+        .plan-cta-disabled { opacity: 0.5; cursor: default; }
+        .plan-cta-disabled:hover { opacity: 0.5; }
         .cap-note { text-align: center; font-size: 0.8rem; color: var(--muted); margin-top: 1.5rem; }
         .cap-note strong { color: var(--gold); }
 
@@ -257,6 +262,8 @@ export default function Home() {
               </ul>
               {plan.priceId ? (
                 <button className="plan-cta" onClick={() => handleCheckout(plan.priceId!)}>{plan.cta}</button>
+              ) : plan.comingSoon ? (
+                <span className="plan-cta plan-cta-disabled">{plan.cta}</span>
               ) : (
                 <Link href="/login" className="plan-cta">{plan.cta}</Link>
               )}
