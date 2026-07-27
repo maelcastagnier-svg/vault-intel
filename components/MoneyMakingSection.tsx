@@ -42,10 +42,14 @@ function Tag({ text, color='#c9a84c' }: { text: string; color?: string }) {
 // ─── Row ──────────────────────────────────────────────────────
 function Row({ icon, label, children }: { icon:string; label:string; children:React.ReactNode }) {
   return (
-    <div style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'8px 0', borderBottom:'1px solid rgba(201,168,76,0.04)' }}>
-      <span style={{ fontSize:14, width:22, textAlign:'center', flexShrink:0, paddingTop:1 }}>{icon}</span>
-      <span style={{ fontSize:8.5, fontFamily:'Space Mono, monospace', color:'#4a4a45', textTransform:'uppercase', letterSpacing:'0.1em', width:76, flexShrink:0, paddingTop:2 }}>{label}</span>
-      <div style={{ flex:1, fontSize:11.5, color:'#cac8c0', lineHeight:1.6 }}>{children}</div>
+    <div style={{ display:'flex', alignItems:'flex-start', gap:11, padding:'9px 0', borderBottom:'1px solid rgba(201,168,76,0.06)' }}>
+      <span style={{
+        width:24, height:24, borderRadius:'50%', flexShrink:0, fontSize:12,
+        background:'radial-gradient(circle at 32% 28%, rgba(201,168,76,0.22), rgba(201,168,76,0.04) 70%)',
+        border:'1px solid rgba(201,168,76,0.3)', display:'flex', alignItems:'center', justifyContent:'center'
+      }}>{icon}</span>
+      <span style={{ fontSize:7.5, fontFamily:"'Press Start 2P', monospace", color:'#8a6e2f', letterSpacing:'0.02em', width:64, flexShrink:0, paddingTop:5 }}>{label.toUpperCase()}</span>
+      <div style={{ flex:1, fontSize:11.5, color:'#cac8c0', lineHeight:1.6, paddingTop:1 }}>{children}</div>
     </div>
   )
 }
@@ -56,7 +60,7 @@ function SetupPanel({ setup }: { setup: Setup }) {
   const et = ar(setup.enchants_tool),   er = ar(setup.enchants_rod)
 
   return (
-    <div style={{ background:'#0a0a09', padding:'16px 18px 14px' }}>
+    <div className="vault-surface" style={{ padding:'16px 18px 14px' }}>
 
       {/* HOW TO */}
       {(st(setup.how_to)||st(setup.why_best)) && (
@@ -148,8 +152,8 @@ function VoteModal({ method, tier, onClose, onVoted }: {
 
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.88)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem', backdropFilter:'blur(8px)' }}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:'#0f0f0e', border:'1px solid rgba(201,168,76,0.25)', borderRadius:16, padding:'24px', maxWidth:420, width:'100%', boxShadow:'0 40px 80px rgba(0,0,0,0.8), 0 0 30px rgba(201,168,76,0.08)' }}>
-        <div style={{ fontSize:9, color:'#c9a84c', fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:10, textTransform:'uppercase' }}>Community Feedback</div>
+      <div onClick={e=>e.stopPropagation()} className="vault-panel" style={{ border:'1px solid rgba(201,168,76,0.35)', borderRadius:14, padding:'26px', maxWidth:420, width:'100%', boxShadow:'0 40px 80px rgba(0,0,0,0.8), 0 0 30px rgba(201,168,76,0.1)' }}>
+        <div style={{ fontSize:8, color:'#c9a84c', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.04em', marginBottom:12, textShadow:'0 0 10px rgba(201,168,76,0.4)' }}>COMMUNITY FEEDBACK</div>
         <div style={{ fontSize:15, fontWeight:700, color:'#e8e6df', marginBottom:5 }}>Did this work for you?</div>
         <div style={{ fontSize:11.5, color:'#6b6960', marginBottom:20 }}>{st(method.method)}</div>
 
@@ -161,8 +165,9 @@ function VoteModal({ method, tier, onClose, onVoted }: {
             return (
               <button key={v} onClick={()=>setVote(v)} style={{
                 flex:1, padding:'14px', borderRadius:10, cursor:'pointer', transition:'all 0.15s',
-                border:`1px solid ${active?col:'rgba(201,168,76,0.08)'}`,
-                background: active?col+'15':'transparent',
+                border:`1px solid ${active?col:'rgba(201,168,76,0.15)'}`,
+                background: active?col+'18':'transparent',
+                boxShadow: active?`0 0 16px ${col}25`:'none',
                 color: active?col:'#6b6960',
                 fontFamily:'Space Grotesk, sans-serif', fontWeight:600, fontSize:13,
                 display:'flex', alignItems:'center', justifyContent:'center', gap:8
@@ -182,7 +187,7 @@ function VoteModal({ method, tier, onClose, onVoted }: {
             value={comment} onChange={e=>setComment(e.target.value)}
             placeholder={vote==='doesnt_work'?"What was wrong? (coins/h, gear cost, wrong info...)":"Tips for other players?"}
             maxLength={500} rows={3}
-            style={{ width:'100%', background:'#111110', border:'1px solid rgba(201,168,76,0.08)', borderRadius:9, padding:'10px 13px', color:'#e8e6df', fontFamily:'Space Grotesk, sans-serif', fontSize:12, lineHeight:1.55, resize:'none', outline:'none', boxSizing:'border-box', transition:'border-color 0.15s' }}
+            style={{ width:'100%', background:'#111110', border:'1px solid rgba(201,168,76,0.2)', borderRadius:9, padding:'10px 13px', color:'#e8e6df', fontFamily:'Space Grotesk, sans-serif', fontSize:12, lineHeight:1.55, resize:'none', outline:'none', boxSizing:'border-box', transition:'border-color 0.15s' }}
           />
           <div style={{ fontSize:9, color:'#2a2a28', textAlign:'right', marginTop:3 }}>{comment.length}/500</div>
         </div>
@@ -281,44 +286,51 @@ function MethodCard({ method, tier, accentColor, type }: {
         {/* Header card */}
         <div
           onClick={toggle}
+          className="vault-panel"
           style={{
-            background:   expanded?accentColor+'0d':'#0f0f0e',
-            border:       `1px solid ${expanded?accentColor+'50':'rgba(201,168,76,0.1)'}`,
+            ['--vc' as any]: accentColor,
+            border:       `1px solid ${expanded?accentColor+'55':'rgba(201,168,76,0.16)'}`,
             borderLeft:   `3px solid ${accentColor}`,
             borderRadius: expanded?'10px 10px 0 0':10,
-            padding:      '12px 14px', cursor:'pointer', transition:'all 0.15s',
+            padding:      '14px 16px', cursor:'pointer', transition:'all 0.15s',
             boxShadow:    expanded?`0 0 18px ${accentColor}20`:'none',
           }}
         >
-          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-            {/* Skill icon */}
-            <div style={{ width:36, height:36, borderRadius:8, flexShrink:0, background:accentColor+'12', border:'1px solid '+accentColor+'25', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+            {/* Skill medallion */}
+            <div style={{
+              width:38, height:38, borderRadius:'50%', flexShrink:0,
+              background:`radial-gradient(circle at 32% 28%, ${accentColor}40, ${accentColor}0c 70%)`,
+              border:`1.5px solid ${accentColor}55`,
+              boxShadow:`0 0 10px ${accentColor}25, inset 0 1px 3px rgba(255,255,255,0.1)`,
+              display:'flex', alignItems:'center', justifyContent:'center', fontSize:16
+            }}>
               {skillIcon}
             </div>
 
             {/* Name */}
             <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontSize:12.5, fontWeight:700, color:'#e8e6df', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:3 }}>
+              <div style={{ fontSize:12.5, fontWeight:700, color:'#e8e6df', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:4 }}>
                 {st(method.method)}
               </div>
               <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                {skill && <span style={{ fontSize:9, color:accentColor+'bb', fontFamily:'Space Mono, monospace', textTransform:'uppercase', letterSpacing:'0.06em' }}>{skill.replace(/_/g,' ')}</span>}
+                {skill && <span style={{ fontSize:7.5, color:accentColor+'cc', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.02em' }}>{skill.replace(/_/g,' ').toUpperCase()}</span>}
                 {feedback && <FeedbackBadge fb={feedback} />}
               </div>
             </div>
 
             {/* Coins + conf */}
-            <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4, flexShrink:0 }}>
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:5, flexShrink:0 }}>
               {coins && (
-                <div style={{ fontSize:13, fontWeight:700, color:accentColor, fontFamily:'Space Mono, monospace', textShadow:'0 0 12px '+accentColor+'40' }}>
-                  {coins}
+                <div className="coin-value" style={{ fontSize:14, letterSpacing:'0.01em', whiteSpace:'nowrap' }}>
+                  🪙 {coins}
                 </div>
               )}
               <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-                <span style={{ fontSize:8, color:confColor, background:confColor+'13', border:'1px solid '+confColor+'20', padding:'1px 6px', borderRadius:4, fontFamily:'Space Mono, monospace', fontWeight:700 }}>
+                <span style={{ fontSize:7, color:confColor, background:confColor+'15', border:'1px solid '+confColor+'40', padding:'2px 6px', borderRadius:4, fontFamily:"'Press Start 2P', monospace", fontWeight:700 }}>
                   {st(method.confidence)||'MED'}
                 </span>
-                <span style={{ fontSize:14, color:accentColor, transform:expanded?'rotate(90deg)':'none', transition:'transform 0.2s', display:'inline-block' }}>›</span>
+                <span style={{ fontSize:14, color:accentColor, transform:expanded?'rotate(90deg)':'none', transition:'transform 0.2s', display:'inline-block', textShadow:`0 0 8px ${accentColor}60` }}>›</span>
               </div>
             </div>
           </div>
@@ -335,14 +347,14 @@ function MethodCard({ method, tier, accentColor, type }: {
         {expanded && (
           <div style={{ border:'1px solid '+accentColor+'35', borderTop:'none', borderRadius:'0 0 10px 10px', overflow:'hidden', boxShadow:`0 0 18px ${accentColor}15` }}>
             {loading ? (
-              <div style={{ padding:'24px', textAlign:'center', background:'#0a0a09' }}>
-                <div style={{ fontSize:9.5, color:accentColor, fontFamily:'Space Mono, monospace', letterSpacing:'0.1em', marginBottom:12 }}>LOADING SETUP...</div>
+              <div className="vault-surface" style={{ padding:'24px', textAlign:'center' }}>
+                <div style={{ fontSize:8.5, color:accentColor, fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.05em', marginBottom:14 }}>LOADING SETUP...</div>
                 <div style={{ display:'flex', justifyContent:'center', gap:6 }}>
                   {[0,1,2].map(i=><div key={i} style={{ width:6,height:6,borderRadius:'50%',background:accentColor,animation:`mm_pulse 1.2s ${i*0.2}s infinite`,opacity:0.7 }}/>)}
                 </div>
               </div>
             ) : notReady ? (
-              <div style={{ padding:'18px', background:'#0a0a09', textAlign:'center' }}>
+              <div className="vault-surface" style={{ padding:'18px', textAlign:'center' }}>
                 <div style={{ fontSize:14, marginBottom:6 }}>⏳</div>
                 <div style={{ fontSize:10, color:'#4a4a45', fontFamily:'Space Mono, monospace', marginBottom:3 }}>Setup not yet generated</div>
                 <div style={{ fontSize:9.5, color:'#2a2a28', fontFamily:'Space Mono, monospace' }}>Available after Monday 7h UTC</div>
@@ -352,7 +364,7 @@ function MethodCard({ method, tier, accentColor, type }: {
             ) : null}
 
             {/* Feedback bar */}
-            <div style={{ padding:'11px 14px', background:'#0c0c0b', borderTop:'1px solid rgba(201,168,76,0.04)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+            <div style={{ padding:'11px 14px', background:'#0c0c0b', borderTop:`1px solid ${accentColor}20`, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
               <div style={{ flex:1 }}>
                 {feedback&&feedback.total>0 ? (
                   <div style={{ fontSize:10, color:'#6b6960', fontFamily:'Space Mono, monospace' }}>
@@ -369,8 +381,8 @@ function MethodCard({ method, tier, accentColor, type }: {
               ) : (
                 <button
                   onClick={e=>{ e.stopPropagation(); setShowVote(true) }}
-                  style={{ padding:'5px 13px', borderRadius:6, border:'1px solid rgba(201,168,76,0.2)', background:'rgba(201,168,76,0.06)', color:'#c9a84c', fontSize:9.5, fontFamily:'Space Mono, monospace', cursor:'pointer', fontWeight:700, whiteSpace:'nowrap' }}
-                >Rate this ›</button>
+                  style={{ padding:'6px 14px', borderRadius:6, border:`1px solid ${accentColor}45`, background:accentColor+'12', boxShadow:`0 0 10px ${accentColor}15`, color:accentColor, fontSize:8.5, fontFamily:"'Press Start 2P', monospace", cursor:'pointer', whiteSpace:'nowrap' }}
+                >RATE ›</button>
               )}
             </div>
           </div>
@@ -422,17 +434,22 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
           const active = mmTier===t.key
           return (
             <button key={t.key} onClick={()=>setMmTier(t.key)} style={{
-              flex:1, padding:'12px 8px', borderRadius:10,
-              border:`1px solid ${active?t.color+'70':'rgba(201,168,76,0.1)'}`,
+              flex:1, padding:'13px 8px', borderRadius:10,
+              border:`1px solid ${active?t.color+'70':'rgba(201,168,76,0.12)'}`,
               background: active?`linear-gradient(135deg,${t.color}18,${t.color}08)`:'#0f0f0e',
               color: active?t.color:'#4a4a45',
               cursor:'pointer', textAlign:'center', transition:'all 0.2s',
               fontFamily:'Space Grotesk, sans-serif', fontWeight:500,
               boxShadow: active?`0 0 22px ${t.color}30, inset 0 0 16px ${t.color}0a`:'none',
             }}>
-              <div style={{ fontSize:18, marginBottom:3 }}>{t.emoji}</div>
-              <div style={{ fontWeight:700, fontSize:12.5, textShadow: active?`0 0 12px ${t.color}50`:'none' }}>{t.label}</div>
-              <div style={{ fontSize:8.5, fontFamily:'Space Mono, monospace', marginTop:2, color:active?t.color+'cc':'#2a2a28' }}>{t.target}</div>
+              <div style={{
+                width:32, height:32, margin:'0 auto 5px', borderRadius:'50%', fontSize:16,
+                display:'flex', alignItems:'center', justifyContent:'center',
+                background: active?`radial-gradient(circle at 32% 28%,${t.color}45,${t.color}10 70%)`:'rgba(255,255,255,0.03)',
+                border: active?`1.5px solid ${t.color}60`:'1px solid rgba(255,255,255,0.06)',
+              }}>{t.emoji}</div>
+              <div style={{ fontWeight:700, fontSize:11, fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.02em', textShadow: active?`0 0 12px ${t.color}50`:'none' }}>{t.label.toUpperCase()}</div>
+              <div className={active?'coin-value':undefined} style={{ fontSize:8.5, fontFamily:'Space Mono, monospace', marginTop:5, color:active?undefined:'#2a2a28', fontWeight:700 }}>{t.target}</div>
               <div style={{ fontSize:8, color:active?t.color+'66':'#1a1a18', marginTop:1 }}>{t.desc}</div>
             </button>
           )
@@ -451,8 +468,8 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
 
       {/* This week analysis */}
       {summary && (
-        <div style={{ marginBottom:16, padding:'11px 15px', background:'#0f0f0e', border:'1px solid rgba(201,168,76,0.06)', borderRadius:8 }}>
-          <div style={{ fontSize:8.5, color:'#4a4a45', fontFamily:'Space Mono, monospace', letterSpacing:'0.1em', marginBottom:5, textTransform:'uppercase' }}>📊 This Week's Analysis</div>
+        <div className="vault-surface" style={{ marginBottom:16, padding:'12px 15px', border:'1px solid rgba(201,168,76,0.18)', borderRadius:8 }}>
+          <div style={{ fontSize:7.5, color:'#8a6e2f', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.03em', marginBottom:7 }}>📊 THIS WEEK'S ANALYSIS</div>
           <div style={{ fontSize:11.5, color:'#9b9b8f', lineHeight:1.65 }}>{summary}</div>
         </div>
       )}

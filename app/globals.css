@@ -49,6 +49,60 @@ body {
   background-position: 0 0, 0 0, 100% 0, 100% 0, 0 100%, 0 100%, 100% 100%, 100% 100%;
 }
 
+/* ── parametrized corner-bracket accent (dashboard cards): pass --vc inline to recolor per tier/section ── */
+.vault-corners {
+  position: relative;
+  background-image:
+    linear-gradient(var(--vc, var(--gold-bright)), var(--vc, var(--gold-bright))), linear-gradient(var(--vc, var(--gold-bright)), var(--vc, var(--gold-bright))),
+    linear-gradient(var(--vc, var(--gold-bright)), var(--vc, var(--gold-bright))), linear-gradient(var(--vc, var(--gold-bright)), var(--vc, var(--gold-bright))),
+    linear-gradient(var(--vc, var(--gold-bright)), var(--vc, var(--gold-bright))), linear-gradient(var(--vc, var(--gold-bright)), var(--vc, var(--gold-bright))),
+    linear-gradient(var(--vc, var(--gold-bright)), var(--vc, var(--gold-bright))), linear-gradient(var(--vc, var(--gold-bright)), var(--vc, var(--gold-bright)));
+  background-repeat: no-repeat;
+  background-size: 2px 16px, 16px 2px, 2px 16px, 16px 2px, 2px 16px, 16px 2px, 2px 16px, 16px 2px;
+  background-position: 0 0, 0 0, 100% 0, 100% 0, 0 100%, 0 100%, 100% 100%, 100% 100%;
+}
+
+/* ── subtle stone/vault texture: soft corner glows + faint diagonal hatch, CSS-only, no image asset ── */
+.vault-surface {
+  background:
+    radial-gradient(circle at 12% 15%, rgba(201,168,76,0.05), transparent 42%),
+    radial-gradient(circle at 88% 85%, rgba(201,168,76,0.04), transparent 42%),
+    repeating-linear-gradient(135deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px),
+    var(--surface);
+}
+
+/* ── combined vault treatment: textured surface + parametrized corner brackets in one class
+   (kept as a single rule, not a mix of .vault-surface + .vault-corners, because both use the
+   `background`/`background-image` property — stacking two separate rules for it would let
+   whichever rule is later in the cascade silently wipe out the other's layers). ── */
+.vault-panel {
+  position: relative;
+  background-color: var(--surface);
+  background-image:
+    radial-gradient(circle at 12% 15%, rgba(201,168,76,0.05), transparent 42%),
+    radial-gradient(circle at 88% 85%, rgba(201,168,76,0.04), transparent 42%),
+    repeating-linear-gradient(135deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px),
+    linear-gradient(var(--vc, var(--gold-bright)), var(--vc, var(--gold-bright))), linear-gradient(var(--vc, var(--gold-bright)), var(--vc, var(--gold-bright))),
+    linear-gradient(var(--vc, var(--gold-bright)), var(--vc, var(--gold-bright))), linear-gradient(var(--vc, var(--gold-bright)), var(--vc, var(--gold-bright))),
+    linear-gradient(var(--vc, var(--gold-bright)), var(--vc, var(--gold-bright))), linear-gradient(var(--vc, var(--gold-bright)), var(--vc, var(--gold-bright))),
+    linear-gradient(var(--vc, var(--gold-bright)), var(--vc, var(--gold-bright))), linear-gradient(var(--vc, var(--gold-bright)), var(--vc, var(--gold-bright)));
+  background-repeat: no-repeat;
+  background-size:
+    100% 100%, 100% 100%, 100% 100%,
+    2px 16px, 16px 2px, 2px 16px, 16px 2px, 2px 16px, 16px 2px, 2px 16px, 16px 2px;
+  background-position:
+    0 0, 0 0, 0 0,
+    0 0, 0 0, 100% 0, 100% 0, 0 100%, 0 100%, 100% 100%, 100% 100%;
+}
+
+/* ── gold-coin numeric readout, used for coins/h and other headline figures ── */
+.coin-value {
+  font-family: 'Space Mono', monospace; font-weight: 700;
+  background: linear-gradient(135deg, var(--gold-bright), var(--gold) 60%, var(--gold-dim));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 6px rgba(232,192,99,0.35));
+}
+
 .btn-primary { background: var(--gold); color: var(--black); padding: 0.85rem 2rem; border-radius: 4px; font-weight: 700; font-size: 0.95rem; text-decoration: none; display: inline-block; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
 .btn-ghost { border: 1px solid rgba(232,192,99,0.55); background: rgba(10,9,7,0.4); backdrop-filter: blur(4px); color: var(--white); padding: 0.85rem 2rem; border-radius: 4px; font-size: 0.95rem; text-decoration: none; display: inline-block; }
 
