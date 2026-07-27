@@ -314,48 +314,56 @@ function MethodCard({ method, tier, accentColor, type }: {
             boxShadow:    expanded?`0 0 18px ${accentColor}20`:'none',
           }}
         >
-          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-            {/* Skill medallion */}
+          <div style={{ position:'relative' }}>
+            {/* Skill medallion — a pointed gem-tab that bites into the card's left
+                edge instead of a floating circle, so the card body itself stays a
+                fully safe rectangle for text while the shape identity lives on the
+                one element with no real content in it. */}
             <div style={{
-              width:38, height:38, borderRadius:'50%', flexShrink:0,
-              background:`radial-gradient(circle at 32% 28%, ${accentColor}40, ${accentColor}0c 70%)`,
-              border:`1.5px solid ${accentColor}55`,
-              boxShadow:`0 0 10px ${accentColor}25, inset 0 1px 3px rgba(255,255,255,0.1)`,
-              display:'flex', alignItems:'center', justifyContent:'center', fontSize:16
+              position:'absolute', left:-24, top:'50%', transform:'translateY(-50%)',
+              width:40, height:44, flexShrink:0,
+              clipPath:'polygon(38% 0%, 100% 0%, 100% 100%, 38% 100%, 0% 50%)',
+              background:`linear-gradient(135deg, ${accentColor}55, ${accentColor}18)`,
+              border:`1.5px solid ${accentColor}70`,
+              boxShadow:`0 0 10px ${accentColor}35, inset 0 1px 2px rgba(255,255,255,0.12)`,
+              display:'flex', alignItems:'center', justifyContent:'center', fontSize:16,
+              paddingLeft:6,
             }}>
               {skillIcon}
             </div>
 
-            {/* Name */}
-            <div style={{ flex:1, minWidth:0 }}>
-              <div title={name} style={{ fontSize:nameSize, fontWeight:700, color:'#e8e6df', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:5 }}>
-                {name}
-              </div>
-              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                {skill && <span style={{ fontSize:8.5, color:accentColor+'cc', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.02em' }}>{skill.replace(/_/g,' ').toUpperCase()}</span>}
-                {feedback && <FeedbackBadge fb={feedback} />}
-              </div>
-            </div>
-
-            {/* Coins + conf */}
-            <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6, flexShrink:0 }}>
-              {coins && (
-                <div className="coin-value" style={{ fontSize:17, letterSpacing:'0.01em', whiteSpace:'nowrap' }}>
-                  🪙 {coins}
+            <div style={{ display:'flex', alignItems:'center', gap:12, paddingLeft:22 }}>
+              {/* Name */}
+              <div style={{ flex:1, minWidth:0 }}>
+                <div title={name} style={{ fontSize:nameSize, fontWeight:700, color:'#e8e6df', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:5 }}>
+                  {name}
                 </div>
-              )}
-              <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-                <span style={{ fontSize:8, color:confColor, background:confColor+'15', border:'1px solid '+confColor+'40', padding:'2px 6px', borderRadius:4, fontFamily:"'Press Start 2P', monospace", fontWeight:700 }}>
-                  {st(method.confidence)||'MED'}
-                </span>
-                <span style={{ fontSize:14, color:accentColor, transform:expanded?'rotate(90deg)':'none', transition:'transform 0.2s', display:'inline-block', textShadow:`0 0 8px ${accentColor}60` }}>›</span>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  {skill && <span style={{ fontSize:8.5, color:accentColor+'cc', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.02em' }}>{skill.replace(/_/g,' ').toUpperCase()}</span>}
+                  {feedback && <FeedbackBadge fb={feedback} />}
+                </div>
+              </div>
+
+              {/* Coins + conf */}
+              <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6, flexShrink:0 }}>
+                {coins && (
+                  <div className="coin-value" style={{ fontSize:17, letterSpacing:'0.01em', whiteSpace:'nowrap' }}>
+                    🪙 {coins}
+                  </div>
+                )}
+                <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                  <span style={{ fontSize:8, color:confColor, background:confColor+'15', border:'1px solid '+confColor+'40', padding:'2px 6px', borderRadius:4, fontFamily:"'Press Start 2P', monospace", fontWeight:700 }}>
+                    {st(method.confidence)||'MED'}
+                  </span>
+                  <span style={{ fontSize:14, color:accentColor, transform:expanded?'rotate(90deg)':'none', transition:'transform 0.2s', display:'inline-block', textShadow:`0 0 8px ${accentColor}60` }}>›</span>
+                </div>
               </div>
             </div>
           </div>
 
           {/* Preview */}
           {!expanded && preview && (
-            <div style={{ marginTop:6, paddingLeft:46, fontSize:10.5, color:'#4a4a45', lineHeight:1.4, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:1, WebkitBoxOrient:'vertical' }}>
+            <div style={{ marginTop:6, paddingLeft:22, fontSize:10.5, color:'#4a4a45', lineHeight:1.4, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:1, WebkitBoxOrient:'vertical' }}>
               {preview}
             </div>
           )}
