@@ -32,7 +32,7 @@ export default function Home() {
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
         :root {
           --black: #0a0a0a; --white: #f5f4f0; --gold: #c9a84c;
-          --gold-dim: #8a6e2f; --surface: #111110; --surface2: #1a1917;
+          --gold-bright: #e8c063; --gold-dim: #8a6e2f; --surface: #111110; --surface2: #1a1917;
           --border: rgba(201,168,76,0.18); --muted: #6b6960; --text: #e8e6df;
         }
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -44,7 +44,40 @@ export default function Home() {
         nav a:hover { color: var(--gold); }
         .nav-cta { background: var(--gold) !important; color: var(--black) !important; padding: 0.45rem 1.1rem; border-radius: 4px; font-weight: 600; font-size: 0.825rem; }
         .nav-links { display: flex; gap: 2rem; align-items: center; }
-        .hero { padding: 7rem 2.5rem 5rem; max-width: 900px; margin: 0 auto; text-align: center; }
+        /* Hero: locked background scene (public/images/hero-background.jpg) with an
+           opaque text panel on top. Panel sits near the top of the section, inside the
+           image's own archway/light-beam area, so it never covers the chest or the
+           floating key below it -- those are the composition's focal points. */
+        .hero {
+          position: relative; overflow: hidden;
+          min-height: clamp(560px, 82vh, 820px);
+          display: flex; flex-direction: column; align-items: center;
+        }
+        .hero-bg {
+          position: absolute; inset: 0; z-index: 0;
+          background-image: url('/images/hero-background.jpg');
+          background-size: cover; background-position: center 22%;
+          background-color: var(--black);
+        }
+        .hero-bg::after {
+          content: ''; position: absolute; inset: 0;
+          background: linear-gradient(to bottom, rgba(10,10,10,0.55) 0%, rgba(10,10,10,0.05) 26%, rgba(10,10,10,0.05) 70%, rgba(10,10,10,0.5) 100%);
+        }
+        .hero-copy {
+          position: relative; z-index: 2;
+          max-width: 560px; margin: 96px auto 0; text-align: center;
+          padding: 2.1rem 2.3rem 1.9rem;
+          background: linear-gradient(180deg, rgba(15,13,9,0.88), rgba(8,7,5,0.86));
+          backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+          border: 1px solid rgba(201,168,76,0.32);
+          border-radius: 4px;
+          box-shadow: 0 24px 70px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.04);
+        }
+        .hero-corner { position: absolute; width: 18px; height: 18px; pointer-events: none; border-color: var(--gold-bright); }
+        .hero-corner.tl { top: -1px; left: -1px; border-top: 2px solid; border-left: 2px solid; }
+        .hero-corner.tr { top: -1px; right: -1px; border-top: 2px solid; border-right: 2px solid; }
+        .hero-corner.bl { bottom: -1px; left: -1px; border-bottom: 2px solid; border-left: 2px solid; }
+        .hero-corner.br { bottom: -1px; right: -1px; border-bottom: 2px solid; border-right: 2px solid; }
         .eyebrow { display: inline-block; font-family: 'Space Mono', monospace; font-size: 0.7rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold); border: 1px solid var(--border); padding: 0.35rem 0.9rem; border-radius: 2px; margin-bottom: 2rem; }
         h1 { font-size: clamp(2.2rem, 5vw, 3.6rem); font-weight: 700; line-height: 1.1; color: var(--white); margin-bottom: 1.5rem; letter-spacing: -0.02em; }
         h1 em { font-style: normal; color: var(--gold); }
@@ -96,14 +129,21 @@ export default function Home() {
       </nav>
 
       <section className="hero">
-        <span className="eyebrow">Hypixel Skyblock Intelligence</span>
-        <h1>The edge <em>YouTube</em> will never give you</h1>
-        <p className="hero-sub">
-          Vault is an AI-powered economy agent that monitors the Bazaar, AH, patches and community signals 24/7 — and delivers <strong>actionable intelligence</strong> directly to you.
-        </p>
-        <div className="cta-group">
-          <a href="#pricing" className="btn-primary">Get Access</a>
-          <a href="#how-it-works" className="btn-ghost">See how it works</a>
+        <div className="hero-bg" />
+        <div className="hero-copy">
+          <span className="hero-corner tl" />
+          <span className="hero-corner tr" />
+          <span className="hero-corner bl" />
+          <span className="hero-corner br" />
+          <span className="eyebrow">Hypixel Skyblock Intelligence</span>
+          <h1>Unlock the vault of your <em>Skyblock economy</em></h1>
+          <p className="hero-sub">
+            Real-time market intelligence, patch analysis, and AI-driven strategy for Hypixel Skyblock — refreshed around the clock so you&rsquo;re never trading on stale data.
+          </p>
+          <div className="cta-group">
+            <Link href="/login" className="btn-primary">Sign in</Link>
+            <a href="#pricing" className="btn-ghost">View pricing</a>
+          </div>
         </div>
       </section>
 

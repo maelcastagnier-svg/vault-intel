@@ -20,6 +20,50 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Landing page — hero verrouillé pour le lancement de cette semaine (27 juillet)
+
+Après plusieurs semaines d'itération sur l'identité visuelle Vault (coffre-fort + clé, 
+esthétique mi-Wakfu/Dofus mi-Minecraft) explorée à travers de nombreux prototypes en 
+Claude Artifacts (rendu code pur WebGL, génération d'image via Pollinations.ai, tentative 
+Hugging Face Inference API, géométrie 3D réelle via Three.js) — la direction artistique 
+retenue et **intégrée dans le vrai code de production** (`app/page.tsx`, pas un mockup) 
+est une image générée de type Minecraft Dungeons/Story Mode : coffre-fort doré au centre, 
+clé flottante éclairée par un faisceau de lumière descendant du plafond, salle des coffres 
+dans la pénombre en arrière-plan, texte "VAULT" en blocs dorés au sol (sert de signature 
+visuelle de la scène, pas de logo dupliqué par-dessus).
+
+**Ce qui a été fait, dans l'ordre** :
+- Image source fournie par l'utilisateur (`Desktop/Image Vault/HeroBackground.png.png`), 
+  netteté renforcée via `sharp().sharpen({ sigma: 1.1, m1: 1.0, m2: 0.6, ... })` (unsharp 
+  mask) pour corriger le flou sur les détails fins (coffres empilés en arrière-plan, 
+  bijoux au sol, bords du texte "VAULT") — validé par comparaison avant/après zoomée sur 
+  la zone la plus critique avant d'appliquer au fichier final.
+- Convertie en JPEG qualité 90 (2,4 Mo en PNG → 293 Ko), déplacée vers 
+  `public/images/hero-background.jpg`.
+- `.hero` dans `app/page.tsx` restructuré : `.hero-bg` (image de fond, `background-size: 
+  cover`, `background-position: center 22%`) + `.hero-copy` (panneau de texte superposé — 
+  fond semi-transparent sombre en dégradé, fine bordure dorée, 4 coins ornementaux en 
+  coin-bracket, `backdrop-filter: blur`) — même traitement de panneau déjà validé sur les 
+  prototypes Artifact précédents.
+- Panneau positionné en haut de la section (dans la zone du faisceau lumineux/arche, 
+  au-dessus du coffre et de la clé) pour ne jamais cacher les deux éléments visuels 
+  centraux de la composition.
+- Titre/sous-titre/CTA du hero remplacés : "Unlock the vault of your Skyblock economy" 
+  + sous-titre intelligence de marché + boutons "Sign in" (`/login`) / "View pricing" 
+  (`#pricing`) — remplace l'ancien texte générique "The edge YouTube will never give you" 
+  qui n'avait aucun lien avec l'identité visuelle travaillée.
+- Testé en local (`npm run dev`) avant validation : page 200, image servie correctement 
+  à `/images/hero-background.jpg` (293 Ko confirmés), texte du hero présent dans le HTML 
+  rendu.
+
+**Verrouillé pour le lancement** : on arrête d'itérer sur la composition/le contenu de 
+cette image hero — elle ne doit plus être régénérée ni recomposée sans demande explicite.
+
+**Amélioration possible en V2, pas bloquant pour ce lancement** : décliner d'autres 
+visuels de la même famille (même moteur de génération, même traitement de netteté) pour 
+les autres sections du site (dashboard, About/How it works, pages de fonctionnalités) — 
+pas commencé, aucune demande actuelle en ce sens.
+
 ## ✅ Gating par tier d'abonnement (Free/Alert/Pro/Elite) — implémenté et corrigé une faille réelle (23 juillet)
 
 Plans validés : **Free** (0$, Flash Alerts dégradé top-5 + Patch Analysis Live résumé 
