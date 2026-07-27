@@ -2,16 +2,13 @@
 // Supabase direct client-side — zéro API route pour la recherche et l'historique
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '../lib/supabase'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid
 } from 'recharts'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+const supabase = createClient()
 
 // ─── Types ───────────────────────────────────────────────────
 type SearchResult = { item_id: string; item_name: string; source: 'bazaar'|'ah'; variant_count: number }
@@ -386,10 +383,11 @@ function RadarCard({ item, type }: { item: RadarItem; type:'positive'|'negative'
   const [hov,setHov] = useState(false)
   return (
     <div onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}
-      style={{ background:hov?'#141413':'#0f0f0e', border:`1px solid ${hov?sigColor+'50':'rgba(201,168,76,0.1)'}`, borderLeft:`3px solid ${sigColor}`, borderRadius:9, padding:'13px 14px', marginBottom:8, transition:'all 0.15s', boxShadow:hov?`0 0 16px ${sigColor}20`:'none' }}>
+      className="vault-surface gem-tab-lg"
+      style={{ border:`1px solid ${hov?sigColor+'60':sigColor+'30'}`, padding:'13px 14px 13px 30px', marginBottom:8, transition:'all 0.15s', filter:hov?`drop-shadow(0 0 16px ${sigColor}30)`:`drop-shadow(0 0 5px ${sigColor}10)` }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8, marginBottom:8 }}>
         <div style={{ flex:1,minWidth:0 }}>
-          <div style={{ fontSize:12,fontWeight:700,color:'#e8e6df',marginBottom:2 }}>{item.item_name||item.item_id}</div>
+          <div style={{ fontSize:13.5,fontWeight:700,color:'#e8e6df',marginBottom:2 }}>{item.item_name||item.item_id}</div>
           <div style={{ fontSize:9,color:'#4a4a45',fontFamily:'Space Mono, monospace' }}>{item.item_id}</div>
         </div>
         <div style={{ display:'flex',flexDirection:'column',alignItems:'flex-end',gap:3,flexShrink:0 }}>
