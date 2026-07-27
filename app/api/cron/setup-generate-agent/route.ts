@@ -109,22 +109,38 @@ function normalizeText(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 }
 
-function significantWords(displayName: string): string[] {
-  return normalizeText(displayName).split(' ').filter(w => w.length >= 3)
+function significantWords(s: string): string[] {
+  return normalizeText(s).split(' ').filter(w => w.length >= 3)
 }
 
-// Un item du catalogue "matche" un texte libre si tous ses mots significatifs
-// SAUF le dernier (le type d'objet : Helmet/Drill/Sword...) apparaissent dans
-// le texte — permet à "Infernal Crimson Armor" de matcher les 4 pièces
-// Infernal Crimson Helmet/Chestplate/Leggings/Boots (même préfixe, type
-// différent), et à "Divan's Drill (Tier 4) + Fuel Tank" de matcher "Divan's
-// Drill" par simple inclusion de sous-chaîne.
-function matchesFreeText(displayName: string, freeText: string): boolean {
+// weapon_name/tool/rod nomment un item précis -> on exige que TOUS ses mots
+// significatifs apparaissent comme mots entiers dans le texte (pas une
+// sous-chaîne : "Hyper Cleaver" ne doit jamais matcher "Hyperion", "hyper"
+// n'est pas un mot entier de "hyperion").
+function matchesExact(displayName: string, freeText: string): boolean {
   const words = significantWords(displayName)
   if (words.length === 0) return false
-  const prefix = words.length > 1 ? words.slice(0, -1) : words
-  const norm   = normalizeText(freeText)
-  return prefix.every(w => norm.includes(w))
+  const targetWords = new Set(significantWords(freeText))
+  return words.every(w => targetWords.has(w))
+}
+
+// armor_set nomme le SET, pas la pièce ("Infernal Crimson Armor") -- son mot
+// de type (Helmet/Chestplate/...) est donc censé être absent du texte. On le
+// retire via la vraie `category` de l'item (donnée réelle), jamais en devinant
+// "le dernier mot". Exige au moins 2 mots restants : un seul adjectif
+// générique partagé (ex "Crimson", "Magma" -- réutilisés dans plusieurs
+// familles d'items à des tiers totalement différents) ne suffit pas à
+// matcher -- confirmé en test réel : "Crimson Helmet" (~4M, T1 Kuudra) se
+// faisait matcher à tort par "Infernal Crimson Armor" (T5, la vraie pièce
+// visée étant Infernal Crimson Helmet, ~500M) avant ce garde-fou.
+const ARMOR_PIECE_CATEGORIES = new Set(['HELMET', 'CHESTPLATE', 'LEGGINGS', 'BOOTS'])
+const ARMOR_TYPE_WORDS       = new Set(['helmet', 'chestplate', 'leggings', 'boots'])
+function matchesArmorSet(item: PricedItem, armorSetText: string): boolean {
+  if (!ARMOR_PIECE_CATEGORIES.has(item.category)) return false
+  const words = significantWords(item.display_name).filter(w => !ARMOR_TYPE_WORDS.has(w))
+  if (words.length < 2) return false
+  const targetWords = new Set(significantWords(armorSetText))
+  return words.every(w => targetWords.has(w))
 }
 
 function formatCoins(n: number): string {
@@ -140,22 +156,24 @@ function formatCoins(n: number): string {
 // la somme réelle et le nombre d'items trouvés, ou null si rien ne matche
 // (dans ce cas on laisse les champs cost_* de Claude tels quels).
 export function computeRealCost(setup: any, priced: PricedItem[]): { total: number; matchedCount: number; matched: { item_id: string; display_name: string; price: number }[] } | null {
-  const texts = [setup.armor_set, setup.weapon_name, setup.tool, setup.rod].filter((t): t is string => !!t)
-  if (texts.length === 0) return null
-
   const matchedIds = new Set<string>()
   const matched: { item_id: string; display_name: string; price: number }[] = []
   let total = 0
-  for (const text of texts) {
-    for (const item of priced) {
-      if (matchedIds.has(item.item_id)) continue
-      if (matchesFreeText(item.display_name, text)) {
-        matchedIds.add(item.item_id)
-        matched.push({ item_id: item.item_id, display_name: item.display_name, price: item.price })
-        total += item.price
-      }
-    }
+
+  const addMatch = (item: PricedItem) => {
+    if (matchedIds.has(item.item_id)) return
+    matchedIds.add(item.item_id)
+    matched.push({ item_id: item.item_id, display_name: item.display_name, price: item.price })
+    total += item.price
   }
+
+  if (setup.armor_set) {
+    for (const item of priced) if (matchesArmorSet(item, setup.armor_set)) addMatch(item)
+  }
+  for (const text of [setup.weapon_name, setup.tool, setup.rod].filter((t): t is string => !!t)) {
+    for (const item of priced) if (matchesExact(item.display_name, text)) addMatch(item)
+  }
+
   return matchedIds.size > 0 ? { total, matchedCount: matchedIds.size, matched } : null
 }
 
