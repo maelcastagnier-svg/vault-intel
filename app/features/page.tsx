@@ -14,8 +14,8 @@ const FEATURES = [
   },
   {
     name: '💰 Money Making',
-    tier: 'Pro+ (Vault Exclusive add-on on Elite)',
-    desc: 'Four full tier tables matched to your net worth stage — Early (0-50M, 10M/h target), Mid (50-500M, 25M/h), End (500M-5B, 50M/h), Late (5B+, 70M+/h) — each with real Bazaar flips, AH flips, and farming setups. Elite additionally unlocks Vault Exclusive: AI-generated methods not published in the standard tiers.',
+    tier: 'Pro+ (Vault Exclusive on Elite)',
+    desc: 'Two categories per net worth tier — Early (0-50M, 10M/h target), Mid (50-500M, 25M/h), End (500M-5B, 50M/h), Late (5B+, 70M+/h). Active Grind: the best verified skill-based methods for that tier, each with a concrete gear setup (enchants, armor, reforges). Vault Exclusive (Elite only): non-obvious method innovations discovered by AI, not published anywhere else.',
   },
   {
     name: '🔧 Patch Analysis',
@@ -23,9 +23,9 @@ const FEATURES = [
     desc: 'Every patch — both live releases and alpha/PTL previews — broken down for its direct economic impact: which items were buffed or nerfed, which money-making methods it affects, and what that shifts for you before the wider playerbase reacts.',
   },
   {
-    name: '📡 Radar',
+    name: '📡 Market Radar',
     tier: 'Pro+',
-    desc: 'An interactive price chart for any tracked item across five time ranges (1 day to 3 years), showing sell price, buy price, and volume. Underneath it, AI-generated signals — buy, sell, watch, or avoid — each with its reasoning (patch changes, supply shocks, event demand, trend direction), a confidence rating, and a price target, for positioning mid-to-long-term rather than just the next flip.',
+    desc: 'A price explorer covering 4,781 items across Bazaar and Auction House, up to 3 years of history — sell price, buy price, volume. Alongside it, daily AI intelligence in two columns: Top Opportunities and Risk Items, each with its reasoning (patch changes, supply shocks, event demand, trend direction), a confidence rating, a timeframe, and a price target.',
   },
 ]
 

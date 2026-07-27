@@ -29,7 +29,7 @@ const PLANS = [
   {
     key: 'pro', name: 'Pro', price: '€19.99', period: '/month',
     desc: 'Full intelligence suite for serious players',
-    features: ['Everything in Alert', 'Investment Radar', 'Money Making — Active tiers', 'Evolve: Skills & Milestones'],
+    features: ['Everything in Alert', 'Market Radar', 'Money Making — Active Grind', 'Evolve: Skills & Milestones'],
     cta: 'Get started', featured: true, badge: 'Most popular', priceId: PRICES.pro, comingSoon: false,
   },
   {
@@ -199,7 +199,7 @@ export default function Home() {
             },
             {
               icon: '💰', name: '#money-making', tier: 'Pro+ (Vault Exclusive on Elite)',
-              desc: 'Four full tier tables matched to your net worth stage — Early (0-50M, 10M/h target), Mid (50-500M, 25M/h), End (500M-5B, 50M/h), Late (5B+, 70M+/h) — each with real Bazaar flips, AH flips, and farming setups. Elite unlocks Vault Exclusive: AI-generated methods not published in the standard tiers.',
+              desc: 'Two categories per net worth tier — Early (0-50M, 10M/h target), Mid (50-500M, 25M/h), End (500M-5B, 50M/h), Late (5B+, 70M+/h): Active Grind (the best verified skill-based methods for that tier, each with a real gear setup) and Vault Exclusive (non-obvious method innovations discovered by AI, Elite only).',
             },
             {
               icon: '🔧', name: '#patch-analysis', tier: 'Alert+ (live summary only on Free)',
@@ -207,7 +207,7 @@ export default function Home() {
             },
             {
               icon: '📡', name: '#radar', tier: 'Pro+',
-              desc: 'An interactive price chart for any tracked item across five time ranges (1 day to 3 years) — sell price, buy price, volume. Underneath it, AI-generated signals (buy, sell, watch, avoid) with reasoning, a confidence rating, and a price target, for positioning mid-to-long-term rather than just the next flip.',
+              desc: 'A price explorer covering 4,781 items across Bazaar and AH, up to 3 years of history, plus daily AI intelligence: Top Opportunities and Risk Items, each with reasoning, a confidence rating, timeframe, and price target.',
             },
             {
               icon: '🧬', name: '#evolve', tier: 'Pro+ (Daily Missions on Elite)',
