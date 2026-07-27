@@ -45,15 +45,19 @@ const methodKey = (m: any) =>
 function VCoin({ size = 15 }: { size?: number }) {
   return (
     <span style={{
-      display:'inline-flex', alignItems:'center', justifyContent:'center',
-      width:size, height:size, borderRadius:'50%', flexShrink:0,
+      position:'relative', display:'inline-block', flexShrink:0,
+      width:size, height:size, borderRadius:'50%',
       background:'radial-gradient(circle at 32% 28%, #f5dea0, #c9a84c 55%, #8a6e2f 100%)',
       border:'1px solid #6e5722',
       boxShadow:'0 0 4px rgba(232,192,99,0.55), inset 0 1px 1px rgba(255,255,255,0.45), inset 0 -1px 1px rgba(0,0,0,0.3)',
     }}>
+      {/* Georgia/serif bold fills its own em-box much closer to edge-to-edge than
+          the pixel font (Press Start 2P) did -- that one left so much built-in
+          glyph padding the V read as a tiny mark stuck in the top-left corner. */}
       <span style={{
-        fontSize:size*0.6, fontWeight:900, color:'#5c4a1f', fontFamily:"'Press Start 2P', monospace",
-        lineHeight:1, transform:'translateY(-0.5px)', textShadow:'0 1px 0 rgba(255,255,255,0.25)',
+        position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center',
+        fontSize:size*0.82, fontWeight:900, color:'#4a3a18', fontFamily:'Georgia, "Times New Roman", serif',
+        lineHeight:1, textShadow:'0 1px 0 rgba(255,255,255,0.3)',
       }}>V</span>
     </span>
   )
