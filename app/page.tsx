@@ -184,11 +184,10 @@ export default function Home() {
         <h2>Intelligence that acts before the market does</h2>
         <div className="channels-grid">
           {[
-            { name: "#flash-alerts", desc: "Real-time Bazaar + AH price anomalies. Top 3 trades to execute right now." },
-            { name: "#money-making", desc: "4 tier tables (Early/Mid/End/Late game) with Bazaar flips, AH flips, farming methods and Vault exclusive opportunities." },
-            { name: "#patch-analysis", desc: "Every patch analyzed for economic impact — items affected, meta shifts, investment windows." },
-            { name: "#investment-radar", desc: "Mid and long term positions. What to accumulate now, what to sell before the market moves." },
-            { name: "#ah-sniper", desc: "AH opportunities detected in real-time. Items listed below market value with buy/relist targets." },
+            { name: "#flash-alerts", desc: "Live-ranked Top 25 Bazaar flips and Top 25 AH opportunities, updated continuously — never a delayed digest." },
+            { name: "#money-making", desc: "4 tier tables (Early/Mid/End/Late game) with Bazaar flips, AH flips and farming methods matched to your progression stage." },
+            { name: "#patch-analysis", desc: "Every patch — live and alpha/PTL — analyzed for buffs, nerfs, and which money-making methods it affects." },
+            { name: "#radar", desc: "An interactive price chart for any tracked item, plus AI buy/sell signals with mid-to-long-term flip targets underneath." },
           ].map((c, i) => (
             <div key={i} className="channel vault-card">
               <div className="channel-name">{c.name}</div>

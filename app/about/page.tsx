@@ -29,12 +29,16 @@ export default function About() {
 
         <h2>What we actually do</h2>
         <p>
-          Every signal Vault surfaces — a flash alert, a money-making method, a patch impact
-          breakdown — is generated from data Vault collected itself, not guesswork. The pipeline runs
-          around the clock: Bazaar and Auction House snapshots, patch notes, item catalogs, and (for
-          players who link their account) real profile progression. AI is used specifically to
-          interpret and prioritize that data — never to invent a number Vault hasn&rsquo;t actually
-          observed.
+          Every signal Vault surfaces is generated from data Vault collected itself, not guesswork.
+          The pipeline runs around the clock: Bazaar and Auction House snapshots, patch notes, item
+          catalogs, and (for players who link their account) real profile progression. AI is used
+          specifically to interpret and prioritize that data — never to invent a number Vault
+          hasn&rsquo;t actually observed. Concretely, that&rsquo;s five things: live-ranked
+          <strong> Flash Alerts</strong> on Bazaar and AH, tier-matched <strong>Money Making</strong>{' '}
+          tables, per-patch <strong>Patch Analysis</strong>, an interactive <strong>Radar</strong>{' '}
+          chart with AI buy/sell signals, and — for linked accounts — <strong>Evolve</strong>{' '}
+          progression tracking. The full breakdown of each is on the <Link href="/features">Features
+          page</Link>.
         </p>
 
         <h2>Why it&rsquo;s independent</h2>
