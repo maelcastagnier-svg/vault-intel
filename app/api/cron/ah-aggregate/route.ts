@@ -1,9 +1,11 @@
 // app/api/cron/ah-aggregate/route.ts
 // 23h59 chaque soir :
 // 1. Lit ah_scan_buffer (toutes les variantes du jour)
-// 2. INSERT dans price_history_ah_variants (1 DAILY_EXACT par variante)
-// 3. INSERT dans price_history_ah (1 DAILY par item = moyenne toutes variantes)
-// 4. TRUNCATE ah_scan_buffer
+// 2. INSERT dans price_history_ah_variants (1 DAILY_EXACT par variante exacte)
+// 3. INSERT dans price_history_ah (1 DAILY par item = moyenne toutes variantes, __all_variants_blended__)
+// 4. INSERT dans price_history_ah_variant_base (1 row par variant_key_base = palier
+//    intermédiaire entre l'exact et le blended, ex: tous les "5 stars" peu importe reforge/gems)
+// 5. TRUNCATE ah_scan_buffer
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse }  from 'next/server'
 
@@ -97,8 +99,15 @@ export async function GET(request: Request) {
       const volume       = volumes.reduce((s, v) => s + v, 0)
       return {
         base_item_id,
-        variant_key:      'nostar_norecomb_noreforge',
-        variant_key_base: 'nostar_norecomb_noreforge',
+        // Placeholder pour "moyenne toutes variantes confondues" — pas un vrai
+        // variant_key. Anciennement 'nostar_norecomb_noreforge', qui collidait
+        // avec le VRAI variant_key du plain item (0 star/no recomb/no reforge)
+        // utilisé ailleurs (RadarSection, SetupOverlay) pour dire "Base item" —
+        // un flip pouvait silencieusement se faire comparer à cette moyenne
+        // blended en croyant comparer contre le plain item. Renommé pour ne
+        // plus jamais être confondu avec un variant_key réel.
+        variant_key:      '__all_variants_blended__',
+        variant_key_base: '__all_variants_blended__',
         granularity:      'DAILY',
         bucket_date:      scan_date,
         avg_price,
@@ -120,7 +129,92 @@ export async function GET(request: Request) {
       if (!error) dailyInserted += Math.min(100, dailyRows.length - i)
     }
 
-    // 4. TRUNCATE buffer
+    // ── TABLE 3 : price_history_ah_variant_base ───────────────
+    // 1 row par (base_item_id, variant_key_base) par jour — palier intermédiaire
+    // entre l'exact (Table 1, variant_key_full) et le blended toutes-variantes
+    // (Table 2). Ex: "5 stars" regroupe toutes les combinaisons de reforge/gems/
+    // enchants à 5 étoiles, plutôt que soit une variante ultra-précise soit une
+    // moyenne qui écrase même la distinction en étoiles.
+    // Regroupe les mêmes lignes fiables (scan_count >= 3) que Table 1.
+    type BaseGroup = {
+      weightedPriceSum: number
+      weightTotal:      number
+      minPrices:        number[]
+      maxPrices:        number[]
+      volumeSum:        number
+      dataPointsSum:    number
+      variantKeys:      Set<string>
+      best:             any // ligne au plus haut scan_count du groupe — source des champs descriptifs (non agrégés)
+    }
+    const baseGroupMap = new Map<string, BaseGroup>()
+
+    for (const b of buffer) {
+      if (b.scan_count < 3) continue
+      const key = `${b.base_item_id}::${b.variant_key_base}::${b.scan_date}`
+      if (!baseGroupMap.has(key)) {
+        baseGroupMap.set(key, {
+          weightedPriceSum: 0, weightTotal: 0,
+          minPrices: [], maxPrices: [], volumeSum: 0, dataPointsSum: 0,
+          variantKeys: new Set(), best: b,
+        })
+      }
+      const g = baseGroupMap.get(key)!
+      g.weightedPriceSum += Number(b.avg_price) * b.scan_count // pondéré par fiabilité
+      g.weightTotal      += b.scan_count
+      g.minPrices.push(Number(b.min_price))
+      g.maxPrices.push(Number(b.max_price))
+      g.volumeSum        += Number(b.volume)
+      g.dataPointsSum    += b.scan_count
+      g.variantKeys.add(b.variant_key)
+      if (b.scan_count > g.best.scan_count) g.best = b
+    }
+
+    // Seuil de fiabilité minimum avant d'écrire la ligne base : soit assez de
+    // scans au total, soit assez de variantes exactes distinctes contribuant.
+    const BASE_MIN_DATA_POINTS = 10
+    const BASE_MIN_VARIANTS    = 2
+
+    const baseRows = Array.from(baseGroupMap.entries())
+      .filter(([, g]) => g.dataPointsSum >= BASE_MIN_DATA_POINTS || g.variantKeys.size >= BASE_MIN_VARIANTS)
+      .map(([key, g]) => {
+        const [base_item_id, variant_key_base, bucket_date] = key.split('::')
+        const avg_price = Math.round(g.weightedPriceSum / g.weightTotal)
+        return {
+          base_item_id,
+          variant_key_base,
+          item_name:              g.best.item_name,
+          bucket_date,
+          avg_price,
+          min_price:              Math.min(...g.minPrices),
+          max_price:              Math.max(...g.maxPrices),
+          sell_price:             avg_price,
+          volume:                 g.volumeSum,
+          data_points:            g.dataPointsSum,
+          contributing_variants:  g.variantKeys.size,
+          total_stars:            g.best.total_stars,
+          master_stars:           g.best.master_stars,
+          is_recomb:              g.best.is_recomb,
+          ultimate_enchant:       g.best.ultimate_enchant,
+          ultimate_level:         g.best.ultimate_level,
+          attribute_1:            g.best.attribute_1,
+          attribute_1_level:      g.best.attribute_1_level,
+          attribute_2:            g.best.attribute_2,
+          attribute_2_level:      g.best.attribute_2_level,
+        }
+      })
+
+    let baseInserted = 0
+    for (let i = 0; i < baseRows.length; i += 100) {
+      const { error } = await supabase
+        .from('price_history_ah_variant_base')
+        .upsert(baseRows.slice(i, i + 100), {
+          onConflict:       'base_item_id, variant_key_base, bucket_date',
+          ignoreDuplicates: true,
+        })
+      if (!error) baseInserted += Math.min(100, baseRows.length - i)
+    }
+
+    // 5. TRUNCATE buffer
     await supabase.from('ah_scan_buffer')
       .delete()
       .lte('scan_date', new Date().toISOString().split('T')[0])
@@ -130,6 +224,8 @@ export async function GET(request: Request) {
       buffer_size:       buffer.length,
       variants_inserted: variantsInserted,
       daily_inserted:    dailyInserted,
+      base_inserted:     baseInserted,
+      base_groups_seen:  baseGroupMap.size,
       date:              buffer[0]?.scan_date,
     })
 
