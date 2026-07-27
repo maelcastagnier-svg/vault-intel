@@ -96,6 +96,76 @@ export function gearCatalogForBudget(priced: PricedItem[], maxGearCost: number):
     rows.map(s => `${s.item_id} "${s.display_name}" [${s.category}] price=${Math.round(s.price).toLocaleString()}`).join('\n')
 }
 
+// ── Coût réel calculé en code, jamais laissé à Claude ──────────
+// Testé en vrai (LATE-tier Gemstone Mining) : même avec une règle de prompt
+// explicite demandant de sommer les prix du catalogue, Haiku continue de
+// sortir un chiffre habituel proche de coins_display (ex: "95-110M" alors que
+// Divan's Drill seul vaut 1.86B dans le catalogue montré) — reproduit 2 fois
+// de suite. Un LLM rapide/pas cher ne fait pas fiablement cette arithmétique
+// en texte libre. On calcule donc le coût nous-mêmes après génération, en
+// matchant les noms d'items renvoyés par Claude contre le catalogue prix réel
+// — Claude ne touche plus jamais ce chiffre.
+function normalizeText(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+function significantWords(displayName: string): string[] {
+  return normalizeText(displayName).split(' ').filter(w => w.length >= 3)
+}
+
+// Un item du catalogue "matche" un texte libre si tous ses mots significatifs
+// SAUF le dernier (le type d'objet : Helmet/Drill/Sword...) apparaissent dans
+// le texte — permet à "Infernal Crimson Armor" de matcher les 4 pièces
+// Infernal Crimson Helmet/Chestplate/Leggings/Boots (même préfixe, type
+// différent), et à "Divan's Drill (Tier 4) + Fuel Tank" de matcher "Divan's
+// Drill" par simple inclusion de sous-chaîne.
+function matchesFreeText(displayName: string, freeText: string): boolean {
+  const words = significantWords(displayName)
+  if (words.length === 0) return false
+  const prefix = words.length > 1 ? words.slice(0, -1) : words
+  const norm   = normalizeText(freeText)
+  return prefix.every(w => norm.includes(w))
+}
+
+function formatCoins(n: number): string {
+  if (n >= 1_000_000_000) {
+    const b = n / 1_000_000_000
+    return (b >= 10 ? b.toFixed(0) : b.toFixed(1).replace(/\.0$/, '')) + 'B'
+  }
+  return Math.round(n / 1_000_000) + 'M'
+}
+
+// Cherche, sur l'ensemble des champs "gear" du setup, tous les items du
+// catalogue prix réel (dédupliqués) dont le nom matche le texte — retourne
+// la somme réelle et le nombre d'items trouvés, ou null si rien ne matche
+// (dans ce cas on laisse les champs cost_* de Claude tels quels).
+function computeRealCost(setup: any, priced: PricedItem[]): { total: number; matchedCount: number } | null {
+  const texts = [setup.armor_set, setup.weapon_name, setup.tool, setup.rod].filter((t): t is string => !!t)
+  if (texts.length === 0) return null
+
+  const matchedIds = new Set<string>()
+  let total = 0
+  for (const text of texts) {
+    for (const item of priced) {
+      if (matchedIds.has(item.item_id)) continue
+      if (matchesFreeText(item.display_name, text)) {
+        matchedIds.add(item.item_id)
+        total += item.price
+      }
+    }
+  }
+  return matchedIds.size > 0 ? { total, matchedCount: matchedIds.size } : null
+}
+
+function applyRealCost(setup: any, priced: PricedItem[]): void {
+  const real = computeRealCost(setup, priced)
+  if (!real) return
+  const { total, matchedCount } = real
+  setup.cost_budget  = `~${formatCoins(total * 0.75)} — cheaper rolls of the same real gear (fewer stars, no recomb)`
+  setup.cost_optimal = `~${formatCoins(total)} — real current AH price of the named gear (${matchedCount} item${matchedCount > 1 ? 's' : ''} matched)`
+  setup.cost_endgame = `~${formatCoins(total * 1.4)} — recombobulated/5★ premium rolls of the same gear`
+}
+
 // ── Clé unique identique entre agent et route ─────────────────
 export function methodKey(method: any): string {
   return (method.id || method.method || '')
@@ -205,7 +275,8 @@ Return ONLY raw JSON (no backticks, no explanation):
 export async function generateOne(
   method:      any,
   tier:        string,
-  wikiContext: string
+  wikiContext: string,
+  pricedItems: PricedItem[] = []
 ): Promise<boolean> {
   const key = methodKey(method)
   try {
@@ -232,6 +303,8 @@ export async function generateOne(
     if (!res.ok) throw new Error(`Claude ${res.status}`)
     const data  = await res.json()
     const setup = parseJSON(data.content?.[0]?.text || '')
+
+    applyRealCost(setup, pricedItems)
 
     await supabase.from('method_setups').upsert(
       { method_key: key, tier, setup: JSON.stringify(setup), generated_at: new Date().toISOString() },
@@ -286,7 +359,7 @@ export async function GET(req: NextRequest) {
     // Batch de 3 parallèles — même wikiContext → cache actif dès le 2e appel
     for (let i = 0; i < methods.length; i += 3) {
       const batch   = methods.slice(i, i + 3)
-      const results = await Promise.all(batch.map(m => generateOne(m, tier, wikiContext)))
+      const results = await Promise.all(batch.map(m => generateOne(m, tier, wikiContext, pricedItems)))
       results.forEach(r => r ? ok++ : fail++)
     }
   }

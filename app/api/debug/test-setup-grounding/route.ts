@@ -50,7 +50,7 @@ export async function GET() {
   const catalog = gearCatalogForBudget(pricedItems, TIER_CONFIG.late.max_gear_cost)
   const wikiContext = buildWikiContext(ctx) + '\n' + GROUNDING_RULES + '\n\n' + catalog
 
-  const ok = await generateOne(method, 'late', wikiContext)
+  const ok = await generateOne(method, 'late', wikiContext, pricedItems)
 
   const key = methodKey(method)
   const { data: savedRow } = await supabase
