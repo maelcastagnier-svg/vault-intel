@@ -85,12 +85,16 @@ export default function Home() {
         .hero-bg {
           position: absolute; inset: 0; z-index: 0;
           background-image: url('/images/hero-background.jpg');
-          background-size: cover; background-position: center 22%;
+          /* bottom-biased on purpose: the VAULT wordmark baked into the image sits at
+             ~78-91% down the source (1376x768), so cropping needs to favor the TOP
+             (empty archway ceiling, low cost to lose) over the bottom -- position 22%
+             was doing the opposite and could crop VAULT off on wide/short viewports. */
+          background-size: cover; background-position: center 85%;
           background-color: var(--black);
         }
         .hero-bg::after {
           content: ''; position: absolute; inset: 0;
-          background: linear-gradient(to bottom, rgba(10,10,10,0.62) 0%, rgba(10,10,10,0.1) 30%, rgba(10,10,10,0.05) 68%, rgba(10,10,10,0.5) 100%);
+          background: linear-gradient(to bottom, rgba(10,10,10,0.62) 0%, rgba(10,10,10,0.1) 30%, rgba(10,10,10,0.05) 68%, rgba(10,10,10,0.32) 100%);
         }
         .hero-copy {
           position: relative; z-index: 2;
@@ -182,21 +186,56 @@ export default function Home() {
       <section className="section" id="how-it-works">
         <div className="section-label">What you get</div>
         <h2>Intelligence that acts before the market does</h2>
-        <div className="channels-grid">
+        <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '2rem' }}>
+          Every one of the 5 real tabs inside the dashboard, in order. Live recordings of the dashboard in
+          action are coming soon — the icon panels below are illustrative, not screenshots.
+        </p>
+
+        <div style={{ display: 'grid', gap: '2.5rem' }}>
           {[
-            { name: "#flash-alerts", desc: "Live-ranked Top 25 Bazaar flips and Top 25 AH opportunities, updated continuously — never a delayed digest." },
-            { name: "#money-making", desc: "4 tier tables (Early/Mid/End/Late game) with Bazaar flips, AH flips and farming methods matched to your progression stage." },
-            { name: "#patch-analysis", desc: "Every patch — live and alpha/PTL — analyzed for buffs, nerfs, and which money-making methods it affects." },
-            { name: "#radar", desc: "An interactive price chart for any tracked item, plus AI buy/sell signals with mid-to-long-term flip targets underneath." },
+            {
+              icon: '⚡', name: '#flash-alerts', tier: 'Alert+ (Top 5 preview on Free)',
+              desc: 'Live-ranked Bazaar and Auction House opportunities, switchable between the two. Full Top 25 Bazaar flip feed, plus Top 25 per AH category, refreshed continuously as prices move — never a delayed daily digest.',
+            },
+            {
+              icon: '💰', name: '#money-making', tier: 'Pro+ (Vault Exclusive on Elite)',
+              desc: 'Four full tier tables matched to your net worth stage — Early (0-50M, 10M/h target), Mid (50-500M, 25M/h), End (500M-5B, 50M/h), Late (5B+, 70M+/h) — each with real Bazaar flips, AH flips, and farming setups. Elite unlocks Vault Exclusive: AI-generated methods not published in the standard tiers.',
+            },
+            {
+              icon: '🔧', name: '#patch-analysis', tier: 'Alert+ (live summary only on Free)',
+              desc: 'Every patch — live releases and alpha/PTL previews alike — broken down for its direct economic impact: which items were buffed or nerfed, which money-making methods it affects, and what that shifts before the wider playerbase reacts.',
+            },
+            {
+              icon: '📡', name: '#radar', tier: 'Pro+',
+              desc: 'An interactive price chart for any tracked item across five time ranges (1 day to 3 years) — sell price, buy price, volume. Underneath it, AI-generated signals (buy, sell, watch, avoid) with reasoning, a confidence rating, and a price target, for positioning mid-to-long-term rather than just the next flip.',
+            },
+            {
+              icon: '🧬', name: '#evolve', tier: 'Pro+ (Daily Missions on Elite)',
+              desc: 'Link your Hypixel account and Vault reads your actual profile — skills, slayers, dungeons, collections, equipped gear — instead of guessing. Skills & Milestones show exactly where you stand against the full completion guide, tier by tier. Elite adds Daily Missions: objectives generated from your own remaining gaps.',
+            },
           ].map((c, i) => (
-            <div key={i} className="channel vault-card">
-              <div className="channel-name">{c.name}</div>
-              <div className="channel-desc">{c.desc}</div>
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 180px', gap: '1.75rem', alignItems: 'stretch' }} className="feature-row">
+              <div className="vault-card" style={{ padding: '1.5rem' }}>
+                <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--white)', marginBottom: '0.35rem' }}>{c.name}</div>
+                <div className="pixel" style={{ fontSize: '0.55rem', color: 'var(--gold-dim)', marginBottom: '0.8rem' }}>{c.tier}</div>
+                <p style={{ fontSize: '0.88rem', color: 'var(--muted)', lineHeight: 1.65 }}>{c.desc}</p>
+              </div>
+              <div className="vault-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '1rem' }}>
+                <div style={{ fontSize: '2.4rem' }}>{c.icon}</div>
+                <div style={{ fontSize: '0.6rem', color: 'var(--muted)', textAlign: 'center', lineHeight: 1.4 }}>Live preview<br />coming soon</div>
+              </div>
             </div>
           ))}
         </div>
-        <p className="cap-note" style={{ textAlign: 'left', marginTop: '2rem' }}>
-          Want the full breakdown of every feature, tier by tier? <Link href="/features">See the full feature list →</Link>
+
+        <style>{`
+          @media (max-width: 640px) {
+            .feature-row { grid-template-columns: 1fr !important; }
+          }
+        `}</style>
+
+        <p className="cap-note" style={{ textAlign: 'left', marginTop: '2.5rem' }}>
+          Want the same breakdown on its own page? <Link href="/features">See the full feature list →</Link>
         </p>
       </section>
 
@@ -223,7 +262,10 @@ export default function Home() {
             </div>
           ))}
         </div>
-        <p className="cap-note">Maximum <strong>500 members</strong> per game to preserve the competitive edge of every analysis.</p>
+        <p className="cap-note">
+          Capped per game to preserve the competitive edge of every analysis: <strong>1,000</strong> Alert seats,{' '}
+          <strong>500</strong> Pro seats, <strong>250</strong> Elite seats — <strong>1,750</strong> premium seats total.
+        </p>
       </section>
 
       <SiteFooter />
