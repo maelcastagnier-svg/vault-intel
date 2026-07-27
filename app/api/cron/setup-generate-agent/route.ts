@@ -139,22 +139,24 @@ function formatCoins(n: number): string {
 // catalogue prix réel (dédupliqués) dont le nom matche le texte — retourne
 // la somme réelle et le nombre d'items trouvés, ou null si rien ne matche
 // (dans ce cas on laisse les champs cost_* de Claude tels quels).
-function computeRealCost(setup: any, priced: PricedItem[]): { total: number; matchedCount: number } | null {
+export function computeRealCost(setup: any, priced: PricedItem[]): { total: number; matchedCount: number; matched: { item_id: string; display_name: string; price: number }[] } | null {
   const texts = [setup.armor_set, setup.weapon_name, setup.tool, setup.rod].filter((t): t is string => !!t)
   if (texts.length === 0) return null
 
   const matchedIds = new Set<string>()
+  const matched: { item_id: string; display_name: string; price: number }[] = []
   let total = 0
   for (const text of texts) {
     for (const item of priced) {
       if (matchedIds.has(item.item_id)) continue
       if (matchesFreeText(item.display_name, text)) {
         matchedIds.add(item.item_id)
+        matched.push({ item_id: item.item_id, display_name: item.display_name, price: item.price })
         total += item.price
       }
     }
   }
-  return matchedIds.size > 0 ? { total, matchedCount: matchedIds.size } : null
+  return matchedIds.size > 0 ? { total, matchedCount: matchedIds.size, matched } : null
 }
 
 function applyRealCost(setup: any, priced: PricedItem[]): void {

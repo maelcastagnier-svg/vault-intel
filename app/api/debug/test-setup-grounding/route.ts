@@ -8,7 +8,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
   loadPricedItems, gearCatalogForBudget, buildWikiContext, GROUNDING_RULES,
-  generateOne, methodKey,
+  generateOne, methodKey, computeRealCost,
 } from '../../cron/setup-generate-agent/route'
 import { TIER_CONFIG } from '../../../../lib/money-making-constants'
 
@@ -60,6 +60,9 @@ export async function GET() {
     .eq('tier', 'late')
     .single()
 
+  const setupParsed = savedRow ? JSON.parse(savedRow.setup) : null
+  const costMatch = setupParsed ? computeRealCost(setupParsed, pricedItems) : null
+
   return NextResponse.json({
     method_chosen: {
       id: method.id, method: method.method, skill: method.skill || method.skills_combined,
@@ -69,6 +72,7 @@ export async function GET() {
     priced_items_total: pricedItems.length,
     late_catalog_row_count: catalog.split('\n').filter(l => /^[A-Z0-9_]+ /.test(l)).length,
     late_catalog_top20: catalog.split('\n').slice(0, 21).join('\n'),
-    generated_setup: savedRow ? JSON.parse(savedRow.setup) : null,
+    cost_match_debug: costMatch,
+    generated_setup: setupParsed,
   })
 }
