@@ -290,8 +290,13 @@ function MethodCard({ method, tier, accentColor, type }: {
     }:{ positive:vote==='works'?1:0, negative:vote==='doesnt_work'?1:0, total:1, approval_pct:vote==='works'?100:0 })
   }
 
-  const coins   = st(method.coins_display)
-  const preview = st(method.why_best)||st(method.the_edge)
+  const coins    = st(method.coins_display)
+  const preview  = st(method.why_best)||st(method.the_edge)
+  const name     = st(method.method)
+  // Ellipsis alone reads badly on long names at the bigger card-title size --
+  // scale the font down in steps as the real name gets longer, on top of the
+  // truncation+native-tooltip fallback for whatever still doesn't fit.
+  const nameSize = name.length>40?11.5:name.length>28?12.5:name.length>20?13.5:14.5
 
   return (
     <>
@@ -323,8 +328,8 @@ function MethodCard({ method, tier, accentColor, type }: {
 
             {/* Name */}
             <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontSize:14.5, fontWeight:700, color:'#e8e6df', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:5 }}>
-                {st(method.method)}
+              <div title={name} style={{ fontSize:nameSize, fontWeight:700, color:'#e8e6df', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:5 }}>
+                {name}
               </div>
               <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                 {skill && <span style={{ fontSize:8.5, color:accentColor+'cc', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.02em' }}>{skill.replace(/_/g,' ').toUpperCase()}</span>}
