@@ -2,6 +2,7 @@
 // Visuel 100% React — Claude fournit uniquement du texte
 'use client'
 import { useState, useCallback } from 'react'
+import SetupOverlay from './SetupOverlay'
 
 type AnyMethod = Record<string, any>
 type Setup = Record<string, any>
@@ -34,8 +35,6 @@ const SKILL_ICONS: Record<string, string> = {
 const CONF_COLORS: Record<string, string> = { HIGH:'#1baf7a', MED:'#c9a84c', LOW:'#e34948' }
 
 const st = (v: any) => typeof v === 'string' ? v : ''
-const nm = (v: any) => typeof v === 'number' ? v : 0
-const bl = (v: any) => typeof v === 'boolean' ? v : false
 const ar = (v: any): string[] => Array.isArray(v) ? v.filter(x => typeof x === 'string') : []
 const methodKey = (m: any) =>
   (st(m.id)||st(m.method)).toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'').slice(0,80)
@@ -57,108 +56,6 @@ function VCoin({ size = 15 }: { size?: number }) {
         lineHeight:1, transform:'translateY(-0.5px)', textShadow:'0 1px 0 rgba(255,255,255,0.25)',
       }}>V</span>
     </span>
-  )
-}
-
-// ─── Stars ────────────────────────────────────────────────────
-function Stars({ count }: { count: number }) {
-  const c = Math.min(Math.max(nm(count),0),7)
-  return c ? <span style={{ color:'#c9a84c', fontSize:10, marginLeft:4, letterSpacing:1 }}>{'⭐'.repeat(c)}</span> : null
-}
-
-// ─── Tag ──────────────────────────────────────────────────────
-function Tag({ text, color='#c9a84c' }: { text: string; color?: string }) {
-  if (!text) return null
-  return <span style={{ display:'inline-block', fontSize:9, padding:'1px 7px', borderRadius:4, background:color+'15', border:'1px solid '+color+'28', color, margin:'2px 3px 2px 0', fontFamily:'Space Mono, monospace', whiteSpace:'nowrap', fontWeight:600 }}>{text}</span>
-}
-
-// ─── Row ──────────────────────────────────────────────────────
-function Row({ icon, label, children }: { icon:string; label:string; children:React.ReactNode }) {
-  return (
-    <div style={{ display:'flex', alignItems:'flex-start', gap:11, padding:'9px 0', borderBottom:'1px solid rgba(201,168,76,0.06)' }}>
-      <span style={{
-        width:24, height:24, borderRadius:'50%', flexShrink:0, fontSize:12,
-        background:'radial-gradient(circle at 32% 28%, rgba(201,168,76,0.22), rgba(201,168,76,0.04) 70%)',
-        border:'1px solid rgba(201,168,76,0.3)', display:'flex', alignItems:'center', justifyContent:'center'
-      }}>{icon}</span>
-      <span style={{ fontSize:7.5, fontFamily:"'Press Start 2P', monospace", color:'#8a6e2f', letterSpacing:'0.02em', width:64, flexShrink:0, paddingTop:5 }}>{label.toUpperCase()}</span>
-      <div style={{ flex:1, fontSize:11.5, color:'#cac8c0', lineHeight:1.6, paddingTop:1 }}>{children}</div>
-    </div>
-  )
-}
-
-// ─── Setup Panel ─────────────────────────────────────────────
-function SetupPanel({ setup }: { setup: Setup }) {
-  const ew = ar(setup.enchants_weapon), ea = ar(setup.enchants_armor)
-  const et = ar(setup.enchants_tool),   er = ar(setup.enchants_rod)
-
-  return (
-    <div className="vault-surface" style={{ padding:'16px 18px 14px' }}>
-
-      {/* HOW TO */}
-      {(st(setup.how_to)||st(setup.why_best)) && (
-        <div className="gem-tab-sm" style={{ background:'linear-gradient(135deg,rgba(201,168,76,0.08),rgba(201,168,76,0.02))', border:'1px solid rgba(201,168,76,0.3)', filter:'drop-shadow(0 0 16px rgba(201,168,76,0.1))', padding:'12px 14px 12px 28px', marginBottom:14 }}>
-          <div style={{ fontSize:8.5, color:'#c9a84c', fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:7, textTransform:'uppercase', fontWeight:700 }}>⚡ How To</div>
-          {st(setup.how_to)   && <div style={{ fontSize:12.5, color:'#d8d6cf', lineHeight:1.75 }}>{st(setup.how_to)}</div>}
-          {st(setup.why_best) && <div style={{ fontSize:11, color:'#6b6960', marginTop:8, fontStyle:'italic', paddingLeft:10, borderLeft:'2px solid rgba(201,168,76,0.2)' }}>→ {st(setup.why_best)}</div>}
-        </div>
-      )}
-
-      {st(setup.armor_set) && (
-        <Row icon="🛡" label="Armor">
-          <div><strong style={{ color:'#e8e6df' }}>{st(setup.armor_set)}</strong><Stars count={nm(setup.armor_stars)} />{bl(setup.armor_recomb)&&<Tag text="RECOMB" color="#9b59b6"/>}</div>
-          {st(setup.armor_stats) && <div style={{ fontSize:10.5, color:'#6b6960', marginTop:3 }}>{st(setup.armor_stats)}</div>}
-          {st(setup.armor_bonus) && <div style={{ fontSize:10.5, color:'#9b59b6', marginTop:2 }}>{st(setup.armor_bonus)}</div>}
-        </Row>
-      )}
-      {st(setup.weapon_name) && (
-        <Row icon="⚔️" label="Weapon">
-          <div><strong style={{ color:'#e8e6df' }}>{st(setup.weapon_name)}</strong><Stars count={nm(setup.weapon_stars)} />{bl(setup.weapon_recomb)&&<Tag text="RECOMB" color="#9b59b6"/>}</div>
-          {st(setup.weapon_stats)   && <div style={{ fontSize:10.5, color:'#6b6960', marginTop:3 }}>{st(setup.weapon_stats)}</div>}
-          {st(setup.weapon_ability) && <div style={{ fontSize:10.5, color:'#2a78d6', marginTop:2 }}>{st(setup.weapon_ability)}</div>}
-        </Row>
-      )}
-      {st(setup.tool) && <Row icon="⛏️" label="Drill"><span style={{ color:'#e8e6df' }}>{st(setup.tool)}</span></Row>}
-      {st(setup.rod)  && <Row icon="🎣" label="Rod"><span style={{ color:'#e8e6df' }}>{st(setup.rod)}</span></Row>}
-      {st(setup.pet_name) && (
-        <Row icon="🐾" label="Pet">
-          <div><strong style={{ color:'#e8e6df' }}>{st(setup.pet_name)}</strong><Tag text={'L'+(nm(setup.pet_level)||100)} color="#1baf7a"/><Tag text={(st(setup.pet_rarity)||'LEG').slice(0,3)} color="#9b59b6"/></div>
-          {st(setup.pet_bonus) && <div style={{ fontSize:10.5, color:'#1baf7a', marginTop:3 }}>{st(setup.pet_bonus)}</div>}
-          {st(setup.pet_alt)   && <div style={{ fontSize:10, color:'#4a4a45', marginTop:2 }}>Alt: {st(setup.pet_alt)}</div>}
-        </Row>
-      )}
-      {(ar(setup.accessories).length>0||st(setup.power_stone)||nm(setup.mp_target)) && (
-        <Row icon="💍" label="Access.">
-          <div style={{ marginBottom:5 }}><Tag text={'MP '+(nm(setup.mp_target)||900)+'+'} color="#c9a84c"/>{st(setup.power_stone)&&<Tag text={st(setup.power_stone)} color="#9b59b6"/>}</div>
-          {ar(setup.accessories).length>0&&<div>{ar(setup.accessories).map((x,i)=><Tag key={i} text={x}/>)}</div>}
-        </Row>
-      )}
-      {(ew.length>0||ea.length>0||et.length>0||er.length>0) && (
-        <Row icon="✨" label="Enchants">
-          {ew.length>0&&<div style={{marginBottom:4}}><span style={{fontSize:8.5,color:'#4a4a45',fontFamily:'Space Mono, monospace',marginRight:4}}>Weapon:</span>{ew.map((e,i)=><Tag key={i} text={e} color="#2a78d6"/>)}</div>}
-          {ea.length>0&&<div style={{marginBottom:4}}><span style={{fontSize:8.5,color:'#4a4a45',fontFamily:'Space Mono, monospace',marginRight:4}}>Armor:</span>{ea.map((e,i)=><Tag key={i} text={e} color="#2a78d6"/>)}</div>}
-          {et.length>0&&<div style={{marginBottom:4}}><span style={{fontSize:8.5,color:'#4a4a45',fontFamily:'Space Mono, monospace',marginRight:4}}>Drill:</span>{et.map((e,i)=><Tag key={i} text={e} color="#2a78d6"/>)}</div>}
-          {er.length>0&&<div><span style={{fontSize:8.5,color:'#4a4a45',fontFamily:'Space Mono, monospace',marginRight:4}}>Rod:</span>{er.map((e,i)=><Tag key={i} text={e} color="#2a78d6"/>)}</div>}
-        </Row>
-      )}
-      {st(setup.gemstones)    && <Row icon="💎" label="Gems"><span style={{color:'#e8e6df'}}>{st(setup.gemstones)}</span></Row>}
-      {st(setup.reforges)     && <Row icon="🔮" label="Reforges"><span style={{color:'#e8e6df'}}>{st(setup.reforges)}</span></Row>}
-      {st(setup.target_stats) && <Row icon="🎯" label="Stats"><span style={{fontFamily:'Space Mono, monospace',fontSize:10.5,color:'#1baf7a',fontWeight:700}}>{st(setup.target_stats)}</span></Row>}
-      {st(setup.requirements) && <Row icon="📋" label="Reqs"><span style={{color:'#9b9b8f'}}>{st(setup.requirements)}</span></Row>}
-      {(st(setup.cost_budget)||st(setup.cost_optimal)||st(setup.cost_endgame)) && (
-        <Row icon="💰" label="Cost">
-          <div style={{display:'flex',flexDirection:'column',gap:3}}>
-            {st(setup.cost_budget)  &&<div><Tag text="Budget" color="#1baf7a"/><span style={{fontSize:10.5,color:'#9b9b8f'}}>{st(setup.cost_budget)}</span></div>}
-            {st(setup.cost_optimal) &&<div><Tag text="Optimal" color="#c9a84c"/><span style={{fontSize:10.5,color:'#9b9b8f'}}>{st(setup.cost_optimal)}</span></div>}
-            {st(setup.cost_endgame) &&<div><Tag text="BiS" color="#9b59b6"/><span style={{fontSize:10.5,color:'#9b9b8f'}}>{st(setup.cost_endgame)}</span></div>}
-          </div>
-        </Row>
-      )}
-      {st(setup.location)    && <Row icon="🗺️" label="Location"><span style={{color:'#e8e6df'}}>{st(setup.location)}</span></Row>}
-      {st(setup.strategy)    && <Row icon="👹" label="Strategy"><span style={{color:'#e8e6df',lineHeight:1.6}}>{st(setup.strategy)}</span></Row>}
-      {st(setup.team_config) && <Row icon="🏰" label="Team"><span style={{color:'#e8e6df',lineHeight:1.6}}>{st(setup.team_config)}</span></Row>}
-      {st(setup.hotm_perks)  && <Row icon="⛏️" label="HotM"><span style={{color:'#e8e6df'}}>{st(setup.hotm_perks)}</span></Row>}
-    </div>
   )
 }
 
@@ -258,7 +155,7 @@ function FeedbackBadge({ fb }: { fb: FeedbackData }) {
 function MethodCard({ method, tier, accentColor, type }: {
   method:AnyMethod; tier:string; accentColor:string; type:'active'|'vault'
 }) {
-  const [expanded, setExpanded]   = useState(false)
+  const [open, setOpen]           = useState(false)
   const [setup, setSetup]         = useState<Setup|null>(null)
   const [loading, setLoading]     = useState(false)
   const [notReady, setNotReady]   = useState(false)
@@ -282,9 +179,8 @@ function MethodCard({ method, tier, accentColor, type }: {
     setFbLoaded(true)
   }, [key, tier, fbLoaded])
 
-  async function toggle() {
-    if (expanded) { setExpanded(false); return }
-    setExpanded(true)
+  async function openOverlay() {
+    setOpen(true)
     loadFeedback()
     if (setup||notReady) return
     setLoading(true)
@@ -321,24 +217,23 @@ function MethodCard({ method, tier, accentColor, type }: {
   return (
     <>
       <div style={{ marginBottom:10 }}>
-        {/* Header card */}
+        {/* Header card — click opens the full setup overlay instead of an inline
+            accordion, so the card itself is always the pointed gem-tab shape,
+            no flat-edge exception needed anymore. */}
         <div
-          onClick={toggle}
-          className={expanded?'vault-panel':'vault-surface gem-tab-lg'}
+          onClick={openOverlay}
+          className="vault-surface gem-tab-lg"
           style={{
             ['--vc' as any]: accentColor,
-            border:       `1px solid ${expanded?accentColor+'55':accentColor+'50'}`,
-            borderLeft:   expanded?`3px solid ${accentColor}`:undefined,
-            borderRadius: expanded?'10px 10px 0 0':undefined,
-            padding:      expanded?'14px 16px':'14px 16px 14px 40px', cursor:'pointer', transition:'all 0.15s',
-            filter:       expanded?`drop-shadow(0 0 18px ${accentColor}20)`:`drop-shadow(0 0 14px ${accentColor}25)`,
+            border:       `1px solid ${accentColor}50`,
+            padding:      '14px 16px 14px 40px', cursor:'pointer', transition:'all 0.15s',
+            filter:       `drop-shadow(0 0 14px ${accentColor}25)`,
           }}
         >
           <div style={{ display:'flex', alignItems:'center', gap:12 }}>
             {/* Skill medallion — sits right at the tip of the card's own pointed
-                edge (gem-tab-lg clip-path) when collapsed, so the shape identity
-                lives on the card itself rather than needing a second overlapping
-                point graphic (which would collide with the card's own clip). */}
+                edge (gem-tab-lg clip-path), so the shape identity lives on the
+                card itself rather than needing a second overlapping point graphic. */}
             <div style={{
               width:34, height:34, borderRadius:'50%', flexShrink:0,
               background:`radial-gradient(circle at 32% 28%, ${accentColor}40, ${accentColor}0c 70%)`,
@@ -372,64 +267,29 @@ function MethodCard({ method, tier, accentColor, type }: {
                 <span style={{ fontSize:8, color:confColor, background:confColor+'15', border:'1px solid '+confColor+'40', padding:'2px 6px', borderRadius:4, fontFamily:"'Press Start 2P', monospace", fontWeight:700 }}>
                   {st(method.confidence)||'MED'}
                 </span>
-                <span style={{ fontSize:14, color:accentColor, transform:expanded?'rotate(90deg)':'none', transition:'transform 0.2s', display:'inline-block', textShadow:`0 0 8px ${accentColor}60` }}>›</span>
+                <span style={{ fontSize:14, color:accentColor, display:'inline-block', textShadow:`0 0 8px ${accentColor}60` }}>›</span>
               </div>
             </div>
           </div>
 
           {/* Preview */}
-          {!expanded && preview && (
+          {preview && (
             <div style={{ marginTop:6, paddingLeft:46, fontSize:10.5, color:'#4a4a45', lineHeight:1.4, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:1, WebkitBoxOrient:'vertical' }}>
               {preview}
             </div>
           )}
         </div>
-
-        {/* Accordion */}
-        {expanded && (
-          <div style={{ border:'1px solid '+accentColor+'35', borderTop:'none', borderRadius:'0 0 10px 10px', overflow:'hidden', boxShadow:`0 0 18px ${accentColor}15` }}>
-            {loading ? (
-              <div className="vault-surface" style={{ padding:'24px', textAlign:'center' }}>
-                <div style={{ fontSize:8.5, color:accentColor, fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.05em', marginBottom:14 }}>LOADING SETUP...</div>
-                <div style={{ display:'flex', justifyContent:'center', gap:6 }}>
-                  {[0,1,2].map(i=><div key={i} style={{ width:6,height:6,borderRadius:'50%',background:accentColor,animation:`mm_pulse 1.2s ${i*0.2}s infinite`,opacity:0.7 }}/>)}
-                </div>
-              </div>
-            ) : notReady ? (
-              <div className="vault-surface" style={{ padding:'18px', textAlign:'center' }}>
-                <div style={{ fontSize:14, marginBottom:6 }}>⏳</div>
-                <div style={{ fontSize:10, color:'#4a4a45', fontFamily:'Space Mono, monospace', marginBottom:3 }}>Setup not yet generated</div>
-                <div style={{ fontSize:9.5, color:'#2a2a28', fontFamily:'Space Mono, monospace' }}>Available after Monday 7h UTC</div>
-              </div>
-            ) : setup ? (
-              <SetupPanel setup={setup} />
-            ) : null}
-
-            {/* Feedback bar */}
-            <div style={{ padding:'11px 14px', background:'#0c0c0b', borderTop:`1px solid ${accentColor}20`, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
-              <div style={{ flex:1 }}>
-                {feedback&&feedback.total>0 ? (
-                  <div style={{ fontSize:10, color:'#6b6960', fontFamily:'Space Mono, monospace' }}>
-                    <span style={{ color:'#1baf7a' }}>✅ {feedback.positive}</span> · <span style={{ color:'#e34948' }}>❌ {feedback.negative}</span> · <span>{feedback.total} players</span>
-                  </div>
-                ) : (
-                  <div style={{ fontSize:10, color:'#2a2a28', fontFamily:'Space Mono, monospace' }}>No ratings yet — be first!</div>
-                )}
-              </div>
-              {userVote ? (
-                <div style={{ fontSize:10, color:userVote==='works'?'#1baf7a':'#e34948', fontFamily:'Space Mono, monospace', fontWeight:700 }}>
-                  {userVote==='works'?'✅ Works':'❌ Issue'} — Your vote
-                </div>
-              ) : (
-                <button
-                  onClick={e=>{ e.stopPropagation(); setShowVote(true) }}
-                  style={{ padding:'6px 14px', borderRadius:6, border:`1px solid ${accentColor}45`, background:accentColor+'12', boxShadow:`0 0 10px ${accentColor}15`, color:accentColor, fontSize:8.5, fontFamily:"'Press Start 2P', monospace", cursor:'pointer', whiteSpace:'nowrap' }}
-                >RATE ›</button>
-              )}
-            </div>
-          </div>
-        )}
       </div>
+
+      {open && (
+        <SetupOverlay
+          method={method} tier={tier} accentColor={accentColor}
+          setup={setup} loading={loading} notReady={notReady}
+          feedback={feedback} userVote={userVote}
+          onClose={()=>setOpen(false)}
+          onRate={()=>setShowVote(true)}
+        />
+      )}
 
       {showVote && <VoteModal method={method} tier={tier} onClose={()=>setShowVote(false)} onVoted={onVoted} />}
     </>
@@ -456,8 +316,6 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
 
   return (
     <div>
-      <style>{`@keyframes mm_pulse{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.6);opacity:1}}`}</style>
-
       {/* Section title -- same branded-banner pattern as Patch Analysis and Radar */}
       <div className="gem-tab-lg" style={{ marginBottom:20, padding:'12px 16px 12px 44px', background:'linear-gradient(135deg, rgba(201,168,76,0.1) 0%, rgba(201,168,76,0.03) 100%)', border:'1px solid rgba(232,192,99,0.4)', filter:'drop-shadow(0 0 20px rgba(232,192,99,0.08))', display:'flex', alignItems:'center', gap:12 }}>
         <span style={{ fontSize:20 }}>💰</span>
