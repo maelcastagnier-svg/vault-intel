@@ -424,7 +424,7 @@ function IntelligenceVault({ marketData, dataLoading }: { marketData:Record<stri
   return (
     <div style={{ background:'#0f0f0e', border:'1px solid rgba(255,255,255,0.06)', borderRadius:12, padding:'20px' }}>
       <div style={{ display:'flex',alignItems:'center',gap:10,marginBottom:14 }}>
-        <div style={{ fontSize:9,color:'#9b59b6',fontFamily:'Space Mono, monospace',letterSpacing:'0.14em',textTransform:'uppercase',fontWeight:700 }}>⚡ Vault Intelligence</div>
+        <div style={{ fontSize:8,color:'#9b59b6',fontFamily:"'Press Start 2P', monospace",letterSpacing:'0.04em',textTransform:'uppercase',fontWeight:700 }}>⚡ Vault Intelligence</div>
         <div style={{ fontSize:8.5,color:'#3a3a38',fontFamily:'Space Mono, monospace',marginLeft:'auto' }}>Daily · patches × trends × events</div>
       </div>
       {radar.summary&&(
@@ -463,7 +463,7 @@ export default function RadarSection({ marketData, dataLoading }: { marketData:R
       <div style={{ padding:'12px 16px',background:'linear-gradient(135deg,rgba(155,89,182,0.06),rgba(155,89,182,0.02))',border:'1px solid rgba(155,89,182,0.12)',borderRadius:10,display:'flex',alignItems:'center',gap:12 }}>
         <span style={{ fontSize:20 }}>📡</span>
         <div>
-          <div style={{ fontSize:11,fontWeight:700,color:'#9b59b6',fontFamily:'Space Mono, monospace',letterSpacing:'0.1em' }}>MARKET RADAR</div>
+          <div style={{ fontSize:9,fontWeight:700,color:'#9b59b6',fontFamily:"'Press Start 2P', monospace",letterSpacing:'0.04em' }}>MARKET RADAR</div>
           <div style={{ fontSize:10,color:'#3a3a38',marginTop:2 }}>Price explorer · 4781 items · Bazaar + AH · up to 3 years</div>
         </div>
         <div style={{ marginLeft:'auto',fontSize:8.5,color:'#3a3a38',fontFamily:'Space Mono, monospace',textAlign:'right' }}>Daily intelligence<br/>+ live charts</div>

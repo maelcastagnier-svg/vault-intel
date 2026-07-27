@@ -13,7 +13,7 @@ function DashboardFooter() {
   return (
     <footer style={{
       maxWidth: 1060, margin: '2rem auto 0', padding: '1.25rem 2rem',
-      borderTop: '1px solid rgba(255,255,255,0.05)', textAlign: 'center',
+      borderTop: '1px solid rgba(201,168,76,0.12)', textAlign: 'center',
     }}>
       <p style={{ fontSize: 11, color: '#4a4a45' }}>© 2026 Vault Intelligence. All rights reserved.</p>
       <p style={{ fontSize: 11, color: '#4a4a45', marginTop: 4 }}>
@@ -48,7 +48,7 @@ function LiveTicker({ lastUpdate }: { lastUpdate: Date | null }) {
         <span style={{ width:6, height:6, borderRadius:'50%', background:'#1baf7a', display:'inline-block', boxShadow:'0 0 6px #1baf7a' }} />
         LIVE
       </span>
-      <span>VAULT INTELLIGENCE</span>
+      <span className="pixel" style={{ fontSize: 8, letterSpacing: '0.1em' }}>VAULT INTELLIGENCE</span>
       {secs !== null && (
         <span style={{ color: secs < 60 ? '#4a4a45' : '#eda100' }}>
           {secs < 60 ? `Updated ${secs}s ago` : `Updated ${Math.floor(secs/60)}m ago`}
@@ -124,8 +124,9 @@ export default function Dashboard() {
 
   if (loading) return (
     <div style={{ background:'#080807', minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Space Mono, monospace' }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');`}</style>
       <div style={{ textAlign:'center' }}>
-        <div style={{ fontSize:18, color:'#c9a84c', letterSpacing:'0.3em', marginBottom:8 }}>VAULT</div>
+        <div className="pixel" style={{ fontSize:16, color:'#e8c063', letterSpacing:'0.2em', marginBottom:14, textShadow:'0 0 20px rgba(232,192,99,0.4)' }}>VAULT</div>
         <div style={{ fontSize:10, color:'#3a3a38', letterSpacing:'0.15em' }}>LOADING INTELLIGENCE...</div>
       </div>
     </div>
@@ -134,57 +135,77 @@ export default function Dashboard() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
         *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
         html { background:#080807; }
         body { background:#080807; color:#e8e6df; font-family:'Space Grotesk',sans-serif; min-height:100vh; }
+        .pixel { font-family:'Press Start 2P', monospace; }
+        /* globals.css's .section-label was sized for short marketing eyebrows (0.55rem,
+           0.15em tracking). Several dashboard panels (FlashAlertsPage, Evolve tabs) reuse
+           the same className for much longer descriptive headers -- override to a size
+           that stays legible for a full sentence while keeping the pixel-font identity. */
+        .section-label { font-size:10.5px !important; letter-spacing:0.03em !important; margin-bottom:14px !important; }
 
         .vault-nav {
           display:flex; justify-content:space-between; align-items:center;
-          padding:0 2rem; height:52px; border-bottom:1px solid rgba(255,255,255,0.05);
+          padding:0 2rem; height:56px; border-bottom:1px solid rgba(201,168,76,0.14);
           background:rgba(8,8,7,0.98); position:sticky; top:0; z-index:100; backdrop-filter:blur(12px);
         }
         .vault-logo {
-          font-family:'Space Mono',monospace; font-size:0.9rem; font-weight:700;
-          color:#c9a84c; letter-spacing:0.24em; text-shadow:0 0 20px rgba(201,168,76,0.4);
+          font-family:'Press Start 2P',monospace; font-size:0.85rem;
+          color:#e8c063; letter-spacing:0.1em; text-shadow:0 0 16px rgba(232,192,99,0.45);
         }
         .nav-right { display:flex; align-items:center; gap:10px; }
         .plan-badge {
-          font-family:'Space Mono',monospace; font-size:9px; padding:2px 7px;
-          border-radius:3px; text-transform:uppercase; font-weight:700; border:1px solid;
+          font-family:'Press Start 2P',monospace; font-size:8px; padding:4px 8px;
+          border-radius:3px; text-transform:uppercase; border:1px solid;
         }
         .logout-btn {
-          background:transparent; border:1px solid rgba(255,255,255,0.07); color:#4a4a45;
+          background:transparent; border:1px solid rgba(201,168,76,0.16); color:#4a4a45;
           padding:4px 10px; border-radius:5px; font-size:11px; cursor:pointer;
           transition:all 0.15s; font-family:'Space Grotesk',sans-serif;
         }
-        .logout-btn:hover { border-color:rgba(255,255,255,0.15); color:#9b9b8f; }
+        .logout-btn:hover { border-color:rgba(232,192,99,0.4); color:#9b9b8f; }
         a.nav-link { font-size:11px; color:#4a4a45; text-decoration:none; }
         a.nav-link:hover { color:#c9a84c; }
 
         .vault-main { max-width:1060px; margin:0 auto; padding:1.5rem 2rem; }
 
+        /* tab bar carries the same gold corner-bracket "vault UI panel" language as the
+           landing page's .vault-card, built the same way (layered background gradients,
+           no extra markup) so the dashboard reads as the same product as the hero. */
         .vault-tabs {
+          position:relative;
           display:flex; gap:2px; margin-bottom:1.5rem; background:#111110;
-          padding:3px; border-radius:8px; width:fit-content;
+          padding:4px; border-radius:6px; width:fit-content;
+          border:1px solid rgba(201,168,76,0.14);
         }
         .vault-tab {
-          padding:6px 16px; border-radius:6px; font-size:12px; border:none;
+          padding:7px 16px; border-radius:4px; font-size:12px; border:none;
           background:transparent; color:#4a4a45; cursor:pointer;
           font-family:'Space Grotesk',sans-serif; font-weight:500;
           transition:all 0.15s; white-space:nowrap;
         }
-        .vault-tab.active  { background:#1e1e1c; color:#e8e6df; }
+        .vault-tab.active  { background:#1e1a10; color:#e8c063; box-shadow:inset 0 0 0 1px rgba(232,192,99,0.3); }
         .vault-tab.locked  { opacity:0.3; cursor:not-allowed; }
         .vault-tab:not(.locked):not(.active):hover { color:#9b9b8f; }
 
         .locked-state {
-          background:#111110; border:1px solid rgba(255,255,255,0.05);
-          border-radius:12px; padding:3rem; text-align:center;
+          position:relative;
+          background:#111110; border:1px solid rgba(201,168,76,0.14);
+          border-radius:4px; padding:3rem; text-align:center;
+          background-image:
+            linear-gradient(#e8c063,#e8c063), linear-gradient(#e8c063,#e8c063),
+            linear-gradient(#e8c063,#e8c063), linear-gradient(#e8c063,#e8c063),
+            linear-gradient(#e8c063,#e8c063), linear-gradient(#e8c063,#e8c063),
+            linear-gradient(#e8c063,#e8c063), linear-gradient(#e8c063,#e8c063);
+          background-repeat:no-repeat;
+          background-size:2px 16px, 16px 2px, 2px 16px, 16px 2px, 2px 16px, 16px 2px, 2px 16px, 16px 2px;
+          background-position:0 0, 0 0, 100% 0, 100% 0, 0 100%, 0 100%, 100% 100%, 100% 100%;
         }
         .upgrade-btn {
           background:#c9a84c; color:#080807; border:none; padding:10px 22px;
-          border-radius:7px; font-weight:700; cursor:pointer; text-decoration:none;
+          border-radius:4px; font-weight:700; cursor:pointer; text-decoration:none;
           display:inline-block; font-size:13px; font-family:'Space Grotesk',sans-serif;
         }
 
@@ -194,12 +215,12 @@ export default function Dashboard() {
 
         ::-webkit-scrollbar { width:3px; height:3px; }
         ::-webkit-scrollbar-track { background:transparent; }
-        ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.06); border-radius:2px; }
+        ::-webkit-scrollbar-thumb { background:rgba(201,168,76,0.18); border-radius:2px; }
       `}</style>
 
       {/* NAV */}
       <nav className="vault-nav">
-        <div className="vault-logo">VAULT.</div>
+        <Link href="/" className="vault-logo" style={{ textDecoration: 'none' }}>VAULT.</Link>
         <div className="nav-right">
           <span style={{ fontSize:12, color:'#e8e6df', fontWeight:500 }}>{username}</span>
           <span
@@ -238,7 +259,7 @@ export default function Dashboard() {
         {!hasAccess(TABS[tab].plans) ? (
           <div className="locked-state">
             <div style={{ fontSize:24, marginBottom:12 }}>🔒</div>
-            <div style={{ color:'#c9a84c', fontSize:14, fontWeight:600, marginBottom:6 }}>Upgrade required</div>
+            <div className="pixel" style={{ color:'#e8c063', fontSize:12, marginBottom:12 }}>UPGRADE REQUIRED</div>
             <div style={{ color:'#4a4a45', fontSize:12, marginBottom:20 }}>This section requires a higher plan.</div>
             <a href="/#pricing" className="upgrade-btn">View plans</a>
           </div>

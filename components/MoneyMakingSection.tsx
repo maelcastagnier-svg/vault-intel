@@ -403,6 +403,18 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
     <div>
       <style>{`@keyframes mm_pulse{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.6);opacity:1}}`}</style>
 
+      {/* Section title -- same branded-banner pattern as Patch Analysis and Radar */}
+      <div style={{ marginBottom:20, padding:'12px 16px', background:'linear-gradient(135deg, rgba(201,168,76,0.06) 0%, rgba(201,168,76,0.02) 100%)', border:'1px solid rgba(201,168,76,0.12)', borderRadius:10, display:'flex', alignItems:'center', gap:12 }}>
+        <span style={{ fontSize:20 }}>💰</span>
+        <div>
+          <div style={{ fontSize:9, fontWeight:700, color:'#c9a84c', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.04em' }}>MONEY MAKING</div>
+          <div style={{ fontSize:10, color:'#3a3a38', marginTop:2 }}>Active Grind (verified methods) + Vault Exclusive (AI-discovered), per net worth tier</div>
+        </div>
+        <div style={{ marginLeft:'auto', fontSize:8.5, color:'#3a3a38', fontFamily:'Space Mono, monospace', textAlign:'right' }}>
+          Updated weekly<br/>by Vault AI
+        </div>
+      </div>
+
       {/* Tier selector */}
       <div style={{ display:'flex', gap:6, marginBottom:16 }}>
         {TIERS.map(t => {

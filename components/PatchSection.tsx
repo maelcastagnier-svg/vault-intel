@@ -376,7 +376,7 @@ export default function PatchSection({ marketData, dataLoading }: {
       <div style={{ marginBottom:20, padding:'12px 16px', background:'linear-gradient(135deg, rgba(201,168,76,0.06) 0%, rgba(201,168,76,0.02) 100%)', border:'1px solid rgba(201,168,76,0.12)', borderRadius:10, display:'flex', alignItems:'center', gap:12 }}>
         <span style={{ fontSize:20 }}>🔧</span>
         <div>
-          <div style={{ fontSize:11, fontWeight:700, color:'#c9a84c', fontFamily:'Space Mono, monospace', letterSpacing:'0.1em' }}>PATCH INTELLIGENCE</div>
+          <div style={{ fontSize:9, fontWeight:700, color:'#c9a84c', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.04em' }}>PATCH INTELLIGENCE</div>
           <div style={{ fontSize:10, color:'#3a3a38', marginTop:2 }}>Live patches + Alpha previews with economic impact analysis</div>
         </div>
         <div style={{ marginLeft:'auto', fontSize:8.5, color:'#3a3a38', fontFamily:'Space Mono, monospace', textAlign:'right' }}>
