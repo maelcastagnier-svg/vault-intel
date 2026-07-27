@@ -3,22 +3,27 @@
 // Runs server-side on the preview deployment, so it can read CRON_SECRET/
 // SUPABASE_SERVICE_ROLE_KEY straight from Vercel's own env — no secret needs to
 // pass through the person testing this. Supprimée après validation.
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { runAhAggregate } from '../../cron/ah-aggregate/route'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export async function GET(req: NextRequest) {
-  const origin = new URL(req.url).origin
-
-  // 1. Déclenche le vrai cron ah-aggregate sur ce déploiement
-  const cronRes = await fetch(`${origin}/api/cron/ah-aggregate`, {
-    headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
-  })
-  const cronResult = await cronRes.json().catch(() => ({ error: 'non-JSON response', status: cronRes.status }))
+export async function GET() {
+  // Appel direct (pas de self-fetch HTTP) -- un self-fetch vers une autre
+  // route du même déploiement se heurte au mur SSO de Vercel Deployment
+  // Protection, qui n'a pas de cookie de bypass sur ce trafic serveur-serveur,
+  // donc CRON_SECRET n'atteignait jamais le vrai handler (confirmé : 200 avec
+  // un corps non-JSON au lieu du JSON réel de la route).
+  let cronResult: any
+  try {
+    cronResult = await runAhAggregate()
+  } catch (e: any) {
+    cronResult = { error: e.message }
+  }
 
   // 2. Cherche des lignes Necron's Armor spécifiquement (sans supposer les IDs
   //    exacts -- "Necron's Boots" est en vrai POWER_WITHER_BOOTS, pas NECRON_BOOTS)

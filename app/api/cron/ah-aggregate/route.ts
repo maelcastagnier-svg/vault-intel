@@ -16,12 +16,13 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export async function GET(request: Request) {
-  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  try {
+// Logique extraite en fonction plain pour pouvoir être appelée directement
+// (import + call) par une route de debug interne, sans repasser par HTTP --
+// un self-fetch depuis une autre route du même déploiement se heurte au mur
+// SSO de Vercel Deployment Protection (ce trafic n'a pas le cookie de bypass),
+// donc CRON_SECRET n'atteint jamais le handler. L'appel direct court-circuite
+// entièrement ce problème.
+export async function runAhAggregate() {
     // 1. Lit tout le buffer
     const { data: buffer, error: bufErr } = await supabase
       .from('ah_scan_buffer')
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
 
     if (bufErr) throw new Error('Buffer read: ' + bufErr.message)
     if (!buffer || buffer.length === 0) {
-      return NextResponse.json({ message: 'Buffer empty' })
+      return { message: 'Buffer empty' }
     }
 
     // ── TABLE 1 : price_history_ah_variants ───────────────────
@@ -219,7 +220,7 @@ export async function GET(request: Request) {
       .delete()
       .lte('scan_date', new Date().toISOString().split('T')[0])
 
-    return NextResponse.json({
+    return {
       success:           true,
       buffer_size:       buffer.length,
       variants_inserted: variantsInserted,
@@ -227,8 +228,15 @@ export async function GET(request: Request) {
       base_inserted:     baseInserted,
       base_groups_seen:  baseGroupMap.size,
       date:              buffer[0]?.scan_date,
-    })
+    }
+}
 
+export async function GET(request: Request) {
+  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  try {
+    return NextResponse.json(await runAhAggregate())
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
