@@ -20,6 +20,73 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ setup-generate-agent — grounding sur données réelles, testé en prod (28 juillet)
+
+Remplace la dépendance à la mémoire brute de Haiku pour nommer du gear précis — 
+bug concret signalé : suggérait du Mithril Armor pour du gemstone mining en late game 
+au lieu de Divan's Armor. Deux volets, tous les deux validés par test réel sur preview 
+Vercel (pas juste relecture de code) avant merge, méthode identique à l'arc 
+`price_history_ah_variant_base` (branche preview, route de debug temporaire important 
+directement les fonctions exportées — jamais de self-fetch HTTP, même contournement du 
+mur SSO Vercel Deployment Protection).
+
+**Catalogue de gear réel, prix réel** (`loadPricedItems`/`gearCatalogForBudget` dans 
+`app/api/cron/setup-generate-agent/route.ts`) — jointure en JS entre `item_stats` 
+(vrais stat blocks Hypixel, déjà collectés) et le dernier prix connu de 
+`price_history_ah` (`__all_variants_blended__`, DAILY), filtrée par tier sur une bande 
+de budget réelle (`max_gear_cost/25` → `max_gear_cost×3` depuis `TIER_CONFIG`). C'est 
+le mécanisme qui corrige le bug Mithril/Divan's : le prix réel du Mithril tombe bien en 
+dessous du plancher de budget LATE, donc il n'apparaît structurellement jamais dans ce 
+catalogue-là — aucune règle "utilise Divan's en late game" codée en dur, ça sort 
+directement des prix réels.
+
+**Bug trouvé en testant, pas en relisant le code** : `item_stats.health/defense/...` 
+est réellement à 0 en base pour la plupart des items endgame (Crown of Avarice, 
+Hyperion, Infernal Crimson Chestplate confirmés à 0 par requête directe) — l'API 
+Hypixel ne remplit ce champ que pour des items à stats plates simples, pas ceux dont le 
+vrai stat vient des étoiles/reforge/génération. Afficher ces zéros au modèle aurait été 
+une fausse information. Catalogue simplifié pour n'afficher que item_id/nom/catégorie/prix 
+(la seule colonne fiable), trié par prix décroissant plutôt que par un score de 
+puissance construit sur des colonnes creuses.
+
+**Coût du setup calculé en code, jamais laissé à Claude** — testé et confirmé 2 fois de 
+suite : même avec une règle de prompt explicite demandant de sommer les prix du 
+catalogue, Haiku continue de sortir un chiffre habituel proche de `coins_display` (ex: 
+"95-110M" alors que Divan's Drill seul vaut 1,86 milliard dans le catalogue qui lui est 
+montré). Un modèle rapide/pas cher ne fait pas fiablement cette arithmétique en texte 
+libre. `computeRealCost`/`applyRealCost` post-traite la réponse de Claude : matche 
+`armor_set`/`weapon_name`/`tool`/`rod` contre le catalogue de prix réels, additionne les 
+prix trouvés, écrase `cost_budget`/`cost_optimal`/`cost_endgame` avec ce total (± 
+multiplicateurs simples) — Claude ne touche plus jamais ce chiffre.
+
+**Bug réel trouvé dans le matcher lui-même, via un dump de debug pendant le test** : la 
+première version du matcher matchait par sous-chaîne après avoir deviné/retiré "le 
+dernier mot" — un mot générique partagé (Crimson, Magma, Hyper) suffisait à matcher un 
+item complètement différent d'un tier totalement différent. Concrètement : "Infernal 
+Crimson Armor" matchait à tort le vrai mais sans rapport "Crimson Helmet" (T1 Kuudra, 
+~4M) en plus du bon "Infernal Crimson Helmet" (T5, ~500M) ; le texte inventé par Claude 
+"Divan's Drill + Magma Fuel Tank..." matchait "Magma Rod"/"Magma Bow"/"Magma Necklace" — 
+trois items réels mais sans aucun rapport, juste parce qu'ils partagent le mot "Magma". 
+Corrigé avec deux matchers dédiés : `matchesArmorSet` utilise la vraie `category` de 
+l'item (pas un mot deviné) pour retirer le mot de type Helmet/Chestplate/Leggings/Boots, 
+et exige au moins 2 mots restants (un seul adjectif générique partagé ne suffit plus) ; 
+`matchesExact` (weapon/tool/rod) exige que tous les mots significatifs de l'item 
+apparaissent comme mots entiers, jamais une sous-chaîne. Revalidé sur le même exemple 
+réel après fix : le nombre d'items matchés est tombé de 14-19 (faux positifs) à 
+exactement 6 (4 pièces Infernal Crimson + Hyperion + Divan's Drill), total ~4,8B, 
+cohérent avec les prix affichés dans le catalogue.
+
+**Preuve concrète — LATE tier, Gemstone Mining (Crystal Hollows), testée en prod sur 
+preview Vercel** : `armor_set: "Infernal Crimson Armor"`, `weapon_name: "Hyperion"`, 
+`tool: "Divan's Drill + ..."` — plus aucune trace de gear bas-tier hors budget. 
+`cost_optimal: "~4.8B — real current AH price of the named gear (6 items matched)"`, 
+match exact avec la somme réelle des 6 items dans le catalogue affiché au modèle.
+
+**Pas retouché** : `pet_name`/`gemstones` restent uniquement ancrés sur le texte wiki 
+(pas de table de prix pet/gemstone dédiée à joindre pour l'instant) — documenté 
+explicitement dans `GROUNDING_RULES` pour que Claude reste qualitatif dessus plutôt que 
+d'inventer un nom d'item précis non vérifié.
+
 ## ✅ price_history_ah_variant_base — 3e palier d'agrégation AH, reconstruit après perte accidentelle, testé en prod (28 juillet)
 
 **Contexte de la perte** : une modification non commitée de `ah-aggregate/route.ts` 
