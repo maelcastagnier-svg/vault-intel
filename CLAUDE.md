@@ -57,7 +57,47 @@ visuelle de la scène, pas de logo dupliqué par-dessus).
   rendu.
 
 **Verrouillé pour le lancement** : on arrête d'itérer sur la composition/le contenu de 
-cette image hero — elle ne doit plus être régénérée ni recomposée sans demande explicite.
+cette image hero — elle ne doit plus être régénérée ni recomposée sans demande explicite. 
+Ce verrouillage concerne uniquement l'image (le fond visuel) — le TEXTE de la page hero 
+et des pages `/features`/`/about` reste vivant et doit suivre le dashboard réel à chaque 
+évolution, voir la règle 8 de la Philosophie de développement plus bas.
+
+**Suite du même jour — retouche image + site complet + corrections de fidélité** :
+- Image : logo/watermark en bas à droite supprimé (flou local + composite feathered plutôt 
+  que clone-stamp, évite toute couture visible), vignette horizontale ajoutée pour plonger 
+  les piles de coffres flous en arrière-plan dans la pénombre sans toucher la colonne 
+  centrale nette (clé/coffre/texte VAULT), passe de netteté renforcée une fois les zones 
+  bruitées assombries.
+- `background-position` corrigé de `22%` à `85%` : le texte "VAULT" intégré à l'image se 
+  trouve à ~78-91% de la hauteur de la source, et une position à 22% (biaisée vers le haut) 
+  pouvait le faire sortir du cadre sur les viewports larges/courts. Le panneau de texte 
+  opaque avec bordure/coins dorés a aussi été retiré (demande explicite : "enlever le gros 
+  cadre") — la lisibilité vient maintenant uniquement de `text-shadow` par élément.
+- `app/globals.css` (jusque-là vide, reste du template Next.js par défaut, `<title>` encore 
+  "Create Next App") peuplé avec le système de design partagé (polices, tokens couleur, 
+  `.vault-card` coin-bracket, nav, boutons, typographie de page) — toutes les pages 
+  héritent maintenant de la DA du hero au lieu de dupliquer leurs propres styles. Nouveaux 
+  `components/SiteNav.tsx`/`SiteFooter.tsx`, nouvelles pages `/about` et `/features`, 
+  `/privacy` et `/terms` restylées (contenu légal inchangé, juste l'habillage).
+- Stats du bandeau (`/api/homepage-stats`) vérifiées réellement live sur la prod (pas 
+  juste testées localement) : `priceDataPoints` a incrémenté entre deux appels à quelques 
+  minutes d'écart (5 074 872 → 5 074 880), confirmant une vraie lecture DB à chaque requête, 
+  pas une valeur mise en cache ou statique.
+- Places premium plafonnées par palier plutôt qu'un chiffre global : 1000 Alert / 500 Pro / 
+  250 Elite (1750 places premium au total), reflété sur la page pricing et dans les Terms.
+- Legal : ajout du droit de rétractation UE/UK à 14 jours (avec la clause standard de 
+  renonciation pour accès immédiat au contenu numérique), base légale RGPD, cookies, 
+  transferts internationaux, sécurité des données, confidentialité des mineurs, propriété 
+  intellectuelle, limitation de responsabilité, force majeure — juridiction de gouvernance 
+  laissée en placeholder explicite (pas d'entité juridique enregistrée connue, mieux vaut 
+  un vide visible qu'une fausse info).
+- **Deux erreurs de fidélité trouvées et corrigées après audit demandé par l'utilisateur** 
+  (voir règle 8 de la Philosophie de développement) : "#ah-sniper" n'a jamais existé comme 
+  onglet réel (`app/dashboard/page.tsx` n'a que 5 tabs, AH Sniper a été absorbé par Radar), 
+  et Money Making décrit comme "flips Bazaar/AH" alors que le vrai composant n'a que deux 
+  catégories (Active Grind / Vault Exclusive), aucun rapport avec du flip. Corrigé partout 
+  (hero, `/features`, bullets de pricing) après vérification directe du code des composants 
+  réels, pas de mémoire.
 
 **Amélioration possible en V2, pas bloquant pour ce lancement** : décliner d'autres 
 visuels de la même famille (même moteur de génération, même traitement de netteté) pour 
@@ -771,6 +811,26 @@ amélioration possible plus tard (tri secondaire déterministe).
    (ex : slayer_data, dungeon_data, magical_power_by_rarity...) avant d'être 
    codé en dur. Si aucune source fiable n'existe en interne, aller la chercher 
    via l'API Hypixel plutôt que d'inventer une valeur plausible.
+8. **La landing page (hero + `/features` + `/about`) doit refléter fidèlement 
+   ce qui existe réellement dans le dashboard — jamais une fonctionnalité 
+   aspirationnelle, renommée ou obsolète.** Vérifier contre le vrai code des 
+   composants (`app/dashboard/*`, `components/*`) avant d'écrire une 
+   description marketing, jamais de mémoire ni de supposition — même règle 
+   que le point 7, appliquée au contenu marketing plutôt qu'aux mécaniques de 
+   jeu. Trouvé en pratique (27 juillet) : la copie annonçait un "#ah-sniper" 
+   qui n'a jamais existé comme onglet (`app/dashboard/page.tsx` n'a que 5 
+   tabs : Flash/Money/Patches/Radar/Evolve, AH Sniper a été absorbé par 
+   Radar), et décrivait Money Making comme des "flips Bazaar/AH" alors que 
+   le composant réel (`MoneyMakingSection.tsx`) n'a que deux catégories : 
+   Active Grind et Vault Exclusive — zéro rapport avec du flip. **Corollaire 
+   permanent : à chaque modification majeure du dashboard ou nouvelle 
+   mécanique ajoutée (nouvel onglet, nouvelle catégorie, renommage, feature 
+   retirée), le hero et les pages de features doivent être mis à jour dans 
+   la même session, pas laissés dériver.** Le hero n'est jamais "verrouillé" 
+   au sens de figé indéfiniment — seule sa composition visuelle (image de 
+   fond) l'est pour l'instant ; son contenu textuel doit rester vivant et 
+   suivre le produit réel en continu, exactement comme le reste du dashboard 
+   (voir Philosophie d'évolution continue ci-dessous).
 
 ## Philosophie d'évolution continue
 
