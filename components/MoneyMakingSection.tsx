@@ -7,12 +7,25 @@ type AnyMethod = Record<string, any>
 type Setup = Record<string, any>
 type FeedbackData = { positive: number; negative: number; total: number; approval_pct: number | null }
 
+// Gemstone identity per tier — early->late reads as Emerald -> Amethyst -> Ruby -> the
+// site's own Gold, so reaching Late "becomes" the Vault's own color instead of a 5th
+// arbitrary hue. `bright` is the glint/glow variant (same base+bright pattern as
+// --gold/--gold-bright in globals.css).
 const TIERS = [
-  { key:'early', label:'Early', emoji:'🌱', target:'10M/h', color:'#1baf7a', desc:'0-50M networth' },
-  { key:'mid',   label:'Mid',   emoji:'⚔️', target:'25M/h', color:'#c9a84c', desc:'50-500M networth' },
-  { key:'end',   label:'End',   emoji:'🔥', target:'50M/h', color:'#e34948', desc:'500M-5B networth' },
-  { key:'late',  label:'Late',  emoji:'👑', target:'70M+/h',color:'#9b59b6', desc:'5B+ networth' },
+  { key:'early', label:'Early', emoji:'🌱', target:'10M/h', color:'#0e8f5c', bright:'#2ecc8f', desc:'0-50M networth' },
+  { key:'mid',   label:'Mid',   emoji:'⚔️', target:'25M/h', color:'#7d4fb0', bright:'#b47eea', desc:'50-500M networth' },
+  { key:'end',   label:'End',   emoji:'🔥', target:'50M/h', color:'#a5222e', bright:'#e0485a', desc:'500M-5B networth' },
+  { key:'late',  label:'Late',  emoji:'👑', target:'70M+/h',color:'#8a6e2f', bright:'#e8c063', desc:'5B+ networth' },
 ]
+
+// One faceted silhouette per tier via clip-path, so the four buttons read as distinct
+// gem/ingot cuts instead of four identical rectangles with a swapped border color.
+const TIER_CLIP: Record<string,string> = {
+  early: 'polygon(10% 0, 90% 0, 100% 10%, 100% 90%, 90% 100%, 10% 100%, 0 90%, 0 10%)', // emerald cut — all 4 corners trimmed
+  mid:   'polygon(50% 0%, 100% 9%, 100% 100%, 0% 100%, 0% 9%)',                          // amethyst crystal point
+  end:   'polygon(0 0, 100% 0, 100% 80%, 80% 100%, 0 100%)',                              // ruby — single sliced corner, asymmetric
+  late:  'polygon(7% 0, 93% 0, 100% 12%, 100% 100%, 0% 100%, 0% 12%)',                    // gold ingot — beveled top corners
+}
 
 const SKILL_ICONS: Record<string, string> = {
   combat:'⚔️', mining:'⛏️', farming:'🌾', fishing:'🎣', foraging:'🌲'
@@ -310,24 +323,24 @@ function MethodCard({ method, tier, accentColor, type }: {
 
             {/* Name */}
             <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontSize:12.5, fontWeight:700, color:'#e8e6df', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:4 }}>
+              <div style={{ fontSize:14.5, fontWeight:700, color:'#e8e6df', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:5 }}>
                 {st(method.method)}
               </div>
               <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                {skill && <span style={{ fontSize:7.5, color:accentColor+'cc', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.02em' }}>{skill.replace(/_/g,' ').toUpperCase()}</span>}
+                {skill && <span style={{ fontSize:8.5, color:accentColor+'cc', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.02em' }}>{skill.replace(/_/g,' ').toUpperCase()}</span>}
                 {feedback && <FeedbackBadge fb={feedback} />}
               </div>
             </div>
 
             {/* Coins + conf */}
-            <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:5, flexShrink:0 }}>
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6, flexShrink:0 }}>
               {coins && (
-                <div className="coin-value" style={{ fontSize:14, letterSpacing:'0.01em', whiteSpace:'nowrap' }}>
+                <div className="coin-value" style={{ fontSize:17, letterSpacing:'0.01em', whiteSpace:'nowrap' }}>
                   🪙 {coins}
                 </div>
               )}
               <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-                <span style={{ fontSize:7, color:confColor, background:confColor+'15', border:'1px solid '+confColor+'40', padding:'2px 6px', borderRadius:4, fontFamily:"'Press Start 2P', monospace", fontWeight:700 }}>
+                <span style={{ fontSize:8, color:confColor, background:confColor+'15', border:'1px solid '+confColor+'40', padding:'2px 6px', borderRadius:4, fontFamily:"'Press Start 2P', monospace", fontWeight:700 }}>
                   {st(method.confidence)||'MED'}
                 </span>
                 <span style={{ fontSize:14, color:accentColor, transform:expanded?'rotate(90deg)':'none', transition:'transform 0.2s', display:'inline-block', textShadow:`0 0 8px ${accentColor}60` }}>›</span>
@@ -428,29 +441,32 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
         </div>
       </div>
 
-      {/* Tier selector */}
-      <div style={{ display:'flex', gap:6, marginBottom:16 }}>
+      {/* Tier selector — each tier is its own gem-cut silhouette + own color, not a
+          shared rectangle template with the accent swapped */}
+      <div style={{ display:'flex', gap:10, marginBottom:18 }}>
         {TIERS.map(t => {
           const active = mmTier===t.key
           return (
             <button key={t.key} onClick={()=>setMmTier(t.key)} style={{
-              flex:1, padding:'13px 8px', borderRadius:10,
-              border:`1px solid ${active?t.color+'70':'rgba(201,168,76,0.12)'}`,
-              background: active?`linear-gradient(135deg,${t.color}18,${t.color}08)`:'#0f0f0e',
-              color: active?t.color:'#4a4a45',
+              flex:1, padding:'20px 10px 16px', clipPath:TIER_CLIP[t.key],
+              border:`1px solid ${active?t.bright+'90':t.color+'40'}`,
+              background: active
+                ? `linear-gradient(150deg,${t.color}38,${t.color}0c)`
+                : `linear-gradient(150deg,${t.color}16,${t.color}05)`,
               cursor:'pointer', textAlign:'center', transition:'all 0.2s',
               fontFamily:'Space Grotesk, sans-serif', fontWeight:500,
-              boxShadow: active?`0 0 22px ${t.color}30, inset 0 0 16px ${t.color}0a`:'none',
+              filter: active?`drop-shadow(0 0 18px ${t.color}80)`:`drop-shadow(0 0 6px ${t.color}20)`,
             }}>
               <div style={{
-                width:32, height:32, margin:'0 auto 5px', borderRadius:'50%', fontSize:16,
+                width:38, height:38, margin:'0 auto 7px', borderRadius:'50%', fontSize:19,
                 display:'flex', alignItems:'center', justifyContent:'center',
-                background: active?`radial-gradient(circle at 32% 28%,${t.color}45,${t.color}10 70%)`:'rgba(255,255,255,0.03)',
-                border: active?`1.5px solid ${t.color}60`:'1px solid rgba(255,255,255,0.06)',
+                background: active?`radial-gradient(circle at 32% 28%,${t.bright}60,${t.color}18 70%)`:`radial-gradient(circle at 32% 28%,${t.color}30,${t.color}0c 70%)`,
+                border: active?`1.5px solid ${t.bright}90`:`1px solid ${t.color}50`,
+                boxShadow: active?`inset 0 1px 3px rgba(255,255,255,0.15)`:'none',
               }}>{t.emoji}</div>
-              <div style={{ fontWeight:700, fontSize:11, fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.02em', textShadow: active?`0 0 12px ${t.color}50`:'none' }}>{t.label.toUpperCase()}</div>
-              <div className={active?'coin-value':undefined} style={{ fontSize:8.5, fontFamily:'Space Mono, monospace', marginTop:5, color:active?undefined:'#2a2a28', fontWeight:700 }}>{t.target}</div>
-              <div style={{ fontSize:8, color:active?t.color+'66':'#1a1a18', marginTop:1 }}>{t.desc}</div>
+              <div style={{ fontWeight:700, fontSize:14, fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.02em', color: active?t.bright:t.color, textShadow: active?`0 0 14px ${t.color}90`:'none' }}>{t.label.toUpperCase()}</div>
+              <div style={{ fontSize:12.5, fontFamily:'Space Mono, monospace', marginTop:7, fontWeight:700, color: active?t.bright:t.color+'b0' }}>{t.target}</div>
+              <div style={{ fontSize:9, color:active?t.color+'dd':'#4a4a45', marginTop:3 }}>{t.desc}</div>
             </button>
           )
         })}
@@ -460,7 +476,7 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
       <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:summary?10:16, padding:'10px 16px', background:`linear-gradient(135deg,${tier.color}10,${tier.color}03)`, border:'1px solid '+tier.color+'35', boxShadow:`0 0 16px ${tier.color}15`, borderRadius:9 }}>
         <span style={{ fontSize:20 }}>{tier.emoji}</span>
         <div style={{ flex:1 }}>
-          <div style={{ fontSize:11, fontWeight:700, color:tier.color, fontFamily:'Space Mono, monospace', letterSpacing:'0.08em' }}>TARGET {tier.target} minimum · {tier.desc}</div>
+          <div style={{ fontSize:12.5, fontWeight:700, color:tier.bright, fontFamily:'Space Mono, monospace', letterSpacing:'0.06em', textShadow:`0 0 10px ${tier.color}60` }}>TARGET {tier.target} minimum · {tier.desc}</div>
           <div style={{ fontSize:10, color:'#3a3a38', marginTop:2 }}>Click any method → full gear setup + community feedback</div>
         </div>
         <div style={{ fontSize:8.5, fontFamily:'Space Mono, monospace', color:'#3a3a38', padding:'3px 9px', background:'rgba(201,168,76,0.02)', borderRadius:5, border:'1px solid rgba(201,168,76,0.04)' }}>Weekly AI</div>
