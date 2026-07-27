@@ -95,6 +95,15 @@ body {
     0 0, 0 0, 100% 0, 100% 0, 0 100%, 0 100%, 100% 100%, 100% 100%;
 }
 
+/* ── large pointed gem-tab silhouette for wide panels/banners: the left edge
+   tapers to a point instead of a plain vertical border, so a banner reads as
+   a cut plaque rather than a rounded-rect SaaS card. Two point depths for the
+   two common banner sizes on the dashboard; border/box-shadow are clipped
+   along with the shape automatically, use filter:drop-shadow on the element
+   instead of box-shadow if a glow needs to bleed past the taper. ── */
+.gem-tab-lg { clip-path: polygon(22px 0, 100% 0, 100% 100%, 22px 100%, 0 50%); }
+.gem-tab-sm { clip-path: polygon(14px 0, 100% 0, 100% 100%, 14px 100%, 0 50%); }
+
 /* ── gold-coin numeric readout, used for coins/h and other headline figures ── */
 .coin-value {
   font-family: 'Space Mono', monospace; font-weight: 700;

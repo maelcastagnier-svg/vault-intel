@@ -77,7 +77,7 @@ function SetupPanel({ setup }: { setup: Setup }) {
 
       {/* HOW TO */}
       {(st(setup.how_to)||st(setup.why_best)) && (
-        <div style={{ background:'linear-gradient(135deg,rgba(201,168,76,0.08),rgba(201,168,76,0.02))', border:'1px solid rgba(201,168,76,0.3)', boxShadow:'0 0 16px rgba(201,168,76,0.1)', borderRadius:10, padding:'12px 14px', marginBottom:14 }}>
+        <div className="gem-tab-sm" style={{ background:'linear-gradient(135deg,rgba(201,168,76,0.08),rgba(201,168,76,0.02))', border:'1px solid rgba(201,168,76,0.3)', filter:'drop-shadow(0 0 16px rgba(201,168,76,0.1))', padding:'12px 14px 12px 24px', marginBottom:14 }}>
           <div style={{ fontSize:8.5, color:'#c9a84c', fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:7, textTransform:'uppercase', fontWeight:700 }}>⚡ How To</div>
           {st(setup.how_to)   && <div style={{ fontSize:12.5, color:'#d8d6cf', lineHeight:1.75 }}>{st(setup.how_to)}</div>}
           {st(setup.why_best) && <div style={{ fontSize:11, color:'#6b6960', marginTop:8, fontStyle:'italic', paddingLeft:10, borderLeft:'2px solid rgba(201,168,76,0.2)' }}>→ {st(setup.why_best)}</div>}
@@ -165,7 +165,7 @@ function VoteModal({ method, tier, onClose, onVoted }: {
 
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.88)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem', backdropFilter:'blur(8px)' }}>
-      <div onClick={e=>e.stopPropagation()} className="vault-panel" style={{ border:'1px solid rgba(201,168,76,0.35)', borderRadius:14, padding:'26px', maxWidth:420, width:'100%', boxShadow:'0 40px 80px rgba(0,0,0,0.8), 0 0 30px rgba(201,168,76,0.1)' }}>
+      <div onClick={e=>e.stopPropagation()} className="vault-panel gem-tab-lg" style={{ border:'1px solid rgba(201,168,76,0.35)', padding:'26px 26px 26px 42px', maxWidth:420, width:'100%', filter:'drop-shadow(0 30px 60px rgba(0,0,0,0.8)) drop-shadow(0 0 30px rgba(201,168,76,0.1))' }}>
         <div style={{ fontSize:8, color:'#c9a84c', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.04em', marginBottom:12, textShadow:'0 0 10px rgba(201,168,76,0.4)' }}>COMMUNITY FEEDBACK</div>
         <div style={{ fontSize:15, fontWeight:700, color:'#e8e6df', marginBottom:5 }}>Did this work for you?</div>
         <div style={{ fontSize:11.5, color:'#6b6960', marginBottom:20 }}>{st(method.method)}</div>
@@ -304,66 +304,61 @@ function MethodCard({ method, tier, accentColor, type }: {
         {/* Header card */}
         <div
           onClick={toggle}
-          className="vault-panel"
+          className={expanded?'vault-panel':'vault-panel gem-tab-lg'}
           style={{
             ['--vc' as any]: accentColor,
             border:       `1px solid ${expanded?accentColor+'55':'rgba(201,168,76,0.16)'}`,
-            borderLeft:   `3px solid ${accentColor}`,
+            borderLeft:   expanded?`3px solid ${accentColor}`:undefined,
             borderRadius: expanded?'10px 10px 0 0':10,
-            padding:      '14px 16px', cursor:'pointer', transition:'all 0.15s',
-            boxShadow:    expanded?`0 0 18px ${accentColor}20`:'none',
+            padding:      expanded?'14px 16px':'14px 16px 14px 32px', cursor:'pointer', transition:'all 0.15s',
+            filter:       expanded?`drop-shadow(0 0 18px ${accentColor}20)`:'none',
           }}
         >
-          <div style={{ position:'relative' }}>
-            {/* Skill medallion — a pointed gem-tab that bites into the card's left
-                edge instead of a floating circle, so the card body itself stays a
-                fully safe rectangle for text while the shape identity lives on the
-                one element with no real content in it. */}
+          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+            {/* Skill medallion — sits right at the tip of the card's own pointed
+                edge (gem-tab-lg clip-path) when collapsed, so the shape identity
+                lives on the card itself rather than needing a second overlapping
+                point graphic (which would collide with the card's own clip). */}
             <div style={{
-              position:'absolute', left:-24, top:'50%', transform:'translateY(-50%)',
-              width:40, height:44, flexShrink:0,
-              clipPath:'polygon(38% 0%, 100% 0%, 100% 100%, 38% 100%, 0% 50%)',
-              background:`linear-gradient(135deg, ${accentColor}55, ${accentColor}18)`,
-              border:`1.5px solid ${accentColor}70`,
-              boxShadow:`0 0 10px ${accentColor}35, inset 0 1px 2px rgba(255,255,255,0.12)`,
-              display:'flex', alignItems:'center', justifyContent:'center', fontSize:16,
-              paddingLeft:6,
+              width:34, height:34, borderRadius:'50%', flexShrink:0,
+              background:`radial-gradient(circle at 32% 28%, ${accentColor}40, ${accentColor}0c 70%)`,
+              border:`1.5px solid ${accentColor}55`,
+              boxShadow:`0 0 10px ${accentColor}25, inset 0 1px 3px rgba(255,255,255,0.1)`,
+              display:'flex', alignItems:'center', justifyContent:'center', fontSize:15
             }}>
               {skillIcon}
             </div>
 
-            <div style={{ display:'flex', alignItems:'center', gap:12, paddingLeft:22 }}>
-              {/* Name */}
-              <div style={{ flex:1, minWidth:0 }}>
-                <div title={name} style={{ fontSize:nameSize, fontWeight:700, color:'#e8e6df', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:5 }}>
-                  {name}
-                </div>
-                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                  {skill && <span style={{ fontSize:8.5, color:accentColor+'cc', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.02em' }}>{skill.replace(/_/g,' ').toUpperCase()}</span>}
-                  {feedback && <FeedbackBadge fb={feedback} />}
-                </div>
+            {/* Name */}
+            <div style={{ flex:1, minWidth:0 }}>
+              <div title={name} style={{ fontSize:nameSize, fontWeight:700, color:'#e8e6df', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:5 }}>
+                {name}
               </div>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                {skill && <span style={{ fontSize:8.5, color:accentColor+'cc', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.02em' }}>{skill.replace(/_/g,' ').toUpperCase()}</span>}
+                {feedback && <FeedbackBadge fb={feedback} />}
+              </div>
+            </div>
 
-              {/* Coins + conf */}
-              <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6, flexShrink:0 }}>
-                {coins && (
-                  <div className="coin-value" style={{ fontSize:17, letterSpacing:'0.01em', whiteSpace:'nowrap' }}>
-                    🪙 {coins}
-                  </div>
-                )}
-                <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-                  <span style={{ fontSize:8, color:confColor, background:confColor+'15', border:'1px solid '+confColor+'40', padding:'2px 6px', borderRadius:4, fontFamily:"'Press Start 2P', monospace", fontWeight:700 }}>
-                    {st(method.confidence)||'MED'}
-                  </span>
-                  <span style={{ fontSize:14, color:accentColor, transform:expanded?'rotate(90deg)':'none', transition:'transform 0.2s', display:'inline-block', textShadow:`0 0 8px ${accentColor}60` }}>›</span>
+            {/* Coins + conf */}
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6, flexShrink:0 }}>
+              {coins && (
+                <div className="coin-value" style={{ fontSize:17, letterSpacing:'0.01em', whiteSpace:'nowrap' }}>
+                  🪙 {coins}
                 </div>
+              )}
+              <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                <span style={{ fontSize:8, color:confColor, background:confColor+'15', border:'1px solid '+confColor+'40', padding:'2px 6px', borderRadius:4, fontFamily:"'Press Start 2P', monospace", fontWeight:700 }}>
+                  {st(method.confidence)||'MED'}
+                </span>
+                <span style={{ fontSize:14, color:accentColor, transform:expanded?'rotate(90deg)':'none', transition:'transform 0.2s', display:'inline-block', textShadow:`0 0 8px ${accentColor}60` }}>›</span>
               </div>
             </div>
           </div>
 
           {/* Preview */}
           {!expanded && preview && (
-            <div style={{ marginTop:6, paddingLeft:22, fontSize:10.5, color:'#4a4a45', lineHeight:1.4, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:1, WebkitBoxOrient:'vertical' }}>
+            <div style={{ marginTop:6, paddingLeft:46, fontSize:10.5, color:'#4a4a45', lineHeight:1.4, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:1, WebkitBoxOrient:'vertical' }}>
               {preview}
             </div>
           )}
@@ -443,7 +438,7 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
       <style>{`@keyframes mm_pulse{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.6);opacity:1}}`}</style>
 
       {/* Section title -- same branded-banner pattern as Patch Analysis and Radar */}
-      <div style={{ marginBottom:20, padding:'12px 16px', background:'linear-gradient(135deg, rgba(201,168,76,0.1) 0%, rgba(201,168,76,0.03) 100%)', border:'1px solid rgba(232,192,99,0.4)', boxShadow:'0 0 20px rgba(232,192,99,0.08)', borderRadius:10, display:'flex', alignItems:'center', gap:12 }}>
+      <div className="gem-tab-lg" style={{ marginBottom:20, padding:'12px 16px 12px 36px', background:'linear-gradient(135deg, rgba(201,168,76,0.1) 0%, rgba(201,168,76,0.03) 100%)', border:'1px solid rgba(232,192,99,0.4)', filter:'drop-shadow(0 0 20px rgba(232,192,99,0.08))', display:'flex', alignItems:'center', gap:12 }}>
         <span style={{ fontSize:20 }}>💰</span>
         <div>
           <div style={{ fontSize:9, fontWeight:700, color:'#c9a84c', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.04em' }}>MONEY MAKING</div>
@@ -486,7 +481,7 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
       </div>
 
       {/* Banner */}
-      <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:summary?10:16, padding:'10px 16px', background:`linear-gradient(135deg,${tier.color}10,${tier.color}03)`, border:'1px solid '+tier.color+'35', boxShadow:`0 0 16px ${tier.color}15`, borderRadius:9 }}>
+      <div className="gem-tab-lg" style={{ display:'flex', alignItems:'center', gap:12, marginBottom:summary?10:16, padding:'10px 16px 10px 36px', background:`linear-gradient(135deg,${tier.color}10,${tier.color}03)`, border:'1px solid '+tier.color+'35', filter:`drop-shadow(0 0 16px ${tier.color}15)` }}>
         <span style={{ fontSize:20 }}>{tier.emoji}</span>
         <div style={{ flex:1 }}>
           <div style={{ fontSize:12.5, fontWeight:700, color:tier.bright, fontFamily:'Space Mono, monospace', letterSpacing:'0.06em', textShadow:`0 0 10px ${tier.color}60` }}>TARGET {tier.target} minimum · {tier.desc}</div>
@@ -497,7 +492,7 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
 
       {/* This week analysis */}
       {summary && (
-        <div className="vault-surface" style={{ marginBottom:16, padding:'12px 15px', border:'1px solid rgba(201,168,76,0.18)', borderRadius:8 }}>
+        <div className="vault-surface gem-tab-lg" style={{ marginBottom:16, padding:'12px 15px 12px 34px', border:'1px solid rgba(201,168,76,0.18)' }}>
           <div style={{ fontSize:7.5, color:'#8a6e2f', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.03em', marginBottom:7 }}>📊 THIS WEEK'S ANALYSIS</div>
           <div style={{ fontSize:11.5, color:'#9b9b8f', lineHeight:1.65 }}>{summary}</div>
         </div>
@@ -513,7 +508,7 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
 
           {/* Active Grind */}
           <div>
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12, padding:'8px 12px', background:`linear-gradient(135deg,${tier.color}0d,${tier.color}03)`, border:`1px solid ${tier.color}30`, boxShadow:`0 0 14px ${tier.color}12`, borderRadius:7 }}>
+            <div className="gem-tab-sm" style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12, padding:'8px 12px 8px 22px', background:`linear-gradient(135deg,${tier.color}0d,${tier.color}03)`, border:`1px solid ${tier.color}30`, filter:`drop-shadow(0 0 14px ${tier.color}12)` }}>
               <span style={{ fontSize:14 }}>⚔️</span>
               <div>
                 <div style={{ fontSize:9, fontWeight:700, fontFamily:"'Press Start 2P', monospace", color:tier.color, letterSpacing:'0.04em', textShadow:`0 0 10px ${tier.color}40` }}>ACTIVE GRIND</div>
@@ -527,7 +522,7 @@ export default function MoneyMakingSection({ marketData, dataLoading }: {
 
           {/* Vault Exclusive */}
           <div>
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12, padding:'8px 12px', background:'linear-gradient(135deg,rgba(155,89,182,0.09),rgba(155,89,182,0.02))', border:'1px solid rgba(155,89,182,0.3)', boxShadow:'0 0 14px rgba(155,89,182,0.12)', borderRadius:7 }}>
+            <div className="gem-tab-sm" style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12, padding:'8px 12px 8px 22px', background:'linear-gradient(135deg,rgba(155,89,182,0.09),rgba(155,89,182,0.02))', border:'1px solid rgba(155,89,182,0.3)', filter:'drop-shadow(0 0 14px rgba(155,89,182,0.12))' }}>
               <span style={{ fontSize:14 }}>⚡</span>
               <div>
                 <div style={{ fontSize:9, fontWeight:700, fontFamily:"'Press Start 2P', monospace", color:'#9b59b6', letterSpacing:'0.04em', textShadow:'0 0 10px rgba(155,89,182,0.4)' }}>VAULT EXCLUSIVE</div>
