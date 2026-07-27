@@ -1,0 +1,76 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+:root {
+  --black: #0a0a0a; --white: #f5f4f0; --gold: #c9a84c;
+  --gold-bright: #e8c063; --gold-dim: #8a6e2f; --surface: #111110; --surface2: #1a1917;
+  --border: rgba(201,168,76,0.18); --muted: #6b6960; --text: #e8e6df;
+}
+
+* , *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { background: var(--black); }
+body {
+  color: var(--text);
+  font-family: 'Space Grotesk', sans-serif;
+  overflow-x: hidden;
+}
+
+.pixel { font-family: 'Press Start 2P', monospace; }
+
+/* ── shared site nav, used on every page (Vault DA: black/gold, pixel-font logo) ── */
+.nav {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 1.25rem 2.5rem; border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: rgba(10,10,10,0.92); backdrop-filter: blur(12px); z-index: 100;
+}
+.nav-logo {
+  font-family: 'Press Start 2P', monospace; font-size: 0.9rem; color: var(--gold);
+  letter-spacing: 0.08em; text-shadow: 0 0 12px rgba(232,192,99,0.35); text-decoration: none;
+}
+.nav-logo span { color: var(--white); }
+.nav-links { display: flex; gap: 1.75rem; align-items: center; flex-wrap: wrap; }
+.nav-links a { color: var(--muted); text-decoration: none; font-size: 0.875rem; transition: color 0.2s; }
+.nav-links a:hover, .nav-links a.active { color: var(--gold); }
+.nav-cta { background: var(--gold) !important; color: var(--black) !important; padding: 0.45rem 1.1rem; border-radius: 4px; font-weight: 600; font-size: 0.825rem; }
+
+/* ── shared "vault UI panel": thin gold border + 4 gold corner-bracket accents,
+   CSS-only via layered background gradients (no extra markup) -- this is the DA
+   language carried from the hero image into every card across the site. ── */
+.vault-card {
+  position: relative;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+  background-image:
+    linear-gradient(var(--gold-bright), var(--gold-bright)), linear-gradient(var(--gold-bright), var(--gold-bright)),
+    linear-gradient(var(--gold-bright), var(--gold-bright)), linear-gradient(var(--gold-bright), var(--gold-bright)),
+    linear-gradient(var(--gold-bright), var(--gold-bright)), linear-gradient(var(--gold-bright), var(--gold-bright)),
+    linear-gradient(var(--gold-bright), var(--gold-bright)), linear-gradient(var(--gold-bright), var(--gold-bright));
+  background-repeat: no-repeat;
+  background-size: 2px 14px, 14px 2px, 2px 14px, 14px 2px, 2px 14px, 14px 2px, 2px 14px, 14px 2px;
+  background-position: 0 0, 0 0, 100% 0, 100% 0, 0 100%, 0 100%, 100% 100%, 100% 100%;
+}
+
+.btn-primary { background: var(--gold); color: var(--black); padding: 0.85rem 2rem; border-radius: 4px; font-weight: 700; font-size: 0.95rem; text-decoration: none; display: inline-block; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.btn-ghost { border: 1px solid rgba(232,192,99,0.55); background: rgba(10,9,7,0.4); backdrop-filter: blur(4px); color: var(--white); padding: 0.85rem 2rem; border-radius: 4px; font-size: 0.95rem; text-decoration: none; display: inline-block; }
+
+/* ── shared page-body typography, used by content pages (about/features/privacy/terms) ── */
+.page-wrap { max-width: 760px; margin: 0 auto; padding: 3.5rem 1.5rem 5rem; }
+.page-eyebrow { font-family: 'Press Start 2P', monospace; font-size: 0.55rem; letter-spacing: 0.15em; color: var(--gold-dim); margin-bottom: 1rem; }
+.page-wrap h1 { font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 700; color: var(--white); margin-bottom: 1rem; letter-spacing: -0.02em; }
+.page-wrap h2 { font-size: 1.2rem; color: var(--gold); margin: 2.5rem 0 0.75rem; }
+.page-wrap p, .page-wrap li { font-size: 0.95rem; line-height: 1.75; color: var(--text); }
+.page-wrap ul { margin: 0.5rem 0 0.5rem 1.2rem; }
+.page-wrap a { color: var(--gold); }
+.page-updated { font-size: 0.8rem; color: var(--muted); margin: 0.5rem 0 2.5rem; }
+.page-back { display: inline-block; margin-top: 3rem; font-size: 0.85rem; color: var(--muted); text-decoration: none; }
+.page-back:hover { color: var(--gold); }
+
+.section { padding: 5rem 2.5rem; max-width: 960px; margin: 0 auto; }
+.section-label { font-family: 'Press Start 2P', monospace; font-size: 0.55rem; letter-spacing: 0.15em; color: var(--gold-dim); margin-bottom: 1.25rem; }
+.section h2 { font-size: clamp(1.6rem, 3.5vw, 2.4rem); font-weight: 700; color: var(--white); line-height: 1.2; margin-bottom: 1.25rem; letter-spacing: -0.02em; }
+
+/* ── shared footer ── */
+.site-footer { border-top: 1px solid var(--border); padding: 2rem 2.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+.site-footer p { font-size: 0.8rem; color: var(--muted); }
+.site-footer a { color: var(--muted); text-decoration: none; }
+.site-footer a:hover { color: var(--gold); }
+.footer-links { display: flex; gap: 1rem; flex-wrap: wrap; }

@@ -1,6 +1,8 @@
 'use client'
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import SiteNav from "../components/SiteNav";
+import SiteFooter from "../components/SiteFooter";
 
 const PRICES = {
   alert: 'price_1TqXC5BmtpUo4AHWVzbSPY0e',
@@ -71,23 +73,6 @@ export default function Home() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
-        :root {
-          --black: #0a0a0a; --white: #f5f4f0; --gold: #c9a84c;
-          --gold-bright: #e8c063; --gold-dim: #8a6e2f; --surface: #111110; --surface2: #1a1917;
-          --border: rgba(201,168,76,0.18); --muted: #6b6960; --text: #e8e6df;
-        }
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: var(--black); color: var(--text); font-family: 'Space Grotesk', sans-serif; overflow-x: hidden; }
-        .pixel { font-family: 'Press Start 2P', monospace; }
-        nav { display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 2.5rem; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: rgba(10,10,10,0.92); backdrop-filter: blur(12px); z-index: 100; }
-        .logo { font-family: 'Press Start 2P', monospace; font-size: 0.9rem; color: var(--gold); letter-spacing: 0.08em; text-shadow: 0 0 12px rgba(232,192,99,0.35); }
-        .logo span { color: var(--white); }
-        nav a { color: var(--muted); text-decoration: none; font-size: 0.875rem; transition: color 0.2s; }
-        nav a:hover { color: var(--gold); }
-        .nav-cta { background: var(--gold) !important; color: var(--black) !important; padding: 0.45rem 1.1rem; border-radius: 4px; font-weight: 600; font-size: 0.825rem; }
-        .nav-links { display: flex; gap: 2rem; align-items: center; }
-
         /* Hero: locked background scene (public/images/hero-background.jpg). Text sits
            directly over the scene, no boxed panel -- just strong per-element text-shadow
            for legibility -- and is pulled up into the archway zone above the light beam
@@ -117,43 +102,26 @@ export default function Home() {
           color: var(--gold-bright); margin-bottom: 1.5rem;
           text-shadow: 0 0 12px rgba(232,192,99,0.5), 0 2px 6px rgba(0,0,0,0.8);
         }
-        h1 {
+        .hero-copy h1 {
           font-size: clamp(2rem, 4.6vw, 3.4rem); font-weight: 700; line-height: 1.12; color: var(--white); margin-bottom: 1.25rem; letter-spacing: -0.02em;
           text-shadow: 0 2px 4px rgba(0,0,0,0.9), 0 8px 30px rgba(0,0,0,0.85);
         }
-        h1 em { font-style: normal; color: var(--gold-bright); }
+        .hero-copy h1 em { font-style: normal; color: var(--gold-bright); }
         .hero-sub {
           font-size: 1.05rem; color: var(--text); max-width: 560px; margin: 0 auto 2.2rem; line-height: 1.7;
           text-shadow: 0 2px 4px rgba(0,0,0,0.9), 0 6px 20px rgba(0,0,0,0.8);
         }
         .cta-group { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
-        .btn-primary { background: var(--gold); color: var(--black); padding: 0.85rem 2rem; border-radius: 4px; font-weight: 700; font-size: 0.95rem; text-decoration: none; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
-        .btn-ghost { border: 1px solid rgba(232,192,99,0.55); background: rgba(10,9,7,0.4); backdrop-filter: blur(4px); color: var(--white); padding: 0.85rem 2rem; border-radius: 4px; font-size: 0.95rem; text-decoration: none; }
 
         .proof-bar { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 1.5rem 2.5rem; display: flex; justify-content: center; gap: 3rem; flex-wrap: wrap; }
         .proof-item { text-align: center; }
         .proof-num { font-family: 'Space Mono', monospace; font-size: 1.4rem; font-weight: 700; color: var(--gold); }
         .proof-label { font-family: 'Press Start 2P', monospace; font-size: 0.55rem; color: var(--muted); letter-spacing: 0.05em; margin-top: 6px; }
 
-        .section { padding: 5rem 2.5rem; max-width: 960px; margin: 0 auto; }
-        .section-label { font-family: 'Press Start 2P', monospace; font-size: 0.55rem; letter-spacing: 0.15em; color: var(--gold-dim); margin-bottom: 1.25rem; }
-        h2 { font-size: clamp(1.6rem, 3.5vw, 2.4rem); font-weight: 700; color: var(--white); line-height: 1.2; margin-bottom: 1.25rem; letter-spacing: -0.02em; }
-
-        /* shared "vault UI panel" treatment: thin gold border + 4 gold corner-bracket
-           accents (CSS-only, via layered background gradients -- no extra markup) --
-           this is the DA language carried from the hero image into the rest of the page. */
-        .vault-card {
-          position: relative;
-          background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
-          background-image:
-            linear-gradient(var(--gold-bright), var(--gold-bright)), linear-gradient(var(--gold-bright), var(--gold-bright)),
-            linear-gradient(var(--gold-bright), var(--gold-bright)), linear-gradient(var(--gold-bright), var(--gold-bright)),
-            linear-gradient(var(--gold-bright), var(--gold-bright)), linear-gradient(var(--gold-bright), var(--gold-bright)),
-            linear-gradient(var(--gold-bright), var(--gold-bright)), linear-gradient(var(--gold-bright), var(--gold-bright));
-          background-repeat: no-repeat;
-          background-size: 2px 14px, 14px 2px, 2px 14px, 14px 2px, 2px 14px, 14px 2px, 2px 14px, 14px 2px;
-          background-position: 0 0, 0 0, 100% 0, 100% 0, 0 100%, 0 100%, 100% 100%, 100% 100%;
-        }
+        .channels-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 2.5rem; }
+        .channel { padding: 1.25rem; }
+        .channel-name { font-family: 'Press Start 2P', monospace; font-size: 0.65rem; color: var(--gold); margin-bottom: 0.75rem; }
+        .channel-desc { font-size: 0.8rem; color: var(--muted); line-height: 1.5; }
 
         .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; margin-top: 3rem; }
         .plan { padding: 1.75rem; }
@@ -173,26 +141,9 @@ export default function Home() {
         .plan-cta-disabled:hover { opacity: 0.5; }
         .cap-note { text-align: center; font-size: 0.8rem; color: var(--muted); margin-top: 1.5rem; }
         .cap-note strong { color: var(--gold); }
-
-        .channels-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 2.5rem; }
-        .channel { padding: 1.25rem; }
-        .channel-name { font-family: 'Press Start 2P', monospace; font-size: 0.65rem; color: var(--gold); margin-bottom: 0.75rem; }
-        .channel-desc { font-size: 0.8rem; color: var(--muted); line-height: 1.5; }
-
-        footer { border-top: 1px solid var(--border); padding: 2rem 2.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
-        footer p { font-size: 0.8rem; color: var(--muted); }
-        footer a { color: var(--muted); text-decoration: none; }
-        footer a:hover { color: #c9a84c; }
       `}</style>
 
-      <nav>
-        <div className="logo">VAULT<span>.</span></div>
-        <div className="nav-links">
-          <a href="#how-it-works">How it works</a>
-          <a href="#pricing">Pricing</a>
-          <Link href="/login" className="nav-cta">Access Dashboard</Link>
-        </div>
-      </nav>
+      <SiteNav />
 
       <section className="hero">
         <div className="hero-bg" />
@@ -245,6 +196,9 @@ export default function Home() {
             </div>
           ))}
         </div>
+        <p className="cap-note" style={{ textAlign: 'left', marginTop: '2rem' }}>
+          Want the full breakdown of every feature, tier by tier? <Link href="/features">See the full feature list →</Link>
+        </p>
       </section>
 
       <section className="section" id="pricing">
@@ -273,10 +227,7 @@ export default function Home() {
         <p className="cap-note">Maximum <strong>500 members</strong> per game to preserve the competitive edge of every analysis.</p>
       </section>
 
-      <footer>
-        <p>© 2026 Vault Intelligence. All rights reserved.</p>
-        <p>Not affiliated with Hypixel or Mojang. <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></p>
-      </footer>
+      <SiteFooter />
     </>
   );
 }
