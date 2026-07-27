@@ -60,13 +60,7 @@ export async function GET() {
     .eq('tier', 'late')
     .single()
 
-  const { data: rawStatsCheck } = await supabase
-    .from('item_stats')
-    .select('*')
-    .in('item_id', ['INFERNAL_CRIMSON_CHESTPLATE', 'HYPERION', 'CROWN_OF_AVARICE'])
-
   return NextResponse.json({
-    raw_item_stats_check: rawStatsCheck,
     method_chosen: {
       id: method.id, method: method.method, skill: method.skill || method.skills_combined,
       coins_display: method.coins_display,

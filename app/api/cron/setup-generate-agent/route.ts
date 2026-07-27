@@ -73,24 +73,27 @@ export function gearCatalogForBudget(priced: PricedItem[], maxGearCost: number):
   const minPrice = maxGearCost / 25
   const maxPrice = maxGearCost * 3
 
+  // NOTE: item_stats.health/defense/strength/... est réel mais souvent 0 pour
+  // les items endgame complexes (armures Kuudra, items Divan...) — Hypixel ne
+  // remplit ce champ que pour les items à stats plates simples, pas ceux dont
+  // le vrai stat vient de la génération/reforge/étoiles. Vérifié en base sur
+  // Crown of Avarice/Hyperion/Infernal Crimson Chestplate : les trois à 0 alors
+  // que ce sont de vraies pièces BiS statées. Afficher ces zéros au modèle
+  // serait une fausse information (donnerait l'impression que ces items n'ont
+  // aucun stat) — on ne montre donc QUE le prix réel (fiable) et on trie par
+  // prix décroissant, jamais par un score dérivé de colonnes dont on sait
+  // qu'elles sont creuses ici.
   const rows = priced
     .filter(s => s.price >= minPrice && s.price <= maxPrice)
-    .map(s => ({
-      ...s,
-      power: s.health + s.defense * 2 + s.strength + s.crit_damage * 2 + s.crit_chance * 2 + s.intelligence * 0.5 + s.speed,
-    }))
-    .sort((a, b) => b.power - a.power)
+    .sort((a, b) => b.price - a.price)
     .slice(0, 60)
 
   if (rows.length === 0) {
     return '=== REAL GEAR CATALOG (priced, in-budget) ===\nNo priced item found in this budget band — rely on the wiki sections above only, and mark confidence LOW on any specific item name you are not certain still exists.'
   }
 
-  return '=== REAL GEAR CATALOG (actual traded items, current AH price, filtered to this tier\'s budget) ===\n' +
-    rows.map(s =>
-      `${s.item_id} "${s.display_name}" [${s.category}] price=${Math.round(s.price).toLocaleString()} | ` +
-      `HP${s.health} DEF${s.defense} STR${s.strength} CD${s.crit_damage} CC${s.crit_chance} INT${s.intelligence} SPD${s.speed}`
-    ).join('\n')
+  return '=== REAL GEAR CATALOG (actual traded items, current AH price, filtered to this tier\'s budget, sorted highest price first) ===\n' +
+    rows.map(s => `${s.item_id} "${s.display_name}" [${s.category}] price=${Math.round(s.price).toLocaleString()}`).join('\n')
 }
 
 // ── Clé unique identique entre agent et route ─────────────────
@@ -141,7 +144,8 @@ export function buildWikiContext(ctx: any): string {
 export const GROUNDING_RULES = `
 === GROUNDING RULES (mandatory) ===
 - armor_set, weapon_name, tool, rod, and accessories MUST be picked from the REAL GEAR CATALOG below when a matching item exists there for that slot/activity. The catalog is already filtered to this tier's real budget band using actual current AH prices — never override it with a cheaper or more expensive item from memory (e.g. never suggest an old low-tier armor set for a tier whose budget clearly reaches the catalog's top entries, and never suggest a BiS item priced far above this tier's budget).
-- cost_budget / cost_optimal / cost_endgame must be consistent with the "price=" values shown in the catalog for the items you actually name, not invented numbers.
+- The catalog has NO stat columns (health/defense/etc are unreliable for endgame gear in our data and were deliberately removed) — never invent specific numbers for armor_stats/weapon_stats/target_stats either; keep those fields qualitative (e.g. "High DEF, moderate STR") or omit precise numbers you cannot source from the WIKI text above.
+- cost_budget / cost_optimal / cost_endgame are the MOST commonly wrong fields — compute them explicitly: add up the real "price=" values from the catalog for every item you actually named (armor pieces + weapon + tool/rod, whichever apply), THEN write that sum (or a range around it) as the cost. A LATE-tier setup built from catalog items priced in the hundreds of millions to billions must show a cost in that same range — never fall back to a small habitual number like "70-110M" out of pattern-matching against the coins/h figure, which is a per-hour income number, NOT a gear cost.
 - pet_name and gemstones are not in this catalog — use the WIKI sections above for those, and if still uncertain, mark confidence implicitly by keeping the recommendation generic rather than naming an ultra-specific variant you're not sure exists.
 - If the catalog says "No priced item found in this budget band", do not invent a specific item — describe the setup at the archetype level (e.g. "best available T4 mining armor") instead of naming an unverified item.
 `
