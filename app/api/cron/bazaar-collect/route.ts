@@ -73,8 +73,13 @@ export async function GET(request: Request) {
       })
       .filter((i): i is BazaarItem => i !== null)
 
+    // Pertinence : le spread% seul laissait passer des items quasi-illiquides
+    // (70% de spread sur un item qui échange 5 unités/jour n'est pas un flip
+    // exploitable). MIN_VOLUME est un plancher de liquidité quotidienne.
+    const MIN_VOLUME = 500
+
     const flipCandidates = allItems
-      .filter(i => i.spread_pct >= 10 && i.spread_pct <= 80)
+      .filter(i => i.spread_pct >= 10 && i.spread_pct <= 80 && i.volume >= MIN_VOLUME)
       .sort((a, b) => b.spread_pct - a.spread_pct)
       .slice(0, TOP_ITEMS)
 

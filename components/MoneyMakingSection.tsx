@@ -86,7 +86,10 @@ function VoteModal({ method, tier, onClose, onVoted }: {
 
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.88)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem', backdropFilter:'blur(8px)' }}>
-      <div onClick={e=>e.stopPropagation()} className="vault-surface gem-tab-lg" style={{ border:'1px solid rgba(201,168,76,0.35)', padding:'26px 26px 26px 50px', maxWidth:420, width:'100%', filter:'drop-shadow(0 30px 60px rgba(0,0,0,0.8)) drop-shadow(0 0 30px rgba(201,168,76,0.1))' }}>
+      {/* Modals stay plain rectangular — the gem-tab point is a card-list identity
+          marker, not something a transient action overlay (Rate/Deep Dive) should
+          wear. */}
+      <div onClick={e=>e.stopPropagation()} className="vault-surface" style={{ border:'1px solid rgba(201,168,76,0.35)', borderRadius:14, padding:'26px', maxWidth:420, width:'100%', boxShadow:'0 30px 60px rgba(0,0,0,0.8), 0 0 30px rgba(201,168,76,0.1)' }}>
         <div style={{ fontSize:8, color:'#c9a84c', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.04em', marginBottom:12, textShadow:'0 0 10px rgba(201,168,76,0.4)' }}>COMMUNITY FEEDBACK</div>
         <div style={{ fontSize:15, fontWeight:700, color:'#e8e6df', marginBottom:5 }}>Did this work for you?</div>
         <div style={{ fontSize:11.5, color:'#6b6960', marginBottom:20 }}>{st(method.method)}</div>

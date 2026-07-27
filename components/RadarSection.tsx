@@ -16,9 +16,16 @@ const supabase = createClient(
 // ─── Types ───────────────────────────────────────────────────
 type SearchResult = { item_id: string; item_name: string; source: 'bazaar'|'ah'; variant_count: number }
 type PricePoint   = { date: string; sell_price?: number; buy_price?: number; avg_price?: number; volume?: number }
-type VariantMeta  = { key: string; label: string; data_points: number }
+type VariantMeta  = { key: string; label: string; data_points: number; color: string }
 type RadarItem    = { item_id: string; item_name: string; signal: string; reason: string; drivers: string[]; timeframe: string; price_target: string; confidence: string }
 type RadarData    = { positive: RadarItem[]; negative: RadarItem[]; summary: string }
+
+// Fixed-order categorical palette (dark-mode steps from the validated reference
+// palette — run through scripts/validate_palette.js before touching these).
+// Slot 0 is reserved for the always-on "General" line; variants get slots 1+ in
+// the order they appear in the (stable-sorted) variant list, never by toggle
+// order, so a variant's color never shifts when a different variant is toggled.
+const CHART_PALETTE = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767']
 
 // ─── Config ──────────────────────────────────────────────────
 const PERIODS = ['1D','1W','1M','1Y','3Y']
@@ -56,16 +63,17 @@ function buildVariantLabel(vk: string): string {
 }
 
 // ─── Tooltip ─────────────────────────────────────────────────
+// Generic over however many <Line> series are currently on the chart (the
+// bazaar Sell/Buy pair, or General + N toggled AH variants) — reads name/color
+// straight off each Line's own props via Recharts' payload, no hardcoded fields.
 function ChartTooltip({ active, payload, label }: any) {
   if (!active||!payload?.length) return null
-  const p = payload[0]?.payload
   return (
     <div style={{ background:'#0f0f0e', border:'1px solid rgba(201,168,76,0.2)', borderRadius:8, padding:'10px 14px', fontSize:11, fontFamily:'Space Mono, monospace' }}>
       <div style={{ color:'#c9a84c', marginBottom:5 }}>{fmtDate(label)||label?.slice(0,13)}</div>
-      {p?.sell_price>0 && <div style={{ color:'#1baf7a' }}>Sell: {fmt(p.sell_price)}</div>}
-      {p?.buy_price>0  && <div style={{ color:'#2a78d6' }}>Buy:  {fmt(p.buy_price)}</div>}
-      {p?.avg_price>0  && <div style={{ color:'#c9a84c' }}>Avg:  {fmt(p.avg_price)}</div>}
-      {p?.volume>0     && <div style={{ color:'#4a4a45', marginTop:4 }}>Vol: {Number(p.volume).toLocaleString()}</div>}
+      {payload.filter((p:any)=>p.value!=null).map((p:any,i:number)=>(
+        <div key={i} style={{ color:p.color }}>{p.name}: {fmt(p.value)}</div>
+      ))}
     </div>
   )
 }
@@ -77,9 +85,13 @@ function ItemExplorer() {
   const [catalog,  setCatalog]  = useState<SearchResult[]>([])
   const [selected, setSelected] = useState<SearchResult|null>(null)
   const [period,   setPeriod]   = useState('1M')
-  const [history,  setHistory]  = useState<PricePoint[]>([])
   const [variants, setVariants] = useState<VariantMeta[]>([])
-  const [variant,  setVariant]  = useState('all')
+  // seriesMap['general'] is the item's blended curve (always loaded); every other
+  // key is a variant_key currently overlaid on top of it. Kept separate from
+  // `activeVariants` so toggling a variant off doesn't drop its fetched series —
+  // toggling back on is instant instead of re-querying Supabase.
+  const [seriesMap,      setSeriesMap]      = useState<Record<string,PricePoint[]>>({})
+  const [activeVariants, setActiveVariants] = useState<string[]>([])
   const [loading,  setLoading]  = useState(false)
   const [showDrop, setShowDrop] = useState(false)
   const [catLoaded,setCatLoaded]= useState(false)
@@ -132,10 +144,9 @@ function ItemExplorer() {
     }, 50) // 50ms seulement car c'est local
   }, [catalog])
 
-  // ── Historique direct Supabase ────────────────────────────
-  const loadHistory = useCallback(async (item: SearchResult, p: string, v: string) => {
-    setLoading(true)
-    setHistory([])
+  // ── Une série de prix, filtrée par variant_key ou non (undefined = agrégat
+  //    "General" toutes variantes confondues, la même requête qu'avant) ──────
+  const loadSeries = useCallback(async (item: SearchResult, p: string, variantKey?: string): Promise<PricePoint[]> => {
     const days      = PERIOD_DAYS[p] || 30
     const startDate = new Date(Date.now() - days*86_400_000).toISOString().split('T')[0]
     const useScans  = p==='1D'||p==='1W'
@@ -149,10 +160,55 @@ function ItemExplorer() {
         .gt('sell_price', 0)
         .order('bucket_date', { ascending:true })
 
-      setHistory((data||[]).map(d=>({ date:d.bucket_date, buy_price:Number(d.buy_price), sell_price:Number(d.sell_price), volume:Number(d.volume) })))
-      setVariants([])
-    } else {
-      // Variantes disponibles
+      return (data||[]).map(d=>({ date:d.bucket_date, buy_price:Number(d.buy_price), sell_price:Number(d.sell_price), volume:Number(d.volume) }))
+    }
+
+    let q = supabase
+      .from('price_history_ah')
+      .select('bucket_date,created_at,avg_price,volume,variant_key')
+      .eq('base_item_id', item.item_id)
+      .in('granularity', useScans ? ['SCAN'] : ['DAILY','DAILY_EXACT','MONTHLY'])
+      .gt('avg_price', 0)
+      .order(useScans ? 'created_at' : 'bucket_date', { ascending:true })
+      .limit(useScans ? 2000 : 1500)
+
+    if (useScans) q = q.gte('created_at', new Date(Date.now()-days*86_400_000).toISOString())
+    else          q = q.gte('bucket_date', startDate)
+    if (variantKey) q = q.eq('variant_key', variantKey)
+
+    const { data: hist } = await q
+
+    const byDate = new Map<string,{prices:number[];vols:number[]}>()
+    for (const d of hist||[]) {
+      const key = useScans ? (d.created_at||'').slice(0,13)+':00' : d.bucket_date
+      if (!byDate.has(key)) byDate.set(key,{prices:[],vols:[]})
+      byDate.get(key)!.prices.push(Number(d.avg_price))
+      byDate.get(key)!.vols.push(Number(d.volume||0))
+    }
+    return Array.from(byDate.entries())
+      .sort(([a],[b])=>a.localeCompare(b))
+      .map(([date,{prices,vols}])=>({
+        date,
+        avg_price: Math.round(prices.reduce((s,p)=>s+p,0)/prices.length),
+        sell_price:Math.round(Math.min(...prices)),
+        volume:    vols.reduce((s,v)=>s+v,0),
+      }))
+  }, [])
+
+  // ── Sélection d'un item : charge le général + la liste des variantes ─────
+  async function select(item: SearchResult) {
+    setSelected(item)
+    setQuery(item.item_name)
+    setShowDrop(false)
+    setResults([])
+    setActiveVariants([])
+    setVariants([])
+    setLoading(true)
+
+    const general = await loadSeries(item, period)
+    setSeriesMap({ general })
+
+    if (item.source==='ah') {
       const { data: varRows } = await supabase
         .from('price_history_ah')
         .select('variant_key')
@@ -160,70 +216,70 @@ function ItemExplorer() {
         .in('granularity', ['DAILY','DAILY_EXACT','SCAN'])
         .gt('avg_price', 0)
 
-      const varMap = new Map<string,number>()
-      for (const r of varRows||[]) varMap.set(r.variant_key, (varMap.get(r.variant_key)||0)+1)
-      const varList: VariantMeta[] = [
-        ...Array.from(varMap.entries())
-          .sort(([ak,av],[bk,bv])=>{
-            if (ak==='nostar_norecomb_noreforge') return -1
-            if (bk==='nostar_norecomb_noreforge') return 1
-            return bv-av
-          })
-          .map(([key,count])=>({ key, label:buildVariantLabel(key), data_points:count }))
-      ]
-      setVariants(varList)
-
-      // Données historiques
-      let q2 = supabase
-        .from('price_history_ah')
-        .select('bucket_date,created_at,avg_price,volume,variant_key')
-        .eq('base_item_id', item.item_id)
-        .in('granularity', useScans ? ['SCAN'] : ['DAILY','DAILY_EXACT','MONTHLY'])
-        .gt('avg_price', 0)
-        .order(useScans ? 'created_at' : 'bucket_date', { ascending:true })
-        .limit(useScans ? 2000 : 1500)
-
-      if (useScans) q2 = q2.gte('created_at', new Date(Date.now()-days*86_400_000).toISOString())
-      else          q2 = q2.gte('bucket_date', startDate)
-      if (v&&v!=='all') q2 = q2.eq('variant_key', v)
-
-      const { data: hist } = await q2
-
-      // Agrège par date
-      const byDate = new Map<string,{prices:number[];vols:number[]}>()
-      for (const d of hist||[]) {
-        const key = useScans ? (d.created_at||'').slice(0,13)+':00' : d.bucket_date
-        if (!byDate.has(key)) byDate.set(key,{prices:[],vols:[]})
-        byDate.get(key)!.prices.push(Number(d.avg_price))
-        byDate.get(key)!.vols.push(Number(d.volume||0))
-      }
-      const pts: PricePoint[] = Array.from(byDate.entries())
-        .sort(([a],[b])=>a.localeCompare(b))
-        .map(([date,{prices,vols}])=>({
-          date,
-          avg_price:  Math.round(prices.reduce((s,p)=>s+p,0)/prices.length),
-          sell_price: Math.round(Math.min(...prices)),
-          volume:     vols.reduce((s,v)=>s+v,0),
-        }))
-      setHistory(pts)
+      const varCount = new Map<string,number>()
+      for (const r of varRows||[]) varCount.set(r.variant_key, (varCount.get(r.variant_key)||0)+1)
+      const ordered = Array.from(varCount.entries()).sort(([ak,av],[bk,bv])=>{
+        if (ak==='nostar_norecomb_noreforge') return -1
+        if (bk==='nostar_norecomb_noreforge') return 1
+        return bv-av
+      })
+      // Slot 0 of CHART_PALETTE is reserved for General — variants get slot
+      // (index+1), by their position in this stable-sorted list, so a given
+      // variant always renders in the same color regardless of toggle order.
+      setVariants(ordered.map(([key,count],i)=>({
+        key, label:buildVariantLabel(key), data_points:count,
+        color: CHART_PALETTE[(i+1) % CHART_PALETTE.length],
+      })))
     }
     setLoading(false)
-  }, [])
-
-  function select(item: SearchResult) {
-    setSelected(item)
-    setQuery(item.item_name)
-    setShowDrop(false)
-    setResults([])
-    setVariant('all')
-    loadHistory(item, period, 'all')
   }
 
-  function changePeriod(p: string) { setPeriod(p); if (selected) loadHistory(selected,p,variant) }
-  function changeVariant(v: string) { setVariant(v); if (selected) loadHistory(selected,period,v) }
+  async function changePeriod(p: string) {
+    setPeriod(p)
+    if (!selected) return
+    setLoading(true)
+    const keys = ['general', ...activeVariants]
+    const loaded = await Promise.all(keys.map(k => loadSeries(selected, p, k==='general'?undefined:k)))
+    const next: Record<string,PricePoint[]> = {}
+    keys.forEach((k,i) => { next[k] = loaded[i] })
+    setSeriesMap(next)
+    setLoading(false)
+  }
 
-  const isBazaar  = selected?.source==='bazaar'
-  const prices    = history.map(d=>d.sell_price||d.avg_price||0).filter(p=>p>0)
+  async function toggleVariant(key: string) {
+    if (!selected) return
+    if (activeVariants.includes(key)) {
+      setActiveVariants(av => av.filter(k => k!==key))
+      return
+    }
+    setActiveVariants(av => [...av, key])
+    if (!seriesMap[key]) {
+      const pts = await loadSeries(selected, period, key)
+      setSeriesMap(prev => ({ ...prev, [key]: pts }))
+    }
+  }
+
+  const isBazaar = selected?.source==='bazaar'
+
+  // ── Fusionne toutes les séries actives (general + variantes cochées) en
+  //    lignes larges { date, general, [variantKey]: price... } pour Recharts ──
+  const activeSeriesKeys = isBazaar ? [] : ['general', ...activeVariants]
+  const chartData = (() => {
+    if (isBazaar) return seriesMap.general || []
+    const dateSet = new Set<string>()
+    activeSeriesKeys.forEach(k => (seriesMap[k]||[]).forEach(p => dateSet.add(p.date)))
+    return Array.from(dateSet).sort().map(date => {
+      const row: any = { date }
+      activeSeriesKeys.forEach(k => {
+        const pt = (seriesMap[k]||[]).find(p => p.date===date)
+        if (pt) row[k] = pt.sell_price || pt.avg_price || null
+      })
+      return row
+    })
+  })()
+
+  const general   = seriesMap.general || []
+  const prices    = general.map(d=>d.sell_price||d.avg_price||0).filter(p=>p>0)
   const lastPrice = prices[prices.length-1]||0
   const firstPrice= prices[0]||0
   const minPrice  = prices.length?Math.min(...prices):0
@@ -275,8 +331,8 @@ function ItemExplorer() {
             ))}
           </div>
 
-          {/* Stats */}
-          {history.length>0&&(
+          {/* Stats — always the General curve, even when variants are overlaid */}
+          {general.length>0&&(
             <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, marginBottom:16 }}>
               {[
                 { label:'Current', value:fmt(lastPrice),  color:'#e8e6df' },
@@ -292,6 +348,26 @@ function ItemExplorer() {
             </div>
           )}
 
+          {/* Legend — always present once 2+ series are on screen (General
+              plus any toggled variants); identity is never color-only since
+              each swatch is paired with its label. */}
+          {!isBazaar && activeVariants.length>0 && (
+            <div style={{ display:'flex', flexWrap:'wrap', gap:10, marginBottom:10 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:5, fontSize:9.5, fontFamily:'Space Mono, monospace', color:'#9b9b8f' }}>
+                <span style={{ width:9, height:2, background:CHART_PALETTE[0], display:'inline-block' }} /> General
+              </div>
+              {activeVariants.map(vk=>{
+                const v = variants.find(x=>x.key===vk)
+                if (!v) return null
+                return (
+                  <div key={vk} style={{ display:'flex', alignItems:'center', gap:5, fontSize:9.5, fontFamily:'Space Mono, monospace', color:'#9b9b8f' }}>
+                    <span style={{ width:9, height:2, background:v.color, display:'inline-block' }} /> {v.label}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
           {/* Chart */}
           <div style={{ height:200 }}>
             {loading ? (
@@ -299,13 +375,13 @@ function ItemExplorer() {
                 <div style={{ display:'flex', gap:5 }}>{[0,1,2].map(i=><div key={i} style={{ width:5,height:5,borderRadius:'50%',background:'#c9a84c',opacity:0.7,animation:`rp 1.2s ${i*0.2}s infinite` }}/>)}</div>
                 <div style={{ fontSize:9.5, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>LOADING...</div>
               </div>
-            ) : history.length===0 ? (
+            ) : chartData.length===0 ? (
               <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%' }}>
                 <div style={{ fontSize:10, color:'#2a2a28', fontFamily:'Space Mono, monospace' }}>NO DATA FOR THIS PERIOD</div>
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={history} margin={{ top:5,right:5,bottom:5,left:5 }}>
+                <LineChart data={chartData} margin={{ top:5,right:5,bottom:5,left:5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(201,168,76,0.04)" />
                   <XAxis dataKey="date" tickFormatter={d=>fmtDate(d)||d?.slice(11,13)+'h'} tick={{ fill:'#3a3a38',fontSize:9,fontFamily:'Space Mono, monospace' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
                   <YAxis tickFormatter={fmt} tick={{ fill:'#3a3a38',fontSize:9,fontFamily:'Space Mono, monospace' }} tickLine={false} axisLine={false} width={55} />
@@ -316,7 +392,14 @@ function ItemExplorer() {
                       <Line dataKey="buy_price"  stroke="#2a78d6" strokeWidth={1.5} dot={false} name="Buy" strokeDasharray="4 2" />
                     </>
                   ) : (
-                    <Line dataKey="avg_price" stroke="#c9a84c" strokeWidth={2} dot={false} name="Avg" connectNulls />
+                    <>
+                      <Line dataKey="general" stroke={CHART_PALETTE[0]} strokeWidth={2} dot={false} name="General" connectNulls />
+                      {activeVariants.map(vk=>{
+                        const v = variants.find(x=>x.key===vk)
+                        if (!v) return null
+                        return <Line key={vk} dataKey={vk} stroke={v.color} strokeWidth={1.5} dot={false} name={v.label} connectNulls strokeDasharray="4 2" />
+                      })}
+                    </>
                   )}
                 </LineChart>
               </ResponsiveContainer>
@@ -325,41 +408,37 @@ function ItemExplorer() {
 
           {/* Meta */}
           <div style={{ marginTop:8, fontSize:9.5, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>
-            {history.length} pts · {selected.item_id}
+            {general.length} pts · {selected.item_id}
           </div>
 
-          {/* Variants */}
+          {/* Variants — multi-toggle, each overlays its own curve on top of
+              General instead of replacing it. Color is fixed per variant
+              (assigned once from its position in this list), so toggling one
+              off never repaints the others still active. */}
           {!isBazaar && variants.length>0 && (
             <div style={{ marginTop:16, borderTop:'1px solid rgba(201,168,76,0.05)', paddingTop:14 }}>
               <div style={{ fontSize:9, color:'#4a4a45', fontFamily:'Space Mono, monospace', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:10 }}>
-                {variants.length} variants tracked
+                {variants.length} variants tracked · click to overlay on the general curve
               </div>
               <div style={{ display:'flex', flexDirection:'column', gap:4, maxHeight:260, overflowY:'auto' }}>
-                {/* All */}
-                <div onClick={()=>changeVariant('all')} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:8, cursor:'pointer', background:variant==='all'?'rgba(201,168,76,0.08)':'transparent', border:`1px solid ${variant==='all'?'rgba(201,168,76,0.2)':'rgba(201,168,76,0.04)'}` }}>
-                  <div style={{ width:30,height:30,borderRadius:7,background:'rgba(201,168,76,0.1)',border:'1px solid rgba(201,168,76,0.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0 }}>📊</div>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:11.5,fontWeight:600,color:variant==='all'?'#e8e6df':'#9b9b8f' }}>All variants — trend overview</div>
-                    <div style={{ fontSize:9.5,color:'#3a3a38',fontFamily:'Space Mono, monospace',marginTop:1 }}>Average across {variants.length} variants</div>
-                  </div>
-                  {variant==='all'&&<span style={{ color:'#c9a84c',fontSize:10 }}>●</span>}
-                </div>
-                {/* Each variant */}
                 {variants.map(v=>{
-                  const isActive  = variant===v.key
-                  const isBase    = v.key==='nostar_norecomb_noreforge'
-                  const hasStars  = v.key.match(/^(\d+)star/)
-                  const hasRecomb = v.key.includes('_recomb')&&!v.key.includes('norecomb')
-                  const accent    = isBase?'#c9a84c':hasRecomb?'#9b59b6':hasStars?'#2a78d6':'#4a4a45'
-                  const icon      = isBase?'✦':hasStars?`${hasStars[1]}⭐`:'🔹'
+                  const isActive = activeVariants.includes(v.key)
+                  const isBase   = v.key==='nostar_norecomb_noreforge'
+                  const hasStars = v.key.match(/^(\d+)star/)
+                  const icon     = isBase?'✦':hasStars?`${hasStars[1]}⭐`:'🔹'
                   return (
-                    <div key={v.key} onClick={()=>changeVariant(v.key)} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:8, cursor:'pointer', transition:'all 0.12s', background:isActive?accent+'0d':'transparent', border:`1px solid ${isActive?accent+'30':'rgba(201,168,76,0.04)'}` }}>
-                      <div style={{ width:30,height:30,borderRadius:7,background:accent+'10',border:'1px solid '+accent+'20',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,flexShrink:0,fontFamily:'Space Mono, monospace',color:accent,fontWeight:700 }}>{icon}</div>
+                    <div key={v.key} onClick={()=>toggleVariant(v.key)} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:8, cursor:'pointer', transition:'all 0.12s', background:isActive?v.color+'12':'transparent', border:`1px solid ${isActive?v.color+'40':'rgba(201,168,76,0.04)'}` }}>
+                      <div style={{
+                        width:18, height:18, borderRadius:4, flexShrink:0,
+                        border:`1.5px solid ${isActive?v.color:'rgba(201,168,76,0.25)'}`,
+                        background:isActive?v.color:'transparent',
+                        display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:'#0a0a09', fontWeight:900,
+                      }}>{isActive?'✓':''}</div>
+                      <span style={{ width:26,height:26,borderRadius:6,background:v.color+'10',border:'1px solid '+v.color+'25',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,flexShrink:0,fontFamily:'Space Mono, monospace',color:v.color,fontWeight:700 }}>{icon}</span>
                       <div style={{ flex:1,minWidth:0 }}>
                         <div style={{ fontSize:11,fontWeight:600,color:isActive?'#e8e6df':'#9b9b8f',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{v.label}</div>
                         <div style={{ fontSize:9.5,color:'#3a3a38',fontFamily:'Space Mono, monospace',marginTop:1 }}>{v.data_points} pts</div>
                       </div>
-                      {isActive&&<span style={{ color:accent,fontSize:10,flexShrink:0 }}>●</span>}
                     </div>
                   )
                 })}

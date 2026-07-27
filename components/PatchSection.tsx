@@ -73,10 +73,12 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
 
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.9)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center', padding:'1.5rem', backdropFilter:'blur(10px)' }}>
-      <div onClick={e => e.stopPropagation()} className="vault-surface gem-tab-lg" style={{ border:'1px solid '+accentColor+'45', maxWidth:580, width:'100%', maxHeight:'90vh', overflowY:'auto', filter:'drop-shadow(0 40px 100px rgba(0,0,0,0.9)) drop-shadow(0 0 40px '+accentColor+'20)' }}>
+      {/* Modals stay plain rectangular — the gem-tab point is a card-list identity
+          marker, not something a transient action overlay (Deep Dive) should wear. */}
+      <div onClick={e => e.stopPropagation()} className="vault-surface" style={{ border:'1px solid '+accentColor+'45', borderRadius:16, maxWidth:580, width:'100%', maxHeight:'90vh', overflowY:'auto', boxShadow:'0 40px 100px rgba(0,0,0,0.9), 0 0 40px '+accentColor+'20' }}>
 
         {/* Header */}
-        <div style={{ padding:'22px 24px 18px 44px', borderBottom:'1px solid rgba(201,168,76,0.05)', position:'sticky', top:0, background:'#111110', zIndex:1 }}>
+        <div style={{ padding:'22px 24px 18px', borderBottom:'1px solid rgba(201,168,76,0.05)', position:'sticky', top:0, background:'#111110', zIndex:1, borderRadius:'16px 16px 0 0' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10 }}>
             <div style={{ flex:1 }}>
               <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
@@ -101,7 +103,7 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
           </div>
         </div>
 
-        <div style={{ padding:'6px 24px 24px 34px' }}>
+        <div style={{ padding:'6px 24px 24px' }}>
 
           {/* Direct Impact */}
           {s(patch.direct_impact) && (
@@ -197,9 +199,6 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
             </div>
           )}
 
-          <div style={{ marginTop:8, padding:'8px 12px', background:'rgba(201,168,76,0.02)', border:'1px solid rgba(201,168,76,0.05)', borderRadius:8, fontSize:9.5, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>
-            Vault auto-validates predictions against live prices every 24h
-          </div>
         </div>
       </div>
     </div>
@@ -357,7 +356,10 @@ export default function PatchSection({ marketData, dataLoading }: {
             method: m.method||m.name||'', impact: m.impact||'unchanged', reason: m.reason||m.why||''
           })),
           price_prediction: s(p.price_prediction || p.prediction),
-          predicted_items:  a(p.predicted_items),
+          predicted_items:  a(p.predicted_items || p.predicted).map((x: any) => ({
+            item_id: x.item_id||x.id||'', predicted_change_pct: x.predicted_change_pct??x.pct??0,
+            timeframe_days: x.timeframe_days??x.days??0, reasoning: x.reasoning||x.why||''
+          })),
           action_signal:    s(p.action_signal || p.signal),
           confidence:       s(p.confidence),
         })

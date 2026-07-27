@@ -214,36 +214,31 @@ export async function GET(request: Request) {
     const baseItemIds = [...new Set(bufferRows.map(r => r.base_item_id))]
     const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0]
 
+    // Uniquement DAILY_EXACT — un flip n'est jamais scoré contre un historique
+    // base/monthly qui mélange des variantes différentes (voir plus bas).
     const { data: historical } = await supabase
       .from('price_history_ah')
-      .select('base_item_id, variant_key, variant_key_base, avg_price, granularity')
+      .select('base_item_id, variant_key, avg_price')
       .in('base_item_id', baseItemIds)
-      .in('granularity', ['DAILY_EXACT', 'DAILY', 'MONTHLY'])
+      .eq('granularity', 'DAILY_EXACT')
       .gte('bucket_date', sevenDaysAgo)
 
-    // Maps historiques par niveau de précision
     const histExact = new Map<string, number[]>()
-    const histBase  = new Map<string, number[]>()
-    const histMthly = new Map<string, number[]>()
-
     for (const h of historical || []) {
-      const price = Number(h.avg_price)
-      if (h.granularity === 'DAILY_EXACT') {
-        const k = `${h.base_item_id}::${h.variant_key}`
-        if (!histExact.has(k)) histExact.set(k, [])
-        histExact.get(k)!.push(price)
-      } else if (h.granularity === 'DAILY') {
-        const k = `${h.base_item_id}::${h.variant_key_base || h.variant_key}`
-        if (!histBase.has(k)) histBase.set(k, [])
-        histBase.get(k)!.push(price)
-      } else {
-        const k = `${h.base_item_id}::nostar_norecomb`
-        if (!histMthly.has(k)) histMthly.set(k, [])
-        histMthly.get(k)!.push(price)
-      }
+      const k = `${h.base_item_id}::${h.variant_key}`
+      if (!histExact.has(k)) histExact.set(k, [])
+      histExact.get(k)!.push(Number(h.avg_price))
     }
 
     const avg = (arr: number[]) => arr.reduce((s, p) => s + p, 0) / arr.length
+
+    // Seuils de pertinence — un flip n'est proposé que s'il est réellement
+    // exploitable : comparé à l'historique de LA MÊME variante (jamais un
+    // fallback base/monthly qui mélange les variantes et produit un faux
+    // discount), avec un profit absolu et un volume qui prouvent qu'il est
+    // vendable, pas juste une enchère isolée à un prix aberrant.
+    const MIN_PROFIT_COINS = 500_000
+    const MIN_VOLUME       = 3
 
     // Score chaque variante
     type ScoredItem = {
@@ -258,6 +253,7 @@ export async function GET(request: Request) {
       historical_avg:    number
       discount_pct:      number
       spread_pct:        number
+      profit_coins:      number
       volume:            number
       hist_precision:    string
       total_stars:       number
@@ -281,17 +277,16 @@ export async function GET(request: Request) {
       const avgPrice  = prices.reduce((s, p) => s + p, 0) / prices.length
       const bestItem  = items.reduce((best, i) => i.price < best.price ? i : best, items[0])
 
+      // Uniquement la précision "exact" (même variant_key_full) — un flip
+      // n'est jamais comparé à un prix historique base/monthly qui mélange
+      // des variantes différentes, sinon le discount_pct est trompeur.
       const exactKey = `${d.item_id}::${d.variant_key_full}`
-      const baseKey  = `${d.item_id}::${d.variant_key_base}`
-      const mthlyKey = `${d.item_id}::nostar_norecomb`
-
-      let histPrice = 0, precision = 'none'
-      if      (histExact.has(exactKey)) { histPrice = avg(histExact.get(exactKey)!); precision = 'exact' }
-      else if (histBase.has(baseKey))   { histPrice = avg(histBase.get(baseKey)!);   precision = 'base'  }
-      else if (histMthly.has(mthlyKey)) { histPrice = avg(histMthly.get(mthlyKey)!); precision = 'monthly' }
+      const histPrice = histExact.has(exactKey) ? avg(histExact.get(exactKey)!) : 0
+      const precision = histPrice > 0 ? 'exact' : 'none'
 
       const discountPct = histPrice > 0 ? Math.round(((histPrice - bestPrice) / histPrice) * 100) : 0
       const spreadPct   = avgPrice  > 0 ? Math.round(((avgPrice - bestPrice)  / avgPrice)  * 100) : 0
+      const profitCoins = histPrice > 0 ? Math.round(histPrice - bestPrice) : 0
 
       scored.push({
         base_item_id:      d.item_id,
@@ -305,6 +300,7 @@ export async function GET(request: Request) {
         historical_avg:    histPrice,
         discount_pct:      discountPct,
         spread_pct:        spreadPct,
+        profit_coins:      profitCoins,
         volume:            items.length,
         hist_precision:    precision,
         total_stars:       d.total_stars,
@@ -320,9 +316,17 @@ export async function GET(request: Request) {
       })
     }
 
+    // Filtre pertinence : precision exacte + profit + volume minimums avant
+    // même de rentrer dans le classement par catégorie.
+    const relevant = scored.filter(item =>
+      item.hist_precision === 'exact' &&
+      item.profit_coins   >= MIN_PROFIT_COINS &&
+      item.volume          >= MIN_VOLUME
+    )
+
     // TOP 300 par catégorie (max 50/cat)
     const byCat = new Map<string, ScoredItem[]>()
-    for (const item of scored) {
+    for (const item of relevant) {
       const cat = item.category ?? 'other'
       if (!byCat.has(cat)) byCat.set(cat, [])
       byCat.get(cat)!.push(item)
@@ -383,18 +387,15 @@ export async function GET(request: Request) {
     await supabase.from('cron_locks').update({ locked_until: null }).eq('job_name', 'ah_collect')
 
     return NextResponse.json({
-      success:          true,
-      total_bin:        binAuctions.length,
-      total_pages:      totalPages,
-      variants_grouped: grouped.size,
-      buffer_upserted:  bufferRows.length,
-      top_items:        finalItems.length,
-      hist_precision: {
-        exact:   finalItems.filter(i => i.hist_precision === 'exact').length,
-        base:    finalItems.filter(i => i.hist_precision === 'base').length,
-        monthly: finalItems.filter(i => i.hist_precision === 'monthly').length,
-        none:    finalItems.filter(i => i.hist_precision === 'none').length,
-      }
+      success:              true,
+      total_bin:            binAuctions.length,
+      total_pages:          totalPages,
+      variants_grouped:     grouped.size,
+      buffer_upserted:      bufferRows.length,
+      scored_variants:      scored.length,
+      relevant_after_filter: relevant.length,
+      top_items:            finalItems.length,
+      relevance_thresholds: { min_profit_coins: MIN_PROFIT_COINS, min_volume: MIN_VOLUME, precision_required: 'exact' },
     })
 
   } catch (error: any) {
