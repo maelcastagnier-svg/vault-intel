@@ -40,6 +40,26 @@ const ar = (v: any): string[] => Array.isArray(v) ? v.filter(x => typeof x === '
 const methodKey = (m: any) =>
   (st(m.id)||st(m.method)).toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'').slice(0,80)
 
+// ─── V-Coin ───────────────────────────────────────────────────
+// Vault's own branded coin mark (embossed "V") instead of the generic 🪙
+// emoji, next to every coins/h readout.
+function VCoin({ size = 15 }: { size?: number }) {
+  return (
+    <span style={{
+      display:'inline-flex', alignItems:'center', justifyContent:'center',
+      width:size, height:size, borderRadius:'50%', flexShrink:0,
+      background:'radial-gradient(circle at 32% 28%, #f5dea0, #c9a84c 55%, #8a6e2f 100%)',
+      border:'1px solid #6e5722',
+      boxShadow:'0 0 4px rgba(232,192,99,0.55), inset 0 1px 1px rgba(255,255,255,0.45), inset 0 -1px 1px rgba(0,0,0,0.3)',
+    }}>
+      <span style={{
+        fontSize:size*0.6, fontWeight:900, color:'#5c4a1f', fontFamily:"'Press Start 2P', monospace",
+        lineHeight:1, transform:'translateY(-0.5px)', textShadow:'0 1px 0 rgba(255,255,255,0.25)',
+      }}>V</span>
+    </span>
+  )
+}
+
 // ─── Stars ────────────────────────────────────────────────────
 function Stars({ count }: { count: number }) {
   const c = Math.min(Math.max(nm(count),0),7)
@@ -343,8 +363,9 @@ function MethodCard({ method, tier, accentColor, type }: {
             {/* Coins + conf */}
             <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6, flexShrink:0 }}>
               {coins && (
-                <div className="coin-value" style={{ fontSize:17, letterSpacing:'0.01em', whiteSpace:'nowrap' }}>
-                  🪙 {coins}
+                <div style={{ display:'flex', alignItems:'center', gap:5, whiteSpace:'nowrap' }}>
+                  <VCoin />
+                  <span className="coin-value" style={{ fontSize:17, letterSpacing:'0.01em' }}>{coins}</span>
                 </div>
               )}
               <div style={{ display:'flex', alignItems:'center', gap:5 }}>
