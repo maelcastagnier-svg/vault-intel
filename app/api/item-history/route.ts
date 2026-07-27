@@ -102,7 +102,7 @@ export async function GET(req: NextRequest) {
     .from('price_history_ah')
     .select('bucket_date, avg_price, sell_price, buy_price, volume')
     .eq('base_item_id', item_id)
-    .eq('variant_key', 'nostar_norecomb_noreforge')
+    .eq('variant_key', '__all_variants_blended__')
     .eq('granularity', 'DAILY')
     .gte('bucket_date', startDate)
     .gt('avg_price', 0)

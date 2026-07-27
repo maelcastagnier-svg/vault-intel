@@ -52,7 +52,7 @@ const fmtDate = (d: string) => {
 const toLabel = (id: string) => id.replace(/_/g,' ').toLowerCase().replace(/\b\w/g,c=>c.toUpperCase())
 
 function buildVariantLabel(vk: string): string {
-  if (!vk||vk==='nostar_norecomb_noreforge') return '✦ Base item'
+  if (!vk||vk==='__all_variants_blended__') return '✦ Blended average'
   const parts: string[] = []
   const stars = vk.match(/^(\d+)star/)
   if (stars) parts.push(`⭐ ${stars[1]} stars`)
@@ -219,8 +219,8 @@ function ItemExplorer() {
       const varCount = new Map<string,number>()
       for (const r of varRows||[]) varCount.set(r.variant_key, (varCount.get(r.variant_key)||0)+1)
       const ordered = Array.from(varCount.entries()).sort(([ak,av],[bk,bv])=>{
-        if (ak==='nostar_norecomb_noreforge') return -1
-        if (bk==='nostar_norecomb_noreforge') return 1
+        if (ak==='__all_variants_blended__') return -1
+        if (bk==='__all_variants_blended__') return 1
         return bv-av
       })
       // Slot 0 of CHART_PALETTE is reserved for General — variants get slot
@@ -423,7 +423,7 @@ function ItemExplorer() {
               <div style={{ display:'flex', flexDirection:'column', gap:4, maxHeight:260, overflowY:'auto' }}>
                 {variants.map(v=>{
                   const isActive = activeVariants.includes(v.key)
-                  const isBase   = v.key==='nostar_norecomb_noreforge'
+                  const isBase   = v.key==='__all_variants_blended__'
                   const hasStars = v.key.match(/^(\d+)star/)
                   const icon     = isBase?'✦':hasStars?`${hasStars[1]}⭐`:'🔹'
                   return (
