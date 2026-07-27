@@ -73,10 +73,10 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
 
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.9)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center', padding:'1.5rem', backdropFilter:'blur(10px)' }}>
-      <div onClick={e => e.stopPropagation()} style={{ background:'#0d0d0c', border:'1px solid '+accentColor+'40', borderTop:'2px solid '+accentColor, borderRadius:16, maxWidth:580, width:'100%', maxHeight:'90vh', overflowY:'auto', boxShadow:'0 40px 100px rgba(0,0,0,0.9), 0 0 40px '+accentColor+'15' }}>
+      <div onClick={e => e.stopPropagation()} className="vault-surface gem-tab-lg" style={{ border:'1px solid '+accentColor+'45', maxWidth:580, width:'100%', maxHeight:'90vh', overflowY:'auto', filter:'drop-shadow(0 40px 100px rgba(0,0,0,0.9)) drop-shadow(0 0 40px '+accentColor+'20)' }}>
 
         {/* Header */}
-        <div style={{ padding:'22px 24px 18px', borderBottom:'1px solid rgba(201,168,76,0.05)', position:'sticky', top:0, background:'#0d0d0c', zIndex:1, borderRadius:'16px 16px 0 0' }}>
+        <div style={{ padding:'22px 24px 18px 44px', borderBottom:'1px solid rgba(201,168,76,0.05)', position:'sticky', top:0, background:'#111110', zIndex:1 }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10 }}>
             <div style={{ flex:1 }}>
               <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
@@ -101,7 +101,7 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
           </div>
         </div>
 
-        <div style={{ padding:'6px 24px 24px' }}>
+        <div style={{ padding:'6px 24px 24px 34px' }}>
 
           {/* Direct Impact */}
           {s(patch.direct_impact) && (
@@ -117,7 +117,7 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
               <div style={{ fontSize:9, color:accentColor, fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:10, textTransform:'uppercase' }}>📦 Items Affected</div>
               <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                 {items.map((item: ItemAffected, i: number) => (
-                  <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', background:'#111110', borderRadius:8, border:'1px solid rgba(201,168,76,0.04)' }}>
+                  <div key={i} className="vault-surface" style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', borderRadius:8, border:`1px solid ${accentColor}25` }}>
                     <span style={{ fontSize:18, flexShrink:0 }}>{item.direction==='up'?'📈':item.direction==='down'?'📉':'➡️'}</span>
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:3 }}>
@@ -141,7 +141,7 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
               <div style={{ fontSize:9, color:accentColor, fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:10, textTransform:'uppercase' }}>⚔️ Methods Affected</div>
               <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
                 {methods.map((m: MethodAffected, i: number) => (
-                  <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'8px 12px', background:'#111110', borderRadius:7 }}>
+                  <div key={i} className="vault-surface" style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'8px 12px', borderRadius:7, border:`1px solid ${accentColor}25` }}>
                     <span style={{ fontSize:9, fontFamily:'Space Mono, monospace', fontWeight:700, color:IMP_COLOR[m.impact]||'#c9a84c', background:(IMP_COLOR[m.impact]||'#c9a84c')+'15', padding:'2px 7px', borderRadius:4, flexShrink:0, marginTop:1 }}>
                       {(m.impact||'').toUpperCase()}
                     </span>
@@ -165,7 +165,7 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
                   const col = pos ? '#1baf7a' : '#e34948'
                   const pct = Math.abs(p.predicted_change_pct)
                   return (
-                    <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 12px', background:'#111110', borderRadius:8 }}>
+                    <div key={i} className="vault-surface" style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 12px', borderRadius:8, border:`1px solid ${accentColor}25` }}>
                       <div style={{ flex:1 }}>
                         <div style={{ fontSize:11, fontFamily:'Space Mono, monospace', color:'#e8e6df', fontWeight:700 }}>{p.item_id}</div>
                         <div style={{ fontSize:10, color:'#4a4a45', marginTop:2 }}>{p.reasoning}</div>
@@ -222,19 +222,18 @@ function PatchCard({ patch, isAlpha }: { patch: PatchInsight; isAlpha: boolean }
       <div
         onMouseEnter={() => setHov(true)}
         onMouseLeave={() => setHov(false)}
+        className="vault-surface gem-tab-lg"
         style={{
-          background:   hov ? '#141413' : '#0f0f0e',
-          border:       `1px solid ${hov ? accentColor+'50' : 'rgba(201,168,76,0.12)'}`,
-          borderTop:    `2px solid ${dotColor}`,
-          borderRadius: 10, padding:'16px 16px 14px',
+          border:       `1px solid ${hov ? accentColor+'60' : accentColor+'30'}`,
+          padding:      '16px 16px 14px 34px',
           marginBottom: 10, transition:'all 0.15s ease',
-          boxShadow:    hov ? `0 8px 30px rgba(0,0,0,0.4), 0 0 18px ${accentColor}20` : 'none',
+          filter:       hov ? `drop-shadow(0 8px 24px rgba(0,0,0,0.4)) drop-shadow(0 0 16px ${accentColor}30)` : `drop-shadow(0 0 6px ${accentColor}10)`,
         }}
       >
         {/* Header */}
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10, marginBottom:10 }}>
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:12, fontWeight:700, color:'#e8e6df', lineHeight:1.35, marginBottom:4 }}>
+            <div style={{ fontSize:13.5, fontWeight:700, color:'#e8e6df', lineHeight:1.35, marginBottom:4 }}>
               {s(patch.patch_title).slice(0, 60)}
             </div>
             {s(patch.patch_date) && (
@@ -298,7 +297,7 @@ function PatchCard({ patch, isAlpha }: { patch: PatchInsight; isAlpha: boolean }
 // ─── Column Header ────────────────────────────────────────────
 function ColHeader({ label, dot, count }: { label: string; dot: string; count: number }) {
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16, padding:'10px 14px', background:`linear-gradient(135deg,${dot}0d,${dot}03)`, border:`1px solid ${dot}30`, boxShadow:`0 0 14px ${dot}12`, borderRadius:8 }}>
+    <div className="gem-tab-sm" style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16, padding:'10px 14px 10px 26px', background:`linear-gradient(135deg,${dot}0d,${dot}03)`, border:`1px solid ${dot}30`, filter:`drop-shadow(0 0 14px ${dot}12)` }}>
       <span style={{ width:8, height:8, borderRadius:'50%', background:dot, display:'inline-block', boxShadow:'0 0 8px '+dot, flexShrink:0 }} />
       <span style={{ fontSize:9, fontWeight:700, fontFamily:"'Press Start 2P', monospace", color:dot, letterSpacing:'0.03em', flex:1, textShadow:`0 0 10px ${dot}40` }}>{label.toUpperCase()}</span>
       {count > 0 && (
@@ -373,7 +372,7 @@ export default function PatchSection({ marketData, dataLoading }: {
   return (
     <div>
       {/* Section title */}
-      <div style={{ marginBottom:20, padding:'12px 16px', background:'linear-gradient(135deg, rgba(201,168,76,0.1) 0%, rgba(201,168,76,0.03) 100%)', border:'1px solid rgba(232,192,99,0.4)', boxShadow:'0 0 20px rgba(232,192,99,0.08)', borderRadius:10, display:'flex', alignItems:'center', gap:12 }}>
+      <div className="gem-tab-lg" style={{ marginBottom:20, padding:'12px 16px 12px 44px', background:'linear-gradient(135deg, rgba(201,168,76,0.1) 0%, rgba(201,168,76,0.03) 100%)', border:'1px solid rgba(232,192,99,0.4)', filter:'drop-shadow(0 0 20px rgba(232,192,99,0.08))', display:'flex', alignItems:'center', gap:12 }}>
         <span style={{ fontSize:20 }}>🔧</span>
         <div>
           <div style={{ fontSize:9, fontWeight:700, color:'#c9a84c', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.04em' }}>PATCH INTELLIGENCE</div>
