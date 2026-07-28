@@ -68,6 +68,35 @@ export async function GET() {
     .map(i => ({ item_id: i.item_id, category: i.category, default_color: i.default_color }))
   await applyPreciseCost(necronSetup, priced)
 
+  // 6. Ré-applique le coût/couleur sur TOUS les setups déjà en base (pas
+  // seulement Revenant) -- fait bénéficier les setups existants de la vraie
+  // couleur immédiatement, plutôt que d'attendre le prochain run hebdo de
+  // setup-generate-agent. Sert aussi à trouver un vrai setup déjà affiché en
+  // prod qui aura une vraie couleur, pour vérification visuelle directe.
+  const { data: allRows } = await supabase.from('method_setups').select('method_key, tier, setup')
+  let reapplied = 0
+  const coloredExamples: any[] = []
+  for (const row of allRows || []) {
+    let setup: any
+    try { setup = JSON.parse(row.setup) } catch { continue }
+    if (!setup.armor_set) continue
+    await applyPreciseCost(setup, priced)
+    await supabase.from('method_setups').upsert(
+      { method_key: row.method_key, tier: row.tier, setup: JSON.stringify(setup), generated_at: new Date().toISOString() },
+      { onConflict: 'method_key, tier' }
+    )
+    reapplied++
+    if (setup.armor_chestplate_color || setup.armor_boots_color || setup.armor_helmet_color) {
+      coloredExamples.push({
+        method_key: row.method_key, tier: row.tier, armor_set: setup.armor_set,
+        armor_helmet_color: setup.armor_helmet_color ?? null,
+        armor_chestplate_color: setup.armor_chestplate_color ?? null,
+        armor_leggings_color: setup.armor_leggings_color ?? null,
+        armor_boots_color: setup.armor_boots_color ?? null,
+      })
+    }
+  }
+
   return NextResponse.json({
     column_check: 'ok',
     sync: syncResult,
@@ -83,6 +112,10 @@ export async function GET() {
       armor_chestplate_color: necronSetup.armor_chestplate_color ?? null,
       armor_leggings_color: necronSetup.armor_leggings_color ?? null,
       armor_boots_color: necronSetup.armor_boots_color ?? null,
+    },
+    reapply_all: {
+      rows_reapplied: reapplied,
+      colored_examples: coloredExamples,
     },
   })
 }
