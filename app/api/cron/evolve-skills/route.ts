@@ -394,7 +394,7 @@ export async function runEvolveSkills(filterProfileIds?: string[]) {
           }),
         })
 
-        if (!res.ok) return { player, error: `HTTP ${res.status}` }
+        if (!res.ok) return { player, error: `HTTP ${res.status}: ${(await res.text()).slice(0, 500)}` }
         const data   = await res.json()
         const parsed = parseJSON(data.content?.[0]?.text || '')
         return { player, data: parsed }
