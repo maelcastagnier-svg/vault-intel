@@ -6,6 +6,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { requirePlan } from '../../../../lib/get-plan'
+import { skillProgress } from '../../../../lib/skill-xp'
 
 export const maxDuration = 15
 
@@ -29,16 +30,38 @@ export async function GET(req: NextRequest) {
   const profileId = req.nextUrl.searchParams.get('profile_id')
   if (!profileId) return NextResponse.json({ error: 'profile_id required' }, { status: 400 })
 
-  const { data, error } = await supabase
-    .from('player_skill_cards')
-    .select('game_stage, networth, purse, cards, model, generated_at')
-    .eq('hypixel_uuid', link.hypixel_uuid)
-    .eq('profile_id', profileId)
-    .single()
+  const [{ data, error }, { data: player }] = await Promise.all([
+    supabase
+      .from('player_skill_cards')
+      .select('game_stage, networth, purse, cards, model, generated_at')
+      .eq('hypixel_uuid', link.hypixel_uuid)
+      .eq('profile_id', profileId)
+      .single(),
+    supabase
+      .from('player_data')
+      .select('skills, raw_profile')
+      .eq('hypixel_uuid', link.hypixel_uuid)
+      .eq('profile_id', profileId)
+      .single(),
+  ])
 
   if (error || !data) {
     return NextResponse.json({ error: 'Skills not generated yet — sync your account first' }, { status: 404 })
   }
 
-  return NextResponse.json(data)
+  // Progression réelle (niveau + XP dans le niveau) pour la barre de la carte --
+  // calculée depuis la vraie XP (player_data.raw_profile.skills_xp), pas
+  // simplement recopiée du niveau déjà stocké, pour que les deux ne puissent
+  // jamais diverger. "dungeoneering" n'a pas cette forme de courbe XP->niveau
+  // (Catacombs a sa propre XP jamais capturée en base pour l'instant, voir
+  // CLAUDE.md) -- reste sans `progress`, la SkillBar gère ce cas honnêtement
+  // plutôt que d'inventer un niveau.
+  const skillsXp = (player?.raw_profile as any)?.skills_xp || {}
+  const cards = (data.cards || []).map((card: any) => {
+    if (card.skill_key === 'dungeoneering' || card.skill_key === 'slayer') return card
+    const xp = skillsXp[card.skill_key] ?? 0
+    return { ...card, progress: skillProgress(card.skill_key, xp) }
+  })
+
+  return NextResponse.json({ ...data, cards })
 }

@@ -5,6 +5,13 @@
 export type Confidence = 'HIGH' | 'MED' | 'LOW'
 export type TargetType = 'free_swap' | 'upgrade' | 'unlock_access'
 
+// Setup object shape SkinArmorRender.tsx expects (armor_set/armor_*_color/
+// armor_rarity/armor_stars/armor_reforge/enchants_armor) -- built server-side
+// by lib/skill-setup-adapter.ts, attached to current/target as render_setup.
+// Untyped here (matches SkinArmorRender's own `Record<string, any>` prop)
+// since its exact fields vary by what was actually matched/owned.
+export type RenderSetup = Record<string, any>
+
 export interface SkillState {
   setup_items: string[]
   method: string
@@ -12,6 +19,7 @@ export interface SkillState {
   coins_display: string
   calculation: string
   confidence: Confidence
+  render_setup?: RenderSetup
 }
 
 export interface SkillTarget {
@@ -21,6 +29,16 @@ export interface SkillTarget {
   budget_estimate: number
   expected_coins_display: string
   reasoning: string
+  render_setup?: RenderSetup
+}
+
+// Depuis /api/player/skills, calculé depuis la vraie XP (player_data.raw_profile.
+// skills_xp) -- absent pour "dungeoneering"/"slayer", qui n'ont pas cette forme de
+// courbe XP->niveau (voir lib/skill-xp.ts et la route elle-même).
+export interface SkillProgress {
+  level: number
+  xpIntoLevel: number
+  xpForNextLevel: number | null
 }
 
 export interface SlayerBoss {
@@ -36,6 +54,7 @@ export interface SkillCardData {
   current: SkillState
   target: SkillTarget
   bosses?: SlayerBoss[]
+  progress?: SkillProgress
 }
 
 export interface SkillsResponse {
