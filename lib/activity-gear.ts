@@ -20,9 +20,17 @@ export type ActivityGearCategories = Record<string, string[]>
 // have no rows -- callers treat a missing key as "armor/accessories only",
 // same semantics the old hardcoded const had for an absent object key.
 export async function loadActivityGearCategories(): Promise<ActivityGearCategories> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('activity_gear_categories')
     .select('activity_key, item_category')
+
+  // Found while testing this table's first real integration: a transient
+  // query failure here previously degraded silently to an empty map, which
+  // means every activity's weapon/tool catalog reads as "no dedicated slot"
+  // -- gear_name goes null everywhere, not a loud error. Logging so a real
+  // production failure leaves a trace instead of silently disabling this
+  // grounding with zero signal.
+  if (error) console.error('loadActivityGearCategories failed:', error.message)
 
   const map: ActivityGearCategories = {}
   for (const row of data || []) {
