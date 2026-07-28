@@ -93,8 +93,27 @@ intacte). Confirmé visuellement de bout en bout sur un vrai compte Vault jetabl
 ligne `subscriptions` → résout à `free` par construction, voir `lib/get-plan.ts`), compte 
 supprimé après test.
 
-**Reste à faire, dans l'ordre validé** : Radar — remplacer le compte d'items codé en dur 
-par un vrai count + pagination sur `items_catalog` ; Patch Analysis — étendre le prompt/
+**✅ Radar — count réel, testé sur un vrai compte Elite jetable** : les trois libellés 
+codés en dur (`"4781 ITEMS"`, `"2119 Bazaar · 2662 AH · 1429 variants tracked"`) avaient 
+dérivé d'un comptage manuel ancien — `items_catalog` est réellement à 5213 lignes 
+aujourd'hui. L'hypothèse de l'audit ("pagination manquante") s'est révélée fausse en 
+testant : `loadCatalog()` retourne déjà la table anon complète (5213/5213, aucune 
+troncature). Comptes total/Bazaar/AH dérivés du catalogue déjà chargé pour la recherche 
+(zéro requête supplémentaire), plus un `count:'exact', head:true` sur 
+`price_history_ah_variants` pour le stat de variantes, relabellé honnêtement "variant 
+price points tracked" (un compte de lignes, pas d'items distincts — aucun chemin de 
+comptage distinct bon marché via le client anon sans nouvelle infra serveur). **Piège 
+trouvé en testant** : `price_history_ah_variants` fait partie des 5 tables gated par 
+`has_plan()` (audit sécurité du 23 juillet) — un client anon SANS session authentifiée 
+y voit toujours 0 lignes, peu importe le vrai volume de données. Le premier passage de 
+vérification (client anon nu) montrait donc `— variant price points tracked` ; corrigé 
+en se connectant réellement comme le compte de test avant de rejouer les mêmes requêtes 
+(reproduit fidèlement ce qu'un vrai utilisateur Pro/Elite connecté verrait dans son 
+navigateur). Revalidé : `65 168` lignes réelles → `"65.2K variant price points tracked"`, 
+`"1475 Bazaar · 3738 AH"`, `"5213 ITEMS"`. Compte test Elite jetable créé (résolution 
+`getUserPlan()` confirmée à `elite`, tab Radar bien atteignable), supprimé après test.
+
+**Reste à faire, dans l'ordre validé** : Patch Analysis — étendre le prompt/
 schéma pour couvrir l'impact mécanique/gameplay, pas seulement économique ; nettoyage 
 (`debug-boss-kills` mal placé dans `app/api/cron/`, `refresh-variant-stats`/
 `backfill-variant-stats` à évaluer — probablement des reliquats d'une architecture 
