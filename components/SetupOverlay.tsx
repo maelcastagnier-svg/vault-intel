@@ -1,12 +1,16 @@
 // components/SetupOverlay.tsx
-// Full-screen setup overlay for a Money Making method: a Minecraft-inventory-style
-// equipment grid on the left, method description + strategy on the right.
+// Full-screen setup overlay for a Money Making method, loadout-screen layout:
+// LEFT = textual info (how-to/strategy/target stats/requirements/cost), CENTER =
+// the equipped character (real skin+armor 3D render flanked by a gear bar on
+// the left -- helmet/chestplate/leggings/boots/weapon/tool/rod -- and an
+// accessory bar on the right, pet+misc in a bar underneath).
 //
-// Item icons are Vault-styled placeholders (emoji inside a Minecraft-slot bevel),
+// Slot icons are Vault-styled placeholders (emoji inside a Minecraft-slot bevel),
 // NOT Hypixel's or Mojang's actual texture files -- neither is confirmed freely
 // redistributable (Hypixel's dev policy has an explicit anti-trademark-infringement
 // clause and no asset-usage grant; Mojang's assets are copyrighted client files).
-// A real Vault-owned texture pack is a separate future project.
+// The character's skin+armor render (SkinArmorRender) is a different, separately
+// legally-cleared case -- see that component's own header comment.
 'use client'
 import { useEffect, useState } from 'react'
 import SkinArmorRender from './SkinArmorRender'
@@ -156,7 +160,13 @@ export default function SetupOverlay({ method, tier, accentColor, setup, loading
         className="vault-surface"
         style={{
           border:`1px solid ${accentColor}45`,
-          filter:`drop-shadow(0 40px 90px rgba(0,0,0,0.85)) drop-shadow(0 0 40px ${accentColor}20)`,
+          // box-shadow, pas filter:drop-shadow -- `filter` force le navigateur à
+          // rasteriser tout son sous-arbre, ce qui casse transform-style:preserve-3d
+          // pour tout élément 3D imbriqué dedans (confirmé : c'est exactement ce qui
+          // aplatissait SkinArmorRender en rectangle plat malgré une géométrie 3D
+          // par ailleurs correcte). box-shadow donne le même effet visuel de glow
+          // sur un panneau rectangulaire à coins arrondis sans cet effet de bord.
+          boxShadow:`0 40px 90px rgba(0,0,0,0.85), 0 0 40px ${accentColor}20`,
           borderRadius:14, maxWidth:920, width:'100%', maxHeight:'88vh', overflowY:'auto',
         }}
       >
@@ -187,78 +197,10 @@ export default function SetupOverlay({ method, tier, accentColor, setup, loading
             <div style={{ fontSize:10, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>Available after Monday 7h UTC</div>
           </div>
         ) : (
-          <div style={{ display:'grid', gridTemplateColumns:'300px 1fr', gap:0 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'260px 1fr', gap:0 }}>
 
-            {/* LEFT — Minecraft-style inventory */}
+            {/* LEFT — textual info: stats/strategy/budget/requirements */}
             <div style={{ padding:'22px 20px', borderRight:`1px solid ${accentColor}18` }}>
-              <div style={{ fontSize:7.5, color:'#8a6e2f', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.03em', marginBottom:14 }}>INVENTORY</div>
-
-              {!hasAny ? (
-                <div style={{ fontSize:10.5, color:'#3a3a38', fontFamily:'Space Mono, monospace', textAlign:'center', padding:'20px 0' }}>No gear specified for this method</div>
-              ) : (
-                <>
-                  {/* Skin + armor -- hover a piece for its stats */}
-                  {hasGear && (
-                    <div style={{ marginBottom:10 }}>
-                      <SkinArmorRender skinUrl={skinUrl} setup={s} accentColor={accentColor} />
-                    </div>
-                  )}
-
-                  {/* Weapon / Tool / Rod -- clickable slots, same treatment as accessories below */}
-                  {(st(s.weapon_name)||st(s.tool)||st(s.rod)) && (
-                    <div style={{ marginBottom:16 }}>
-                      <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                        {st(s.weapon_name) && (
-                          <GearSlot icon="⚔️" name={st(s.weapon_name)} rarity={st(s.weapon_rarity)||null}
-                            stars={nm(s.weapon_stars)} stats={st(s.weapon_stats)} enchants={ew}
-                            reforge={st(s.weapon_reforge)} accentColor={accentColor} />
-                        )}
-                        {st(s.tool) && (
-                          <GearSlot icon="⛏️" name={st(s.tool)} rarity={st(s.tool_rarity)||null}
-                            enchants={et} accentColor={accentColor} />
-                        )}
-                        {st(s.rod) && (
-                          <GearSlot icon="🎣" name={st(s.rod)} rarity={st(s.rod_rarity)||null}
-                            enchants={er} accentColor={accentColor} />
-                        )}
-                      </div>
-                      {st(s.weapon_ability) && <div style={{ fontSize:9.5, color:'#2a78d6', marginTop:6 }}>{st(s.weapon_ability)}</div>}
-                    </div>
-                  )}
-
-                  {/* Pet + Accessories */}
-                  {(st(s.pet_name)||ar(s.accessories).length>0) && (
-                    <div style={{ marginBottom:16 }}>
-                      <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                        {st(s.pet_name) && <Slot icon="🐾" label={st(s.pet_name)} sub={'L'+(nm(s.pet_level)||100)} accentColor={accentColor} />}
-                        {ar(s.accessories).map((acc,i)=><Slot key={i} icon="💍" label={acc} accentColor={accentColor} size={44} />)}
-                      </div>
-                      {(nm(s.mp_target)>0||st(s.power_stone)) && (
-                        <div style={{ fontSize:9.5, color:'#c9a84c', marginTop:6, fontFamily:'Space Mono, monospace' }}>
-                          MP {nm(s.mp_target)||900}+{st(s.power_stone)?' · '+st(s.power_stone):''}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Enchants / Gems / Reforges — modifiers, not slots */}
-                  {(ew.length>0||ea.length>0||et.length>0||er.length>0||st(s.gemstones)||st(s.reforges)) && (
-                    <div style={{ borderTop:`1px solid ${accentColor}15`, paddingTop:12, marginTop:4 }}>
-                      <div style={{ fontSize:7.5, color:'#8a6e2f', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.03em', marginBottom:8 }}>MODIFIERS</div>
-                      {ew.length>0 && <div style={{ fontSize:10, color:'#9b9b8f', marginBottom:4 }}><b style={{color:'#e8e6df'}}>Weapon:</b> {ew.join(', ')}</div>}
-                      {ea.length>0 && <div style={{ fontSize:10, color:'#9b9b8f', marginBottom:4 }}><b style={{color:'#e8e6df'}}>Armor:</b> {ea.join(', ')}</div>}
-                      {et.length>0 && <div style={{ fontSize:10, color:'#9b9b8f', marginBottom:4 }}><b style={{color:'#e8e6df'}}>Drill:</b> {et.join(', ')}</div>}
-                      {er.length>0 && <div style={{ fontSize:10, color:'#9b9b8f', marginBottom:4 }}><b style={{color:'#e8e6df'}}>Rod:</b> {er.join(', ')}</div>}
-                      {st(s.gemstones) && <div style={{ fontSize:10, color:'#9b9b8f', marginBottom:4 }}><b style={{color:'#e8e6df'}}>Gems:</b> {st(s.gemstones)}</div>}
-                      {st(s.reforges) && <div style={{ fontSize:10, color:'#9b9b8f' }}><b style={{color:'#e8e6df'}}>Reforges:</b> {st(s.reforges)}</div>}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* RIGHT — Description + Strategy */}
-            <div style={{ padding:'22px 26px' }}>
               {(st(s.how_to)||st(s.why_best)) && (
                 <InfoBlock label="⚡ HOW TO" color={accentColor}>
                   {st(s.how_to)}
@@ -284,6 +226,84 @@ export default function SetupOverlay({ method, tier, accentColor, setup, loading
                     {st(s.cost_endgame) && <div><span style={{ color:'#9b59b6', fontWeight:700 }}>BiS: </span><span style={{color:'#9b9b8f'}}>{st(s.cost_endgame)}</span></div>}
                   </div>
                 </InfoBlock>
+              )}
+            </div>
+
+            {/* CENTER — the equipped character: gear bar | skin+armor render | accessory bar,
+                then a horizontal pet/misc bar underneath. Same GearSlot treatment (rarity-colored
+                tooltip: stats/enchants/reforge) for every slot, armor included -- the 4 armor
+                pieces all share the one set-level spec Money Making actually generates (no
+                per-piece stats to invent), so each slot's tooltip is intentionally identical
+                except for which piece it names. */}
+            <div style={{ padding:'22px 26px' }}>
+              <div style={{ fontSize:7.5, color:'#8a6e2f', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.03em', marginBottom:14, textAlign:'center' }}>LOADOUT</div>
+
+              {!hasAny ? (
+                <div style={{ fontSize:10.5, color:'#3a3a38', fontFamily:'Space Mono, monospace', textAlign:'center', padding:'20px 0' }}>No gear specified for this method</div>
+              ) : (
+                <>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:20 }}>
+                    {/* Gear bar — helmet/chestplate/leggings/boots, then weapon/tool/rod */}
+                    <div style={{ display:'flex', flexDirection:'column', gap:9, flexShrink:0 }}>
+                      {hasArmor && (['🪖 Helmet','👕 Chestplate','👖 Leggings','👢 Boots'] as const).map(labelPair => {
+                        const [icon, piece] = labelPair.split(' ')
+                        return (
+                          <GearSlot key={piece} icon={icon} name={`${st(s.armor_set)} ${piece}`} rarity={st(s.armor_rarity)||null}
+                            stars={nm(s.armor_stars)} stats={st(s.armor_stats)} enchants={ea}
+                            reforge={st(s.armor_reforge)} accentColor={accentColor} size={44} />
+                        )
+                      })}
+                      {st(s.weapon_name) && (
+                        <GearSlot icon="⚔️" name={st(s.weapon_name)} rarity={st(s.weapon_rarity)||null}
+                          stars={nm(s.weapon_stars)} stats={st(s.weapon_stats)} enchants={ew}
+                          reforge={st(s.weapon_reforge)} accentColor={accentColor} size={44} />
+                      )}
+                      {st(s.tool) && (
+                        <GearSlot icon="⛏️" name={st(s.tool)} rarity={st(s.tool_rarity)||null}
+                          enchants={et} accentColor={accentColor} size={44} />
+                      )}
+                      {st(s.rod) && (
+                        <GearSlot icon="🎣" name={st(s.rod)} rarity={st(s.rod_rarity)||null}
+                          enchants={er} accentColor={accentColor} size={44} />
+                      )}
+                    </div>
+
+                    {/* The character itself */}
+                    <div style={{ flex:1, minWidth:0, display:'flex', justifyContent:'center' }}>
+                      {hasGear
+                        ? <SkinArmorRender skinUrl={skinUrl} setup={s} accentColor={accentColor} />
+                        : <div style={{ fontSize:10, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>No armor/weapon for this method</div>}
+                    </div>
+
+                    {/* Accessory bar */}
+                    <div style={{ display:'flex', flexDirection:'column', gap:9, flexShrink:0 }}>
+                      {ar(s.accessories).map((acc,i)=>
+                        <GearSlot key={i} icon="💍" name={acc} accentColor={accentColor} size={44} />
+                      )}
+                    </div>
+                  </div>
+
+                  {st(s.weapon_ability) && <div style={{ fontSize:9.5, color:'#2a78d6', marginTop:10, textAlign:'center' }}>{st(s.weapon_ability)}</div>}
+
+                  {/* Bottom bar — pet + rest of the setup */}
+                  {(st(s.pet_name)||nm(s.mp_target)>0||st(s.power_stone)||st(s.gemstones)) && (
+                    <div style={{ borderTop:`1px solid ${accentColor}15`, marginTop:16, paddingTop:14, display:'flex', alignItems:'center', justifyContent:'center', gap:16, flexWrap:'wrap' }}>
+                      {st(s.pet_name) && (
+                        <GearSlot icon="🐾" name={st(s.pet_name)} rarity={st(s.pet_rarity)||null}
+                          stars={0} stats={st(s.pet_bonus)} accentColor={accentColor} size={44} />
+                      )}
+                      {nm(s.mp_target)>0 && (
+                        <div style={{ fontSize:9.5, color:'#c9a84c', fontFamily:'Space Mono, monospace' }}>MP {nm(s.mp_target)}+</div>
+                      )}
+                      {st(s.power_stone) && (
+                        <div style={{ fontSize:9.5, color:'#9b9b8f' }}><b style={{color:'#e8e6df'}}>Power:</b> {st(s.power_stone)}</div>
+                      )}
+                      {st(s.gemstones) && (
+                        <div style={{ fontSize:9.5, color:'#9b9b8f' }}><b style={{color:'#e8e6df'}}>Gems:</b> {st(s.gemstones)}</div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
