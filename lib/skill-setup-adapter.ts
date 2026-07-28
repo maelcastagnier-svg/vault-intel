@@ -76,16 +76,26 @@ export type OwnedArmorSet = {
   pieces: Partial<Record<ArmorPieceKey, DecodedArmorPiece>>
 }
 
+// Found while testing (char-code dump against a real item): some raw item
+// names carry a leading Private Use Area glyph (U+E000-U+F8FF -- Hypixel's
+// custom Minecraft font uses this range for inline icons, e.g. a rarity gem
+// before the name), which is invisible/unrenderable as normal text and NOT
+// whitespace, so .trim() alone never removed it. Claude reasonably drops
+// this unprintable character when copying the name back (it can't render a
+// custom Minecraft font glyph as text), which made its output legitimately
+// differ from our stored name by exactly that one leading character and
+// silently fail the exact-match lookup in resolveOwnedArmorSet. Stripped at
+// the source so the list shown to Claude never has it, and reapplied on
+// Claude's returned name as defense in depth in case it ever preserves one.
+function cleanItemName(raw: string): string {
+  return raw.replace(/[-]/g, '').replace(/\s+/g, ' ').trim()
+}
+
 function toDecodedPiece(item: any): DecodedArmorPiece | null {
   if (!item?.item_id) return null
   return {
     item_id: item.item_id,
-    // Found while testing: some decoded names carry a stray leading/trailing
-    // space (color-code stripping artifact, e.g. a reset code immediately
-    // followed by a space) -- trimmed here so it can never end up as a
-    // silent mismatch later when Claude echoes this exact name back and we
-    // look it up (see resolveOwnedArmorSet).
-    item_name: (item.item_name || item.item_id).trim(),
+    item_name: cleanItemName(item.item_name || item.item_id),
     reforge: item.reforge || null,
     total_stars: item.total_stars || 0,
     is_recomb: !!item.is_recomb,
@@ -164,7 +174,7 @@ export function formatOwnedArmorSets(sets: OwnedArmorSet[]): string {
 // a wrong guess).
 export async function resolveOwnedArmorSet(sets: OwnedArmorSet[], name: string | null | undefined): Promise<RenderSetup> {
   if (!name) return {}
-  const target = name.trim()
+  const target = cleanItemName(name)
   const set = sets.find(s => s.name === target)
   if (!set) return {}
 
