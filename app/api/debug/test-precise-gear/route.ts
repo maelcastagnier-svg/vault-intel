@@ -55,6 +55,16 @@ export async function GET() {
     ? pricedItems.filter(p => p.display_name.toLowerCase().includes(armorNameLower.split(' ')[0])).slice(0, 10)
     : []
 
+  // Est-ce que les reforges choisies par Claude (armor_reforge/weapon_reforge)
+  // existent VRAIMENT dans reforges (donc dans le wikiContext montré), ou
+  // sont-elles inventées malgré l'instruction "copie verbatim" ?
+  const reforgeNamesToCheck = [setup?.armor_reforge, setup?.weapon_reforge].filter(Boolean)
+  const { data: reforgeCheck } = reforgeNamesToCheck.length
+    ? await supabase.from('reforges').select('reforge_name, item_types, rarity').in('reforge_name', reforgeNamesToCheck)
+    : { data: [] as any[] }
+  const { data: allReforgeNames } = await supabase.from('reforges').select('reforge_name').limit(400)
+  const distinctReforgeNames = Array.from(new Set((allReforgeNames || []).map((r: any) => r.reforge_name)))
+
   return NextResponse.json({
     item_stats_resync: syncResult,
     method_chosen: { id: method.id, method: method.method },
@@ -63,6 +73,10 @@ export async function GET() {
     rarity_column_check: rarityCheck,
     armor_set_recommended: setup?.armor_set || null,
     catalog_entries_matching_armor_first_word: catalogMatchesForArmorName,
+    reforges_claude_picked: reforgeNamesToCheck,
+    reforges_that_are_real_matches: reforgeCheck,
+    total_distinct_reforge_names_in_db: distinctReforgeNames.length,
+    sample_real_reforge_names: distinctReforgeNames.slice(0, 40),
     generated_setup: setup,
   })
 }
