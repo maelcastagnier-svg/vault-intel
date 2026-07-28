@@ -33,20 +33,39 @@ const PIECE_TO_COLOR_FIELD: Record<ArmorPieceKey, string> = {
   leggings: 'armor_leggings_color', boots: 'armor_boots_color',
 }
 
-const stripPieceWord = (name: string) => name.replace(/\b(Helmet|Chestplate|Leggings|Boots)\b/gi, '').replace(/\s+/g, ' ').trim()
+// Detects "same set" via item_id, NOT display name -- found necessary by
+// testing on Cucumber's real gear: Hypixel's "Groovy Fig" set uses themed
+// per-piece names (FIG_HELMET="Groovy Fig Cap", FIG_CHESTPLATE="Groovy
+// Figmail", FIG_LEGGINGS="Groovy Fig Trousers", FIG_BOOTS="Groovy Fig
+// Striders") that never literally contain the words "Helmet"/"Chestplate"/
+// etc, so a text-stripping approach falsely read all 4 pieces as
+// mismatched. item_id follows a real, structural {SET}_{PIECE} convention
+// instead (confirmed here, and it's the same assumption
+// app/api/player/sync/route.ts already relies on to bucket a decoded item
+// under the correct helmet/chestplate/leggings/boots key in the first
+// place) -- stripping the piece's own known suffix off item_id is exact,
+// never a guess.
+const ITEM_ID_PIECE_SUFFIX: Record<ArmorPieceKey, string> = {
+  helmet: '_HELMET', chestplate: '_CHESTPLATE', leggings: '_LEGGINGS', boots: '_BOOTS',
+}
+const itemIdSetPrefix = (piece: ArmorPieceKey, itemId: string): string => {
+  const suffix = ITEM_ID_PIECE_SUFFIX[piece]
+  return itemId.endsWith(suffix) ? itemId.slice(0, -suffix.length) : itemId
+}
 
 // ── Current: the player's REAL equipped armor, never invented ──────────
 // SkinArmorRender only supports one shared name/rarity/stars/reforge/enchants
 // tooltip for the whole body (same limit Money Making's setups already have --
 // it generates one spec per set, not truly separate stats per piece) -- a
-// real player's 4 pieces CAN differ (mismatched sets are common, e.g. the
-// already-documented Cucumber case: Groovy Fig armor with zero dungeon
-// stats). Per-piece COLOR stays fully accurate regardless (armor_*_color are
-// independent fields); the shared tooltip fields fall back to whichever piece
-// is actually worn, preferring chestplate as the most visually prominent slot.
-// armor_set becomes "Mixed Gear" -- an honest label, never a fabricated
-// coherent set name -- whenever the worn pieces don't all share the same
-// base name.
+// real player's 4 pieces CAN differ (mismatched sets are common). Per-piece
+// COLOR stays fully accurate regardless (armor_*_color are independent
+// fields); the shared tooltip fields fall back to whichever piece is
+// actually worn, preferring chestplate as the most visually prominent slot,
+// and use that piece's own real display name (e.g. "Groovy Figmail") rather
+// than inventing an idealized set label like "Groovy Fig Armor" that isn't
+// a real string Hypixel shows anywhere. armor_set becomes "Mixed Gear" --
+// an honest label, never a fabricated coherent set name -- whenever the
+// worn pieces don't all share the same item_id set prefix.
 export async function buildCurrentSetup(equippedArmor: Partial<Record<ArmorPieceKey, EquippedPiece>> | null | undefined): Promise<{ setup: RenderSetup; hasAnyArmor: boolean }> {
   const present = ARMOR_PIECES.filter(p => equippedArmor?.[p]?.item_id)
   if (present.length === 0) return { setup: {}, hasAnyArmor: false }
@@ -69,8 +88,8 @@ export async function buildCurrentSetup(equippedArmor: Partial<Record<ArmorPiece
   const rep = equippedArmor![repKey]!
   const repMeta = byId.get(rep.item_id)
 
-  const prefixes = new Set(present.map(p => stripPieceWord(equippedArmor![p]!.item_name)))
-  setup.armor_set = prefixes.size === 1 ? [...prefixes][0] : 'Mixed Gear'
+  const setPrefixes = new Set(present.map(p => itemIdSetPrefix(p, equippedArmor![p]!.item_id)))
+  setup.armor_set = setPrefixes.size === 1 ? rep.item_name : 'Mixed Gear'
   setup.armor_rarity = repMeta?.rarity || null
   setup.armor_stars = rep.stars || 0
   setup.armor_reforge = rep.reforge || null
