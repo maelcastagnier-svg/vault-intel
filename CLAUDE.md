@@ -20,6 +20,95 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Gear précis+justifié, pricing par variante exacte, rareté réelle, tooltips arme/outil/canne — testé en prod (28 juillet)
+
+Évolution du chantier grounding `setup-generate-agent` : au lieu de recommander un nom 
+de set générique ("Infernal Crimson Armor"), Vault définit maintenant une spec PRÉCISE 
+et JUSTIFIÉE (étoiles/reforge/hot potato/ultimate enchant) que le joueur peut littéralement 
+recréer, avec un coût calculé sur cette spec exacte plutôt qu'une moyenne toutes-variantes.
+
+**Prompt enrichi** (`buildUserPrompt`) : `armor_reforge`/`weapon_reforge` doivent être 
+copiés verbatim depuis la vraie liste REFORGES déjà dans le contexte (jamais inventés) ; 
+`armor_ultimate_enchant`/`weapon_ultimate_enchant` doivent être un des vrais IDs 
+(`ULTIMATE_ENCHANTS`, exporté du décodeur) ou `null` ; `armor_hot_potato_count` 0/5/10 ; 
+nouveau champ `gear_justification` expliquant pourquoi ce choix précis sert la stat 
+cible du tier — pas une reformulation générique du nom de l'item.
+
+**Coût calculé par variante réelle, pas par moyenne toutes-variantes** — cascade à 3 
+paliers avant le fallback blended déjà existant, tous appuyés sur `buildVariantKeys` 
+(exportée de `lib/skyblock-item-decoder.ts`, jamais réimplémentée en parallèle pour ne 
+jamais diverger de la logique déjà validée sur les vraies données AH) :
+1. `price_history_ah_variants` — match exact sur la clé de variante complète construite 
+   depuis la spec de Claude (étoiles+recomb+reforge+ultimate+hot potato).
+2. `price_history_ah_variant_base` — match exact sur la clé de groupe (sans le reforge).
+3. **Nouveau palier "broad"** — `price_history_ah_variant_base` avec un LIKE sur le 
+   préfixe étoiles+recomb uniquement (ignore reforge/ultimate/hot potato), moyenne 
+   pondérée par `data_points` sur toutes les lignes qui matchent. Trouvé nécessaire en 
+   testant en vrai (Infernal Crimson Helmet) : les vrais exemplaires listés sur l'AH 
+   portent quasi toujours un ultimate enchant (`habanero_tactics`, signature du set 
+   Wither) même quand la spec hypothétique en laisse volontairement (`ultimate_enchant: 
+   null` pour "la plupart des setups") — les paliers 1 et 2 ne matchaient donc jamais 
+   rien pour ce type d'item, pas par bug (`buildVariantKeys` confirmée correcte contre 
+   les vraies clés stockées) mais parce que ce variant précis n'existe simplement pas 
+   en pratique. Validé en isolant le test sur `INFERNAL_CRIMSON_HELMET` : palier 3 
+   trouve un vrai prix pondéré de 894 313 653 (`precision: "broad"`), pas un fallback 
+   blended déguisé.
+
+**Bug réel trouvé et corrigé pendant le test** : le matcher `armor_set` (règle "au 
+moins 2 mots restants" ajoutée lors du chantier grounding précédent pour éviter que 
+"Crimson Helmet" matche à tort "Infernal Crimson Armor") rejetait aussi les vrais sets 
+à un seul mot distinctif — "Sorrow Armor" (confirmé réel et pricé : `SORROW_HELMET/
+CHESTPLATE/LEGGINGS/BOOTS`, LEGENDARY, ~17M chacun) tombait à 0 pièce matchée. Remplacé 
+par un concours de spécificité par catégorie de pièce (`bestArmorPiecesForSet`) : parmi 
+tous les items dont le préfixe est un sous-ensemble de mots du texte cible, ne garder 
+que celui au préfixe le plus long par catégorie — "Infernal Crimson Helmet" (2 mots) 
+bat "Crimson Helmet" (1 mot) quand les deux matchent, "Sorrow Helmet" (1 mot) gagne par 
+défaut quand c'est le seul candidat réel. Corrige les deux problèmes avec le même 
+mécanisme plutôt qu'un seuil arbitraire.
+
+**Rareté réelle** — `item.tier` existe dans `/v2/resources/skyblock/items` (déjà fetché 
+par `skyblock-resources-sync`) mais n'était jamais mappé. Nouvelle colonne 
+`item_stats.rarity` (migration manuelle, `ALTER TABLE`), mappée dans `syncItemStats`, 
+attachée au setup pendant la génération (`armor_rarity`/`weapon_rarity`/`tool_rarity`/
+`rod_rarity`). Validé en re-déclenchant un vrai sync sur preview : `DIVAN_DRILL: 
+MYTHIC`, `HYPERION: LEGENDARY`, `INFERNAL_CRIMSON_CHESTPLATE: LEGENDARY` — vraies 
+valeurs Hypixel, pas approximées.
+
+**Arme/outil/canne en cases cliquables avec tooltip NBT** (`GearSlot` dans 
+`SetupOverlay.tsx`) — remplace la ligne de texte brut par le même traitement visuel que 
+les slots accessoires déjà en place (case biseautée + libellé), mais avec un hover panel 
+riche : nom coloré par la vraie rareté (`RARITY_COLORS`, convention standard Hypixel/
+Minecraft §-codes, pas une palette inventée), étoiles, stats, enchants, reforge — tout 
+tracé directement depuis le même objet setup, rien d'inventé côté frontend. 
+`gear_justification` affiché dans le panneau droit (nouveau bloc "🛡️ GEAR CHOICE").
+
+**Apparence de l'armure — placeholder assumé, chantier texture différé** : discussion 
+avec l'utilisateur sur un pack de texture custom par set (Necron's, Storm's, Divan's...) 
+a été résolue par une vérification réelle plutôt qu'une estimation — aucune armure 
+Skyblock n'a de texture de base unique côté serveur : chaque pièce est soit du cuir 
+teinté (`LEATHER_*` + tag `color`, confirmé même pour Necron's Chestplate : `#E7413C` 
+en dur) soit une tête de joueur reskinnée (`SKULL_ITEM` + `skin.value`, pour certains 
+casques) — le "look custom" que les joueurs associent à ces sets vient entièrement de 
+resource packs tiers optionnels, jamais des données Hypixel elles-mêmes. `SkinArmorRender` 
+utilise donc la vraie couleur cuir vanilla par défaut (`#A06540`, RGB 160,101,64, 
+vérifiée par recherche, pas approximée) pour toute pièce d'armure, en attendant un vrai 
+pack de texture Vault (cuir teinté par la vraie couleur RGB retournée par l'API Hypixel 
+via multiply/destination-in ; casques via la vraie skin décodée depuis `skin.value` et 
+récupérée sur `textures.minecraft.net`) — **chantier futur, pas commencé, pas bloquant**.
+
+**Testé end-to-end sur preview avant merge** (pas juste relecture de code), plusieurs 
+passes de correction guidées par de vrais bugs trouvés en testant :
+- 1ère passe : `armor_set: "Sorrow Armor"` matchait 0 pièce (bug matcher ci-dessus).
+- 2e passe (fix matcher) : 5 items matchés, rareté réelle attachée, mais 
+  `cost_optimal` montrait "0 exact variants" à chaque run.
+- Diagnostic isolé sur `INFERNAL_CRIMSON_HELMET` : confirmé que les vraies clés de 
+  variante stockées portent quasi toutes un ultimate enchant, d'où le palier "broad" 
+  ajouté (3e passe) — revalidé : palier "broad" trouve bien un vrai prix (894 313 653) 
+  pour ce même item une fois le fallback ajouté.
+- Reforges vérifiées réelles à chaque run (`Pure`, `Epic`, `Brilliant`, `Excellent` — 
+  tous confirmés présents dans la table `reforges`, jamais inventés par Claude malgré 
+  la liberté du prompt).
+
 ## ✅ Skin + armure réels dans SetupOverlay (Money Making) — testé en prod (28 juillet)
 
 Remplace la grille d'inventaire à icônes emoji de `SetupOverlay.tsx` par le vrai skin 
