@@ -25,11 +25,18 @@
 'use client'
 import { useState } from 'react'
 import { BODY_PARTS, TEXTURE_SIZE, type UVMap, type BodyPart } from '../lib/skin-uv-map'
+import { st, nm, ar } from '../lib/setup-field-helpers'
+import { rarityColor } from '../lib/rarity-colors'
 
 const SCALE = 6 // CSS px per model unit
 const VANILLA_LEATHER_COLOR = '#A06540' // real Minecraft default undyed-leather color, verified (not approximated)
 
-type TooltipContent = { title: string; lines: string[] } | null
+// Same rich NBT-style content GearSlot already shows for this piece next to
+// the character (name colored by real rarity, stars, stats, enchants,
+// reforge) -- Money Making only generates ONE spec for the whole armor set,
+// not truly separate stats per piece, so this is genuinely the full detail
+// that exists for any given piece, not a simplified summary of it.
+type ArmorTooltip = { name: string; rarity: string | null; stars: number; stats: string; enchants: string[]; reforge: string } | null
 
 function Face({ uv, textureUrl, transform }: { uv: { u: number; v: number; w: number; h: number }; textureUrl: string; transform: string }) {
   return (
@@ -82,16 +89,14 @@ function Cuboid({ part, textureUrl }: { part: BodyPart; textureUrl: string }) {
 // (comme le vrai inflate Minecraft), teintée et ombrée par face (avant plus
 // clair, côtés plus sombres, dessus le plus clair) pour un vrai volume sans
 // texture d'item.
-function ArmorLayer({ part, inflate, color, onHover }: {
+function ArmorLayer({ part, inflate, color }: {
   part: BodyPart; inflate: number; color: string
-  onHover: (c: TooltipContent, e: React.MouseEvent | null) => void
 }) {
   const w = part.w + inflate * 2
   const h = part.h + inflate * 2
   const d = part.d + inflate * 2
   return (
     <div
-      onMouseEnter={e => onHover(null, e)}
       // transformStyle:'preserve-3d' is required HERE, not just on the ancestor
       // translate3d wrapper -- every link in the chain down to the transformed
       // TintedFace children needs it, or this link flattens all 6 faces into a
@@ -116,32 +121,53 @@ export default function SkinArmorRender({ skinUrl, setup, accentColor }: {
   setup: Record<string, any>
   accentColor: string
 }) {
-  const [tooltip, setTooltip] = useState<{ content: TooltipContent; x: number; y: number }>({ content: null, x: 0, y: 0 })
+  const [tooltip, setTooltip] = useState<{ content: ArmorTooltip; x: number; y: number }>({ content: null, x: 0, y: 0 })
 
   const hasArmor = !!setup.armor_set
 
-  const showTip = (content: TooltipContent, e: React.MouseEvent | null) => {
-    if (!e) return
+  const showTip = (content: ArmorTooltip, e: React.MouseEvent) => {
     setTooltip({ content, x: e.clientX, y: e.clientY })
   }
   const hideTip = () => setTooltip({ content: null, x: 0, y: 0 })
 
-  const armorTip: TooltipContent = hasArmor ? {
-    title: `${setup.armor_set}${setup.armor_stars ? ' ' + '✪'.repeat(Math.min(setup.armor_stars, 5)) : ''}`,
-    lines: [setup.armor_stats, setup.armor_bonus].filter(Boolean),
-  } : null
+  // Une seule pièce couvre chaque groupe de parties du corps -- même mapping
+  // pour la couleur ET le tooltip, pour ne jamais les faire diverger (ex :
+  // les jambes sont visuellement teintées par armor_boots_color, donc leur
+  // tooltip doit bien dire "Boots", jamais "Leggings" qui n'est jamais
+  // visible sur ce rendu -- voir le commentaire de géométrie plus bas).
+  const PIECE_BY_PART: Record<BodyPart['key'], 'HELMET' | 'CHESTPLATE' | 'BOOTS'> = {
+    head: 'HELMET', torso: 'CHESTPLATE', armRight: 'CHESTPLATE', armLeft: 'CHESTPLATE',
+    legRight: 'BOOTS', legLeft: 'BOOTS',
+  }
+  const PIECE_LABEL: Record<'HELMET' | 'CHESTPLATE' | 'BOOTS', string> = {
+    HELMET: 'Helmet', CHESTPLATE: 'Chestplate', BOOTS: 'Boots',
+  }
+  const PIECE_COLOR_FIELD: Record<'HELMET' | 'CHESTPLATE' | 'BOOTS', string> = {
+    HELMET: 'armor_helmet_color', CHESTPLATE: 'armor_chestplate_color', BOOTS: 'armor_boots_color',
+  }
 
   // Couleur réelle par pièce (item_stats.default_color, attaché par
   // applyPreciseCost depuis le vrai item matché) quand elle existe, sinon le
   // placeholder vanilla -- jamais un mélange des deux sur la même pièce.
-  // helmet -> head ; chestplate -> torso+bras ; boots -> jambes (le legging
-  // "inner" reste toujours enfermé et invisible, voir le commentaire de
-  // géométrie plus bas, donc c'est bien boots qui teinte visuellement la
-  // jambe entière, pas leggings).
-  const colorForPart = (k: BodyPart['key']): string => {
-    if (k === 'head') return setup.armor_helmet_color || VANILLA_LEATHER_COLOR
-    if (k === 'torso' || k === 'armRight' || k === 'armLeft') return setup.armor_chestplate_color || VANILLA_LEATHER_COLOR
-    return setup.armor_boots_color || VANILLA_LEATHER_COLOR // legRight, legLeft
+  const colorForPart = (k: BodyPart['key']): string =>
+    setup[PIECE_COLOR_FIELD[PIECE_BY_PART[k]]] || VANILLA_LEATHER_COLOR
+
+  // Même contenu riche que le GearSlot correspondant à côté du personnage
+  // (nom coloré par rareté, étoiles, stats, enchants, reforge) -- Money
+  // Making ne génère qu'UNE spec pour tout le set (pas de stats séparées par
+  // pièce), donc c'est réellement tout le détail qui existe pour une pièce
+  // donnée, pas un résumé simplifié de quelque chose de plus riche.
+  const armorTooltipFor = (k: BodyPart['key']): ArmorTooltip => {
+    if (!hasArmor) return null
+    const piece = PIECE_BY_PART[k]
+    return {
+      name: `${st(setup.armor_set)} ${PIECE_LABEL[piece]}`,
+      rarity: setup.armor_rarity || null,
+      stars: nm(setup.armor_stars),
+      stats: st(setup.armor_stats),
+      enchants: ar(setup.enchants_armor),
+      reforge: st(setup.armor_reforge),
+    }
   }
 
   return (
@@ -187,10 +213,10 @@ export default function SkinArmorRender({ skinUrl, setup, accentColor }: {
               const part = partByKey(k)
               return (
                 <div key={k}
-                  onMouseEnter={e => showTip(armorTip, e)} onMouseLeave={hideTip}
+                  onMouseEnter={e => showTip(armorTooltipFor(k), e)} onMouseLeave={hideTip}
                   style={{ position: 'absolute', left: 0, top: 0, width: 1, height: 1, transformStyle: 'preserve-3d', transform: `translate3d(${part.x * SCALE}px, ${-part.y * SCALE}px, ${part.z * SCALE}px)` }}
                 >
-                  <ArmorLayer part={part} inflate={1.0} color={colorForPart(k)} onHover={() => {}} />
+                  <ArmorLayer part={part} inflate={1.0} color={colorForPart(k)} />
                 </div>
               )
             })}
@@ -199,22 +225,26 @@ export default function SkinArmorRender({ skinUrl, setup, accentColor }: {
 
       </div>
 
-      {tooltip.content && (
-        <div style={{
-          position: 'fixed', left: tooltip.x + 16, top: tooltip.y + 10, zIndex: 500,
-          pointerEvents: 'none', maxWidth: 220,
-          background: '#111110', border: `1px solid ${accentColor}45`,
-          borderRadius: 8, padding: '9px 12px',
-          boxShadow: `0 8px 24px rgba(0,0,0,0.6), 0 0 12px ${accentColor}20`,
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#e8e6df', marginBottom: tooltip.content.lines.length ? 5 : 0 }}>
-            {tooltip.content.title}
+      {tooltip.content && (() => {
+        const c = tooltip.content
+        const color = rarityColor(c.rarity, accentColor)
+        return (
+          <div style={{
+            position: 'fixed', left: tooltip.x + 16, top: tooltip.y + 10, zIndex: 500,
+            pointerEvents: 'none', maxWidth: 240,
+            background: '#111110', border: `1px solid ${color}55`,
+            borderRadius: 8, padding: '10px 13px',
+            boxShadow: `0 8px 24px rgba(0,0,0,0.6), 0 0 12px ${color}25`,
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color, marginBottom: (c.stats || c.enchants.length || c.reforge) ? 5 : 0 }}>
+              {c.name}{c.stars ? ' ' + '✪'.repeat(Math.min(c.stars, 5)) : ''}
+            </div>
+            {c.stats && <div style={{ fontSize: 9.5, color: '#9b9b8f', fontFamily: 'Space Mono, monospace', marginBottom: (c.enchants.length || c.reforge) ? 4 : 0 }}>{c.stats}</div>}
+            {c.enchants.length > 0 && <div style={{ fontSize: 9.5, color: '#7ec8e3', marginBottom: c.reforge ? 4 : 0 }}>{c.enchants.join(', ')}</div>}
+            {c.reforge && <div style={{ fontSize: 9.5, color: '#c9a84c', textTransform: 'capitalize' }}>{c.reforge} reforge</div>}
           </div>
-          {tooltip.content.lines.map((l, i) => (
-            <div key={i} style={{ fontSize: 9.5, color: '#9b9b8f', lineHeight: 1.5 }}>{l}</div>
-          ))}
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

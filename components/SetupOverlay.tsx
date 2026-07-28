@@ -15,15 +15,12 @@
 import { useEffect, useState } from 'react'
 import SkinArmorRender from './SkinArmorRender'
 import { DEFAULT_SKIN_URL } from '../lib/skin-uv-map'
+import { st, nm, bl, ar } from '../lib/setup-field-helpers'
+import { rarityColor } from '../lib/rarity-colors'
 
 type AnyMethod = Record<string, any>
 type Setup = Record<string, any>
 type FeedbackData = { positive: number; negative: number; total: number; approval_pct: number | null }
-
-const st = (v: any) => typeof v === 'string' ? v : ''
-const nm = (v: any) => typeof v === 'number' ? v : 0
-const bl = (v: any) => typeof v === 'boolean' ? v : false
-const ar = (v: any): string[] => Array.isArray(v) ? v.filter(x => typeof x === 'string') : []
 
 // ─── Minecraft-style inventory slot ────────────────────────────
 function Slot({ icon, label, sub, accentColor, size = 52 }: {
@@ -49,16 +46,6 @@ function Slot({ icon, label, sub, accentColor, size = 52 }: {
     </div>
   )
 }
-
-// Real Hypixel rarity tiers (the `tier` field on /v2/resources/skyblock/items,
-// now captured in item_stats.rarity) mapped to the standard Minecraft/Hypixel
-// chat-color convention for each rarity -- not an invented palette.
-const RARITY_COLORS: Record<string, string> = {
-  COMMON: '#AAAAAA', UNCOMMON: '#55FF55', RARE: '#5555FF', EPIC: '#AA00AA',
-  LEGENDARY: '#FFAA00', MYTHIC: '#FF55FF', DIVINE: '#55FFFF',
-  SPECIAL: '#FF5555', VERY_SPECIAL: '#FF5555', ADMIN: '#FF5555',
-}
-const rarityColor = (r: string | null, fallback: string) => (r && RARITY_COLORS[r]) || fallback
 
 // ─── Clickable gear slot with a rich NBT-style tooltip (name colored by
 // real rarity, stats, enchants, reforge) -- same slot-icon treatment as the
@@ -141,15 +128,25 @@ export default function SetupOverlay({ method, tier, accentColor, setup, loading
   const hasGear  = hasArmor || st(s.weapon_name) || st(s.tool) || st(s.rod)
   const hasAny = hasGear || st(s.pet_name) || ar(s.accessories).length > 0
 
-  // Skin du joueur connecté (si lié à un compte Hypixel), sinon fallback Steve --
-  // /api/player/status est déjà gated Pro (même palier que Money Making lui-même).
+  // Skin du joueur connecté (si lié à un compte Hypixel), sinon fallback Steve.
+  // Un compte Pro+ n'est PAS forcément lié à Hypixel (le lien est un flux
+  // opt-in séparé à /link-hypixel, réservé aux comptes Pro+ mais pas
+  // automatique) -- Steve reste donc un état légitime, pas systématiquement
+  // un bug. Ce qui doit rester distinct : un vrai échec du fetch (réseau,
+  // /api/player/status en erreur malgré un compte déjà gated Pro pour voir
+  // ce composant) ne doit jamais silencieusement ressembler à "pas encore lié".
   const [skinUrl, setSkinUrl] = useState(DEFAULT_SKIN_URL)
+  const [skinStatus, setSkinStatus] = useState<'loading' | 'linked' | 'unlinked' | 'error'>('loading')
   useEffect(() => {
     let cancelled = false
     fetch('/api/player/status')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (!cancelled && d?.linked && d?.hypixel_uuid) setSkinUrl(`https://crafatar.com/skins/${d.hypixel_uuid}`) })
-      .catch(() => {})
+      .then(r => { if (!r.ok) throw new Error('status ' + r.status); return r.json() })
+      .then(d => {
+        if (cancelled) return
+        if (d?.linked && d?.hypixel_uuid) { setSkinUrl(`https://crafatar.com/skins/${d.hypixel_uuid}`); setSkinStatus('linked') }
+        else setSkinStatus('unlinked')
+      })
+      .catch(() => { if (!cancelled) setSkinStatus('error') })
     return () => { cancelled = true }
   }, [])
 
@@ -283,10 +280,25 @@ export default function SetupOverlay({ method, tier, accentColor, setup, loading
                     </div>
 
                     {/* The character itself */}
-                    <div style={{ flex:1, minWidth:0, display:'flex', justifyContent:'center' }}>
+                    <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', alignItems:'center' }}>
                       {hasGear
                         ? <SkinArmorRender skinUrl={skinUrl} setup={s} accentColor={accentColor} />
                         : <div style={{ fontSize:10, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>No armor/weapon for this method</div>}
+                      {/* Distinct from the normal "not linked yet" case (silent Steve
+                          fallback, no message needed) -- a genuine fetch failure here
+                          is unexpected since this component is already Pro+-gated, so
+                          it gets a visible message instead of looking identical to an
+                          unlinked account. */}
+                      {skinStatus === 'error' && (
+                        <div style={{ fontSize:9, color:'#e34948', fontFamily:'Space Mono, monospace', marginTop:6, textAlign:'center' }}>
+                          Couldn't load your skin — showing default
+                        </div>
+                      )}
+                      {skinStatus === 'unlinked' && (
+                        <div style={{ fontSize:9, color:'#4a4a45', fontFamily:'Space Mono, monospace', marginTop:6, textAlign:'center' }}>
+                          Link your Hypixel account to see yourself equipped
+                        </div>
+                      )}
                     </div>
 
                     {/* Accessory bar */}
