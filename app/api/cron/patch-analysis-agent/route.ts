@@ -17,10 +17,13 @@ function parseJSON(text: string): any {
 
 // ── Prompt LIVE — Sonnet, analyse économique profonde ────────
 const LIVE_PROMPT = `You are Vault, Hypixel Skyblock economic intelligence.
-Analyze these LIVE patch notes and output economic impact.
+Analyze these LIVE patch notes and output economic AND gameplay impact.
 
 RULES:
-- Focus only on changes that affect item prices or money-making methods
+- Cover economic impact (item prices, money-making methods) AND gameplay/mechanical
+  impact (drop rates, XP curves, mob behavior, dungeon/slayer mechanics, movement,
+  progression pacing) as two separate dimensions — a change can have one, the other,
+  or both. Don't force a gameplay angle onto a purely cosmetic/economic patch.
 - Use exact Bazaar item IDs (ENCHANTED_FLINT format)
 - Signals: BUY=price rising, SELL=price dropping, HOLD=unclear, INVEST=long term
 - Be concise — short strings only, no long explanations
@@ -37,13 +40,17 @@ Return ONLY this compact JSON (no backticks):
       "prediction": "1 sentence price prediction",
       "predicted": [{"id":"ITEM_ID","pct":15,"days":7,"why":"short reason"}],
       "signal": "BUY|SELL|HOLD|INVEST",
-      "confidence": "HIGH|MED|LOW"
+      "confidence": "HIGH|MED|LOW",
+      "mechanics": "1 sentence gameplay/mechanical impact, empty string if this patch has none",
+      "gameplay": [{"system":"short system name e.g. Slayer/Dungeons/Mining/Combat/Movement","change":"what changed mechanically","sig":"MAJOR|MINOR"}]
     }
   ]
 }
 "predicted" is up to 2 items with a concrete numeric % price change you expect
 within "days" days — only include an item there if you have a specific enough
-reason to put a number on it (omit "predicted" entirely rather than guess).`
+reason to put a number on it (omit "predicted" entirely rather than guess).
+"gameplay" is up to 4 mechanical changes — omit entirely (or leave empty) for
+patches with no real gameplay-mechanics angle rather than invent one.`
 
 // ── Prompt ALPHA — Haiku, prévisions conditionnelles ─────────
 const ALPHA_PROMPT = `You are Vault, Hypixel Skyblock economic intelligence.
@@ -51,6 +58,9 @@ Analyze these ALPHA patch notes (not yet live — conditional predictions only).
 
 RULES:
 - These changes may or may not reach the live server
+- Cover economic impact AND gameplay/mechanical impact (drop rates, XP curves, mob
+  behavior, dungeon/slayer mechanics, movement, progression pacing) as two separate
+  dimensions, both conditional on the patch actually shipping
 - Signals: WATCH=monitor, INVEST=position early if confident
 - Short strings only
 
@@ -66,22 +76,22 @@ Return ONLY this compact JSON (no backticks):
       "prediction": "Conditional: IF this hits live...",
       "predicted": [{"id":"ITEM_ID","pct":15,"days":7,"why":"short reason, conditional on going live"}],
       "signal": "WATCH|INVEST",
-      "confidence": "LOW|MED"
+      "confidence": "LOW|MED",
+      "mechanics": "1 sentence conditional gameplay/mechanical impact IF this ships, empty string if none",
+      "gameplay": [{"system":"short system name e.g. Slayer/Dungeons/Mining/Combat/Movement","change":"what would change mechanically","sig":"MAJOR|MINOR"}]
     }
   ]
 }
 "predicted" is up to 2 items with a concrete numeric % price change you'd expect
 within "days" days IF this ships — only include an item there if you have a
 specific enough reason to put a number on it (omit "predicted" entirely rather
-than guess).`
+than guess).
+"gameplay" is up to 4 mechanical changes — omit entirely (or leave empty) for
+patches with no real gameplay-mechanics angle rather than invent one.`
 
-// ── Handler ───────────────────────────────────────────────────
-export async function GET(req: NextRequest) {
-  if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  try {
+// ── Logique plain, réutilisable par une route de debug (même pattern que
+//    runAhCollect()/runAhAggregate()) ───────────────────────────
+export async function runPatchAnalysisAgent() {
     // Charge les données
     const [{ data: livePatches }, { data: alphaPatches }, { data: bazaarPrices }] = await Promise.all([
       supabase.from('patch_notes').select('title, content, published_at').eq('is_alpha', false).order('published_at', { ascending: false }).limit(5),
@@ -160,6 +170,8 @@ export async function GET(req: NextRequest) {
         predicted_items:  (p.predicted || []).map((x: any) => ({ item_id: x.id, predicted_change_pct: x.pct, timeframe_days: x.days, reasoning: x.why })),
         action_signal:    p.signal,
         confidence:       p.confidence,
+        mechanics_impact: p.mechanics || null,
+        gameplay_changes: (p.gameplay || []).map((g: any) => ({ system: g.system, change: g.change, significance: g.sig })),
         status:           'active',
         updated_at:       new Date().toISOString(),
       }, { onConflict: 'patch_title', ignoreDuplicates: false })
@@ -180,6 +192,8 @@ export async function GET(req: NextRequest) {
         predicted_items:  (p.predicted || []).map((x: any) => ({ item_id: x.id, predicted_change_pct: x.pct, timeframe_days: x.days, reasoning: x.why })),
         action_signal:    p.signal,
         confidence:       p.confidence,
+        mechanics_impact: p.mechanics || null,
+        gameplay_changes: (p.gameplay || []).map((g: any) => ({ system: g.system, change: g.change, significance: g.sig })),
         status:           'active',
         updated_at:       new Date().toISOString(),
       }, { onConflict: 'patch_title', ignoreDuplicates: false })
@@ -187,14 +201,24 @@ export async function GET(req: NextRequest) {
       else console.error('insight_patch upsert error (alpha):', error.message)
     }
 
-    return NextResponse.json({
+    return {
       success:     true,
       live_saved:  savedLive,
       alpha_saved: savedAlpha,
       live_count:  liveAnalysis.length,
       alpha_count: alphaAnalysis.length,
-    })
+    }
+}
 
+// ── Handler ───────────────────────────────────────────────────
+export async function GET(req: NextRequest) {
+  if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  try {
+    const result = await runPatchAnalysisAgent()
+    return NextResponse.json(result)
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }

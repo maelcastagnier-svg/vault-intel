@@ -31,6 +31,7 @@ export async function GET() {
       items_affected: Array.isArray(p.items_affected) ? p.items_affected : [],
       methods_affected: Array.isArray(p.methods_affected) ? p.methods_affected : [],
       predicted_items: Array.isArray(p.predicted_items) ? p.predicted_items : [],
+      gameplay_changes: Array.isArray(p.gameplay_changes) ? p.gameplay_changes : [],
     }))
 
     const gated = normalized.map(p => filterPatchInsight(p, plan)).filter(Boolean)

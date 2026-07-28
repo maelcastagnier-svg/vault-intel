@@ -9,6 +9,7 @@ type ItemAffected = {
 }
 type MethodAffected = { method: string; impact: 'buffed'|'nerfed'|'unchanged'; reason: string }
 type PredictedItem  = { item_id: string; predicted_change_pct: number; timeframe_days: number; reasoning: string }
+type GameplayChange  = { system: string; change: string; significance: 'MAJOR'|'MINOR' }
 
 type PatchInsight = {
   id?: number; patch_title: string; patch_date?: string
@@ -16,6 +17,7 @@ type PatchInsight = {
   items_affected: ItemAffected[]; methods_affected: MethodAffected[]
   price_prediction: string; predicted_items: PredictedItem[]
   action_signal: string; confidence: string
+  mechanics_impact?: string; gameplay_changes: GameplayChange[]
   accuracy_score?: number; status?: string
 }
 
@@ -28,6 +30,7 @@ const SIGNAL: Record<string, { color: string; bg: string; border: string; icon: 
 }
 
 const MAG_COLOR: Record<string, string> = { HIGH:'#e34948', MED:'#c9a84c', LOW:'#1baf7a' }
+const SIG_COLOR: Record<string, string> = { MAJOR:'#e34948', MINOR:'#c9a84c' }
 const CONF_COLOR: Record<string, string> = { HIGH:'#1baf7a', MED:'#c9a84c', LOW:'#e34948' }
 const IMP_COLOR: Record<string, string>  = { buffed:'#1baf7a', nerfed:'#e34948', unchanged:'#4a4a45' }
 
@@ -70,6 +73,7 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
   const items   = a(patch.items_affected)
   const methods = a(patch.methods_affected)
   const predicted = a(patch.predicted_items)
+  const gameplay = a(patch.gameplay_changes)
 
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.9)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center', padding:'1.5rem', backdropFilter:'blur(10px)' }}>
@@ -110,6 +114,31 @@ function DeepDiveModal({ patch, onClose }: { patch: PatchInsight; onClose: () =>
             <div style={{ padding:'14px 0', borderBottom:'1px solid rgba(201,168,76,0.04)' }}>
               <div style={{ fontSize:9, color:accentColor, fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:8, textTransform:'uppercase' }}>🎯 Economic Impact</div>
               <div style={{ fontSize:13, color:'#d8d6cf', lineHeight:1.7 }}>{s(patch.direct_impact)}</div>
+            </div>
+          )}
+
+          {/* Gameplay/Mechanics Impact — separate dimension from economic impact */}
+          {(s(patch.mechanics_impact) || gameplay.length > 0) && (
+            <div style={{ padding:'14px 0', borderBottom:'1px solid rgba(201,168,76,0.04)' }}>
+              <div style={{ fontSize:9, color:accentColor, fontFamily:'Space Mono, monospace', letterSpacing:'0.12em', marginBottom:8, textTransform:'uppercase' }}>🎮 Gameplay Impact</div>
+              {s(patch.mechanics_impact) && (
+                <div style={{ fontSize:13, color:'#d8d6cf', lineHeight:1.7, marginBottom: gameplay.length > 0 ? 10 : 0 }}>{s(patch.mechanics_impact)}</div>
+              )}
+              {gameplay.length > 0 && (
+                <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                  {gameplay.map((g: GameplayChange, i: number) => (
+                    <div key={i} className="vault-surface" style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'8px 12px', borderRadius:7, border:`1px solid ${accentColor}25` }}>
+                      <span style={{ fontSize:9, fontFamily:'Space Mono, monospace', fontWeight:700, color:SIG_COLOR[g.significance]||'#c9a84c', background:(SIG_COLOR[g.significance]||'#c9a84c')+'15', padding:'2px 7px', borderRadius:4, flexShrink:0, marginTop:1 }}>
+                        {g.significance}
+                      </span>
+                      <div>
+                        <div style={{ fontSize:11, color:'#e8e6df', fontWeight:600, marginBottom:2 }}>{g.system}</div>
+                        <div style={{ fontSize:10.5, color:'#6b6960' }}>{g.change}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -253,6 +282,13 @@ function PatchCard({ patch, isAlpha }: { patch: PatchInsight; isAlpha: boolean }
           </div>
         )}
 
+        {/* Gameplay impact indicator */}
+        {(s(patch.mechanics_impact) || a(patch.gameplay_changes).length > 0) && (
+          <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:12, fontSize:9.5, color:'#8b8980', fontFamily:'Space Mono, monospace' }}>
+            <span>🎮</span> Gameplay/mechanics impact — see Deep Dive
+          </div>
+        )}
+
         {/* Items preview */}
         {items.length > 0 && (
           <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginBottom:12 }}>
@@ -362,6 +398,10 @@ export default function PatchSection({ marketData, dataLoading }: {
           })),
           action_signal:    s(p.action_signal || p.signal),
           confidence:       s(p.confidence),
+          mechanics_impact: s(p.mechanics_impact || p.mechanics),
+          gameplay_changes: a(p.gameplay_changes || p.gameplay).map((g: any) => ({
+            system: g.system||'', change: g.change||'', significance: g.significance||g.sig||'MINOR'
+          })),
         })
         livePatches  = a(parsed.live_patches).map(norm)
         alphaPatches = a(parsed.alpha_patches).map(norm)
