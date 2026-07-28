@@ -20,6 +20,85 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Couleur cuir réelle par pièce d'armure (NEU-REPO), remplace le tint vanilla uniforme — testé en prod (28 juillet)
+
+Avant de relancer le chantier "pack de texture personnalisé" (documenté comme différé, pas commencé), vérifié 
+si NEU-REPO ou le wiki déjà collectés en base contenaient une donnée de couleur par défaut documentée pour 
+les armures en cuir nommées — évite de reconstruire le pipeline "dernière apparence scannée en vente" déjà 
+écarté plus tôt cette semaine.
+
+**Trouvé, réel, vérifié avant de coder** : NEU-REPO a un dossier `items/` séparé de `constants/` (jamais 
+fetché par `neu-sync` jusqu'ici) — un fichier JSON par vrai ID d'item Hypixel, dont le `nbttag` (string SNBT) 
+contient `display:{...color:NNNNN}` pour tout item `LEATHER_*` : la vraie couleur de teinture par défaut 
+assignée par Hypixel, indépendante de ce qu'un joueur a pu recolorer. Confirmé contre une valeur déjà 
+documentée manuellement (Necron's Chestplate : `15155516` = `#E7413C`, match exact).
+
+**Échantillonné les 649 fichiers pièce d'armure de NEU-REPO pour un vrai chiffre, pas une estimation** : 
+62% `leather_*` avec couleur réelle, 19% tête de joueur reskinnée (`skull`, pas de couleur possible), 
+17% autre matériau de base (`diamond`/`iron`/`golden`/`chainmail` — ex: Revenant Armor, 
+`REVENANT_CHESTPLATE` = `minecraft:diamond_chestplate`, zéro donnée couleur server-side, look 100% 
+resource-pack), reste = faux positifs de nommage.
+
+**Implémentation** : `armor-color-sync` (nouveau cron hebdo, lundi 5h30 UTC, entre `neu-sync` et 
+`setup-generate-agent`) — scope volontairement limité aux items déjà catégorie armure dans `item_stats` 
+(quelques centaines), jamais les ~5000+ fichiers `items/` du repo entier. Fetch `items/{id}.json`, regex 
+`color:(\d+)` sur le `nbttag`, converti en hex, écrit dans la nouvelle colonne `item_stats.default_color` 
+(migration manuelle `ALTER TABLE`). `setup-generate-agent`'s `applyPreciseCost` attache maintenant la 
+vraie couleur de chaque pièce matchée (`armor_helmet_color`/`armor_chestplate_color`/
+`armor_leggings_color`/`armor_boots_color`) sur le setup généré, par la vraie `category` de l'item — 
+jamais une couleur de set devinée. `SkinArmorRender` teinte chaque partie du corps depuis sa vraie couleur 
+par pièce (casque→tête, plastron→torse+bras, bottes→jambes, cohérent avec le fait que la couche leggings 
+"inner" reste toujours invisible sous plastron+bottes) et retombe sur le placeholder vanilla (`#A06540`) 
+uniquement quand `default_color` est `null` — jamais un mélange des deux sur une même pièce.
+
+**Testé en prod sur données réelles avant merge** (route debug temporaire, supprimée après validation) : 
+sync réel sur les 747 items armure déjà en `item_stats` → 380 couleurs trouvées, 336 confirmées sans couleur 
+(matériau/skull), 31 échecs de fetch (bruit mineur, item renommé/absent de NEU-REPO). Revenant Armor 
+(Zombie Slayer T2, le setup déjà vu en prod avec le rendu plat orange) : les 3 pièces matchées 
+(`REVENANT_CHESTPLATE/BOOTS/LEGGINGS`, diamond-based) confirmées `default_color: null` — fallback vanilla 
+préservé, comportement attendu. Necron's Armor (test synthétique sur catalogue réel) : casque `null` 
+(skull-based), plastron/jambières/bottes avec vraies couleurs distinctes (`#E7413C`/`#E75C3C`/`#E76E3C`, 
+un dégradé cohérent avec le thème Wither). Ré-appliqué à tous les 35 setups déjà stockés en base pour 
+bénéfice immédiat (pas d'attente du prochain run hebdo) : Tarantula Armor (noir, casque inclus — cuir 
+même pour le casque, contrairement à Necron's/Maxor's) sur plusieurs méthodes Spider Slayer, Maxor's Armor 
+(dégradé violet), Reaper Armor (gris foncé), Shark Scale Armor (bleu), Lapis Armor (bleu) — tous des vrais 
+sets avec une vraie couleur désormais visible dans le vrai SetupOverlay en prod, sans avoir eu besoin du 
+pipeline de collecte d'apparence scannée écarté plus tôt.
+
+## ✅ SetupOverlay — layout loadout 3 colonnes + rendu 3D du personnage enfin réellement en volume (28 juillet)
+
+Refonte complète de la disposition : LEFT (texte — stats cible/stratégie/coût/requirements) / CENTER 
+(personnage équipé — rendu skin+armure flanqué d'une barre d'équipement casque→outil à gauche et d'une 
+barre d'accessoires à droite, pets/reste en bas) — remplace l'ancienne disposition à 2 colonnes texte/
+inventaire. Nouveau `GearSlot` (tooltip riche coloré par vraie rareté : stats/enchants/reforge) pour 
+armure/arme/outil/canne/pet, remplace la ligne de texte brut modifiers.
+
+**Bug de rendu plat trouvé et corrigé en 2 manches, chacune révélant qu'un correctif précédent était 
+incomplet — pas faux, juste pas suffisant** :
+1. **`filter:drop-shadow` sur le panneau modal** — force le navigateur à rastériser tout son sous-arbre 
+   en bitmap 2D, ce qui aplatit silencieusement n'importe quel descendant `transform-style:preserve-3d`, 
+   peu importe la profondeur d'imbrication. Confirmé via un artifact reproduisant la vraie imbrication 
+   DOM réelle (backdrop > panneau filtré/box-shadowé > grid > colonne gauche > stage), pas juste le 
+   composant isolé — l'écart entre test isolé et intégration réelle est exactement ce qui avait laissé 
+   passer le bug la première fois. Corrigé par `box-shadow` (même rendu visuel, sans rastérisation).
+2. **Après la refonte layout 3 colonnes, le personnage restait plat** malgré le fix ci-dessus toujours 
+   actif — `backdrop-filter` sur le calque de flou extérieur (jamais touché par le fix #1, jamais testé 
+   par cet artifact non plus) s'est avéré flatten le rendu de la même façon que `filter` — corrigé en 
+   sortant le flou sur un `<div>` frère séparé, jamais un ancêtre du panneau modal. Cette fois encore, le 
+   personnage restait plat après déploiement réel — le vrai bug restant : `ArmorLayer` (le wrapper interne 
+   qui porte les 6 faces teintées de chaque pièce d'armure, dans `SkinArmorRender.tsx`) n'avait **jamais** 
+   `transform-style:preserve-3d` sur lui-même, alors que tous les autres maillons de la chaîne (rig, 
+   wrappers `translate3d` par partie du corps) l'avaient. Ce seul maillon manquant aplatissait les 6 faces 
+   de chaque pièce d'armure en un empilement 2D — invisible tant que le personnage est en armure complète, 
+   ce qui cachait aussi la couche skin (correctement chaînée, elle) en dessous. Aucun des artifacts de 
+   preuve précédents n'avait jamais pu attraper ce bug précis : les deux avaient inliné les faces d'armure 
+   un niveau plus superficiel que la vraie imbrication du composant réel — le même écart test-isolé vs 
+   intégration réelle, une 2e fois, dans une variante différente.
+
+**Leçon opérationnelle retenue** : un artifact de preuve valide UNE hypothèse précise, jamais toute la 
+chaîne — la vraie confirmation ne peut venir que du composant réel intégré (ou d'un artifact qui reproduit 
+littéralement chaque niveau d'imbrication réel, pas une version simplifiée qui semble équivalente).
+
 ## ✅ Gear précis+justifié, pricing par variante exacte, rareté réelle, tooltips arme/outil/canne — testé en prod (28 juillet)
 
 Évolution du chantier grounding `setup-generate-agent` : au lieu de recommander un nom 
