@@ -1,21 +1,6 @@
 'use client'
-import { SkillState, SkillTarget, TargetType } from './types'
-
-const TARGET_STYLE: Record<TargetType, { label: string; color: string; bg: string }> = {
-  free_swap:     { label: '✓ FREE SWAP — already owned', color: '#1baf7a', bg: 'rgba(27,175,122,0.08)' },
-  upgrade:       { label: '↑ UPGRADE — purchase needed', color: '#c9a84c', bg: 'rgba(201,168,76,0.08)' },
-  unlock_access: { label: '🔓 UNLOCK — not started yet', color: '#9b59b6', bg: 'rgba(155,89,182,0.08)' },
-}
-
-const CONFIDENCE_COLOR: Record<string, string> = { HIGH: '#1baf7a', MED: '#c9a84c', LOW: '#6b6960' }
-
-function fmtCoins(n: number): string {
-  if (!n) return '0'
-  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B'
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
-  if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K'
-  return String(n)
-}
+import { SkillState, SkillTarget } from './types'
+import { TARGET_TYPE_STYLE, CONFIDENCE_COLOR, fmtCoins } from './skill-display'
 
 function CurrentPanel({ state }: { state: SkillState }) {
   return (
@@ -42,7 +27,7 @@ function CurrentPanel({ state }: { state: SkillState }) {
 }
 
 function TargetPanel({ target }: { target: SkillTarget }) {
-  const style = TARGET_STYLE[target.type] || TARGET_STYLE.upgrade
+  const style = TARGET_TYPE_STYLE[target.type] || TARGET_TYPE_STYLE.upgrade
   return (
     <div style={{ background: style.bg, border: `1px solid ${style.color}45`, boxShadow: `0 0 16px ${style.color}15`, borderRadius: 8, padding: '12px 14px' }}>
       <span style={{

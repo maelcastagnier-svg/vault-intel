@@ -1,7 +1,10 @@
 'use client'
 import { useState, useEffect } from 'react'
 import SkillCard from './SkillCard'
+import SkillBar from './SkillBar'
+import SkillProgressOverlay from './SkillProgressOverlay'
 import { SkillsResponse, SkillCardData } from './types'
+import { DEFAULT_SKIN_URL } from '../../../lib/skin-uv-map'
 
 const SKILL_ICONS: Record<string, string> = {
   farming: '🌾', mining: '⛏️', combat: '⚔️', foraging: '🌳', fishing: '🎣',
@@ -16,6 +19,29 @@ export default function SkillsTab({ profileId }: { profileId: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [expandedSlayer, setExpandedSlayer] = useState(false)
+  const [openSkill, setOpenSkill] = useState<SkillCardData | null>(null)
+
+  // Same skin resolution as SetupOverlay (crafatar -> mojang session server ->
+  // local placeholder, the last one appended internally by SkinArmorRender) --
+  // fetched once here and shared by every SkillBar's overlay rather than
+  // re-fetched per skill.
+  const [skinUrls, setSkinUrls] = useState<string[]>([DEFAULT_SKIN_URL])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/player/status')
+      .then(r => { if (!r.ok) throw new Error('status ' + r.status); return r.json() })
+      .then(d => {
+        if (cancelled) return
+        if (d?.linked && d?.hypixel_uuid) {
+          const urls = [`https://crafatar.com/skins/${d.hypixel_uuid}`]
+          if (d.mojang_skin_url) urls.push(d.mojang_skin_url)
+          setSkinUrls(urls)
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -57,16 +83,28 @@ export default function SkillsTab({ profileId }: { profileId: string }) {
   return (
     <div>
       <div className="section-label" style={{ color: '#2a78d6' }}>📊 Skills — current setup vs. next step</div>
+
       {otherCards.map(card => (
-        <SkillCard
+        <SkillBar
           key={card.skill_key}
           label={card.label}
           icon={SKILL_ICONS[card.skill_key]}
-          current={card.current}
-          target={card.target}
+          progress={card.progress}
           unlocked={card.unlocked}
+          onClick={() => setOpenSkill(card)}
         />
       ))}
+
+      {openSkill && (
+        <SkillProgressOverlay
+          label={openSkill.label}
+          icon={SKILL_ICONS[openSkill.skill_key]}
+          current={openSkill.current}
+          target={openSkill.target}
+          skinUrls={skinUrls}
+          onClose={() => setOpenSkill(null)}
+        />
+      )}
 
       {slayerCard && (
         <div>
