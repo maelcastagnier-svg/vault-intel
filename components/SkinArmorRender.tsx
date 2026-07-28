@@ -1,140 +1,213 @@
 // components/SkinArmorRender.tsx
 // Skin + equipped-gear visual for SetupOverlay: the player's Minecraft skin
-// rendered as real layered 3D cuboids (CSS transform-style:preserve-3d, no
-// WebGL/skinview3d dependency) with armor drawn as separate, slightly-larger
-// "inflated" cuboid layers on top -- matching Minecraft's own armor-model
-// inflate convention (helmet/chestplate/boots ~1.0, leggings ~0.5, applied
-// as a per-axis size delta on the same box, same technique as vanilla's
-// ArmorStandRenderer / HumanoidArmorLayer.CubeDeformation).
+// rendered as real layered 3D cuboids, now on an actual 3D engine
+// (three.js via @react-three/fiber) instead of CSS transform-style:preserve-3d.
+//
+// Why the migration: the CSS version needed three separate rounds of debugging
+// across two sessions to stop flattening (filter/backdrop-filter on ANY modal
+// ancestor rasterizes the whole subtree and silently kills nested preserve-3d,
+// and ArmorLayer's own wrapper was missing transform-style:preserve-3d too) --
+// each fix was necessary but not sufficient on its own. That's not bad luck,
+// it's CSS 3D transforms being a layout-system feature repurposed for 3D, with
+// well-documented flattening gotchas baked into the spec. three.js is an
+// actual 3D engine built for exactly this, and eliminates that whole bug class
+// structurally -- there is no "backdrop-filter silently rasterizes your scene"
+// failure mode for a WebGL canvas.
 //
 // Appearance: no Skyblock armor piece has a unique base-game TEXTURE server
 // side -- the "custom look" people associate with Necron's/Storm's/Divan's
 // comes entirely from optional third-party resource packs. But most pieces
 // (~62%, sampled across NEU-REPO) ARE real dyed LEATHER_* items with a real
 // default color Hypixel assigns server-side (confirmed: Necron's Chestplate
-// is leather dyed to #E7413C), which we now source per-piece from
-// item_stats.default_color (armor-color-sync, fetched from NEU-REPO's
-// items/{id}.json) and attach to the matched setup via applyPreciseCost.
-// Falls back to the verified vanilla default leather color (#A06540, RGB
-// 160,101,64) whenever that's null -- genuinely no color exists server-side
-// for the other ~38% (re-skinned player heads for some helmets, or
-// non-leather base items like Revenant Armor's diamond_chestplate, both
-// 100% resource-pack-only looks). Real skull skin.value decoding for the
-// head-reskin case is a separate future project, not yet started, see
-// CLAUDE.md.
+// is leather dyed to #E7413C), sourced per-piece from item_stats.default_color
+// (armor-color-sync, fetched from NEU-REPO's items/{id}.json) and attached to
+// the matched setup via applyPreciseCost. Falls back to the verified vanilla
+// default leather color (#A06540, RGB 160,101,64) whenever that's null.
+//
+// Lighting: armor tint is no longer six manually-tuned brightness() multipliers
+// per face (the CSS version's TintedFace shade constants) -- a single
+// DirectionalLight + MeshStandardMaterial now computes real per-face shading
+// from actual geometry, which is both more robust (no hand-picked numbers to
+// get subtly wrong) and correctly consistent with how the skin layer itself
+// is now lit (also MeshStandardMaterial, so skin and armor share one coherent
+// lighting model instead of the old mix of unlit skin + manually-shaded armor).
 'use client'
-import { useState } from 'react'
-import { BODY_PARTS, TEXTURE_SIZE, type UVMap, type BodyPart } from '../lib/skin-uv-map'
+import { useEffect, useMemo, useState, Suspense } from 'react'
+import { Canvas, useLoader, useThree, type ThreeEvent } from '@react-three/fiber'
+import * as THREE from 'three'
+import { BODY_PARTS, TEXTURE_SIZE, type BodyPart } from '../lib/skin-uv-map'
 import { st, nm, ar } from '../lib/setup-field-helpers'
 import { rarityColor } from '../lib/rarity-colors'
 
-const SCALE = 6 // CSS px per model unit
 const VANILLA_LEATHER_COLOR = '#A06540' // real Minecraft default undyed-leather color, verified (not approximated)
+const ARMOR_INFLATE = 1.0 // same outer-armor inflate as the vanilla model / the old CSS version
 
-// Same rich NBT-style content GearSlot already shows for this piece next to
-// the character (name colored by real rarity, stars, stats, enchants,
-// reforge) -- Money Making only generates ONE spec for the whole armor set,
-// not truly separate stats per piece, so this is genuinely the full detail
-// that exists for any given piece, not a simplified summary of it.
 type ArmorTooltip = { name: string; rarity: string | null; stars: number; stats: string; enchants: string[]; reforge: string } | null
 
-function Face({ uv, textureUrl, transform }: { uv: { u: number; v: number; w: number; h: number }; textureUrl: string; transform: string }) {
+// ── CSS → three.js transform conversion ─────────────────────────────────
+// The old CSS version's geometry (BODY_PARTS positions, face translate/rotate
+// values, the rig's rotateX(-14deg) rotateY(-38deg) camera angle) was already
+// validated in production against the real Mojang armor model -- that data is
+// reused verbatim below, NOT re-derived. Only the coordinate system differs:
+// CSS's Y axis points down the screen while three.js's points up (X and Z are
+// shared, Z+ toward the viewer in both). Working through the algebra once
+// (a single-axis reflection, Y -> -Y, flips the sign of any rotation that
+// turns Y into something else, but leaves rotations *around* Y unchanged):
+//   translateX(v) / translateZ(v)      -> unchanged
+//   translateY(v)                      -> negate
+//   rotateY(deg)                       -> unchanged
+//   rotateX(deg)                       -> negate
+// Cross-checked two independent ways before trusting it: (1) it reproduces the
+// old CSS rig's own translate3d(x, -y, z) convention exactly (BODY_PARTS' y
+// needs the same negation CSS already applied, so three.js can use raw part.y
+// with none), and (2) applying it to each face's transform and computing the
+// resulting outward normal by hand gives exactly the expected direction for
+// all 6 faces (top -> +Y, bottom -> -Y, right -> +X, left -> -X, front -> +Z,
+// back -> -Z) -- see the FACE_TRANSFORMS table below.
+
+type FaceKey = 'front' | 'back' | 'right' | 'left' | 'top' | 'bottom'
+const FACE_KEYS: FaceKey[] = ['front', 'back', 'right', 'left', 'top', 'bottom']
+
+// Position/rotation of each face relative to its cuboid's center, given the
+// box's own (w,h,d) half-dimensions are baked into these via the part's real
+// size (or the inflated armor size). Derived directly from the old CSS Face
+// transforms via the conversion rules above -- e.g. CSS `translateY(-h/2)
+// rotateX(90deg)` for "top" becomes position.y=+h/2 (negate the CSS translateY
+// value) and rotation.x=-90deg (negate the CSS rotateX value).
+function faceTransform(fk: FaceKey, w: number, h: number, d: number): { position: [number, number, number]; rotation: [number, number, number] } {
+  switch (fk) {
+    case 'front':  return { position: [0, 0, d / 2],  rotation: [0, 0, 0] }
+    case 'back':   return { position: [0, 0, -d / 2], rotation: [0, Math.PI, 0] }
+    case 'right':  return { position: [w / 2, 0, 0],  rotation: [0, Math.PI / 2, 0] }
+    case 'left':   return { position: [-w / 2, 0, 0], rotation: [0, -Math.PI / 2, 0] }
+    case 'top':    return { position: [0, h / 2, 0],  rotation: [-Math.PI / 2, 0, 0] }
+    case 'bottom': return { position: [0, -h / 2, 0], rotation: [Math.PI / 2, 0, 0] }
+  }
+}
+
+// One flat, UV-mapped quad -- the three.js equivalent of the old CSS Face()
+// div (a straight, non-mirrored crop of the texture atlas). Built once at
+// module load per (part, face) pair since none of this depends on props.
+// The quad starts centered at the origin facing +Z (normal (0,0,1)); its
+// corners are placed so that, after the CSS->three.js Y-negation above, the
+// same atlas pixels end up in the same visual positions as the old CSS crop.
+function makeFaceGeometry(w: number, h: number, uv?: { u: number; v: number; w: number; h: number }): THREE.BufferGeometry {
+  const positions = new Float32Array([-w / 2, -h / 2, 0, w / 2, -h / 2, 0, w / 2, h / 2, 0, -w / 2, h / 2, 0])
+  const normals = new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1])
+  let uvs: Float32Array
+  if (uv) {
+    const u0 = uv.u / TEXTURE_SIZE, u1 = (uv.u + uv.w) / TEXTURE_SIZE
+    const vTop = 1 - uv.v / TEXTURE_SIZE, vBottom = 1 - (uv.v + uv.h) / TEXTURE_SIZE
+    uvs = new Float32Array([u0, vBottom, u1, vBottom, u1, vTop, u0, vTop])
+  } else {
+    uvs = new Float32Array([0, 0, 1, 0, 1, 1, 0, 1])
+  }
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+  geo.setIndex([0, 1, 2, 0, 2, 3])
+  return geo
+}
+
+// Precomputed once at module scope: 6 skin faces + 6 armor faces per body
+// part, geometry only (materials are created per-instance since color/texture
+// differ). Mirrors the old Cuboid()/ArmorLayer() split exactly.
+const SKIN_GEOMETRY = new Map<string, Record<FaceKey, THREE.BufferGeometry>>()
+const ARMOR_GEOMETRY = new Map<string, Record<FaceKey, THREE.BufferGeometry>>()
+for (const part of BODY_PARTS) {
+  const skinFaces = {} as Record<FaceKey, THREE.BufferGeometry>
+  for (const fk of FACE_KEYS) skinFaces[fk] = makeFaceGeometry(part.uv[fk].w, part.uv[fk].h, part.uv[fk])
+  SKIN_GEOMETRY.set(part.key, skinFaces)
+
+  const aw = part.w + ARMOR_INFLATE * 2, ah = part.h + ARMOR_INFLATE * 2, ad = part.d + ARMOR_INFLATE * 2
+  ARMOR_GEOMETRY.set(part.key, {
+    front:  makeFaceGeometry(aw, ah),
+    back:   makeFaceGeometry(aw, ah),
+    right:  makeFaceGeometry(ad, ah),
+    left:   makeFaceGeometry(ad, ah),
+    top:    makeFaceGeometry(aw, ad),
+    bottom: makeFaceGeometry(aw, ad),
+  })
+}
+
+// ── Skin cuboid ───────────────────────────────────────────────
+function SkinCuboid({ part, texture }: { part: BodyPart; texture: THREE.Texture }) {
+  const geoms = SKIN_GEOMETRY.get(part.key)!
+  const material = useMemo(() => new THREE.MeshStandardMaterial({ map: texture, roughness: 0.9, metalness: 0 }), [texture])
   return (
-    <div style={{
-      position: 'absolute', left: 0, top: 0,
-      width: uv.w * SCALE, height: uv.h * SCALE,
-      marginLeft: -(uv.w * SCALE) / 2, marginTop: -(uv.h * SCALE) / 2,
-      backgroundImage: `url(${textureUrl})`,
-      backgroundSize: `${TEXTURE_SIZE * SCALE}px ${TEXTURE_SIZE * SCALE}px`,
-      backgroundPosition: `-${uv.u * SCALE}px -${uv.v * SCALE}px`,
-      imageRendering: 'pixelated',
-      transform,
-      backfaceVisibility: 'hidden',
-    }} />
+    <group position={[part.x, part.y, part.z]}>
+      {FACE_KEYS.map(fk => {
+        const t = faceTransform(fk, part.w, part.h, part.d)
+        return <mesh key={fk} geometry={geoms[fk]} material={material} position={t.position} rotation={t.rotation} />
+      })}
+    </group>
   )
 }
 
-function TintedFace({ w, h, transform, color, shade }: { w: number; h: number; transform: string; color: string; shade: number }) {
-  return (
-    <div style={{
-      position: 'absolute', left: 0, top: 0,
-      width: w * SCALE, height: h * SCALE,
-      marginLeft: -(w * SCALE) / 2, marginTop: -(h * SCALE) / 2,
-      background: color,
-      opacity: 0.8,
-      filter: `brightness(${shade})`,
-      transform,
-      backfaceVisibility: 'hidden',
-    }} />
-  )
-}
-
-// Un cuboid = 6 faces positionnées par rotation+translation autour du centre
-// de la boîte -- même géométrie que le vrai modèle Minecraft (box UV mapping).
-function Cuboid({ part, textureUrl }: { part: BodyPart; textureUrl: string }) {
-  const { w, h, d, uv } = part
-  return (
-    <>
-      <Face uv={uv.front}  textureUrl={textureUrl} transform={`translateZ(${d / 2 * SCALE}px)`} />
-      <Face uv={uv.back}   textureUrl={textureUrl} transform={`translateZ(-${d / 2 * SCALE}px) rotateY(180deg)`} />
-      <Face uv={uv.right}  textureUrl={textureUrl} transform={`translateX(${w / 2 * SCALE}px) rotateY(90deg)`} />
-      <Face uv={uv.left}   textureUrl={textureUrl} transform={`translateX(-${w / 2 * SCALE}px) rotateY(-90deg)`} />
-      <Face uv={uv.top}    textureUrl={textureUrl} transform={`translateY(-${h / 2 * SCALE}px) rotateX(90deg)`} />
-      <Face uv={uv.bottom} textureUrl={textureUrl} transform={`translateY(${h / 2 * SCALE}px) rotateX(-90deg)`} />
-    </>
-  )
-}
-
-// Couche d'armure : même boîte, gonflée de `inflate` unités sur chaque axe
-// (comme le vrai inflate Minecraft), teintée et ombrée par face (avant plus
-// clair, côtés plus sombres, dessus le plus clair) pour un vrai volume sans
-// texture d'item.
-function ArmorLayer({ part, inflate, color }: {
-  part: BodyPart; inflate: number; color: string
+// ── Armor layer (inflated box, real per-face lighting instead of manual
+//    brightness() shading) ───────────────────────────────────
+function ArmorPart({
+  part, color, onEnter, onLeave,
+}: {
+  part: BodyPart; color: string
+  onEnter: (e: ThreeEvent<PointerEvent>) => void; onLeave: () => void
 }) {
-  const w = part.w + inflate * 2
-  const h = part.h + inflate * 2
-  const d = part.d + inflate * 2
+  const geoms = ARMOR_GEOMETRY.get(part.key)!
+  const material = useMemo(() => new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0 }), [color])
+  const w = part.w + ARMOR_INFLATE * 2, h = part.h + ARMOR_INFLATE * 2, d = part.d + ARMOR_INFLATE * 2
   return (
-    <div
-      // transformStyle:'preserve-3d' is required HERE, not just on the ancestor
-      // translate3d wrapper -- every link in the chain down to the transformed
-      // TintedFace children needs it, or this link flattens all 6 faces into a
-      // single overlapping 2D stack (the missing link that caused the "flat
-      // rectangle" render even after the filter/backdrop-filter ancestor fixes).
-      style={{ position: 'absolute', width: 1, height: 1, cursor: 'default', transformStyle: 'preserve-3d' }}
+    <group
+      position={[part.x, part.y, part.z]}
+      onPointerOver={onEnter}
+      onPointerOut={onLeave}
     >
-      <TintedFace w={w} h={h} color={color} shade={1.15} transform={`translateZ(${d / 2 * SCALE}px)`} />
-      <TintedFace w={w} h={h} color={color} shade={0.75} transform={`translateZ(-${d / 2 * SCALE}px) rotateY(180deg)`} />
-      <TintedFace w={d} h={h} color={color} shade={0.95} transform={`translateX(${w / 2 * SCALE}px) rotateY(90deg)`} />
-      <TintedFace w={d} h={h} color={color} shade={0.65} transform={`translateX(-${w / 2 * SCALE}px) rotateY(-90deg)`} />
-      <TintedFace w={w} h={d} color={color} shade={1.35} transform={`translateY(-${h / 2 * SCALE}px) rotateX(90deg)`} />
-      <TintedFace w={w} h={d} color={color} shade={0.55} transform={`translateY(${h / 2 * SCALE}px) rotateX(-90deg)`} />
-    </div>
+      {FACE_KEYS.map(fk => {
+        const t = faceTransform(fk, w, h, d)
+        return <mesh key={fk} geometry={geoms[fk]} material={material} position={t.position} rotation={t.rotation} />
+      })}
+    </group>
   )
 }
 
 const partByKey = (k: BodyPart['key']) => BODY_PARTS.find(p => p.key === k)!
 
-export default function SkinArmorRender({ skinUrl, setup, accentColor }: {
-  skinUrl: string
-  setup: Record<string, any>
-  accentColor: string
+// ── Rig: the whole character, rotated to match the old CSS camera angle ──
+// CSS `transform: rotateX(-14deg) rotateY(-38deg)` applies rotateY first (it's
+// the innermost/rightmost function), then rotateX to the result -- composed
+// here as an explicit matrix (rx * ry) rather than a Euler triplet, to sidestep
+// any ambiguity about three.js's default Euler rotation order and replicate
+// CSS's actual composition order exactly.
+const RIG_QUATERNION = new THREE.Quaternion().setFromRotationMatrix(
+  new THREE.Matrix4()
+    .makeRotationX(THREE.MathUtils.degToRad(14))   // CSS rotateX(-14deg), sign negated per the conversion above
+    .multiply(new THREE.Matrix4().makeRotationY(THREE.MathUtils.degToRad(-38))) // CSS rotateY(-38deg), unchanged
+)
+
+// R3F's default camera does auto-lookAt(0,0,0), but the character spans
+// y:0 (feet) to y:32 (head top) -- explicit and independent of that default
+// so the character is reliably centered instead of trusting an assumption.
+function CameraTarget() {
+  const { camera } = useThree()
+  useEffect(() => { camera.lookAt(0, 16, 0) }, [camera])
+  return null
+}
+
+function Scene({ skinUrl, setup, onTooltip }: {
+  skinUrl: string; setup: Record<string, any>
+  onTooltip: (content: ArmorTooltip, e?: ThreeEvent<PointerEvent>) => void
 }) {
-  const [tooltip, setTooltip] = useState<{ content: ArmorTooltip; x: number; y: number }>({ content: null, x: 0, y: 0 })
+  const texture = useLoader(THREE.TextureLoader, skinUrl, loader => loader.setCrossOrigin('anonymous'))
+  useEffect(() => {
+    texture.magFilter = THREE.NearestFilter
+    texture.minFilter = THREE.NearestFilter
+    texture.colorSpace = THREE.SRGBColorSpace
+    texture.generateMipmaps = false
+    texture.needsUpdate = true
+  }, [texture])
 
   const hasArmor = !!setup.armor_set
 
-  const showTip = (content: ArmorTooltip, e: React.MouseEvent) => {
-    setTooltip({ content, x: e.clientX, y: e.clientY })
-  }
-  const hideTip = () => setTooltip({ content: null, x: 0, y: 0 })
-
-  // Une seule pièce couvre chaque groupe de parties du corps -- même mapping
-  // pour la couleur ET le tooltip, pour ne jamais les faire diverger (ex :
-  // les jambes sont visuellement teintées par armor_boots_color, donc leur
-  // tooltip doit bien dire "Boots", jamais "Leggings" qui n'est jamais
-  // visible sur ce rendu -- voir le commentaire de géométrie plus bas).
   const PIECE_BY_PART: Record<BodyPart['key'], 'HELMET' | 'CHESTPLATE' | 'BOOTS'> = {
     head: 'HELMET', torso: 'CHESTPLATE', armRight: 'CHESTPLATE', armLeft: 'CHESTPLATE',
     legRight: 'BOOTS', legLeft: 'BOOTS',
@@ -145,18 +218,7 @@ export default function SkinArmorRender({ skinUrl, setup, accentColor }: {
   const PIECE_COLOR_FIELD: Record<'HELMET' | 'CHESTPLATE' | 'BOOTS', string> = {
     HELMET: 'armor_helmet_color', CHESTPLATE: 'armor_chestplate_color', BOOTS: 'armor_boots_color',
   }
-
-  // Couleur réelle par pièce (item_stats.default_color, attaché par
-  // applyPreciseCost depuis le vrai item matché) quand elle existe, sinon le
-  // placeholder vanilla -- jamais un mélange des deux sur la même pièce.
-  const colorForPart = (k: BodyPart['key']): string =>
-    setup[PIECE_COLOR_FIELD[PIECE_BY_PART[k]]] || VANILLA_LEATHER_COLOR
-
-  // Même contenu riche que le GearSlot correspondant à côté du personnage
-  // (nom coloré par rareté, étoiles, stats, enchants, reforge) -- Money
-  // Making ne génère qu'UNE spec pour tout le set (pas de stats séparées par
-  // pièce), donc c'est réellement tout le détail qui existe pour une pièce
-  // donnée, pas un résumé simplifié de quelque chose de plus riche.
+  const colorForPart = (k: BodyPart['key']): string => setup[PIECE_COLOR_FIELD[PIECE_BY_PART[k]]] || VANILLA_LEATHER_COLOR
   const armorTooltipFor = (k: BodyPart['key']): ArmorTooltip => {
     if (!hasArmor) return null
     const piece = PIECE_BY_PART[k]
@@ -171,59 +233,55 @@ export default function SkinArmorRender({ skinUrl, setup, accentColor }: {
   }
 
   return (
+    <group quaternion={RIG_QUATERNION}>
+      {BODY_PARTS.map(part => <SkinCuboid key={part.key} part={part} texture={texture} />)}
+
+      {/* Armure -- même géométrie d'inflate/couverture que la version CSS (voir
+          son commentaire d'origine, toujours vrai ici) : helmet/chestplate/boots
+          partagent le modèle "outer" sur head/torso+bras/jambes, la couche
+          leggings "inner" reste toujours entièrement invisible en dessous. */}
+      {hasArmor && (['head', 'torso', 'armRight', 'armLeft', 'legRight', 'legLeft'] as const).map(k => (
+        <ArmorPart
+          key={k} part={partByKey(k)} color={colorForPart(k)}
+          onEnter={e => { e.stopPropagation(); onTooltip(armorTooltipFor(k), e) }}
+          onLeave={() => onTooltip(null)}
+        />
+      ))}
+    </group>
+  )
+}
+
+export default function SkinArmorRender({ skinUrl, setup, accentColor }: {
+  skinUrl: string
+  setup: Record<string, any>
+  accentColor: string
+}) {
+  const [tooltip, setTooltip] = useState<{ content: ArmorTooltip; x: number; y: number }>({ content: null, x: 0, y: 0 })
+
+  const handleTooltip = (content: ArmorTooltip, e?: ThreeEvent<PointerEvent>) => {
+    if (content && e) setTooltip({ content, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY })
+    else setTooltip(t => ({ ...t, content: null }))
+  }
+
+  return (
     <div
       onMouseMove={e => tooltip.content && setTooltip(t => ({ ...t, x: e.clientX, y: e.clientY }))}
-      // Pas de `perspective` volontairement -- un vrai point de fuite fausse la
-      // vue isométrique demandée (parallélogrammes sur les pièces excentrées,
-      // proportions écrasées selon la profondeur). Sans perspective, les
-      // transforms 3D restent actifs (preserve-3d + rotateX/Y + translateZ)
-      // mais la projection devient orthographique -- les arêtes parallèles le
-      // restent, exactement le rendu isométrique voulu.
-      style={{ position: 'relative', width: '100%', height: 260, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+      style={{ position: 'relative', width: '100%', height: 260 }}
     >
-      <div style={{
-        position: 'relative', transformStyle: 'preserve-3d',
-        transform: 'rotateX(-14deg) rotateY(-38deg)',
-        marginBottom: 8,
-      }}>
-        {BODY_PARTS.map(part => (
-          <div key={part.key} style={{
-            position: 'absolute', left: 0, top: 0, width: 1, height: 1,
-            transformStyle: 'preserve-3d',
-            transform: `translate3d(${part.x * SCALE}px, ${-part.y * SCALE}px, ${part.z * SCALE}px)`,
-          }}>
-            <Cuboid part={part} textureUrl={skinUrl} />
-          </div>
-        ))}
-
-        {/* Armure -- géométrie vérifiée contre le vrai modèle Mojang (outer_armor.JEM /
-            inner_armor.JEM) : helmet/chestplate/boots partagent le même modèle "outer"
-            (inflate 1.0) sur head / torso+bras / jambes ; leggings utilise le modèle
-            "inner" (inflate 0.5) sur torso+jambes mais SUR LES MÊMES PARTIES DU CORPS
-            que chestplate/boots -- comme l'outer (1.0) est strictement plus grand que
-            l'inner (0.5) sur la même boîte, la couche leggings est entièrement
-            enfermée dedans et n'est JAMAIS visible de l'extérieur sur un joueur en
-            set complet (vrai en jeu aussi : on ne voit jamais le legging sous un
-            chestplate+boots portés). Donc une seule couche outer (1.0) par partie
-            couverte, jambe entière (pas de découpe haut/bas inventée) -- fidèle au
-            rendu réel, pas une approximation stylisée. */}
-        {hasArmor && (
-          <>
-            {(['head', 'torso', 'armRight', 'armLeft', 'legRight', 'legLeft'] as const).map(k => {
-              const part = partByKey(k)
-              return (
-                <div key={k}
-                  onMouseEnter={e => showTip(armorTooltipFor(k), e)} onMouseLeave={hideTip}
-                  style={{ position: 'absolute', left: 0, top: 0, width: 1, height: 1, transformStyle: 'preserve-3d', transform: `translate3d(${part.x * SCALE}px, ${-part.y * SCALE}px, ${part.z * SCALE}px)` }}
-                >
-                  <ArmorLayer part={part} inflate={1.0} color={colorForPart(k)} />
-                </div>
-              )
-            })}
-          </>
-        )}
-
-      </div>
+      <Canvas
+        orthographic
+        camera={{ position: [0, 16, 100], zoom: 6, near: 0.1, far: 1000 }}
+        gl={{ antialias: true, alpha: true }}
+        dpr={[1, 2]}
+      >
+        <CameraTarget />
+        <ambientLight intensity={0.65} />
+        <directionalLight position={[6, 10, 8]} intensity={1.1} />
+        <directionalLight position={[-6, -4, -6]} intensity={0.25} />
+        <Suspense fallback={null}>
+          <Scene skinUrl={skinUrl} setup={setup} onTooltip={handleTooltip} />
+        </Suspense>
+      </Canvas>
 
       {tooltip.content && (() => {
         const c = tooltip.content
