@@ -14,7 +14,8 @@ import { createClient } from '@supabase/supabase-js'
 import { TIER_CONFIG, GAME_TRUTHS } from '../../../../lib/money-making-constants'
 import { ULTIMATE_ENCHANTS } from '../../../../lib/skyblock-item-decoder'
 import { loadPricedItems } from '../setup-generate-agent/route'
-import { type PricedItem, matchesExact } from '../../../../lib/gear-pricing'
+import { buildActivityGearCatalogSection, verifyActivityGearName } from '../../../../lib/gear-pricing'
+import { loadActivityGearCategories } from '../../../../lib/activity-gear'
 import {
   buildTargetSetup, collectOwnedArmorSets, formatOwnedArmorSets, resolveOwnedArmorSet,
   type OwnedArmorSet,
@@ -29,8 +30,24 @@ const supabase = createClient(
 
 const MODEL = 'claude-sonnet-4-6'
 
+// Found via real Vercel runtime logs while testing Phase 1 (bigger prompt,
+// more context sections): Claude occasionally prefixes its response with
+// prose ("I'll analyze this player's real gear...") before the JSON, which
+// the old fence-stripping alone never handled -- it only stripped a leading/
+// trailing ```` ``` ```` fence, not arbitrary text before the first `{`.
+// Falls back to slicing from the first `{` to the last `}` when a direct
+// parse fails, which recovers the JSON regardless of what Claude wrote
+// around it.
 function parseJSON(text: string): any {
-  return JSON.parse(text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim())
+  const cleaned = text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim()
+  try {
+    return JSON.parse(cleaned)
+  } catch {
+    const start = cleaned.indexOf('{')
+    const end = cleaned.lastIndexOf('}')
+    if (start === -1 || end === -1 || end <= start) throw new Error('No JSON object found in response')
+    return JSON.parse(cleaned.slice(start, end + 1))
+  }
 }
 
 // ── Les 9 systèmes actionnables ─────────────────────────────────
@@ -45,83 +62,18 @@ const SLAYER_BOSSES = ['zombie', 'spider', 'wolf', 'enderman', 'blaze', 'vampire
 
 const ULTIMATE_ENCHANT_LIST = Array.from(ULTIMATE_ENCHANTS).join(', ')
 
-// Real item_stats.category values relevant to each skill's weapon/tool slot --
-// confirmed against the actual distinct values in item_stats (SWORD/BOOTS/
-// CHESTPLATE/CLOAK/ACCESSORY/HELMET/LEGGINGS/BELT/OTHER/FARMING_TOOL/WAND/
-// NECKLACE/FISHING_ROD/GLOVES/AXE/DRILL/PICKAXE/BOW/CARNIVAL_MASK/ARROW/SPADE/
-// GAUNTLET/LONGSWORD/BRACELET/FISHING_NET/VACUUM), not guessed. Found the
-// hard way: a shared, unfiltered catalog let Claude recommend a real SWORD
-// (Ragnarok Axe -- a real combat weapon whose display name happens to
-// contain "Axe") for the Foraging card, which is a real item with a real
-// price but functionally wrong for that activity -- worse than a hallucinated
-// name because it doesn't look wrong on the surface. Skills with no dedicated
-// weapon/tool slot (alchemy, enchanting -- armor/accessories only) are
-// deliberately absent from this map; gear_name must stay null for those.
-const SKILL_GEAR_CATEGORIES: Partial<Record<typeof SKILL_CARDS[number], string[]>> = {
-  farming:       ['FARMING_TOOL'],
-  mining:        ['PICKAXE', 'DRILL'],
-  foraging:      ['AXE'],
-  fishing:       ['FISHING_ROD', 'FISHING_NET', 'VACUUM'],
-  combat:        ['SWORD', 'BOW', 'LONGSWORD', 'GAUNTLET', 'WAND'],
-  dungeoneering: ['SWORD', 'BOW', 'LONGSWORD', 'GAUNTLET', 'WAND'],
-  slayer:        ['SWORD', 'BOW', 'LONGSWORD', 'GAUNTLET', 'WAND'],
-}
-
-const ARMOR_CATEGORIES = new Set(['HELMET', 'CHESTPLATE', 'LEGGINGS', 'BOOTS'])
-
-function armorCatalogText(priced: PricedItem[], maxGearCost: number): string {
-  const minPrice = maxGearCost / 25, maxPrice = maxGearCost * 3
-  const rows = priced
-    .filter(s => ARMOR_CATEGORIES.has(s.category) && s.price >= minPrice && s.price <= maxPrice)
-    .sort((a, b) => b.price - a.price)
-    .slice(0, 60)
-  if (rows.length === 0) return 'No priced armor found in this budget band.'
-  return rows.map(s => `${s.item_id} "${s.display_name}" [${s.category}] price=${Math.round(s.price).toLocaleString()}`).join('\n')
-}
-
-// Category-scoped candidates for ONE skill's weapon/tool -- the actual fix
-// for the mismatch above: Claude can only ever see items that are
-// functionally correct for the card it's currently writing.
-function gearCandidatesForSkill(priced: PricedItem[], maxGearCost: number, skillKey: string): PricedItem[] {
-  const categories = SKILL_GEAR_CATEGORIES[skillKey as typeof SKILL_CARDS[number]]
-  if (!categories) return []
-  const minPrice = maxGearCost / 25, maxPrice = maxGearCost * 3
-  return priced
-    .filter(s => categories.includes(s.category) && s.price >= minPrice && s.price <= maxPrice)
-    .sort((a, b) => b.price - a.price)
-}
-
-function gearCatalogTextForSkill(priced: PricedItem[], maxGearCost: number, skillKey: string): string {
-  if (!SKILL_GEAR_CATEGORIES[skillKey as typeof SKILL_CARDS[number]]) {
-    return 'This skill has no dedicated weapon/tool slot -- armor/accessories only. gear_name MUST be null.'
-  }
-  const rows = gearCandidatesForSkill(priced, maxGearCost, skillKey).slice(0, 20)
-  if (rows.length === 0) return 'No priced item found in this budget band for this skill -- leave gear_name null rather than inventing one.'
-  return rows.map(s => `${s.item_id} "${s.display_name}" price=${Math.round(s.price).toLocaleString()}`).join('\n')
-}
-
-function buildGearCatalogSection(priced: PricedItem[], maxGearCost: number): string {
-  const perSkill = SKILL_CARDS
-    .map(key => `--- ${key.toUpperCase()} weapon/tool catalog ---\n${gearCatalogTextForSkill(priced, maxGearCost, key)}`)
-    .join('\n\n')
-  return '=== REAL ARMOR CATALOG (any skill, current AH price, filtered to this tier\'s budget) ===\n' +
-    armorCatalogText(priced, maxGearCost) +
-    '\n\n=== PER-SKILL WEAPON/TOOL CATALOGS — STRICT: a card\'s gear_name MUST come from THAT card\'s own section below, never a different skill\'s section, even though every item shown everywhere here is real and priced ===\n\n' +
-    perSkill
-}
-
-// Post-generation defense in depth -- never trust the prompt rule alone
-// (same philosophy as applyPreciseCost never trusting Claude's arithmetic).
-// Re-checks that gear_name actually appears, verbatim, in the SAME
-// category-scoped candidate list the prompt gave that card -- if Claude
-// wrote something else (invented, or borrowed from a different skill's
-// section), it's nulled rather than shown as if verified.
-function verifyGearName(gearName: string | null | undefined, priced: PricedItem[], maxGearCost: number, skillKey: string): string | null {
-  if (!gearName) return null
-  const candidates = gearCandidatesForSkill(priced, maxGearCost, skillKey)
-  const match = candidates.find(c => matchesExact(c.display_name, gearName))
-  return match ? match.display_name : null
-}
+// Real item_stats.category -> activity mapping now lives in the
+// activity_gear_categories table (lib/activity-gear.ts), shared with Money
+// Making's setup-generate-agent via lib/gear-pricing.ts's
+// buildActivityGearCatalogSection/verifyActivityGearName -- not duplicated
+// here anymore. Found the hard way: a shared, unfiltered catalog let Claude
+// recommend a real SWORD (Ragnarok Axe -- a real combat weapon whose display
+// name happens to contain "Axe") for the Foraging card, which is a real item
+// with a real price but functionally wrong for that activity -- worse than a
+// hallucinated name because it doesn't look wrong on the surface. Two
+// independent copies of this mapping (one per file) is exactly the kind of
+// thing that could silently drift back into the same bug, hence promoting
+// both the data AND the logic that consumes it to a shared location.
 
 function describeItem(item: any): string {
   if (!item) return ''
@@ -333,6 +285,7 @@ obviously invented name because it can pass unnoticed. If a card's own section s
 weapon/tool slot, or no priced item in budget, leave gear_name null — never reach into another section.
 
 === OUTPUT — strict JSON only ===
+Your response MUST start with { as the very first character — no preamble, no "I'll analyze...", no explanation before or after the JSON. Do all your reasoning silently and output only the final JSON object.
 {
   "summary": "1-2 sentences on this player's overall Skills situation",
   "cards": [
@@ -396,10 +349,13 @@ export async function runEvolveSkills(filterProfileIds?: string[]) {
 
   // Catalogue de gear réel + reforges réels — même source que setup-generate-agent
   // (jamais réimplémentée en parallèle), pour que le spec d'armure du "target" soit
-  // matchable contre de vrais items pricés plutôt qu'un nom halluciné.
-  const [pricedItems, { data: fullContext }] = await Promise.all([
+  // matchable contre de vrais items pricés plutôt qu'un nom halluciné. activityGear
+  // vient maintenant de la table partagée activity_gear_categories (Phase 1 de la
+  // base de connaissances) au lieu d'un const dupliqué dans ce seul fichier.
+  const [pricedItems, { data: fullContext }, activityGear] = await Promise.all([
     loadPricedItems(),
     supabase.rpc('get_full_context'),
+    loadActivityGearCategories(),
   ])
   const reforgesText = ((fullContext?.reforges || []) as any[])
     .map(r => `${r.reforge_name}(${r.item_types}):${JSON.stringify(r.stats)}`)
@@ -412,7 +368,7 @@ export async function runEvolveSkills(filterProfileIds?: string[]) {
       const tier = String(player.game_stage || 'early').toLowerCase()
       const library = libraryByTier[tier] || 'No general library available for this tier yet'
       const tierConfig = TIER_CONFIG[tier as keyof typeof TIER_CONFIG]
-      const gearCatalog = tierConfig ? buildGearCatalogSection(pricedItems, tierConfig.max_gear_cost) : ''
+      const gearCatalog = tierConfig ? buildActivityGearCatalogSection(pricedItems, tierConfig.max_gear_cost, [...SKILL_CARDS], activityGear) : ''
       const ownedArmorSets = collectOwnedArmorSets(player)
       const context = formatPlayerContext(player, library, gearCatalog, reforgesText, formatOwnedArmorSets(ownedArmorSets))
 
@@ -426,13 +382,19 @@ export async function runEvolveSkills(filterProfileIds?: string[]) {
           },
           body: JSON.stringify({
             model:      MODEL,
-            max_tokens: 16000,
+            // Was 16000 (already raised once before for the full 9-card +
+            // 6-boss structured output). Found truncating mid-JSON on a
+            // data-rich real profile (Cucumber) while testing Phase 1 --
+            // armor_set_used + gear_name added 2 more fields per card/boss
+            // (15 card-equivalents total), enough to push a gear-heavy
+            // player's response past the old ceiling.
+            max_tokens: 24000,
             system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
             messages: [{ role: 'user', content: context }],
           }),
         })
 
-        if (!res.ok) return { player, error: `HTTP ${res.status}` }
+        if (!res.ok) return { player, error: `HTTP ${res.status}: ${(await res.text()).slice(0, 500)}` }
         const data   = await res.json()
         const parsed = parseJSON(data.content?.[0]?.text || '')
         return { player, data: parsed }
@@ -463,7 +425,7 @@ export async function runEvolveSkills(filterProfileIds?: string[]) {
       }
       if (card.target) {
         card.target.render_setup = buildTargetSetup(card.target, pricedItems).setup
-        card.target.gear_name = verifyGearName(card.target.gear_name, pricedItems, maxGearCost, skillKey)
+        card.target.gear_name = verifyActivityGearName(card.target.gear_name, pricedItems, maxGearCost, skillKey, activityGear)
       }
     }
 

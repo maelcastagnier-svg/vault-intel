@@ -9,7 +9,9 @@ import { ULTIMATE_ENCHANTS } from '../../../../lib/skyblock-item-decoder'
 import {
   type PricedItem, loadPricedItems, matchesExact, bestArmorPiecesForSet, formatCoins,
   ARMOR_COLOR_FIELD, specVariantKeys, lookupPreciseVariantPrice, gearSpecFromSetup,
+  buildActivityGearCatalogSection,
 } from '../../../../lib/gear-pricing'
+import { loadActivityGearCategories, type ActivityGearCategories } from '../../../../lib/activity-gear'
 
 export const maxDuration = 120
 
@@ -19,6 +21,21 @@ const supabase = createClient(
 )
 
 export { loadPricedItems, bestArmorPiecesForSet }
+
+// Real values seen in method.skill across money_making_* content (confirmed
+// via a live audit before this Phase 1 wiring: farming/mining/combat/
+// fishing/foraging -- Money Making methods never use dungeoneering/slayer/
+// alchemy/enchanting as a skill value, unlike Evolve Skills' 9 cards).
+const MONEY_MAKING_ACTIVITIES = ['farming', 'mining', 'combat', 'fishing', 'foraging']
+
+// A method can span more than one activity (money-making-agent's vault
+// methods use skills_combined, e.g. ["farming","combat"] for a pest-farming-
+// during-Jacob's-Contest method) -- weapon/tool/rod grounding must allow
+// candidates from ANY of them, not just the primary skill.
+function methodActivities(method: any): string[] {
+  if (Array.isArray(method.skills_combined) && method.skills_combined.length) return method.skills_combined
+  return method.skill ? [method.skill] : []
+}
 
 // Filtre par bande de budget du tier + score de puissance brut (proxy simple,
 // pas une formule de jeu officielle — sert juste à trier, pas à afficher).
@@ -52,11 +69,26 @@ export function gearCatalogForBudget(priced: PricedItem[], maxGearCost: number):
     rows.map(s => `${s.item_id} "${s.display_name}" [${s.category}] price=${Math.round(s.price).toLocaleString()}`).join('\n')
 }
 
+// Phase 1 game knowledge base: gates weapon_name/tool/rod matches by real
+// functional category (activity_gear_categories) before they're allowed to
+// contribute cost/rarity data -- does NOT touch the visible text Claude
+// wrote (this is an already-shipped feature; unlike Evolve Skills' brand
+// new gear_name field, nulling real text here would be a user-visible
+// regression risk). A wrong-category match simply contributes nothing,
+// same as today's existing "no match found" case already handles.
+// Empty `activities` (method.skill missing/unrecognized) fails OPEN --
+// keeps today's behavior rather than silently breaking cost calc for a
+// method whose skill metadata doesn't happen to be set.
+function categoryAllowedForActivities(category: string, activities: string[], activityGear: ActivityGearCategories): boolean {
+  if (activities.length === 0) return true
+  return activities.some(a => (activityGear[a] || []).includes(category))
+}
+
 // Calcule et écrase cost_budget/cost_optimal/cost_endgame en code, jamais
 // laissé à Claude (testé 2 fois en LATE Gemstone Mining : même avec une
 // règle de prompt explicite, Haiku continue de sortir un chiffre habituel
 // proche de coins_display plutôt que de sommer les vrais prix montrés).
-export async function applyPreciseCost(setup: any, priced: PricedItem[]): Promise<void> {
+export async function applyPreciseCost(setup: any, priced: PricedItem[], activityGear: ActivityGearCategories = {}, activities: string[] = []): Promise<void> {
   const matchedIds = new Set<string>()
   const matched: { item_id: string; display_name: string; price: number; precision: string }[] = []
   let total = 0
@@ -88,6 +120,7 @@ export async function applyPreciseCost(setup: any, priced: PricedItem[]): Promis
     const keys = specVariantKeys(spec)
     for (const item of priced) {
       if (!matchesExact(item.display_name, setup.weapon_name)) continue
+      if (!categoryAllowedForActivities(item.category, activities, activityGear)) continue
       if (!setup.weapon_rarity && item.rarity) setup.weapon_rarity = item.rarity
       const precise = await lookupPreciseVariantPrice(item.item_id, keys, spec)
       addMatch(item, precise?.price ?? item.price, precise?.precision ?? 'blended')
@@ -100,6 +133,7 @@ export async function applyPreciseCost(setup: any, priced: PricedItem[]): Promis
   if (setup.tool) {
     for (const item of priced) {
       if (!matchesExact(item.display_name, setup.tool)) continue
+      if (!categoryAllowedForActivities(item.category, activities, activityGear)) continue
       if (!setup.tool_rarity && item.rarity) setup.tool_rarity = item.rarity
       addMatch(item, item.price, 'blended')
     }
@@ -107,6 +141,7 @@ export async function applyPreciseCost(setup: any, priced: PricedItem[]): Promis
   if (setup.rod) {
     for (const item of priced) {
       if (!matchesExact(item.display_name, setup.rod)) continue
+      if (!categoryAllowedForActivities(item.category, activities, activityGear)) continue
       if (!setup.rod_rarity && item.rarity) setup.rod_rarity = item.rarity
       addMatch(item, item.price, 'blended')
     }
@@ -187,6 +222,7 @@ function buildUserPrompt(method: any, tier: string): string {
   const isFishing = method.skill === 'fishing' || n.includes('fishing') || n.includes('thunder')
   const isDungeon = /dungeon|floor|master|catacombs/.test(n)
   const isKuudra  = n.includes('kuudra')
+  const activities = methodActivities(method)
 
   return `Generate compact setup for: "${method.method}" (${tier.toUpperCase()}, ${method.coins_display || ''})
 ${method.key_drops ? 'DROPS: ' + method.key_drops : ''}
@@ -200,6 +236,7 @@ armor_reforge/weapon_reforge MUST be copied verbatim (exact spelling) from the R
 armor_ultimate_enchant/weapon_ultimate_enchant MUST be exactly one of: ${ULTIMATE_ENCHANT_LIST} — or null if none fits. Only recommend an ultimate enchant when it clearly serves this tier's target stat and stays within budget; most setups should leave this null.
 armor_hot_potato_count/weapon_hot_potato_count: 0, 5, or 10 — 10 (fuming) only for END/LATE tiers where the budget supports it.
 gear_justification explains WHY these specific stars/reforge/enchant choices serve this method's actual target stat (e.g. "5-star Pure for max DEF/HP survivability" or "Ancient reforge for the STR breakpoint needed at this tier") — never a generic restatement of the item name.
+${activities.length ? `This method's activity: ${activities.join(' + ')}. weapon_name/tool/rod MUST be picked from the PER-ACTIVITY WEAPON/TOOL CATALOGS section(s) in the system context matching ${activities.join(' and/or ')} only — never a different activity's section, even though every item shown anywhere in that context is real and priced. A real item in the wrong functional slot (e.g. a real combat sword recommended as a foraging tool) is a critical failure even though the item itself exists and is priced correctly.` : ''}
 
 Return ONLY raw JSON (no backticks, no explanation):
 {
@@ -245,10 +282,11 @@ Return ONLY raw JSON (no backticks, no explanation):
 
 // ── Génère et sauvegarde un setup ───────────────────────────
 export async function generateOne(
-  method:      any,
-  tier:        string,
-  wikiContext: string,
-  pricedItems: PricedItem[] = []
+  method:       any,
+  tier:         string,
+  wikiContext:  string,
+  pricedItems:  PricedItem[] = [],
+  activityGear: ActivityGearCategories = {}
 ): Promise<boolean> {
   const key = methodKey(method)
   try {
@@ -276,7 +314,7 @@ export async function generateOne(
     const data  = await res.json()
     const setup = parseJSON(data.content?.[0]?.text || '')
 
-    await applyPreciseCost(setup, pricedItems)
+    await applyPreciseCost(setup, pricedItems, activityGear, methodActivities(method))
 
     await supabase.from('method_setups').upsert(
       { method_key: key, tier, setup: JSON.stringify(setup), generated_at: new Date().toISOString() },
@@ -304,9 +342,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'No methods in DB — run money-making-agent first' }, { status: 400 })
   }
 
-  const [{ data: ctx }, pricedItems] = await Promise.all([
+  const [{ data: ctx }, pricedItems, activityGear] = await Promise.all([
     supabase.rpc('get_full_context'),
     loadPricedItems(),
+    loadActivityGearCategories(),
   ])
   const baseWikiContext = buildWikiContext(ctx) + '\n' + GROUNDING_RULES
 
@@ -325,13 +364,14 @@ export async function GET(req: NextRequest) {
     // change de bande de prix par tier, donc le cache ne peut pas être partagé
     // au-delà d'un tier sans réintroduire le risque de gear hors-budget).
     const wikiContext = tierConfig
-      ? baseWikiContext + '\n\n' + gearCatalogForBudget(pricedItems, tierConfig.max_gear_cost)
+      ? baseWikiContext + '\n\n' + gearCatalogForBudget(pricedItems, tierConfig.max_gear_cost) +
+        '\n\n' + buildActivityGearCatalogSection(pricedItems, tierConfig.max_gear_cost, MONEY_MAKING_ACTIVITIES, activityGear)
       : baseWikiContext
 
     // Batch de 3 parallèles — même wikiContext → cache actif dès le 2e appel
     for (let i = 0; i < methods.length; i += 3) {
       const batch   = methods.slice(i, i + 3)
-      const results = await Promise.all(batch.map(m => generateOne(m, tier, wikiContext, pricedItems)))
+      const results = await Promise.all(batch.map(m => generateOne(m, tier, wikiContext, pricedItems, activityGear)))
       results.forEach(r => r ? ok++ : fail++)
     }
   }

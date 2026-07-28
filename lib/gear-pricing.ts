@@ -9,6 +9,7 @@
 // in either direction.
 import { createClient } from '@supabase/supabase-js'
 import { buildVariantKeys, ULTIMATE_ENCHANTS, type DecodedItem } from './skyblock-item-decoder'
+import { type ActivityGearCategories } from './activity-gear'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -236,4 +237,77 @@ export function gearSpecFromSetup(setup: any, prefix: 'armor' | 'weapon'): GearS
     hotPotato:       Number(setup[`${prefix}_hot_potato_count`]) || 0,
     ultimateEnchant: ULTIMATE_ENCHANTS.has(ultimateRaw) ? ultimateRaw : null,
   }
+}
+
+// ── Activity-scoped weapon/tool catalog (Phase 1 game knowledge base) ──────
+// Shared by Evolve Skills (evolve-skills/route.ts) and Money Making
+// (setup-generate-agent/route.ts) so the two can never independently drift
+// on "which real item_stats.category belongs to which activity" the way a
+// hardcoded per-file const did -- found the hard way: a shared, unfiltered
+// catalog let Claude recommend a real SWORD (Ragnarok Axe -- a real combat
+// weapon whose display name happens to contain "Axe") for a Foraging card.
+// activityGear comes from the activity_gear_categories table (see
+// lib/activity-gear.ts), never duplicated here.
+const ARMOR_CATEGORIES = new Set(['HELMET', 'CHESTPLATE', 'LEGGINGS', 'BOOTS'])
+
+export function armorCatalogText(priced: PricedItem[], maxGearCost: number): string {
+  const minPrice = maxGearCost / 25, maxPrice = maxGearCost * 3
+  const rows = priced
+    .filter(s => ARMOR_CATEGORIES.has(s.category) && s.price >= minPrice && s.price <= maxPrice)
+    .sort((a, b) => b.price - a.price)
+    .slice(0, 60)
+  if (rows.length === 0) return 'No priced armor found in this budget band.'
+  return rows.map(s => `${s.item_id} "${s.display_name}" [${s.category}] price=${Math.round(s.price).toLocaleString()}`).join('\n')
+}
+
+// Category-scoped candidates for ONE activity's weapon/tool -- the actual
+// fix: Claude (or the post-hoc verifier) only ever sees/accepts items that
+// are functionally correct for the activity in question.
+export function gearCandidatesForActivity(priced: PricedItem[], maxGearCost: number, activityKey: string, activityGear: ActivityGearCategories): PricedItem[] {
+  const categories = activityGear[activityKey]
+  if (!categories) return []
+  const minPrice = maxGearCost / 25, maxPrice = maxGearCost * 3
+  return priced
+    .filter(s => categories.includes(s.category) && s.price >= minPrice && s.price <= maxPrice)
+    .sort((a, b) => b.price - a.price)
+}
+
+function gearCatalogTextForActivity(priced: PricedItem[], maxGearCost: number, activityKey: string, activityGear: ActivityGearCategories): string {
+  if (!activityGear[activityKey]) {
+    return 'This activity has no dedicated weapon/tool slot -- armor/accessories only.'
+  }
+  const rows = gearCandidatesForActivity(priced, maxGearCost, activityKey, activityGear).slice(0, 20)
+  if (rows.length === 0) return 'No priced item found in this budget band for this activity -- leave the field null rather than inventing one.'
+  return rows.map(s => `${s.item_id} "${s.display_name}" price=${Math.round(s.price).toLocaleString()}`).join('\n')
+}
+
+// Bundles the armor catalog + one section per activityKey -- built ONCE per
+// tier and safe to reuse across every call sharing that tier's cached
+// context, since the content doesn't vary per-method/per-card (only which
+// section a given method/card is INSTRUCTED to read from varies, in the
+// caller's own per-call prompt text).
+export function buildActivityGearCatalogSection(priced: PricedItem[], maxGearCost: number, activityKeys: string[], activityGear: ActivityGearCategories): string {
+  const perActivity = activityKeys
+    .map(key => `--- ${key.toUpperCase()} weapon/tool catalog ---\n${gearCatalogTextForActivity(priced, maxGearCost, key, activityGear)}`)
+    .join('\n\n')
+  return '=== REAL ARMOR CATALOG (any activity, current AH price, filtered to this tier\'s budget) ===\n' +
+    armorCatalogText(priced, maxGearCost) +
+    '\n\n=== PER-ACTIVITY WEAPON/TOOL CATALOGS — STRICT: only use the section(s) matching the activity you were told to write for, never a different one, even though every item shown anywhere here is real and priced ===\n\n' +
+    perActivity
+}
+
+// Post-generation defense in depth -- never trust the prompt rule alone
+// (same philosophy as applyPreciseCost never trusting Claude's arithmetic).
+// Re-checks that a name actually appears, verbatim, in the SAME
+// category-scoped candidate list the prompt gave for that activity -- if
+// Claude wrote something else (invented, or borrowed from a different
+// activity's section), the caller decides what to do with a null result
+// (Evolve Skills nulls the field outright; Money Making, an already-shipped
+// feature, uses this only to gate whether a matched item may contribute
+// cost/rarity data, without touching the visible text Claude wrote).
+export function verifyActivityGearName(name: string | null | undefined, priced: PricedItem[], maxGearCost: number, activityKey: string, activityGear: ActivityGearCategories): string | null {
+  if (!name) return null
+  const candidates = gearCandidatesForActivity(priced, maxGearCost, activityKey, activityGear)
+  const match = candidates.find(c => matchesExact(c.display_name, name))
+  return match ? match.display_name : null
 }
