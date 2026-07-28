@@ -80,7 +80,12 @@ function toDecodedPiece(item: any): DecodedArmorPiece | null {
   if (!item?.item_id) return null
   return {
     item_id: item.item_id,
-    item_name: item.item_name || item.item_id,
+    // Found while testing: some decoded names carry a stray leading/trailing
+    // space (color-code stripping artifact, e.g. a reset code immediately
+    // followed by a space) -- trimmed here so it can never end up as a
+    // silent mismatch later when Claude echoes this exact name back and we
+    // look it up (see resolveOwnedArmorSet).
+    item_name: (item.item_name || item.item_id).trim(),
     reforge: item.reforge || null,
     total_stars: item.total_stars || 0,
     is_recomb: !!item.is_recomb,
@@ -159,7 +164,8 @@ export function formatOwnedArmorSets(sets: OwnedArmorSet[]): string {
 // a wrong guess).
 export async function resolveOwnedArmorSet(sets: OwnedArmorSet[], name: string | null | undefined): Promise<RenderSetup> {
   if (!name) return {}
-  const set = sets.find(s => s.name === name)
+  const target = name.trim()
+  const set = sets.find(s => s.name === target)
   if (!set) return {}
 
   const itemIds = Object.values(set.pieces).map((p: any) => p.item_id)
