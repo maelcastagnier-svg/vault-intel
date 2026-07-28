@@ -22,6 +22,52 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## 🔴 Régression prod critique post-migration Three.js + résilience — corrigées (28 juillet)
+
+**Signalé par l'utilisateur, priorité absolue** : en prod, cliquer sur un setup Money 
+Making faisait planter toute la page ("This page couldn't load"). Diagnostiqué sans accès 
+navigateur direct — logs Vercel runtime (0 erreur 5xx serveur, confirmant un crash 
+CLIENT, pas serveur) + lecture du code + un vrai test réseau externe :
+
+- **Root cause réelle, pas hypothétique** : `useLoader(THREE.TextureLoader, skinUrl)` 
+  lève une exception (promise rejetée) quand la texture échoue à charger — `Suspense` ne 
+  capture que l'état "en chargement", jamais un échec. Ce projet n'a **zéro Error 
+  Boundary React nulle part** — une erreur non capturée démonte tout l'arbre React, pas 
+  juste ce composant. Exactement "This page couldn't load".
+- **Déclencheur confirmé en direct** : `crafatar.com` (dont dépendent `DEFAULT_SKIN_URL` 
+  et tout skin réel de joueur) retournait un vrai `521` au moment du test (`curl -sI`, 
+  répété deux fois). L'ancienne version CSS utilisait `background-image`, qui dégrade 
+  silencieusement sur un échec — la migration vers une texture WebGL a supprimé cette 
+  dégradation gracieuse gratuite sans rien pour la remplacer.
+
+**Fix immédiat (hotfix)** : `SceneErrorBoundary` (composant classe React, seul moyen de 
+capturer une erreur de rendu) enveloppe le `Canvas` — toute panne de la scène 3D dégrade 
+maintenant vers un petit placeholder texte au lieu de planter la page. Purement additif 
+au chemin d'échec, chemin nominal inchangé. Build Vercel réel confirmé avant merge.
+
+**Résilience complète (suite immédiate, même session)** : le hotfix empêchait le crash 
+mais, Crafatar restant en panne, TOUS les utilisateurs voyaient le placeholder au lieu de 
+leur vrai personnage. Fermé sans toucher à la question légale encore ouverte sur la 
+redistribution d'assets Mojang (une texture fetchée en direct à chaque requête, jamais 
+stockée, reste une catégorie différente d'un asset copié dans notre propre repo — 
+distinction vérifiée avant d'agir après qu'une première réponse à une question de 
+clarification ait affirmé à tort qu'un usage "déjà validé" couvrait ce cas, contredit par 
+une relecture réelle de CLAUDE.md) :
+1. **Deuxième source live, pas une copie stockée** : `/api/player/status` résout 
+   maintenant aussi `mojang_skin_url` côté serveur via le serveur de session Mojang 
+   (`sessionserver.mojang.com`, la source que Crafatar lit lui-même) — confirmé joignable 
+   et confirmé servir la texture avec CORS permissif (`Access-Control-Allow-Origin: *`, 
+   vérifié en direct). `SetupOverlay` construit une liste ordonnée `[crafatar, 
+   mojang-direct]`, `SkinArmorRender` essaie chaque URL en séquence via un nouveau hook 
+   `useResilientTexture()` (remplace `useLoader()`, qui n'a aucune notion de "réessayer 
+   avec l'URL suivante" et causait le crash initial).
+2. **Dernier recours garanti** : `public/images/skin-placeholder.svg`, une couleur unie 
+   générée par code — pas une copie d'un design de skin Mojang — toujours ajoutée comme 
+   candidat final. Asset statique same-origin, ne peut pas échouer pour une raison réseau.
+3. Validé avant merge : résolution Mojang testée en direct sur un vrai UUID (retourne une 
+   vraie URL `https://textures.minecraft.net/...` valide en ~2.1s), asset placeholder 
+   confirmé servi (200, `image/svg+xml`), build Vercel réel confirmé les deux fois.
+
 ## ✅ SkinArmorRender migré de CSS 3D vers three.js/@react-three/fiber (28 juillet)
 
 **Pourquoi** : le rendu du personnage (Money Making SetupOverlay) a nécessité 3 corrections 
