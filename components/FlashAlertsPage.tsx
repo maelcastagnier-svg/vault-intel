@@ -2,11 +2,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '../lib/supabase'
 import LiveRankedFeed from './LiveRankedFeed'
+import FreeFlashPreview from './FreeFlashPreview'
 
 const supabase = createClient()
 const TRANSITION_MS = 250
 
-export default function FlashAlertsPage() {
+export default function FlashAlertsPage({ plan }: { plan?: string }) {
+  // Free : ah_live/bazaar_1h sont RLS-scopés à alert+ (policies has_plan()),
+  // donc les requêtes ci-dessous ne renverraient rien pour ce plan de toute
+  // façon -- composant séparé plus simple plutôt que des branches
+  // conditionnelles partout, voir le header de FreeFlashPreview.tsx.
+  if (plan === 'free') return <FreeFlashPreview />
+
   const [categories,       setCategories]       = useState<string[]>([])
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [showBazaar,       setShowBazaar]       = useState(true)
