@@ -214,13 +214,22 @@ export async function GET(request: Request) {
     const baseItemIds = [...new Set(bufferRows.map(r => r.base_item_id))]
     const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0]
 
-    // Uniquement DAILY_EXACT — un flip n'est jamais scoré contre un historique
-    // base/monthly qui mélange des variantes différentes (voir plus bas).
+    // price_history_ah_variants -- jamais price_history_ah -- un flip n'est
+    // jamais scoré contre un historique base/blended qui mélange des
+    // variantes différentes (voir plus bas). Chaque ligne de cette table EST
+    // déjà l'exact (1 ligne par variant_key par jour), donc pas de filtre
+    // granularity ici -- contrairement à price_history_ah qui distingue
+    // DAILY (blended) d'un ancien DAILY_EXACT jamais réécrit depuis que
+    // price_history_ah_variants existe (bug réel trouvé le 28 juillet :
+    // cette requête ciblait encore price_history_ah + granularity=DAILY_EXACT,
+    // une combinaison que ah-aggregate n'écrit plus du tout depuis sa
+    // reconstruction -- historical restait donc systématiquement vide,
+    // hist_precision toujours "none", et ah_live vidé puis réinséré à 0 ligne
+    // à chaque run, alors que le buffer lui-même se remplissait normalement).
     const { data: historical } = await supabase
-      .from('price_history_ah')
+      .from('price_history_ah_variants')
       .select('base_item_id, variant_key, avg_price')
       .in('base_item_id', baseItemIds)
-      .eq('granularity', 'DAILY_EXACT')
       .gte('bucket_date', sevenDaysAgo)
 
     const histExact = new Map<string, number[]>()
