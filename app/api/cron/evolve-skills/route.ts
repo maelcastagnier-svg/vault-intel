@@ -382,7 +382,13 @@ export async function runEvolveSkills(filterProfileIds?: string[]) {
           },
           body: JSON.stringify({
             model:      MODEL,
-            max_tokens: 16000,
+            // Was 16000 (already raised once before for the full 9-card +
+            // 6-boss structured output). Found truncating mid-JSON on a
+            // data-rich real profile (Cucumber) while testing Phase 1 --
+            // armor_set_used + gear_name added 2 more fields per card/boss
+            // (15 card-equivalents total), enough to push a gear-heavy
+            // player's response past the old ceiling.
+            max_tokens: 24000,
             system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
             messages: [{ role: 'user', content: context }],
           }),
