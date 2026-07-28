@@ -94,7 +94,7 @@ async function syncCollections(): Promise<number> {
 // ============================================================
 // /v2/resources/skyblock/items → item_stats (items avec un champ `stats` uniquement)
 // ============================================================
-async function syncItemStats(): Promise<number> {
+export async function syncItemStats(): Promise<number> {
   const res  = await fetch(`https://api.hypixel.net/v2/resources/skyblock/items?key=${HYPIXEL_KEY}`)
   const data = await res.json()
   if (!data.success || !data.items) throw new Error('items API failed')

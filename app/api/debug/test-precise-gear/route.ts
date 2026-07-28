@@ -10,6 +10,7 @@ import {
   generateOne, methodKey,
 } from '../../cron/setup-generate-agent/route'
 import { TIER_CONFIG } from '../../../../lib/money-making-constants'
+import { syncItemStats } from '../../cron/skyblock-resources-sync/route'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,6 +18,12 @@ const supabase = createClient(
 )
 
 export async function GET() {
+  // 1. Déclenche un vrai re-sync item_stats pour peupler rarity maintenant
+  //    (le cron quotidien n'a pas encore tourné avec le nouveau mapping).
+  let syncResult: any
+  try { syncResult = { rows: await syncItemStats() } }
+  catch (e: any) { syncResult = { error: e.message } }
+
   const { data: analysis } = await supabase
     .from('claude_analysis').select('content').eq('section', 'money_making_late').single()
   if (!analysis) return NextResponse.json({ error: 'No money_making_late section' }, { status: 400 })
@@ -41,11 +48,21 @@ export async function GET() {
     .from('item_stats').select('item_id, display_name, rarity')
     .in('item_id', ['HYPERION', 'DIVAN_DRILL', 'INFERNAL_CRIMSON_CHESTPLATE'])
 
+  // Est-ce que l'armor_set recommandé existe VRAIMENT dans le catalogue montré
+  // à Claude, ou est-ce un nom halluciné qui a échappé au grounding ?
+  const armorNameLower = (setup?.armor_set || '').toLowerCase()
+  const catalogMatchesForArmorName = armorNameLower
+    ? pricedItems.filter(p => p.display_name.toLowerCase().includes(armorNameLower.split(' ')[0])).slice(0, 10)
+    : []
+
   return NextResponse.json({
+    item_stats_resync: syncResult,
     method_chosen: { id: method.id, method: method.method },
     generation_ok: ok,
     priced_items_total: pricedItems.length,
     rarity_column_check: rarityCheck,
+    armor_set_recommended: setup?.armor_set || null,
+    catalog_entries_matching_armor_first_word: catalogMatchesForArmorName,
     generated_setup: setup,
   })
 }
