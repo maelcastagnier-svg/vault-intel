@@ -16,9 +16,89 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 - Claude API (Sonnet + Haiku) en appels directs depuis les routes Vercel, prompt caching
 - API Hypixel officielle + SkyCofl API Premium+ (Account Token JWT)
 - Vercel Cron Jobs natifs — n8n abandonné en production
+- three.js + @react-three/fiber pour le rendu 3D du personnage (Money Making SetupOverlay) — 
+  remplace le CSS 3D (`transform-style:preserve-3d`), voir section dédiée plus bas
 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
+
+## ✅ SkinArmorRender migré de CSS 3D vers three.js/@react-three/fiber (28 juillet)
+
+**Pourquoi** : le rendu du personnage (Money Making SetupOverlay) a nécessité 3 corrections 
+distinctes cette semaine pour arrêter de s'aplatir — `filter:drop-shadow` sur le panneau 
+modal rastérise tout son sous-arbre et aplatit silencieusement n'importe quel descendant 
+`transform-style:preserve-3d` ; `backdrop-filter` sur le calque de flou extérieur fait 
+exactement la même chose, jamais couvert par le fix précédent ; puis `ArmorLayer` (le 
+wrapper interne de chaque pièce d'armure) n'avait lui-même jamais `preserve-3d`, aplatissant 
+ses 6 faces en 2D. Trois symptômes du même problème de fond, pas trois bugs isolés : le CSS 
+3D est une fonctionnalité de mise en page détournée pour faire du 3D, avec des pièges 
+d'aplatissement documentés dans la spec elle-même. Décision : migrer vers un vrai moteur 3D 
+(three.js) plutôt que de continuer à chasser des variantes du même problème — élimine cette 
+classe de bug structurellement (aucun équivalent "une propriété CSS ancêtre aplatit 
+silencieusement toute la scène" n'existe pour un canvas WebGL).
+
+**Toute la donnée métier déjà validée reste inchangée, seule la couche de rendu change** :
+- `BODY_PARTS` (`lib/skin-uv-map.ts`) — fichier non touché, position/UV de chaque pièce.
+- Valeurs `inflate` (1.0 outer), couleurs réelles par pièce (`item_stats.default_color`), 
+  contenu des tooltips (rareté/stats/enchants/reforge) — tous réutilisés tels quels.
+- La recette de transform CSS déjà validée en prod contre le vrai modèle Mojang (translate3d/
+  rotateX/rotateY par face, angle de caméra `rotateX(-14deg) rotateY(-38deg)`) — portée via 
+  une conversion CSS→three.js dérivée puis vérifiée deux fois indépendamment (retrouve la 
+  même négation que l'ancien rig CSS sur son propre `translate3d(x, -y, z)` ; la normale 
+  sortante calculée à la main pour chacune des 6 faces pointe dans la direction attendue), 
+  documentée directement dans `components/SkinArmorRender.tsx` plutôt que redérivée à 
+  l'aveugle depuis une convention Minecraft générique.
+
+**Éclairage** : la teinte d'armure n'est plus 6 multiplicateurs `brightness()` réglés à la 
+main par face (l'ancienne approche CSS) — un vrai `DirectionalLight` + `MeshStandardMaterial` 
+calcule maintenant l'ombrage par face depuis la géométrie réelle, plus robuste (aucune 
+valeur à deviner) et appliqué aussi à la couche skin (pas seulement l'armure) pour un modèle 
+d'éclairage cohérent sur tout le personnage, au lieu de l'ancien mélange skin non-éclairé + 
+armure ombrée manuellement.
+
+**Interaction** : le hover par pièce utilise maintenant le système d'événements pointeur 
+natif de `@react-three/fiber` (bubbling `onPointerOver`/`onPointerOut` sur le groupe 
+enveloppant les 6 faces de chaque pièce d'armure) au lieu du `mouseenter`/`mouseleave` DOM — 
+même comportement de délégation, même contenu/positionnement de tooltip, backé par le 
+raycasting de R3F plutôt que le hit-testing natif du navigateur.
+
+**Nouvelles dépendances** : `three`, `@react-three/fiber`, `@types/three` — pas de `drei` 
+(pas nécessaire : `useLoader` pour le chargement de texture et le prop `orthographic` de 
+`Canvas` sont tous les deux du cœur R3F, aucun `OrbitControls`/`Html` requis puisque le rig 
+reste non-interactif comme avant et le tooltip reste un overlay DOM classique).
+
+**Vérifié avant merge, même rigueur que d'habitude** :
+- Build Vercel réel confirmé (`READY`) — capture les erreurs de bundling/imports qu'un 
+  simple `tsc --noEmit` ne verrait pas. `npm run build` en local échoue à l'étape de 
+  collecte des données de page (`SUPABASE_SERVICE_ROLE_KEY` absente de `.env.local`, 
+  problème d'environnement local déjà documenté, sans rapport avec cette migration — 
+  TypeScript lui-même compile proprement).
+- **Preuve visuelle** : un Artifact autonome reproduisant fidèlement toute la même 
+  logique (mêmes données `BODY_PARTS`, même dérivation de transform par face, même 
+  éclairage `DirectionalLight`+`MeshStandardMaterial`) — vrai WebGL, pas une maquette, 
+  three.js minifié inliné directement (le bac à sable de l'Artifact bloque les scripts 
+  CDN externes). Un vrai bug trouvé en testant l'Artifact lui-même (pas le composant 
+  livré) : `three.module.min.js` n'est pas autonome, il importe `three.core.min.js` via 
+  un chemin relatif qui ne peut pas se résoudre contre une URL `blob:` (pas de base 
+  hiérarchique) — corrigé en inlinant aussi `three.core.min.js` et en patchant le 
+  spécificateur d'import vers sa vraie URL blob avant l'import. Confirmé sans rapport 
+  avec le composant réellement livré (qui passe par le bundler Next.js normal, déjà 
+  confirmé fonctionnel par le build Vercel réel). Contrôles de la preuve : bascule 
+  No armor / Boots only / Full armor (skin coloré synthétique pour lever toute ambiguïté 
+  indépendamment de l'apparence d'un vrai skin), glisser pour orbiter (vraie scène 3D, pas 
+  un angle de caméra figé), survol pour confirmer l'interaction par raycasting.
+- **Confirmé visuellement par l'utilisateur** avant merge.
+
+**Point de repère ouvert avant cette migration** : le rendu manquait de skin visible sur un 
+setup Revenant complet (casque+plastron+jambières+bottes) — investigué et confirmé comme 
+comportement attendu, pas un bug : `hasArmor` couvre les 6 parties du corps par un seul 
+booléen (`!!setup.armor_set`), et un set complet enveloppe géométriquement 100% du skin 
+avec des boîtes d'armure plus grandes et opaques à la même position — exactement comme un 
+joueur en armure complète en vrai jeu. Aucun concept de couverture partielle n'existe côté 
+données (Money Making génère toujours un `armor_set` atomique 4 pièces, jamais un mix par 
+emplacement), donc rien à corriger côté logique — confirmé via le même Artifact de preuve 
+(bascule "Boots only" montrant le skin réel sur tête/torse/bras pendant que seules les 
+jambes sont couvertes).
 
 ## ✅ Money Making — SetupOverlay enfin en prod : 3 colonnes, couleurs d'armure réelles, tooltips riches (28 juillet)
 
