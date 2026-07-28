@@ -13,8 +13,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { TIER_CONFIG, GAME_TRUTHS } from '../../../../lib/money-making-constants'
 import { ULTIMATE_ENCHANTS } from '../../../../lib/skyblock-item-decoder'
-import { loadPricedItems, gearCatalogForBudget } from '../setup-generate-agent/route'
-import { buildCurrentSetup, buildTargetSetup } from '../../../../lib/skill-setup-adapter'
+import { loadPricedItems } from '../setup-generate-agent/route'
+import { type PricedItem, matchesExact } from '../../../../lib/gear-pricing'
+import {
+  buildTargetSetup, collectOwnedArmorSets, formatOwnedArmorSets, resolveOwnedArmorSet,
+  type OwnedArmorSet,
+} from '../../../../lib/skill-setup-adapter'
 
 export const maxDuration = 300
 
@@ -40,6 +44,84 @@ const SKILL_CARDS = [
 const SLAYER_BOSSES = ['zombie', 'spider', 'wolf', 'enderman', 'blaze', 'vampire'] as const
 
 const ULTIMATE_ENCHANT_LIST = Array.from(ULTIMATE_ENCHANTS).join(', ')
+
+// Real item_stats.category values relevant to each skill's weapon/tool slot --
+// confirmed against the actual distinct values in item_stats (SWORD/BOOTS/
+// CHESTPLATE/CLOAK/ACCESSORY/HELMET/LEGGINGS/BELT/OTHER/FARMING_TOOL/WAND/
+// NECKLACE/FISHING_ROD/GLOVES/AXE/DRILL/PICKAXE/BOW/CARNIVAL_MASK/ARROW/SPADE/
+// GAUNTLET/LONGSWORD/BRACELET/FISHING_NET/VACUUM), not guessed. Found the
+// hard way: a shared, unfiltered catalog let Claude recommend a real SWORD
+// (Ragnarok Axe -- a real combat weapon whose display name happens to
+// contain "Axe") for the Foraging card, which is a real item with a real
+// price but functionally wrong for that activity -- worse than a hallucinated
+// name because it doesn't look wrong on the surface. Skills with no dedicated
+// weapon/tool slot (alchemy, enchanting -- armor/accessories only) are
+// deliberately absent from this map; gear_name must stay null for those.
+const SKILL_GEAR_CATEGORIES: Partial<Record<typeof SKILL_CARDS[number], string[]>> = {
+  farming:       ['FARMING_TOOL'],
+  mining:        ['PICKAXE', 'DRILL'],
+  foraging:      ['AXE'],
+  fishing:       ['FISHING_ROD', 'FISHING_NET', 'VACUUM'],
+  combat:        ['SWORD', 'BOW', 'LONGSWORD', 'GAUNTLET', 'WAND'],
+  dungeoneering: ['SWORD', 'BOW', 'LONGSWORD', 'GAUNTLET', 'WAND'],
+  slayer:        ['SWORD', 'BOW', 'LONGSWORD', 'GAUNTLET', 'WAND'],
+}
+
+const ARMOR_CATEGORIES = new Set(['HELMET', 'CHESTPLATE', 'LEGGINGS', 'BOOTS'])
+
+function armorCatalogText(priced: PricedItem[], maxGearCost: number): string {
+  const minPrice = maxGearCost / 25, maxPrice = maxGearCost * 3
+  const rows = priced
+    .filter(s => ARMOR_CATEGORIES.has(s.category) && s.price >= minPrice && s.price <= maxPrice)
+    .sort((a, b) => b.price - a.price)
+    .slice(0, 60)
+  if (rows.length === 0) return 'No priced armor found in this budget band.'
+  return rows.map(s => `${s.item_id} "${s.display_name}" [${s.category}] price=${Math.round(s.price).toLocaleString()}`).join('\n')
+}
+
+// Category-scoped candidates for ONE skill's weapon/tool -- the actual fix
+// for the mismatch above: Claude can only ever see items that are
+// functionally correct for the card it's currently writing.
+function gearCandidatesForSkill(priced: PricedItem[], maxGearCost: number, skillKey: string): PricedItem[] {
+  const categories = SKILL_GEAR_CATEGORIES[skillKey as typeof SKILL_CARDS[number]]
+  if (!categories) return []
+  const minPrice = maxGearCost / 25, maxPrice = maxGearCost * 3
+  return priced
+    .filter(s => categories.includes(s.category) && s.price >= minPrice && s.price <= maxPrice)
+    .sort((a, b) => b.price - a.price)
+}
+
+function gearCatalogTextForSkill(priced: PricedItem[], maxGearCost: number, skillKey: string): string {
+  if (!SKILL_GEAR_CATEGORIES[skillKey as typeof SKILL_CARDS[number]]) {
+    return 'This skill has no dedicated weapon/tool slot -- armor/accessories only. gear_name MUST be null.'
+  }
+  const rows = gearCandidatesForSkill(priced, maxGearCost, skillKey).slice(0, 20)
+  if (rows.length === 0) return 'No priced item found in this budget band for this skill -- leave gear_name null rather than inventing one.'
+  return rows.map(s => `${s.item_id} "${s.display_name}" price=${Math.round(s.price).toLocaleString()}`).join('\n')
+}
+
+function buildGearCatalogSection(priced: PricedItem[], maxGearCost: number): string {
+  const perSkill = SKILL_CARDS
+    .map(key => `--- ${key.toUpperCase()} weapon/tool catalog ---\n${gearCatalogTextForSkill(priced, maxGearCost, key)}`)
+    .join('\n\n')
+  return '=== REAL ARMOR CATALOG (any skill, current AH price, filtered to this tier\'s budget) ===\n' +
+    armorCatalogText(priced, maxGearCost) +
+    '\n\n=== PER-SKILL WEAPON/TOOL CATALOGS — STRICT: a card\'s gear_name MUST come from THAT card\'s own section below, never a different skill\'s section, even though every item shown everywhere here is real and priced ===\n\n' +
+    perSkill
+}
+
+// Post-generation defense in depth -- never trust the prompt rule alone
+// (same philosophy as applyPreciseCost never trusting Claude's arithmetic).
+// Re-checks that gear_name actually appears, verbatim, in the SAME
+// category-scoped candidate list the prompt gave that card -- if Claude
+// wrote something else (invented, or borrowed from a different skill's
+// section), it's nulled rather than shown as if verified.
+function verifyGearName(gearName: string | null | undefined, priced: PricedItem[], maxGearCost: number, skillKey: string): string | null {
+  if (!gearName) return null
+  const candidates = gearCandidatesForSkill(priced, maxGearCost, skillKey)
+  const match = candidates.find(c => matchesExact(c.display_name, gearName))
+  return match ? match.display_name : null
+}
 
 function describeItem(item: any): string {
   if (!item) return ''
@@ -87,7 +169,7 @@ function collectOwnedButUnequipped(player: any): string {
 }
 
 // ── Formate l'état d'un joueur pour le prompt ───────────────────
-function formatPlayerContext(player: any, library: string, gearCatalog: string, reforgesText: string): string {
+function formatPlayerContext(player: any, library: string, gearCatalog: string, reforgesText: string, ownedArmorSetsText: string): string {
   const armor = Object.entries(player.equipped_armor || {})
     .map(([slot, item]: [string, any]) => `${slot}: ${describeItem(item) || 'empty'}`)
     .join('\n') || 'None equipped'
@@ -135,6 +217,10 @@ target, it's a free swap, not an upgrade to buy. Wardrobe items swap for free in
 Everything else requires physically moving/equipping it but costs nothing.
 ${ownedElsewhere}
 
+=== ALL OWNED ARMOR SETS, GROUPED (equipped + inventory + ender chest + backpacks + Personal Vault + wardrobe — everywhere they own armor, one line per coherent real set) ===
+Use this list to pick current.armor_set_used per card — see CURRENT GROUNDING below.
+${ownedArmorSetsText}
+
 === HEART OF THE MOUNTAIN / SKILL TREE ===
 ${hotmLine('mining')}
 ${hotmLine('foraging')}
@@ -174,6 +260,19 @@ Each card has:
   tools you were NOT given do not exist, never invent one. If they own nothing relevant, say so honestly
   and give a coins/h near zero if that is the truth.
 - "target": the SINGLE next concrete step for this specific system.
+
+=== CURRENT GROUNDING — the OPTIMAL owned setup, not just what's on your body ===
+"current" must reflect the best setup this player could ALREADY be using for free for THIS specific skill —
+picked from the ALL OWNED ARMOR SETS list in the player context (equipped + inventory + ender chest +
+backpacks + Personal Vault + wardrobe), not simply whatever they happen to be wearing right now. Armor is
+one single global loadout in this game, so a player grinding one skill is very often wearing a completely
+different skill's set purely because that's what they last equipped — current must name whichever owned
+set is actually the best fit for THIS card's activity, because swapping to it costs nothing and is their
+honest real available state for this skill, not what a snapshot of their body happens to show.
+Set current.armor_set_used to the EXACT name of the chosen set, copied verbatim from the ALL OWNED ARMOR
+SETS list — or null if nothing owned is relevant to this skill (describe them as bare/unequipped for this
+activity honestly in that case, never pick an unrelated set just because something exists). Do not invent
+a name that isn't in that list.
 
 === TARGET CALIBRATION — the most important rule ===
 The target must be reachable from where THIS player actually is, not a generic tier goal:
@@ -221,6 +320,18 @@ part of reaching the target), name a PRECISE, JUSTIFIED spec, not just a set nam
   already have. If target.type is "unlock_access" and no coherent armor target exists yet, leave
   armor_set null rather than inventing one.
 
+=== TARGET GEAR NAME (weapon/tool/rod) — category-scoped per card, never borrowed from another skill ===
+The player context includes PER-SKILL WEAPON/TOOL CATALOGS — one section per skill, each pre-filtered to
+that skill's own real functional category (e.g. the FORAGING section only ever contains real AXE-category
+items, the COMBAT section only real SWORD/BOW/LONGSWORD/GAUNTLET/WAND-category items). When writing a
+given card, gear_name MUST be copied verbatim from THAT card's own section only — never from a different
+skill's section, even though every item shown anywhere in that context is real and priced. A real item in
+the wrong functional slot (e.g. a real combat sword recommended as a foraging tool because its display
+name happens to contain a farming/foraging-sounding word) is a critical failure for this feature — it
+looks correct on the surface (real name, real price) but is functionally wrong advice, worse than an
+obviously invented name because it can pass unnoticed. If a card's own section says there is no dedicated
+weapon/tool slot, or no priced item in budget, leave gear_name null — never reach into another section.
+
 === OUTPUT — strict JSON only ===
 {
   "summary": "1-2 sentences on this player's overall Skills situation",
@@ -235,7 +346,8 @@ part of reaching the target), name a PRECISE, JUSTIFIED spec, not just a set nam
         "coins_per_hour": 0,
         "coins_display": "...",
         "calculation": "...",
-        "confidence": "HIGH"
+        "confidence": "HIGH",
+        "armor_set_used": "Exact name from ALL OWNED ARMOR SETS, or null"
       },
       "target": {
         "type": "free_swap | upgrade | unlock_access",
@@ -249,7 +361,8 @@ part of reaching the target), name a PRECISE, JUSTIFIED spec, not just a set nam
         "armor_recomb": true,
         "armor_reforge": "exact reforge_name or null",
         "armor_hot_potato_count": 0,
-        "armor_ultimate_enchant": null
+        "armor_ultimate_enchant": null,
+        "gear_name": "Exact weapon/tool/rod name from THIS card's own weapon/tool catalog section, or null"
       }
     }
   ]
@@ -299,8 +412,9 @@ export async function runEvolveSkills(filterProfileIds?: string[]) {
       const tier = String(player.game_stage || 'early').toLowerCase()
       const library = libraryByTier[tier] || 'No general library available for this tier yet'
       const tierConfig = TIER_CONFIG[tier as keyof typeof TIER_CONFIG]
-      const gearCatalog = tierConfig ? gearCatalogForBudget(pricedItems, tierConfig.max_gear_cost) : ''
-      const context = formatPlayerContext(player, library, gearCatalog, reforgesText)
+      const gearCatalog = tierConfig ? buildGearCatalogSection(pricedItems, tierConfig.max_gear_cost) : ''
+      const ownedArmorSets = collectOwnedArmorSets(player)
+      const context = formatPlayerContext(player, library, gearCatalog, reforgesText, formatOwnedArmorSets(ownedArmorSets))
 
       try {
         const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -329,22 +443,33 @@ export async function runEvolveSkills(filterProfileIds?: string[]) {
   )
 
   // Attache render_setup (shape attendue par SkinArmorRender.tsx, voir
-  // lib/skill-setup-adapter.ts) à chaque current/target -- current vient des
-  // vraies données déjà décodées (identique pour toutes les cartes d'un même
-  // joueur, jamais recalculé par carte), target vient du spec précis que
-  // Claude vient de nommer pour CETTE carte spécifiquement.
+  // lib/skill-setup-adapter.ts) à chaque current/target, et vérifie
+  // target.gear_name en dernier recours -- current.render_setup est résolu
+  // PAR CARTE maintenant (plus un seul render partagé par joueur) : Claude
+  // choisit armor_set_used par carte depuis le pool complet de gear possédé
+  // (ALL OWNED ARMOR SETS), on ne fait que résoudre ce nom exact en couleurs/
+  // rareté réelles -- jamais de fuzzy matching ici, ces noms viennent de
+  // notre propre regroupement, pas d'un texte libre Claude.
   for (const r of results) {
     if ('error' in r) continue
-    const { setup: currentSetup } = await buildCurrentSetup(r.player.equipped_armor)
+    const ownedArmorSets: OwnedArmorSet[] = collectOwnedArmorSets(r.player)
+    const tier = String(r.player.game_stage || 'early').toLowerCase()
+    const tierConfig = TIER_CONFIG[tier as keyof typeof TIER_CONFIG]
+    const maxGearCost = tierConfig?.max_gear_cost ?? 0
 
-    const attachRenderSetups = (card: any) => {
-      if (card.current) card.current.render_setup = currentSetup
-      if (card.target) card.target.render_setup = buildTargetSetup(card.target, pricedItems).setup
+    const attachRenderSetups = async (card: any, skillKey: string) => {
+      if (card.current) {
+        card.current.render_setup = await resolveOwnedArmorSet(ownedArmorSets, card.current.armor_set_used)
+      }
+      if (card.target) {
+        card.target.render_setup = buildTargetSetup(card.target, pricedItems).setup
+        card.target.gear_name = verifyGearName(card.target.gear_name, pricedItems, maxGearCost, skillKey)
+      }
     }
 
     for (const card of (r.data?.cards || [])) {
-      attachRenderSetups(card)
-      for (const boss of (card.bosses || [])) attachRenderSetups(boss)
+      await attachRenderSetups(card, card.skill_key)
+      for (const boss of (card.bosses || [])) await attachRenderSetups(boss, card.skill_key)
     }
   }
 

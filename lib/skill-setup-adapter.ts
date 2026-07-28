@@ -14,18 +14,17 @@ const supabase = createClient(
 const ARMOR_PIECES = ['helmet', 'chestplate', 'leggings', 'boots'] as const
 type ArmorPieceKey = typeof ARMOR_PIECES[number]
 
-// Matches player_data.equipped_armor[slot] exactly (written by
-// app/api/player/sync/route.ts from the real decoded NBT) -- not redefined
-// independently, just the subset of fields this adapter actually reads.
-export type EquippedPiece = {
-  item_id: string
-  item_name: string
-  reforge: string | null
-  stars: number
-  is_recomb: boolean
-  enchantments: Record<string, number>
+// Real decoded-item shape from lib/skyblock-item-decoder.ts -- the field is
+// total_stars, not stars. The previous version of this file declared a
+// `stars` field that never actually exists on a decoded item (equipped_armor
+// pieces are written straight from the decoder in player/sync), which
+// silently forced armor_stars to 0 on every "current" render regardless of
+// the real item -- caught while rebuilding this to scan the full owned pool
+// below, fixed here rather than left in place.
+export type DecodedArmorPiece = {
+  item_id: string; item_name: string; reforge: string | null
+  total_stars: number; is_recomb: boolean; enchantments: Record<string, number>
 }
-
 export type RenderSetup = Record<string, any>
 
 const PIECE_TO_COLOR_FIELD: Record<ArmorPieceKey, string> = {
@@ -40,62 +39,144 @@ const PIECE_TO_COLOR_FIELD: Record<ArmorPieceKey, string> = {
 // Striders") that never literally contain the words "Helmet"/"Chestplate"/
 // etc, so a text-stripping approach falsely read all 4 pieces as
 // mismatched. item_id follows a real, structural {SET}_{PIECE} convention
-// instead (confirmed here, and it's the same assumption
-// app/api/player/sync/route.ts already relies on to bucket a decoded item
-// under the correct helmet/chestplate/leggings/boots key in the first
-// place) -- stripping the piece's own known suffix off item_id is exact,
+// instead -- the same assumption app/api/player/sync/route.ts already
+// relies on to bucket a decoded item under the correct slot in the first
+// place -- stripping the piece's own known suffix off item_id is exact,
 // never a guess.
 const ITEM_ID_PIECE_SUFFIX: Record<ArmorPieceKey, string> = {
   helmet: '_HELMET', chestplate: '_CHESTPLATE', leggings: '_LEGGINGS', boots: '_BOOTS',
+}
+function detectArmorPiece(itemId: string): ArmorPieceKey | null {
+  for (const p of ARMOR_PIECES) if (itemId.endsWith(ITEM_ID_PIECE_SUFFIX[p])) return p
+  return null
 }
 const itemIdSetPrefix = (piece: ArmorPieceKey, itemId: string): string => {
   const suffix = ITEM_ID_PIECE_SUFFIX[piece]
   return itemId.endsWith(suffix) ? itemId.slice(0, -suffix.length) : itemId
 }
 
-// ── Current: the player's REAL equipped armor, never invented ──────────
-// SkinArmorRender only supports one shared name/rarity/stars/reforge/enchants
-// tooltip for the whole body (same limit Money Making's setups already have --
-// it generates one spec per set, not truly separate stats per piece) -- a
-// real player's 4 pieces CAN differ (mismatched sets are common). Per-piece
-// COLOR stays fully accurate regardless (armor_*_color are independent
-// fields); the shared tooltip fields fall back to whichever piece is
-// actually worn, preferring chestplate as the most visually prominent slot,
-// and use that piece's own real display name (e.g. "Groovy Figmail") rather
-// than inventing an idealized set label like "Groovy Fig Armor" that isn't
-// a real string Hypixel shows anywhere. armor_set becomes "Mixed Gear" --
-// an honest label, never a fabricated coherent set name -- whenever the
-// worn pieces don't all share the same item_id set prefix.
-export async function buildCurrentSetup(equippedArmor: Partial<Record<ArmorPieceKey, EquippedPiece>> | null | undefined): Promise<{ setup: RenderSetup; hasAnyArmor: boolean }> {
-  const present = ARMOR_PIECES.filter(p => equippedArmor?.[p]?.item_id)
-  if (present.length === 0) return { setup: {}, hasAnyArmor: false }
+// ── Owned armor sets, scanned from EVERYWHERE the player has gear ──────────
+// "current" for a skill card is not "what's literally worn right now" --
+// armor is one single global loadout, so a player grinding one skill might
+// be wearing a completely different skill's set purely because that's what
+// they last equipped, while the real best-fit set for THIS skill sits
+// unused in a backpack/ender chest/vault/wardrobe. This scans the same 5
+// extra locations already validated for Money Making's free_swap detection
+// (collectOwnedButUnequipped in evolve-skills/route.ts) PLUS the equipped
+// slot itself, grouped into coherent named sets by item_id prefix, so Claude
+// can pick per-card the best-fit ALREADY-OWNED set instead of defaulting to
+// whatever happens to be on the player's body.
+export type OwnedArmorSet = {
+  name: string
+  location: string
+  piecesPresent: ArmorPieceKey[]
+  reforge: string | null
+  stars: number
+  enchants: string[]
+  pieces: Partial<Record<ArmorPieceKey, DecodedArmorPiece>>
+}
 
-  const itemIds = Array.from(new Set(present.map(p => equippedArmor![p]!.item_id)))
-  const { data: stats } = await supabase
-    .from('item_stats')
-    .select('item_id, rarity, default_color')
-    .in('item_id', itemIds)
+function toDecodedPiece(item: any): DecodedArmorPiece | null {
+  if (!item?.item_id) return null
+  return {
+    item_id: item.item_id,
+    item_name: item.item_name || item.item_id,
+    reforge: item.reforge || null,
+    total_stars: item.total_stars || 0,
+    is_recomb: !!item.is_recomb,
+    enchantments: item.enchantments || {},
+  }
+}
+
+// Sync structural grouping only -- no DB access, so a caller that just needs
+// the candidate list (e.g. to build a prompt) doesn't pay for a lookup it
+// doesn't need yet. Real rarity/color are attached later, per chosen set
+// only, via resolveOwnedArmorSet.
+export function collectOwnedArmorSets(player: any): OwnedArmorSet[] {
+  type Tagged = { piece: ArmorPieceKey; item: DecodedArmorPiece; location: string }
+  const tagged: Tagged[] = []
+
+  const push = (raw: any, location: string) => {
+    const piece = raw?.item_id ? detectArmorPiece(raw.item_id) : null
+    if (!piece) return
+    const item = toDecodedPiece(raw)
+    if (item) tagged.push({ piece, item, location })
+  }
+
+  for (const item of Object.values(player.equipped_armor || {})) push(item, 'Equipped')
+  for (const item of (player.inventory_items || [])) push(item, 'Inventory')
+  for (const item of (player.ender_chest_items || [])) push(item, 'Ender Chest')
+  for (const bp of (player.backpacks || [])) {
+    for (const item of (bp.items || [])) push(item, bp.icon_item_name || 'Backpack')
+  }
+  for (const item of (player.personal_vault_items || [])) push(item, 'Personal Vault')
+  for (const slot of (player.wardrobe_slots || [])) {
+    for (const p of ARMOR_PIECES) push(slot[p], `Wardrobe slot ${slot.slot}`)
+  }
+
+  // Group by real set prefix. Duplicate pieces for the same slot+set (e.g.
+  // two backpack copies) keep the higher-star one.
+  const groups = new Map<string, Map<ArmorPieceKey, Tagged>>()
+  for (const t of tagged) {
+    const prefix = itemIdSetPrefix(t.piece, t.item.item_id)
+    if (!groups.has(prefix)) groups.set(prefix, new Map())
+    const g = groups.get(prefix)!
+    const existing = g.get(t.piece)
+    if (!existing || t.item.total_stars > existing.item.total_stars) g.set(t.piece, t)
+  }
+
+  const sets: OwnedArmorSet[] = []
+  for (const pieceMap of groups.values()) {
+    const present = ARMOR_PIECES.filter(p => pieceMap.has(p))
+    if (present.length === 0) continue
+    const repKey: ArmorPieceKey = present.includes('chestplate') ? 'chestplate' : present[0]
+    const rep = pieceMap.get(repKey)!
+    sets.push({
+      name: rep.item.item_name,
+      location: Array.from(new Set(present.map(p => pieceMap.get(p)!.location))).join(' + '),
+      piecesPresent: present,
+      reforge: rep.item.reforge,
+      stars: rep.item.total_stars,
+      enchants: Object.entries(rep.item.enchantments || {}).map(([n, l]) => `${n} ${l}`),
+      pieces: Object.fromEntries(present.map(p => [p, pieceMap.get(p)!.item])) as any,
+    })
+  }
+  return sets
+}
+
+export function formatOwnedArmorSets(sets: OwnedArmorSet[]): string {
+  if (sets.length === 0) return 'Nothing owned (no armor anywhere -- equipped, inventory, ender chest, backpacks, vault, wardrobe).'
+  return sets
+    .map(s => `- "${s.name}" (${s.piecesPresent.join(', ')}) [${s.location}]`)
+    .join('\n')
+}
+
+// Attaches real rarity/color and builds the render_setup for ONE named set --
+// called once Claude has picked current.armor_set_used for a given card.
+// Exact name match only: these names come from OUR OWN grouping above, never
+// freeform Claude text, so no fuzzy matching is needed or wanted here (and a
+// name Claude gets wrong/hallucinates simply resolves to nothing rather than
+// a wrong guess).
+export async function resolveOwnedArmorSet(sets: OwnedArmorSet[], name: string | null | undefined): Promise<RenderSetup> {
+  if (!name) return {}
+  const set = sets.find(s => s.name === name)
+  if (!set) return {}
+
+  const itemIds = Object.values(set.pieces).map((p: any) => p.item_id)
+  const { data: stats } = await supabase.from('item_stats').select('item_id, rarity, default_color').in('item_id', itemIds)
   const byId = new Map((stats || []).map(s => [s.item_id, s]))
 
   const setup: RenderSetup = {}
-  for (const p of present) {
-    const piece = equippedArmor![p]!
-    const meta = byId.get(piece.item_id)
+  for (const p of set.piecesPresent) {
+    const meta = byId.get(set.pieces[p]!.item_id)
     if (meta?.default_color) setup[PIECE_TO_COLOR_FIELD[p]] = meta.default_color
+    if (!setup.armor_rarity && meta?.rarity) setup.armor_rarity = meta.rarity
   }
-
-  const repKey: ArmorPieceKey = present.includes('chestplate') ? 'chestplate' : present[0]
-  const rep = equippedArmor![repKey]!
-  const repMeta = byId.get(rep.item_id)
-
-  const setPrefixes = new Set(present.map(p => itemIdSetPrefix(p, equippedArmor![p]!.item_id)))
-  setup.armor_set = setPrefixes.size === 1 ? rep.item_name : 'Mixed Gear'
-  setup.armor_rarity = repMeta?.rarity || null
-  setup.armor_stars = rep.stars || 0
-  setup.armor_reforge = rep.reforge || null
-  setup.enchants_armor = Object.entries(rep.enchantments || {}).map(([name, lvl]) => `${name} ${lvl}`)
-
-  return { setup, hasAnyArmor: true }
+  setup.armor_set = set.name
+  setup.armor_stars = set.stars
+  setup.armor_reforge = set.reforge
+  setup.enchants_armor = set.enchants
+  return setup
 }
 
 // ── Target: precise gear NAMED by Claude (evolve-skills prompt, extended the

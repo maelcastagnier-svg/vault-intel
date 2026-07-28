@@ -19,6 +19,11 @@ export interface SkillState {
   coins_display: string
   calculation: string
   confidence: Confidence
+  // Exact name from the player's ALL OWNED ARMOR SETS list (equipped +
+  // inventory + ender chest + backpacks + vault + wardrobe) that this card's
+  // render_setup was resolved from -- null when nothing owned fits this
+  // skill. See lib/skill-setup-adapter.ts (resolveOwnedArmorSet).
+  armor_set_used?: string | null
   render_setup?: RenderSetup
 }
 
@@ -30,6 +35,10 @@ export interface SkillTarget {
   expected_coins_display: string
   reasoning: string
   render_setup?: RenderSetup
+  // Weapon/tool/rod name, verified server-side against THIS skill's own
+  // category-filtered gear catalog (never another skill's) -- null if
+  // unverified/not applicable. See verifyGearName in evolve-skills/route.ts.
+  gear_name?: string | null
 }
 
 // Depuis /api/player/skills, calculé depuis la vraie XP (player_data.raw_profile.

@@ -86,6 +86,11 @@ export default function SkillProgressOverlay({ label, icon, current, target, ski
                   {targetStyle.label}
                 </span>
                 <div style={{ fontSize: 13.5, fontWeight: 600, color: '#e8e6df', marginBottom: 4 }}>{target.goal}</div>
+                {target.gear_name && (
+                  <div style={{ fontSize: 11.5, color: '#9b9b8f', marginBottom: 4 }}>
+                    <span style={{ color: targetStyle.color, fontWeight: 700 }}>Gear: </span>{target.gear_name}
+                  </div>
+                )}
                 {target.requirements.length > 0 && (
                   <ul style={{ margin: '6px 0 0', paddingLeft: 16, fontSize: 11.5, color: '#9b9b8f' }}>
                     {target.requirements.map((r, i) => <li key={i} style={{ marginBottom: 2 }}>{r}</li>)}
