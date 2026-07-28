@@ -163,24 +163,50 @@ function ItemExplorer() {
       return (data||[]).map(d=>({ date:d.bucket_date, buy_price:Number(d.buy_price), sell_price:Number(d.sell_price), volume:Number(d.volume) }))
     }
 
-    let q = supabase
-      .from('price_history_ah')
-      .select('bucket_date,created_at,avg_price,volume,variant_key')
-      .eq('base_item_id', item.item_id)
-      .in('granularity', useScans ? ['SCAN'] : ['DAILY','DAILY_EXACT','MONTHLY'])
-      .gt('avg_price', 0)
-      .order(useScans ? 'created_at' : 'bucket_date', { ascending:true })
-      .limit(useScans ? 2000 : 1500)
+    // Une variante précise n'existe jamais dans price_history_ah -- cette table
+    // ne reçoit plus que le placeholder blended (__all_variants_blended__)
+    // depuis la refonte ah-aggregate (même bug que celui corrigé sur ah-collect
+    // le 28 juillet : un consommateur de l'ancien schéma manqué par la passe de
+    // renommage). Les vraies séries par variante vivent dans
+    // price_history_ah_variants (1 ligne par variant_key par jour, pas de
+    // granularité SCAN/intraday là-dedans -- le repli 1D/1W en intraday réel
+    // reste donc réservé au général, qui continue de lire price_history_ah).
+    let hist: { bucket_date: string; created_at?: string; avg_price: number; volume: number; variant_key: string }[] | null
 
-    if (useScans) q = q.gte('created_at', new Date(Date.now()-days*86_400_000).toISOString())
-    else          q = q.gte('bucket_date', startDate)
-    if (variantKey) q = q.eq('variant_key', variantKey)
+    if (variantKey) {
+      const { data } = await supabase
+        .from('price_history_ah_variants')
+        .select('bucket_date,avg_price,volume,variant_key')
+        .eq('base_item_id', item.item_id)
+        .eq('variant_key', variantKey)
+        .gt('avg_price', 0)
+        .gte('bucket_date', startDate)
+        .order('bucket_date', { ascending:true })
+        .limit(1500)
+      hist = data
+    } else {
+      let q = supabase
+        .from('price_history_ah')
+        .select('bucket_date,created_at,avg_price,volume,variant_key')
+        .eq('base_item_id', item.item_id)
+        .in('granularity', useScans ? ['SCAN'] : ['DAILY','DAILY_EXACT','MONTHLY'])
+        .gt('avg_price', 0)
+        .order(useScans ? 'created_at' : 'bucket_date', { ascending:true })
+        .limit(useScans ? 2000 : 1500)
 
-    const { data: hist } = await q
+      if (useScans) q = q.gte('created_at', new Date(Date.now()-days*86_400_000).toISOString())
+      else          q = q.gte('bucket_date', startDate)
+
+      const { data } = await q
+      hist = data
+    }
 
     const byDate = new Map<string,{prices:number[];vols:number[]}>()
     for (const d of hist||[]) {
-      const key = useScans ? (d.created_at||'').slice(0,13)+':00' : d.bucket_date
+      // price_history_ah_variants n'a pas de granularité intraday (created_at) --
+      // une variante précise reste donc groupée par jour même en période 1D/1W,
+      // contrairement au général qui a un vrai historique SCAN par heure.
+      const key = (useScans && d.created_at) ? d.created_at.slice(0,13)+':00' : d.bucket_date
       if (!byDate.has(key)) byDate.set(key,{prices:[],vols:[]})
       byDate.get(key)!.prices.push(Number(d.avg_price))
       byDate.get(key)!.vols.push(Number(d.volume||0))
@@ -209,12 +235,19 @@ function ItemExplorer() {
     setSeriesMap({ general })
 
     if (item.source==='ah') {
+      // price_history_ah_variants, jamais price_history_ah -- même bug que
+      // ah-collect corrigé le 28 juillet : price_history_ah ne reçoit plus que
+      // le placeholder blended depuis la refonte ah-aggregate, donc cette
+      // requête ne remontait jamais de vraies variantes. Bornée aux 90 derniers
+      // jours pour éviter de tirer tout l'historique d'un item populaire juste
+      // pour énumérer ses clés de variante.
+      const ninetyDaysAgo = new Date(Date.now() - 90*86_400_000).toISOString().split('T')[0]
       const { data: varRows } = await supabase
-        .from('price_history_ah')
+        .from('price_history_ah_variants')
         .select('variant_key')
         .eq('base_item_id', item.item_id)
-        .in('granularity', ['DAILY','DAILY_EXACT','SCAN'])
         .gt('avg_price', 0)
+        .gte('bucket_date', ninetyDaysAgo)
 
       const varCount = new Map<string,number>()
       for (const r of varRows||[]) varCount.set(r.variant_key, (varCount.get(r.variant_key)||0)+1)
