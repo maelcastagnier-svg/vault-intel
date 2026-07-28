@@ -20,6 +20,62 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Money Making — SetupOverlay enfin en prod : 3 colonnes, couleurs d'armure réelles, tooltips riches (28 juillet)
+
+Ce travail (construit et testé sur `preview/loadout-layout` lors d'une session précédente) était resté 
+coincé sans jamais atteindre master — la branche avait aussi accumulé les correctifs ah_live/Radar/Free 
+tier/Patch Analysis du même jour, mergés séparément aujourd'hui via des branches isolées. **Signalé par 
+l'utilisateur** : Money Making affichait toujours l'ancienne version en prod. Vérifié par diff avant de 
+merger : les fichiers de ce chantier (`SetupOverlay.tsx`, `SkinArmorRender.tsx`, 
+`lib/rarity-colors.ts`, `lib/setup-field-helpers.ts`, `armor-color-sync/route.ts`, 
+`setup-generate-agent/route.ts`, `vercel.json`) n'avaient **aucun chevauchement** avec les fichiers déjà 
+mergés séparément aujourd'hui — isolé sur une branche propre depuis master, vrai build Vercel confirmé 
+avant merge.
+
+**Couleur cuir réelle par pièce d'armure (NEU-REPO), remplace le tint vanilla uniforme** — NEU-REPO a un 
+dossier `items/` (jamais fetché par `neu-sync`) dont le `nbttag` de chaque `LEATHER_*` contient la vraie 
+couleur de teinture assignée par Hypixel (`display:{color:NNNNN}`), indépendante de toute recoloration 
+joueur. Confirmé contre une valeur déjà documentée manuellement (Necron's Chestplate : `15155516` = 
+`#E7413C`, match exact). Échantillonnage réel des 649 fichiers d'armure du repo : 62% `leather_*` avec 
+couleur, 19% tête de joueur reskinnée (aucune couleur possible), 17% autre matériau de base (Revenant 
+Armor = `diamond_chestplate`, zéro donnée couleur server-side). Nouveau cron hebdo `armor-color-sync` 
+(lundi 5h30, entre `neu-sync` et `setup-generate-agent`), scope limité aux items déjà armure dans 
+`item_stats` — nouvelle colonne `item_stats.default_color` (migration manuelle déjà exécutée par 
+l'utilisateur, backfill déjà appliqué aux 35 setups existants). `setup-generate-agent` attache la vraie 
+couleur par pièce matchée (`armor_helmet_color`/`armor_chestplate_color`/`armor_leggings_color`/
+`armor_boots_color`), `SkinArmorRender` teinte chaque partie du corps depuis sa vraie couleur, retombe sur 
+le placeholder vanilla (`#A06540`) uniquement quand `default_color` est `null`. Validé sur données réelles 
+avant ce merge : Revenant Armor (diamond-based) confirmé `null` (fallback attendu), Necron's Armor casque 
+`null` (skull) + plastron/jambières/bottes en dégradé `#E7413C`/`#E75C3C`/`#E76E3C` cohérent thème Wither.
+
+**Layout loadout 3 colonnes + rendu 3D enfin réellement en volume** — refonte : LEFT (stats cible/
+stratégie/coût) / CENTER (personnage équipé, skin+armure, barre équipement + accessoires) / reste en bas — 
+remplace l'ancien layout 2 colonnes texte/inventaire. Nouveau `GearSlot` (tooltip riche coloré par vraie 
+rareté) pour armure/arme/outil/canne/pet. **Bug de rendu plat trouvé et corrigé en 3 couches empilées, 
+chaque fix précédent nécessaire mais pas suffisant** : (1) `filter:drop-shadow` sur le panneau modal 
+rastérise tout son sous-arbre et aplatit silencieusement tout descendant `preserve-3d` — corrigé par 
+`box-shadow` ; (2) `backdrop-filter` sur le calque de flou extérieur fait exactement la même chose, jamais 
+touché par le fix précédent — sorti sur un `<div>` frère séparé ; (3) le vrai dernier bug : `ArmorLayer` 
+(wrapper interne portant les 6 faces teintées de chaque pièce dans `SkinArmorRender.tsx`) n'avait **jamais** 
+`transform-style:preserve-3d` sur lui-même — aplatissait les 6 faces en 2D, invisible tant que le 
+personnage est en armure complète. **Leçon retenue** : un artifact de preuve isolé ne valide qu'UNE 
+hypothèse précise, jamais toute la chaîne — seule une vérification contre le composant réel intégré (même 
+imbrication DOM exacte) a fini par attraper chacun des 3 bugs, les artifacts précédents avaient tous inliné 
+les faces un niveau plus superficiel que la vraie structure.
+
+**Tooltips riches par pièce au survol du personnage** — remplace l'ancien tooltip générique unique pour 
+tout le set par un tooltip par zone du corps (casque/plastron/bras/jambes/bottes), même format riche que 
+`GearSlot` (nom coloré par vraie rareté, étoiles, stats, enchants, reforge — tout tracé depuis le même 
+objet setup). État du skin distingué explicitement : `'loading'|'linked'|'unlinked'|'error'` — un vrai 
+échec réseau affiche un message rouge ("Couldn't load your skin"), un compte simplement non lié affiche un 
+message neutre gris ("Link your Hypixel account..."), ces deux cas n'étaient auparavant pas distingués.
+
+**Explicitement pas inclus** : le chantier "vraie texture Minecraft" (`leather_layer_1/2.png`, la vraie 
+apparence bosselée du cuir plutôt qu'un fill de couleur plate) reste différé — question légale sur la 
+source de l'asset externe toujours ouverte, pas tranchée avec l'utilisateur. Les couleurs mergées ici sont 
+des valeurs RGB déjà calculées depuis les données Hypixel elles-mêmes (aucun asset externe, aucun problème 
+légal), donc dissociées de cette question et mergées indépendamment.
+
 ## ✅ Audit complet architecture cible + 4 correctifs mergés en prod (28 juillet)
 
 Audit demandé point par point contre l'architecture produit cible (dashboard 4 tiers, 
