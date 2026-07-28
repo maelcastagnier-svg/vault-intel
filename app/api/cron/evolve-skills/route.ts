@@ -30,8 +30,24 @@ const supabase = createClient(
 
 const MODEL = 'claude-sonnet-4-6'
 
+// Found via real Vercel runtime logs while testing Phase 1 (bigger prompt,
+// more context sections): Claude occasionally prefixes its response with
+// prose ("I'll analyze this player's real gear...") before the JSON, which
+// the old fence-stripping alone never handled -- it only stripped a leading/
+// trailing ```` ``` ```` fence, not arbitrary text before the first `{`.
+// Falls back to slicing from the first `{` to the last `}` when a direct
+// parse fails, which recovers the JSON regardless of what Claude wrote
+// around it.
 function parseJSON(text: string): any {
-  return JSON.parse(text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim())
+  const cleaned = text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim()
+  try {
+    return JSON.parse(cleaned)
+  } catch {
+    const start = cleaned.indexOf('{')
+    const end = cleaned.lastIndexOf('}')
+    if (start === -1 || end === -1 || end <= start) throw new Error('No JSON object found in response')
+    return JSON.parse(cleaned.slice(start, end + 1))
+  }
 }
 
 // ── Les 9 systèmes actionnables ─────────────────────────────────
@@ -269,6 +285,7 @@ obviously invented name because it can pass unnoticed. If a card's own section s
 weapon/tool slot, or no priced item in budget, leave gear_name null — never reach into another section.
 
 === OUTPUT — strict JSON only ===
+Your response MUST start with { as the very first character — no preamble, no "I'll analyze...", no explanation before or after the JSON. Do all your reasoning silently and output only the final JSON object.
 {
   "summary": "1-2 sentences on this player's overall Skills situation",
   "cards": [
