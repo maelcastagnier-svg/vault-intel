@@ -88,7 +88,12 @@ function ArmorLayer({ part, inflate, color, onHover }: {
   return (
     <div
       onMouseEnter={e => onHover(null, e)}
-      style={{ position: 'absolute', width: 1, height: 1, cursor: 'default' }}
+      // transformStyle:'preserve-3d' is required HERE, not just on the ancestor
+      // translate3d wrapper -- every link in the chain down to the transformed
+      // TintedFace children needs it, or this link flattens all 6 faces into a
+      // single overlapping 2D stack (the missing link that caused the "flat
+      // rectangle" render even after the filter/backdrop-filter ancestor fixes).
+      style={{ position: 'absolute', width: 1, height: 1, cursor: 'default', transformStyle: 'preserve-3d' }}
     >
       <TintedFace w={w} h={h} color={color} shade={1.15} transform={`translateZ(${d / 2 * SCALE}px)`} />
       <TintedFace w={w} h={h} color={color} shade={0.75} transform={`translateZ(-${d / 2 * SCALE}px) rotateY(180deg)`} />
