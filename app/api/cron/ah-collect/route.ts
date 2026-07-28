@@ -417,17 +417,6 @@ export async function runAhCollect() {
       relevant_after_filter: relevant.length,
       top_items:            finalItems.length,
       relevance_thresholds: { min_profit_coins: MIN_PROFIT_COINS, min_volume: MIN_VOLUME, precision_required: 'exact' },
-      _debug_hist_matches: histExact.size,
-      _debug_base_item_ids_count: baseItemIds.length,
-      _debug_historical_rows_fetched: (historical || []).length,
-      _debug_precision_counts: {
-        exact: scored.filter(s => s.hist_precision === 'exact').length,
-        none:  scored.filter(s => s.hist_precision === 'none').length,
-      },
-      _debug_sample_scored: scored
-        .filter(s => s.hist_precision === 'exact')
-        .sort((a, b) => b.profit_coins - a.profit_coins)
-        .slice(0, 10),
     }
 
   } catch (error: any) {
