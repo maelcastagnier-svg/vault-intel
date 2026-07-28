@@ -46,6 +46,64 @@ function Slot({ icon, label, sub, accentColor, size = 52 }: {
   )
 }
 
+// Real Hypixel rarity tiers (the `tier` field on /v2/resources/skyblock/items,
+// now captured in item_stats.rarity) mapped to the standard Minecraft/Hypixel
+// chat-color convention for each rarity -- not an invented palette.
+const RARITY_COLORS: Record<string, string> = {
+  COMMON: '#AAAAAA', UNCOMMON: '#55FF55', RARE: '#5555FF', EPIC: '#AA00AA',
+  LEGENDARY: '#FFAA00', MYTHIC: '#FF55FF', DIVINE: '#55FFFF',
+  SPECIAL: '#FF5555', VERY_SPECIAL: '#FF5555', ADMIN: '#FF5555',
+}
+const rarityColor = (r: string | null, fallback: string) => (r && RARITY_COLORS[r]) || fallback
+
+// ─── Clickable gear slot with a rich NBT-style tooltip (name colored by
+// real rarity, stats, enchants, reforge) -- same slot-icon treatment as the
+// accessory slots below, but with a hover panel instead of a plain title=. ───
+function GearSlot({ icon, name, rarity, stars, stats, enchants, reforge, accentColor, size = 52 }: {
+  icon: string; name: string; rarity?: string | null; stars?: number; stats?: string
+  enchants?: string[]; reforge?: string; accentColor: string; size?: number
+}) {
+  const [hover, setHover] = useState<{ x: number; y: number } | null>(null)
+  const color = rarityColor(rarity || null, accentColor)
+
+  return (
+    <div
+      onMouseEnter={e => setHover({ x: e.clientX, y: e.clientY })}
+      onMouseMove={e => setHover({ x: e.clientX, y: e.clientY })}
+      onMouseLeave={() => setHover(null)}
+      style={{ display:'flex', flexDirection:'column', alignItems:'center', width:size+18, cursor:'default' }}
+    >
+      <div style={{
+        width:size, height:size, flexShrink:0,
+        background:'linear-gradient(135deg, #1a1917, #0d0d0c)',
+        border:`2px solid ${color}60`,
+        boxShadow:`inset 2px 2px 0 rgba(0,0,0,0.6), inset -2px -2px 0 ${color}1a, 0 0 8px ${color}25`,
+        display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*0.42,
+      }}>
+        {icon}
+      </div>
+      <div style={{ fontSize:8.5, color, fontWeight:700, textAlign:'center', marginTop:5, lineHeight:1.3, maxWidth:size+18, overflow:'hidden', textOverflow:'ellipsis', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
+        {name}
+      </div>
+
+      {hover && (
+        <div style={{
+          position:'fixed', left:hover.x+16, top:hover.y+10, zIndex:500, pointerEvents:'none', maxWidth:240,
+          background:'#111110', border:`1px solid ${color}55`, borderRadius:8, padding:'10px 13px',
+          boxShadow:`0 8px 24px rgba(0,0,0,0.6), 0 0 12px ${color}25`,
+        }}>
+          <div style={{ fontSize:12, fontWeight:700, color, marginBottom: (stats || (enchants && enchants.length) || reforge) ? 5 : 0 }}>
+            {name}{stars ? ' ' + '✪'.repeat(Math.min(stars, 5)) : ''}
+          </div>
+          {stats && <div style={{ fontSize:9.5, color:'#9b9b8f', fontFamily:'Space Mono, monospace', marginBottom: ((enchants && enchants.length) || reforge) ? 4 : 0 }}>{stats}</div>}
+          {enchants && enchants.length > 0 && <div style={{ fontSize:9.5, color:'#7ec8e3', marginBottom: reforge ? 4 : 0 }}>{enchants.join(', ')}</div>}
+          {reforge && <div style={{ fontSize:9.5, color:'#c9a84c', textTransform:'capitalize' }}>{reforge} reforge</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function EmptySlot({ size = 52 }: { size?: number }) {
   return (
     <div style={{
@@ -146,20 +204,25 @@ export default function SetupOverlay({ method, tier, accentColor, setup, loading
                     </div>
                   )}
 
-                  {/* Weapon / Tool / Rod -- text line, no held-item visual */}
+                  {/* Weapon / Tool / Rod -- clickable slots, same treatment as accessories below */}
                   {(st(s.weapon_name)||st(s.tool)||st(s.rod)) && (
-                    <div style={{ marginBottom:16, fontSize:10.5, color:'#9b9b8f' }}>
-                      {st(s.weapon_name) && (
-                        <div style={{ marginBottom:4 }}>
-                          <span style={{ marginRight:6 }}>⚔️</span>
-                          <b style={{ color:'#e8e6df' }}>{st(s.weapon_name)}</b>
-                          {nm(s.weapon_stars)>0 && <span style={{ color:accentColor, marginLeft:6 }}>{'✪'.repeat(Math.min(nm(s.weapon_stars),5))}</span>}
-                          {st(s.weapon_stats) && <div style={{ fontSize:9.5, marginTop:2, fontFamily:'Space Mono, monospace' }}>{st(s.weapon_stats)}</div>}
-                        </div>
-                      )}
-                      {st(s.tool) && <div style={{ marginBottom:4 }}><span style={{ marginRight:6 }}>⛏️</span><b style={{ color:'#e8e6df' }}>{st(s.tool)}</b></div>}
-                      {st(s.rod) && <div style={{ marginBottom:4 }}><span style={{ marginRight:6 }}>🎣</span><b style={{ color:'#e8e6df' }}>{st(s.rod)}</b></div>}
-                      {st(s.weapon_ability) && <div style={{ fontSize:9.5, color:'#2a78d6', marginTop:4 }}>{st(s.weapon_ability)}</div>}
+                    <div style={{ marginBottom:16 }}>
+                      <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                        {st(s.weapon_name) && (
+                          <GearSlot icon="⚔️" name={st(s.weapon_name)} rarity={st(s.weapon_rarity)||null}
+                            stars={nm(s.weapon_stars)} stats={st(s.weapon_stats)} enchants={ew}
+                            reforge={st(s.weapon_reforge)} accentColor={accentColor} />
+                        )}
+                        {st(s.tool) && (
+                          <GearSlot icon="⛏️" name={st(s.tool)} rarity={st(s.tool_rarity)||null}
+                            enchants={et} accentColor={accentColor} />
+                        )}
+                        {st(s.rod) && (
+                          <GearSlot icon="🎣" name={st(s.rod)} rarity={st(s.rod_rarity)||null}
+                            enchants={er} accentColor={accentColor} />
+                        )}
+                      </div>
+                      {st(s.weapon_ability) && <div style={{ fontSize:9.5, color:'#2a78d6', marginTop:6 }}>{st(s.weapon_ability)}</div>}
                     </div>
                   )}
 
@@ -202,6 +265,7 @@ export default function SetupOverlay({ method, tier, accentColor, setup, loading
                   {st(s.why_best) && <div style={{ marginTop:8, fontSize:11.5, color:'#6b6960', fontStyle:'italic', paddingLeft:10, borderLeft:`2px solid ${accentColor}35` }}>→ {st(s.why_best)}</div>}
                 </InfoBlock>
               )}
+              {st(s.gear_justification) && <InfoBlock label="🛡️ GEAR CHOICE" color={accentColor}><span style={{color:'#9b9b8f'}}>{st(s.gear_justification)}</span></InfoBlock>}
               {st(s.strategy) && <InfoBlock label="👹 STRATEGY" color={accentColor}>{st(s.strategy)}</InfoBlock>}
               {st(s.team_config) && <InfoBlock label="🏰 TEAM SETUP" color={accentColor}>{st(s.team_config)}</InfoBlock>}
               {st(s.location) && <InfoBlock label="🗺️ LOCATION" color={accentColor}>{st(s.location)}</InfoBlock>}

@@ -5,15 +5,25 @@
 // "inflated" cuboid layers on top -- matching Minecraft's own armor-model
 // inflate convention (helmet/chestplate/boots ~1.0, leggings ~0.5, applied
 // as a per-axis size delta on the same box, same technique as vanilla's
-// ArmorStandRenderer / HumanoidArmorLayer.CubeDeformation). Armor layers are
-// flat rarity-tinted overlays with per-face shading for volume, never actual
-// Mojang/Hypixel item textures (same legal call as the inventory grid this
-// replaces -- see the header comment in SetupOverlay.tsx).
+// ArmorStandRenderer / HumanoidArmorLayer.CubeDeformation).
+//
+// Appearance: every Skyblock armor piece is, server-side, either a dyed
+// LEATHER_* item or (for some helmets) a re-skinned player head -- Hypixel
+// never ships a unique base-game texture per set (confirmed: even Necron's
+// Chestplate is just leather dyed to #E7413C under the hood; the "custom
+// look" people associate with Necron's/Storm's/Divan's comes entirely from
+// optional third-party resource packs, never from Hypixel's own data). This
+// component currently renders every armor set with the real, verified
+// vanilla default leather color (#A06540, RGB 160,101,64) rather than a
+// per-set custom texture -- a genuine Vault texture pack (real per-item dye
+// RGB via the multiply/destination-in technique, real skull skin.value for
+// helmets) is a separate future project, not yet started, see CLAUDE.md.
 'use client'
 import { useState } from 'react'
 import { BODY_PARTS, TEXTURE_SIZE, type UVMap, type BodyPart } from '../lib/skin-uv-map'
 
 const SCALE = 6 // CSS px per model unit
+const VANILLA_LEATHER_COLOR = '#A06540' // real Minecraft default undyed-leather color, verified (not approximated)
 
 type TooltipContent = { title: string; lines: string[] } | null
 
@@ -158,7 +168,7 @@ export default function SkinArmorRender({ skinUrl, setup, accentColor }: {
                   onMouseEnter={e => showTip(armorTip, e)} onMouseLeave={hideTip}
                   style={{ position: 'absolute', left: 0, top: 0, width: 1, height: 1, transformStyle: 'preserve-3d', transform: `translate3d(${part.x * SCALE}px, ${-part.y * SCALE}px, ${part.z * SCALE}px)` }}
                 >
-                  <ArmorLayer part={part} inflate={1.0} color={accentColor} onHover={() => {}} />
+                  <ArmorLayer part={part} inflate={1.0} color={VANILLA_LEATHER_COLOR} onHover={() => {}} />
                 </div>
               )
             })}

@@ -9,7 +9,7 @@ import { gunzipSync }       from 'zlib'
 import { parseNBT, getNBT } from './nbt-parser'
 
 // ── ULTIMATE ENCHANTS ─────────────────────────────────────────
-const ULTIMATE_ENCHANTS = new Set([
+export const ULTIMATE_ENCHANTS = new Set([
   'ultimate_one_for_all',
   'ultimate_soul_eater',
   'ultimate_fatal_tempo',
@@ -68,7 +68,14 @@ export type DecodedItem = {
 }
 
 // ── Construit les deux variant_key ────────────────────────────
-function buildVariantKeys(d: Omit<DecodedItem, 'variant_key_full' | 'variant_key_base'>): {
+// Exportée pour être réutilisée par setup-generate-agent : un setup Money
+// Making recommande une pièce précise (étoiles/reforge/hpb/ultimate choisis
+// par Claude, justifiés dans le prompt) mais n'a pas de vrai blob NBT à
+// décoder — on construit quand même la MÊME clé de variante qu'un vrai item
+// scanné aurait, pour pouvoir requêter price_history_ah_variants avec la
+// logique exacte déjà validée sur les vraies données AH, sans dupliquer/
+// diverger la construction de la clé.
+export function buildVariantKeys(d: Omit<DecodedItem, 'variant_key_full' | 'variant_key_base'>): {
   variant_key_full: string
   variant_key_base: string
 } {

@@ -114,6 +114,7 @@ async function syncItemStats(): Promise<number> {
         intelligence: Math.round(s.intelligence || 0),
         speed:        Math.round(s.speed        || 0),
         category:     item.category || 'OTHER',
+        rarity:       item.tier || null,
         raw_lore:     (item.lore || []).join('\n') || null,
       }
     })

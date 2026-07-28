@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { TIER_CONFIG } from '../../../../lib/money-making-constants'
+import { buildVariantKeys, ULTIMATE_ENCHANTS, type DecodedItem } from '../../../../lib/skyblock-item-decoder'
 
 export const maxDuration = 120
 
@@ -20,7 +21,7 @@ const supabase = createClient(
 // récent (moyenne toutes variantes, DAILY, __all_variants_blended__).
 // Jointure faite en JS (item_id commun aux deux tables).
 type PricedItem = {
-  item_id: string; display_name: string; category: string
+  item_id: string; display_name: string; category: string; rarity: string | null
   health: number; defense: number; strength: number
   crit_damage: number; crit_chance: number; intelligence: number; speed: number
   price: number
@@ -31,7 +32,7 @@ export async function loadPricedItems(): Promise<PricedItem[]> {
 
   const [{ data: stats }, { data: prices }] = await Promise.all([
     supabase.from('item_stats')
-      .select('item_id, display_name, category, health, defense, strength, crit_damage, crit_chance, intelligence, speed'),
+      .select('item_id, display_name, category, rarity, health, defense, strength, crit_damage, crit_chance, intelligence, speed'),
     supabase.from('price_history_ah')
       .select('base_item_id, avg_price, bucket_date')
       .eq('variant_key', '__all_variants_blended__')
@@ -53,6 +54,7 @@ export async function loadPricedItems(): Promise<PricedItem[]> {
       item_id:      s.item_id,
       display_name: s.display_name,
       category:     s.category || 'OTHER',
+      rarity:       s.rarity || null,
       health:       s.health       || 0,
       defense:      s.defense      || 0,
       strength:     s.strength     || 0,
@@ -151,38 +153,123 @@ function formatCoins(n: number): string {
   return Math.round(n / 1_000_000) + 'M'
 }
 
-// Cherche, sur l'ensemble des champs "gear" du setup, tous les items du
-// catalogue prix réel (dédupliqués) dont le nom matche le texte — retourne
-// la somme réelle et le nombre d'items trouvés, ou null si rien ne matche
-// (dans ce cas on laisse les champs cost_* de Claude tels quels).
-export function computeRealCost(setup: any, priced: PricedItem[]): { total: number; matchedCount: number; matched: { item_id: string; display_name: string; price: number }[] } | null {
-  const matchedIds = new Set<string>()
-  const matched: { item_id: string; display_name: string; price: number }[] = []
-  let total = 0
+// ── Prix précis par variante exacte ────────────────────────────
+// Money Making recommande une pièce PRÉCISE (étoiles/reforge/hot potato/
+// ultimate enchant choisis par Claude et justifiés dans le prompt), pas un
+// exemplaire scanné réel — il n'y a donc pas de vrai blob NBT à décoder.
+// On construit quand même la MÊME clé de variante qu'un item scanné aurait
+// (buildVariantKeys, importée du décodeur AH — jamais réimplémentée en
+// parallèle, pour ne jamais diverger de la logique déjà validée sur les
+// vraies données) et on la requête contre price_history_ah_variants (prix
+// exact) puis price_history_ah_variant_base (prix du groupe base, un cran
+// moins précis) — jamais un prix inventé, toujours une vraie ligne AH ou
+// le prix blended du catalogue en dernier recours.
+type GearSpec = { stars: number; recomb: boolean; reforge: string | null; hotPotato: number; ultimateEnchant: string | null }
 
-  const addMatch = (item: PricedItem) => {
-    if (matchedIds.has(item.item_id)) return
-    matchedIds.add(item.item_id)
-    matched.push({ item_id: item.item_id, display_name: item.display_name, price: item.price })
-    total += item.price
+function specVariantKeys(spec: GearSpec) {
+  const base: Omit<DecodedItem, 'variant_key_full' | 'variant_key_base'> = {
+    item_id: '', item_name: '', item_uuid: null, item_origin: null, item_skin: null,
+    total_stars: Math.max(0, Math.min(5, spec.stars || 0)), master_stars: 0,
+    is_recomb: !!spec.recomb,
+    hot_potato_count: spec.hotPotato || 0, art_of_war_count: 0, art_of_peace_count: 0,
+    wood_singularity: 0, transmitted_count: 0, mana_disintegrator: 0, silex_applied: false,
+    reforge: spec.reforge ? spec.reforge.toLowerCase() : null,
+    enchantments: {}, ultimate_enchant: spec.ultimateEnchant, ultimate_level: spec.ultimateEnchant ? 1 : null,
+    gems: {}, gems_summary: '',
+    attributes: {}, attribute_1: null, attribute_1_level: null, attribute_2: null, attribute_2_level: null,
+    has_dye: false, dye_item: null, item_count: 1,
   }
-
-  if (setup.armor_set) {
-    for (const item of priced) if (matchesArmorSet(item, setup.armor_set)) addMatch(item)
-  }
-  for (const text of [setup.weapon_name, setup.tool, setup.rod].filter((t): t is string => !!t)) {
-    for (const item of priced) if (matchesExact(item.display_name, text)) addMatch(item)
-  }
-
-  return matchedIds.size > 0 ? { total, matchedCount: matchedIds.size, matched } : null
+  return buildVariantKeys(base)
 }
 
-function applyRealCost(setup: any, priced: PricedItem[]): void {
-  const real = computeRealCost(setup, priced)
-  if (!real) return
-  const { total, matchedCount } = real
+async function lookupPreciseVariantPrice(itemId: string, keys: { variant_key_full: string; variant_key_base: string }): Promise<{ price: number; precision: 'exact' | 'base' } | null> {
+  const { data: exact } = await supabase.from('price_history_ah_variants')
+    .select('avg_price, bucket_date')
+    .eq('base_item_id', itemId).eq('variant_key', keys.variant_key_full)
+    .gt('avg_price', 0).order('bucket_date', { ascending: false }).limit(1).maybeSingle()
+  if (exact?.avg_price) return { price: Number(exact.avg_price), precision: 'exact' }
+
+  const { data: baseRow } = await supabase.from('price_history_ah_variant_base')
+    .select('avg_price, bucket_date')
+    .eq('base_item_id', itemId).eq('variant_key_base', keys.variant_key_base)
+    .gt('avg_price', 0).order('bucket_date', { ascending: false }).limit(1).maybeSingle()
+  if (baseRow?.avg_price) return { price: Number(baseRow.avg_price), precision: 'base' }
+
+  return null
+}
+
+function gearSpecFromSetup(setup: any, prefix: 'armor' | 'weapon'): GearSpec {
+  const ultimateRaw = setup[`${prefix}_ultimate_enchant`]
+  return {
+    stars:           Number(setup[`${prefix}_stars`]) || 0,
+    recomb:          !!setup[`${prefix}_recomb`],
+    reforge:         typeof setup[`${prefix}_reforge`] === 'string' ? setup[`${prefix}_reforge`] : null,
+    hotPotato:       Number(setup[`${prefix}_hot_potato_count`]) || 0,
+    ultimateEnchant: ULTIMATE_ENCHANTS.has(ultimateRaw) ? ultimateRaw : null,
+  }
+}
+
+// Calcule et écrase cost_budget/cost_optimal/cost_endgame en code, jamais
+// laissé à Claude (testé 2 fois en LATE Gemstone Mining : même avec une
+// règle de prompt explicite, Haiku continue de sortir un chiffre habituel
+// proche de coins_display plutôt que de sommer les vrais prix montrés).
+async function applyPreciseCost(setup: any, priced: PricedItem[]): Promise<void> {
+  const matchedIds = new Set<string>()
+  const matched: { item_id: string; display_name: string; price: number; precision: string }[] = []
+  let total = 0
+
+  const addMatch = (item: PricedItem, price: number, precision: string) => {
+    if (matchedIds.has(item.item_id)) return
+    matchedIds.add(item.item_id)
+    matched.push({ item_id: item.item_id, display_name: item.display_name, price, precision })
+    total += price
+  }
+
+  // Rareté attachée directement sur le setup (jamais devinée côté frontend) --
+  // vraie valeur `tier` Hypixel via item_stats.rarity, prise sur le premier
+  // item matché par slot.
+  if (setup.armor_set) {
+    const keys = specVariantKeys(gearSpecFromSetup(setup, 'armor'))
+    for (const item of priced) {
+      if (!matchesArmorSet(item, setup.armor_set)) continue
+      if (!setup.armor_rarity && item.rarity) setup.armor_rarity = item.rarity
+      const precise = await lookupPreciseVariantPrice(item.item_id, keys)
+      addMatch(item, precise?.price ?? item.price, precise?.precision ?? 'blended')
+    }
+  }
+
+  if (setup.weapon_name) {
+    const keys = specVariantKeys(gearSpecFromSetup(setup, 'weapon'))
+    for (const item of priced) {
+      if (!matchesExact(item.display_name, setup.weapon_name)) continue
+      if (!setup.weapon_rarity && item.rarity) setup.weapon_rarity = item.rarity
+      const precise = await lookupPreciseVariantPrice(item.item_id, keys)
+      addMatch(item, precise?.price ?? item.price, precise?.precision ?? 'blended')
+    }
+  }
+
+  // Tool/rod restent sur le prix blended du catalogue -- ce sont des chaînes
+  // multi-composants (drill + fuel tank + engine), hors périmètre du
+  // pricing par variante précise pour cette passe.
+  if (setup.tool) {
+    for (const item of priced) {
+      if (!matchesExact(item.display_name, setup.tool)) continue
+      if (!setup.tool_rarity && item.rarity) setup.tool_rarity = item.rarity
+      addMatch(item, item.price, 'blended')
+    }
+  }
+  if (setup.rod) {
+    for (const item of priced) {
+      if (!matchesExact(item.display_name, setup.rod)) continue
+      if (!setup.rod_rarity && item.rarity) setup.rod_rarity = item.rarity
+      addMatch(item, item.price, 'blended')
+    }
+  }
+
+  if (matchedIds.size === 0) return
+  const exactCount = matched.filter(m => m.precision === 'exact').length
   setup.cost_budget  = `~${formatCoins(total * 0.75)} — cheaper rolls of the same real gear (fewer stars, no recomb)`
-  setup.cost_optimal = `~${formatCoins(total)} — real current AH price of the named gear (${matchedCount} item${matchedCount > 1 ? 's' : ''} matched)`
+  setup.cost_optimal = `~${formatCoins(total)} — real AH price of the exact spec (${matchedIds.size} item${matchedIds.size > 1 ? 's' : ''} matched, ${exactCount} exact variant${exactCount === 1 ? '' : 's'})`
   setup.cost_endgame = `~${formatCoins(total * 1.4)} — recombobulated/5★ premium rolls of the same gear`
 }
 
@@ -235,10 +322,13 @@ export const GROUNDING_RULES = `
 === GROUNDING RULES (mandatory) ===
 - armor_set, weapon_name, tool, rod, and accessories MUST be picked from the REAL GEAR CATALOG below when a matching item exists there for that slot/activity. The catalog is already filtered to this tier's real budget band using actual current AH prices — never override it with a cheaper or more expensive item from memory (e.g. never suggest an old low-tier armor set for a tier whose budget clearly reaches the catalog's top entries, and never suggest a BiS item priced far above this tier's budget).
 - The catalog has NO stat columns (health/defense/etc are unreliable for endgame gear in our data and were deliberately removed) — never invent specific numbers for armor_stats/weapon_stats/target_stats either; keep those fields qualitative (e.g. "High DEF, moderate STR") or omit precise numbers you cannot source from the WIKI text above.
-- cost_budget / cost_optimal / cost_endgame are the MOST commonly wrong fields — compute them explicitly: add up the real "price=" values from the catalog for every item you actually named (armor pieces + weapon + tool/rod, whichever apply), THEN write that sum (or a range around it) as the cost. A LATE-tier setup built from catalog items priced in the hundreds of millions to billions must show a cost in that same range — never fall back to a small habitual number like "70-110M" out of pattern-matching against the coins/h figure, which is a per-hour income number, NOT a gear cost.
+- armor_reforge/weapon_reforge must be copied verbatim from the REFORGES list below — never invent a reforge name, never leave it as a vague word like "Epic" (that's a rarity, not a reforge). armor_ultimate_enchant/weapon_ultimate_enchant must be one of the exact IDs listed in the user prompt, or null.
+- cost_budget / cost_optimal / cost_endgame are computed in code from the exact spec you give (stars/reforge/hot potato/ultimate enchant), not by you — do not try to compute a number for these fields yourself, any value you write here will be overwritten.
 - pet_name and gemstones are not in this catalog — use the WIKI sections above for those, and if still uncertain, mark confidence implicitly by keeping the recommendation generic rather than naming an ultra-specific variant you're not sure exists.
 - If the catalog says "No priced item found in this budget band", do not invent a specific item — describe the setup at the archetype level (e.g. "best available T4 mining armor") instead of naming an unverified item.
 `
+
+const ULTIMATE_ENCHANT_LIST = Array.from(ULTIMATE_ENCHANTS).join(', ')
 
 // ── Prompt utilisateur (le wiki est dans le system caché) ────
 function buildUserPrompt(method: any, tier: string): string {
@@ -256,6 +346,12 @@ ${method.why_best  ? 'WHY: '   + method.why_best  : ''}
 
 SLAYER MAX TIERS: Zombie T5 | Spider T4 | Wolf T4 | Enderman T4 (T5 DOES NOT EXIST) | Blaze T5 | Vampire T5
 
+You must pick a PRECISE, JUSTIFIED spec for the armor and the weapon — not just a name.
+armor_reforge/weapon_reforge MUST be copied verbatim (exact spelling) from the REFORGES list in the system context — never invent a reforge name.
+armor_ultimate_enchant/weapon_ultimate_enchant MUST be exactly one of: ${ULTIMATE_ENCHANT_LIST} — or null if none fits. Only recommend an ultimate enchant when it clearly serves this tier's target stat and stays within budget; most setups should leave this null.
+armor_hot_potato_count/weapon_hot_potato_count: 0, 5, or 10 — 10 (fuming) only for END/LATE tiers where the budget supports it.
+gear_justification explains WHY these specific stars/reforge/enchant choices serve this method's actual target stat (e.g. "5-star Pure for max DEF/HP survivability" or "Ancient reforge for the STR breakpoint needed at this tier") — never a generic restatement of the item name.
+
 Return ONLY raw JSON (no backticks, no explanation):
 {
   "how_to": "2-3 sentences: exact steps to execute this method",
@@ -263,13 +359,20 @@ Return ONLY raw JSON (no backticks, no explanation):
   "armor_set": "Name",
   "armor_stars": 5,
   "armor_recomb": true,
+  "armor_reforge": "exact reforge_name from REFORGES list",
+  "armor_hot_potato_count": 10,
+  "armor_ultimate_enchant": null,
   "armor_stats": "HP X | DEF X | STR X | CD X%",
   "armor_bonus": "Set bonus: short effect",
   "weapon_name": "Name",
   "weapon_stars": 5,
   "weapon_recomb": true,
+  "weapon_reforge": "exact reforge_name from REFORGES list",
+  "weapon_hot_potato_count": 10,
+  "weapon_ultimate_enchant": null,
   "weapon_stats": "STR +X | CD +X%",
   "weapon_ability": "Ability: key mechanic",${isMining ? '\n  "tool": "DrillName + FuelTank + Engine",' : ''}${isFishing ? '\n  "rod": "RodName + line type",' : ''}
+  "gear_justification": "2-3 sentences: why this exact combination of stars/reforge/enchant serves the tier's target stat",
   "pet_name": "Name",
   "pet_level": 100,
   "pet_rarity": "LEGENDARY",
@@ -324,7 +427,7 @@ export async function generateOne(
     const data  = await res.json()
     const setup = parseJSON(data.content?.[0]?.text || '')
 
-    applyRealCost(setup, pricedItems)
+    await applyPreciseCost(setup, pricedItems)
 
     await supabase.from('method_setups').upsert(
       { method_key: key, tier, setup: JSON.stringify(setup), generated_at: new Date().toISOString() },
