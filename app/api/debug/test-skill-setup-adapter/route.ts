@@ -51,6 +51,7 @@ export async function GET() {
 
   return NextResponse.json({
     profiles_found: profiles.map(p => ({ profile_id: p.profile_id, game_stage: p.game_stage, networth: p.networth, purse: p.purse, has_equipped_armor: Object.keys(p.equipped_armor || {}).length })),
+    raw_equipped_armor: profiles.map(p => ({ profile_id: p.profile_id, equipped_armor: p.equipped_armor })),
     run_result: runResult,
     summary,
   })
