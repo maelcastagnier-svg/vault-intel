@@ -19,6 +19,8 @@ import { buildActivityGearCatalogSection } from '../../../../lib/gear-pricing'
 import { loadActivityGearCategories } from '../../../../lib/activity-gear'
 import { TIER_CONFIG } from '../../../../lib/money-making-constants'
 
+export const maxDuration = 300
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -48,61 +50,68 @@ export async function GET() {
     return { name, category, allowed: !!category && allowedCategories.includes(category) }
   }
 
-  // 2. Real Evolve Skills run
-  const evolveResult = await runEvolveSkills(Object.values(PROFILES))
-  const evolveCheck: any = {}
-  for (const [name, profileId] of Object.entries(PROFILES)) {
-    const { data } = await supabase.from('player_skill_cards').select('cards').eq('profile_id', profileId).single()
-    const violations: any[] = []
-    const allGear: any[] = []
-    for (const card of (data?.cards || [])) {
-      const check = crossCheck(card.target?.gear_name, card.skill_key)
-      if (check) { allGear.push({ skill: card.skill_key, ...check }); if (!check.allowed) violations.push({ skill: card.skill_key, ...check }) }
-      for (const b of (card.bosses || [])) {
-        const bcheck = crossCheck(b.target?.gear_name, card.skill_key)
-        if (bcheck) { allGear.push({ skill: `${card.skill_key}/${b.boss}`, ...bcheck }); if (!bcheck.allowed) violations.push({ skill: `${card.skill_key}/${b.boss}`, ...bcheck }) }
+  // 2. Real Evolve Skills run + 3. Money Making sample, run concurrently --
+  // fully independent operations (different players/methods/API calls).
+  async function runEvolveCheck() {
+    const evolveResult = await runEvolveSkills(Object.values(PROFILES))
+    const evolveCheck: any = {}
+    for (const [name, profileId] of Object.entries(PROFILES)) {
+      const { data } = await supabase.from('player_skill_cards').select('cards').eq('profile_id', profileId).single()
+      const violations: any[] = []
+      const allGear: any[] = []
+      for (const card of (data?.cards || [])) {
+        const check = crossCheck(card.target?.gear_name, card.skill_key)
+        if (check) { allGear.push({ skill: card.skill_key, ...check }); if (!check.allowed) violations.push({ skill: card.skill_key, ...check }) }
+        for (const b of (card.bosses || [])) {
+          const bcheck = crossCheck(b.target?.gear_name, card.skill_key)
+          if (bcheck) { allGear.push({ skill: `${card.skill_key}/${b.boss}`, ...bcheck }); if (!bcheck.allowed) violations.push({ skill: `${card.skill_key}/${b.boss}`, ...bcheck }) }
+        }
       }
+      evolveCheck[name] = { totalGearChecked: allGear.length, violations, sample: allGear.slice(0, 8) }
     }
-    evolveCheck[name] = { totalGearChecked: allGear.length, violations, sample: allGear.slice(0, 8) }
+    return { evolveResult, evolveCheck }
   }
 
-  // 3. Money Making sample -- one real method per distinct skill present in DB
-  const { data: libraryRows } = await supabase.from('claude_analysis').select('section, content').like('section', 'money_making_%')
-  const [{ data: ctx }, pricedItems] = await Promise.all([supabase.rpc('get_full_context'), loadPricedItems()])
-  const baseWikiContext = buildWikiContext(ctx) + '\n' + GROUNDING_RULES
+  async function runMoneyMakingCheck() {
+    // One real method per distinct skill present in DB
+    const { data: libraryRows } = await supabase.from('claude_analysis').select('section, content').like('section', 'money_making_%')
+    const [{ data: ctx }, pricedItems] = await Promise.all([supabase.rpc('get_full_context'), loadPricedItems()])
+    const baseWikiContext = buildWikiContext(ctx) + '\n' + GROUNDING_RULES
 
-  const seenSkills = new Set<string>()
-  const sampleMethods: { method: any; tier: string }[] = []
-  for (const row of libraryRows || []) {
-    try {
-      const parsed = JSON.parse(row.content)
-      const tier = row.section.replace('money_making_', '')
-      for (const m of [...(parsed.active || []), ...(parsed.vault || [])]) {
-        const skill = m.skill || (m.skills_combined || [])[0]
-        if (skill && !seenSkills.has(skill)) { seenSkills.add(skill); sampleMethods.push({ method: m, tier }) }
+    const seenSkills = new Set<string>()
+    const sampleMethods: { method: any; tier: string }[] = []
+    for (const row of libraryRows || []) {
+      try {
+        const parsed = JSON.parse(row.content)
+        const tier = row.section.replace('money_making_', '')
+        for (const m of [...(parsed.active || []), ...(parsed.vault || [])]) {
+          const skill = m.skill || (m.skills_combined || [])[0]
+          if (skill && !seenSkills.has(skill)) { seenSkills.add(skill); sampleMethods.push({ method: m, tier }) }
+        }
+      } catch {}
+    }
+
+    return Promise.all(sampleMethods.map(async ({ method, tier }) => {
+      const tierConfig = TIER_CONFIG[tier as keyof typeof TIER_CONFIG]
+      if (!tierConfig) return null
+      const wikiContext = baseWikiContext + '\n\n' + gearCatalogForBudget(pricedItems, tierConfig.max_gear_cost) +
+        '\n\n' + buildActivityGearCatalogSection(pricedItems, tierConfig.max_gear_cost, ACTIVITY_KEYS, activityGear)
+      await generateOne(method, tier, wikiContext, pricedItems, activityGear)
+
+      const key = (method.id || method.method || '').toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, 80)
+      const { data: saved } = await supabase.from('method_setups').select('setup').eq('method_key', key).eq('tier', tier).single()
+      const setup = saved ? JSON.parse(saved.setup) : null
+      const activityKey = method.skill || (method.skills_combined || [])[0]
+      return {
+        method: method.method, tier, activityKey,
+        weapon_check: crossCheck(setup?.weapon_name, activityKey),
+        tool_raw: setup?.tool, rod_raw: setup?.rod,
+        cost_optimal: setup?.cost_optimal,
       }
-    } catch {}
+    }))
   }
 
-  const moneyMakingResults: any[] = []
-  for (const { method, tier } of sampleMethods) {
-    const tierConfig = TIER_CONFIG[tier as keyof typeof TIER_CONFIG]
-    if (!tierConfig) continue
-    const wikiContext = baseWikiContext + '\n\n' + gearCatalogForBudget(pricedItems, tierConfig.max_gear_cost) +
-      '\n\n' + buildActivityGearCatalogSection(pricedItems, tierConfig.max_gear_cost, ACTIVITY_KEYS, activityGear)
-    await generateOne(method, tier, wikiContext, pricedItems, activityGear)
-
-    const key = (method.id || method.method || '').toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, 80)
-    const { data: saved } = await supabase.from('method_setups').select('setup').eq('method_key', key).eq('tier', tier).single()
-    const setup = saved ? JSON.parse(saved.setup) : null
-    const activityKey = method.skill || (method.skills_combined || [])[0]
-    moneyMakingResults.push({
-      method: method.method, tier, activityKey,
-      weapon_check: crossCheck(setup?.weapon_name, activityKey),
-      tool_raw: setup?.tool, rod_raw: setup?.rod,
-      cost_optimal: setup?.cost_optimal,
-    })
-  }
+  const [{ evolveResult, evolveCheck }, moneyMakingResults] = await Promise.all([runEvolveCheck(), runMoneyMakingCheck()])
 
   return NextResponse.json({
     migration: {
