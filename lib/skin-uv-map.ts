@@ -86,3 +86,10 @@ export const BODY_PARTS: BodyPart[] = [
 
 export const TEXTURE_SIZE = 64
 export const DEFAULT_SKIN_URL = 'https://crafatar.com/skins/8667ba71-b85a-4004-af54-457a9734eed7' // Steve
+
+// Guaranteed-last resort when every live skin source fails (Crafatar down,
+// Mojang's session server down, or no linked account) -- a flat, originally
+// generated color swatch (public/images/skin-placeholder.svg), never a copy
+// of any Mojang-authored skin design. Same-origin static asset, so this link
+// in the fallback chain cannot itself depend on a third party's uptime.
+export const LOCAL_SKIN_PLACEHOLDER_URL = '/images/skin-placeholder.svg'

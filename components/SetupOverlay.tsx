@@ -135,7 +135,17 @@ export default function SetupOverlay({ method, tier, accentColor, setup, loading
   // un bug. Ce qui doit rester distinct : un vrai échec du fetch (réseau,
   // /api/player/status en erreur malgré un compte déjà gated Pro pour voir
   // ce composant) ne doit jamais silencieusement ressembler à "pas encore lié".
-  const [skinUrl, setSkinUrl] = useState(DEFAULT_SKIN_URL)
+  // Chaîne de sources, essayées dans l'ordre par SkinArmorRender -- résilience
+  // contre une panne Crafatar spécifique (incident réel : crafatar.com a
+  // retourné un vrai 521 la semaine où SkinArmorRender est passé d'un
+  // background-image CSS, qui dégrade silencieusement, à une texture WebGL,
+  // qui plantait toute la page -- voir SceneErrorBoundary). mojang_skin_url
+  // est une deuxième source LIVE (le serveur de session Mojang, celui que
+  // Crafatar lit lui-même), jamais une copie stockée -- ne touche pas à la
+  // question légale encore ouverte sur la redistribution d'assets Mojang.
+  // Le placeholder local (générique, généré, pas un asset Mojang copié) est
+  // ajouté par SkinArmorRender lui-même comme tout dernier recours garanti.
+  const [skinUrls, setSkinUrls] = useState<string[]>([DEFAULT_SKIN_URL])
   const [skinStatus, setSkinStatus] = useState<'loading' | 'linked' | 'unlinked' | 'error'>('loading')
   useEffect(() => {
     let cancelled = false
@@ -143,8 +153,14 @@ export default function SetupOverlay({ method, tier, accentColor, setup, loading
       .then(r => { if (!r.ok) throw new Error('status ' + r.status); return r.json() })
       .then(d => {
         if (cancelled) return
-        if (d?.linked && d?.hypixel_uuid) { setSkinUrl(`https://crafatar.com/skins/${d.hypixel_uuid}`); setSkinStatus('linked') }
-        else setSkinStatus('unlinked')
+        if (d?.linked && d?.hypixel_uuid) {
+          const urls = [`https://crafatar.com/skins/${d.hypixel_uuid}`]
+          if (d.mojang_skin_url) urls.push(d.mojang_skin_url)
+          setSkinUrls(urls)
+          setSkinStatus('linked')
+        } else {
+          setSkinStatus('unlinked')
+        }
       })
       .catch(() => { if (!cancelled) setSkinStatus('error') })
     return () => { cancelled = true }
@@ -282,7 +298,7 @@ export default function SetupOverlay({ method, tier, accentColor, setup, loading
                     {/* The character itself */}
                     <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', alignItems:'center' }}>
                       {hasGear
-                        ? <SkinArmorRender skinUrl={skinUrl} setup={s} accentColor={accentColor} />
+                        ? <SkinArmorRender skinUrls={skinUrls} setup={s} accentColor={accentColor} />
                         : <div style={{ fontSize:10, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>No armor/weapon for this method</div>}
                       {/* Distinct from the normal "not linked yet" case (silent Steve
                           fallback, no message needed) -- a genuine fetch failure here
