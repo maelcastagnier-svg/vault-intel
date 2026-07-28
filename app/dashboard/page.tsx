@@ -113,11 +113,11 @@ export default function Dashboard() {
   }, [])
 
   const TABS = [
-    { label:'⚡ Flash',   plans:['alert','pro','elite'] },
-    { label:'💰 Money',   plans:['pro','elite']          },
-    { label:'🔧 Patches', plans:['alert','pro','elite']  },
-    { label:'📡 Radar',   plans:['pro','elite']          },
-    { label:'🧬 Evolve',  plans:['pro','elite']          },
+    { label:'⚡ Flash',   plans:['free','alert','pro','elite'] },
+    { label:'💰 Money',   plans:['pro','elite']                },
+    { label:'🔧 Patches', plans:['free','alert','pro','elite'] },
+    { label:'📡 Radar',   plans:['pro','elite']                },
+    { label:'🧬 Evolve',  plans:['pro','elite']                },
   ]
 
   const hasAccess = (plans: string[]) => plans.includes(plan)
@@ -318,7 +318,7 @@ export default function Dashboard() {
         ) : (
           <>
             {/* ── FLASH ALERTS ── */}
-            {tab === 0 && <FlashAlertsPage />}
+            {tab === 0 && <FlashAlertsPage plan={plan} />}
 
             {/* ── MONEY MAKING ── */}
             {tab === 1 && <MoneyMakingSection marketData={marketData} dataLoading={dataLoading} />}
