@@ -37,6 +37,7 @@ export async function GET() {
   return NextResponse.json({
     linked: true,
     hypixel_username: link.hypixel_username,
+    hypixel_uuid: link.hypixel_uuid,
     profile_id: player?.profile_id || null,
     last_synced: player?.last_synced || null,
   })

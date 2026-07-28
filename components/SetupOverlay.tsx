@@ -8,6 +8,9 @@
 // clause and no asset-usage grant; Mojang's assets are copyrighted client files).
 // A real Vault-owned texture pack is a separate future project.
 'use client'
+import { useEffect, useState } from 'react'
+import SkinArmorRender from './SkinArmorRender'
+import { DEFAULT_SKIN_URL } from '../lib/skin-uv-map'
 
 type AnyMethod = Record<string, any>
 type Setup = Record<string, any>
@@ -73,7 +76,20 @@ export default function SetupOverlay({ method, tier, accentColor, setup, loading
   const s = setup || {}
   const ew = ar(s.enchants_weapon), ea = ar(s.enchants_armor), et = ar(s.enchants_tool), er = ar(s.enchants_rod)
   const hasArmor = !!st(s.armor_set)
-  const hasAny = hasArmor || st(s.weapon_name) || st(s.tool) || st(s.rod) || st(s.pet_name) || ar(s.accessories).length > 0
+  const hasGear  = hasArmor || st(s.weapon_name) || st(s.tool) || st(s.rod)
+  const hasAny = hasGear || st(s.pet_name) || ar(s.accessories).length > 0
+
+  // Skin du joueur connecté (si lié à un compte Hypixel), sinon fallback Steve --
+  // /api/player/status est déjà gated Pro (même palier que Money Making lui-même).
+  const [skinUrl, setSkinUrl] = useState(DEFAULT_SKIN_URL)
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/player/status')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d?.linked && d?.hypixel_uuid) setSkinUrl(`https://crafatar.com/skins/${d.hypixel_uuid}`) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.9)', zIndex:400, display:'flex', alignItems:'center', justifyContent:'center', padding:'2rem 1rem', backdropFilter:'blur(10px)' }}>
@@ -123,28 +139,27 @@ export default function SetupOverlay({ method, tier, accentColor, setup, loading
                 <div style={{ fontSize:10.5, color:'#3a3a38', fontFamily:'Space Mono, monospace', textAlign:'center', padding:'20px 0' }}>No gear specified for this method</div>
               ) : (
                 <>
-                  {/* Armor row */}
-                  {hasArmor && (
-                    <div style={{ marginBottom:16 }}>
-                      <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                        <Slot icon="🪖" label={st(s.armor_set)} sub={nm(s.armor_stars)>0?'✪'.repeat(Math.min(nm(s.armor_stars),5)):undefined} accentColor={accentColor} />
-                        <Slot icon="👕" label={st(s.armor_set)} accentColor={accentColor} />
-                        <Slot icon="👖" label={st(s.armor_set)} accentColor={accentColor} />
-                        <Slot icon="👢" label={st(s.armor_set)} accentColor={accentColor} />
-                      </div>
-                      {st(s.armor_bonus) && <div style={{ fontSize:9.5, color:'#9b59b6', marginTop:6 }}>{st(s.armor_bonus)}</div>}
+                  {/* Skin + armor -- hover a piece for its stats */}
+                  {hasGear && (
+                    <div style={{ marginBottom:10 }}>
+                      <SkinArmorRender skinUrl={skinUrl} setup={s} accentColor={accentColor} />
                     </div>
                   )}
 
-                  {/* Weapon / Tool / Rod row */}
+                  {/* Weapon / Tool / Rod -- text line, no held-item visual */}
                   {(st(s.weapon_name)||st(s.tool)||st(s.rod)) && (
-                    <div style={{ marginBottom:16 }}>
-                      <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                        {st(s.weapon_name) && <Slot icon="⚔️" label={st(s.weapon_name)} sub={nm(s.weapon_stars)>0?'✪'.repeat(Math.min(nm(s.weapon_stars),5)):undefined} accentColor={accentColor} />}
-                        {st(s.tool) && <Slot icon="⛏️" label={st(s.tool)} accentColor={accentColor} />}
-                        {st(s.rod) && <Slot icon="🎣" label={st(s.rod)} accentColor={accentColor} />}
-                      </div>
-                      {st(s.weapon_ability) && <div style={{ fontSize:9.5, color:'#2a78d6', marginTop:6 }}>{st(s.weapon_ability)}</div>}
+                    <div style={{ marginBottom:16, fontSize:10.5, color:'#9b9b8f' }}>
+                      {st(s.weapon_name) && (
+                        <div style={{ marginBottom:4 }}>
+                          <span style={{ marginRight:6 }}>⚔️</span>
+                          <b style={{ color:'#e8e6df' }}>{st(s.weapon_name)}</b>
+                          {nm(s.weapon_stars)>0 && <span style={{ color:accentColor, marginLeft:6 }}>{'✪'.repeat(Math.min(nm(s.weapon_stars),5))}</span>}
+                          {st(s.weapon_stats) && <div style={{ fontSize:9.5, marginTop:2, fontFamily:'Space Mono, monospace' }}>{st(s.weapon_stats)}</div>}
+                        </div>
+                      )}
+                      {st(s.tool) && <div style={{ marginBottom:4 }}><span style={{ marginRight:6 }}>⛏️</span><b style={{ color:'#e8e6df' }}>{st(s.tool)}</b></div>}
+                      {st(s.rod) && <div style={{ marginBottom:4 }}><span style={{ marginRight:6 }}>🎣</span><b style={{ color:'#e8e6df' }}>{st(s.rod)}</b></div>}
+                      {st(s.weapon_ability) && <div style={{ fontSize:9.5, color:'#2a78d6', marginTop:4 }}>{st(s.weapon_ability)}</div>}
                     </div>
                   )}
 
