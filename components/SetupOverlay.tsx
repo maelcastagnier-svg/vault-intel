@@ -154,20 +154,30 @@ export default function SetupOverlay({ method, tier, accentColor, setup, loading
   }, [])
 
   return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.9)', zIndex:400, display:'flex', alignItems:'center', justifyContent:'center', padding:'2rem 1rem', backdropFilter:'blur(10px)' }}>
+    <div style={{ position:'fixed', inset:0, zIndex:400 }}>
+      {/* Blur/dim layer -- kept as a SEPARATE sibling, never an ancestor of the
+          modal panel. backdrop-filter forces full-subtree rasterization exactly
+          like filter does (confirmed the hard way: even after fixing filter on
+          the panel itself, this property alone -- sitting one level further out
+          -- independently flattened the 3D character render). Splitting it out
+          here means neither this nor the panel's own styling can ever rasterize
+          SkinArmorRender's subtree. */}
+      <div onClick={onClose} style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.9)', backdropFilter:'blur(10px)' }} />
+      <div onClick={onClose} style={{ position:'relative', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', padding:'2rem 1rem' }}>
       <div
         onClick={e => e.stopPropagation()}
         className="vault-surface"
         style={{
           border:`1px solid ${accentColor}45`,
-          // box-shadow, pas filter:drop-shadow -- `filter` force le navigateur à
-          // rasteriser tout son sous-arbre, ce qui casse transform-style:preserve-3d
-          // pour tout élément 3D imbriqué dedans (confirmé : c'est exactement ce qui
-          // aplatissait SkinArmorRender en rectangle plat malgré une géométrie 3D
-          // par ailleurs correcte). box-shadow donne le même effet visuel de glow
-          // sur un panneau rectangulaire à coins arrondis sans cet effet de bord.
+          // box-shadow, pas filter:drop-shadow -- même raison que le split du
+          // backdrop-filter ci-dessus.
           boxShadow:`0 40px 90px rgba(0,0,0,0.85), 0 0 40px ${accentColor}20`,
-          borderRadius:14, maxWidth:920, width:'100%', maxHeight:'88vh', overflowY:'auto',
+          // Pas de maxHeight/overflowY ICI -- overflow != visible force aussi
+          // transform-style à flat sur l'élément qui le porte (même famille de
+          // bug). Le scroll est maintenant scopé à la seule colonne de gauche
+          // (texte, la partie qui peut vraiment déborder), pas à ce panneau
+          // entier qui contient le rendu 3D.
+          borderRadius:14, maxWidth:920, width:'100%',
         }}
       >
         {/* Header */}
@@ -199,8 +209,12 @@ export default function SetupOverlay({ method, tier, accentColor, setup, loading
         ) : (
           <div style={{ display:'grid', gridTemplateColumns:'260px 1fr', gap:0 }}>
 
-            {/* LEFT — textual info: stats/strategy/budget/requirements */}
-            <div style={{ padding:'22px 20px', borderRight:`1px solid ${accentColor}18` }}>
+            {/* LEFT — textual info: stats/strategy/budget/requirements. Scroll is
+                scoped to THIS column only (never the modal panel itself) -- this
+                is the part whose length actually varies with the setup's text,
+                and overflow!=visible on an ancestor would flatten the 3D render
+                in the center column the same way filter/backdrop-filter did. */}
+            <div style={{ padding:'22px 20px', borderRight:`1px solid ${accentColor}18`, maxHeight:'calc(88vh - 150px)', overflowY:'auto' }}>
               {(st(s.how_to)||st(s.why_best)) && (
                 <InfoBlock label="⚡ HOW TO" color={accentColor}>
                   {st(s.how_to)}
@@ -332,6 +346,7 @@ export default function SetupOverlay({ method, tier, accentColor, setup, loading
             )}
           </div>
         )}
+      </div>
       </div>
     </div>
   )
