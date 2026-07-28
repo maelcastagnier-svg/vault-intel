@@ -30,7 +30,7 @@ export async function GET() {
     .from('items_catalog')
     .select('item_id, item_name, source')
     .order('item_id')
-  const { count: variantRows } = await supabaseAnon
+  const { count: variantRows, error: variantErr } = await supabaseAnon
     .from('price_history_ah_variants')
     .select('*', { count: 'exact', head: true })
   const { count: itemCountHeader } = await supabaseAnon
@@ -49,5 +49,7 @@ export async function GET() {
       item_explorer_header: `📊 ITEM EXPLORER — ${total || '…'} ITEMS`,
       empty_state_line: `${bazaar} Bazaar · ${ah} AH · ${fmt(variantRows ?? 0)} variant price points tracked`,
     },
+    _debug_variant_rows_raw: variantRows,
+    _debug_variant_error: variantErr?.message || null,
   })
 }
