@@ -20,6 +20,86 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Audit complet architecture cible + 4 correctifs mergés en prod (28 juillet)
+
+Audit demandé point par point contre l'architecture produit cible (dashboard 4 tiers, 
+Flash Alerts, Money Making, Patch Analysis, Radar, Evolve, pipeline de collecte) — chaque 
+point vérifié dans le code/DB réel, jamais depuis la mémoire de CLAUDE.md. Deux agents 
+Explore dépêchés en parallèle pour Patch Analysis/Radar/Evolve/Money Making (comptes de 
+méthodes, bouton Rate) pendant que les points nécessitant un accès DB direct étaient 
+vérifiés via des routes de debug temporaires, même méthode que d'habitude.
+
+**🔴 Urgence trouvée en premier et corrigée avant l'audit lui-même — `ah_live` vide à 
+chaque run, deux vrais bugs empilés** : le buffer (`ah_scan_buffer`) se remplissait 
+normalement chaque minute (cron actif, endpoint Hypixel sain, aucun lock bloqué), mais 
+la comparaison "buffer vs historique réel" pour trouver les flips sous-évalués ne trouvait 
+jamais rien.
+1. La requête ciblait encore `price_history_ah` filtré sur `granularity='DAILY_EXACT'` — 
+   or `ah-aggregate` (reconstruit plus tôt cette semaine) n'écrit plus jamais cette 
+   combinaison dans cette table (le per-variante exact a migré vers 
+   `price_history_ah_variants`, `price_history_ah` ne reçoit plus que `DAILY` blended). 
+   Un consommateur de l'ancien schéma oublié lors de la passe de renommage (seuls 
+   `item-history/route.ts` et `RadarSection.tsx` avaient été vérifiés à l'époque).
+2. Une fois requêté sur la bonne table, toujours 0 résultat : un seul `.in('base_item_id', 
+   ...)` avec 2300+ valeurs dépassait silencieusement la limite de longueur d'URL de 
+   PostgREST (requête GET), et l'erreur n'était jamais vérifiée — `historical` retombait 
+   à vide sans throw ni log. Batché par 200 avec logging d'erreur réel.
+
+Vérifié en direct avant merge (`runAhCollect()` extrait en fonction plain, même pattern 
+que `runAhAggregate()`, appelée directement par une route de debug) : `ah_live` passé de 
+0 à 300 lignes réelles et cohérentes (Crown of Avarice, variantes Hyperion, Necron's 
+Helmet, avec discount/profit réels). Mergé sur master via une branche hotfix dédiée 
+(`hotfix/ah-collect-empty-live`), isolée du reste du travail preview en cours.
+
+**🔴 Même famille de bug trouvée indépendamment dans Radar pendant l'audit** — 
+`RadarSection.tsx` interrogeait aussi `price_history_ah.variant_key` pour lister/tracer les 
+variantes NBT d'un item, alors que cette colonne ne contient plus que le placeholder 
+blended (`__all_variants_blended__`) depuis la même refonte. Corrigé (branche 
+`fix/evolve-skills-cron-and-radar-variants`, mergée) : la liste de variantes et la série 
+par variante précise pointent maintenant vers `price_history_ah_variants` (le général/
+blended reste sur `price_history_ah`, toujours correct pour ce cas). Vérifié en direct sur 
+HYPERION : 108 vraies variantes distinctes remontent désormais (étoiles/reforge/ultimate 
+enchant/gemmes/Art of War réels), contre une seule (le placeholder) avant.
+
+**🟡 `evolve-skills` — audité comme "cron manquant dans vercel.json", en fait un choix 
+volontaire de conformité API Hypixel** : proposé dans un premier temps de le rajouter au 
+planning cron, mais son propre commentaire d'en-tête documente qu'il a été retiré de 
+`vercel.json` le 23 juillet précisément pour respecter l'interdiction Hypixel de polling 
+périodique continu des données joueur. Remplacé par un appel synchrone par-profil depuis 
+`app/api/player/sync/route.ts` juste après un sync réellement demandé par le joueur — 
+confirmé réel et fonctionnel (`runEvolveSkills([profile.profile_id])`, jamais sur 
+l'ensemble des profils, jamais sur un timer). **Pas rajouté au cron** — l'aurait 
+recassé exactement ce que ce retrait avait corrigé.
+
+**✅ Free — tier réel, plus 5 tabs verrouillés** : Free était annoncé comme un vrai palier 
+mais n'avait aucun accès réel — `TABS` (`app/dashboard/page.tsx`) n'avait aucune entrée 
+`free` sur les 5 tabs, alors que le backend avait déjà l'infra dégradée prête et jamais 
+utilisée (`ah_live_free_preview`/`bazaar_1h_free_preview`, `filterPatchAnalysisContent`/
+`filterPatchInsight`, tout ça du chantier gating du 23 juillet). Patch Analysis n'a demandé 
+aucun changement de composant : `PatchSection.tsx` protège déjà chaque champ 
+défensivement (`a()`/`s()`, longueur vérifiée avant de rendre une section), donc la 
+dégradation serveur existante (titre + 1 phrase d'impact, Live seulement) s'affiche 
+correctement dès que le tab est atteignable — juste ajouté `'free'` à son entrée `TABS`. 
+Flash Alerts a demandé un vrai nouveau chemin : les vues de preview se sont révélées bien 
+plus pauvres que prévu (`ah_live_free_preview` n'a que `item_name`/`category`/
+`discount_pct` — aucun prix, aucun UUID d'enchère ; `bazaar_1h_free_preview` n'a pas de nom 
+d'item) — forcer ça dans les cartes `LiveRankedFeed` existantes aurait demandé des branches 
+conditionnelles sur presque chaque champ. Nouveau composant séparé `FreeFlashPreview.tsx` 
+à la place : un vrai teaser top-5 honnête avec une incitation à upgrade, pas une version 
+appauvrie du feed payant. Vérifié avant de câbler que la clé anon (celle du frontend) peut 
+bien lire les deux vues (5 lignes chacune) et que les vraies tables `ah_live`/`bazaar_1h` 
+restent bien bloquées pour anon (la frontière RLS de l'audit sécurité du 23 juillet est 
+intacte). Confirmé visuellement de bout en bout sur un vrai compte Vault jetable (aucune 
+ligne `subscriptions` → résout à `free` par construction, voir `lib/get-plan.ts`), compte 
+supprimé après test.
+
+**Reste à faire, dans l'ordre validé** : Radar — remplacer le compte d'items codé en dur 
+par un vrai count + pagination sur `items_catalog` ; Patch Analysis — étendre le prompt/
+schéma pour couvrir l'impact mécanique/gameplay, pas seulement économique ; nettoyage 
+(`debug-boss-kills` mal placé dans `app/api/cron/`, `refresh-variant-stats`/
+`backfill-variant-stats` à évaluer — probablement des reliquats d'une architecture 
+legacy jamais nettoyés).
+
 ## ✅ Gear précis+justifié, pricing par variante exacte, rareté réelle, tooltips arme/outil/canne — testé en prod (28 juillet)
 
 Évolution du chantier grounding `setup-generate-agent` : au lieu de recommander un nom 
