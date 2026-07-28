@@ -22,6 +22,117 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## 🟡 Phase 1 — base de connaissances jeu partagée (activity_gear_categories + progression_tiers) — mergée, validation partielle (29 juillet)
+
+Premier étage d'une architecture proposée pour éliminer la dépendance à la "mémoire" 
+du LLM sur la hiérarchie/catégorisation d'équipement et les seuils de progression — 
+voir la conversation pour la proposition complète en 4 phases (référentiel structuré, 
+mapping NEU brut, calculateur de stats, automatisation par patch).
+
+**Deux nouvelles tables** (`phase1_game_knowledge_base.sql`, exécuté manuellement par 
+l'utilisateur comme toute migration de ce projet) :
+- **`activity_gear_categories`** — promeut le const `SKILL_GEAR_CATEGORIES` (le fix du 
+  bug Ragnarok Axe, jusque-là vivant seul dans `evolve-skills/route.ts`) en vraie table. 
+  `lib/activity-gear.ts` (`loadActivityGearCategories`) + nouvelles fonctions partagées 
+  dans `lib/gear-pricing.ts` (`buildActivityGearCatalogSection`, 
+  `gearCandidatesForActivity`, `verifyActivityGearName`, `armorCatalogText`) remplacent 
+  la logique dupliquée par fichier — Evolve Skills ET Money Making 
+  (`setup-generate-agent`) lisent maintenant la même table, fermant exactement le risque 
+  de divergence qui avait causé le bug initial.
+- **`progression_tiers`** — squelette 7 tiers (Starter→Master) qui relie l'échelle 7 
+  tiers de Milestones et le `TIER_CONFIG` 4 tiers déjà existant de Money Making. Bornes 
+  networth à 50M/500M/5B réelles (plafonds déjà validés en prod de `TIER_CONFIG`) ; 
+  5M/150M/1.5B interpolées (milieu géométrique de chaque bande réelle), explicitement 
+  marquées provisoires par ligne (`calibration_note`). `purse_reference` rempli 
+  uniquement pour les 2 tiers avec un vrai profil d'ancrage (Starter ← Orange, 
+  Expert ← Cucumber), laissé `NULL` ailleurs plutôt que d'inventer 5 chiffres sans base 
+  réelle. `money_making_tier_key` déterministe par construction mais marqué 
+  "à revalider" tant que peu de profils réels couvrent les 7 bandes.
+
+**Intégration Money Making** — `setup-generate-agent` construit maintenant aussi une 
+section catalogue arme/outil par activité (même table, mêmes fonctions partagées), 
+ajoutée à son contexte wiki déjà mis en cache par tier ; `buildUserPrompt` indique à 
+chaque méthode quelle(s) section(s) d'activité utiliser via son vrai champ 
+`skill`/`skills_combined` (confirmé fiablement rempli par un audit réel : 
+farming/mining/combat/fishing/foraging, certaines méthodes vault combinent deux 
+activités). `applyPreciseCost` filtre les matches weapon_name/tool/rod par catégorie 
+avant de les laisser contribuer au coût/rareté — volontairement non-destructif sur le 
+texte visible du setup (contrairement à `gear_name` côté Evolve Skills, champ neuf cette 
+session) puisque Money Making est une fonctionnalité déjà en prod.
+
+**Trois bugs réels trouvés et corrigés en testant, sans rapport direct avec la feature 
+mais bloquants pour la valider** :
+1. `parseJSON` (evolve-skills) ne récupérait pas quand Claude préfixait sa réponse de 
+   prose ("I'll analyze...") avant le JSON — plus probable avec le prompt Phase 1 
+   agrandi. Fallback ajouté : découpe du premier `{` au dernier `}` si le parse direct 
+   échoue, plus une instruction explicite "commence par { , aucun préambule".
+2. `max_tokens` relevé 16000→24000 — un profil riche en gear (Cucumber) tronquait en 
+   plein milieu du JSON une fois les 2 nouveaux champs (`armor_set_used`, `gear_name`) 
+   ajoutés sur 9 cartes + 6 boss slayer.
+3. `loadActivityGearCategories` loggait silencieusement un échec de requête en carte 
+   vide — trouvé en direct (un raté transitoire faisait lire "aucun slot dédié" à 
+   chaque activité, `gear_name` retombait à `null` partout sans aucun signal).
+
+**⚠️ Statut de vérification — honnête, pas encore complet.** Orange (profil réel, vide) 
+validé : 0 violation de catégorie sur les 2 items de sa dernière génération réussie 
+(`Worn Huntaxe - Genesis` → `AXE` → foraging, `Basic Fishing Net` → `FISHING_NET` → 
+fishing, les deux corrects). Cucumber (le profil le plus chargé en gear, le test le plus 
+exigeant pour un bug classe Ragnarok Axe) et l'échantillon Money Making n'ont pas pu être 
+vérifiés jusqu'au bout — le compte Anthropic est tombé à court de crédit en cours de 
+route (confirmé via le vrai corps d'erreur API, pas un bug de code). Mergé quand même sur 
+instruction explicite : le filtre catégorie est du code déterministe sans dépendance API, 
+et le résultat propre d'Orange est une vraie preuve positive. **Reste à faire dès que le 
+crédit est rechargé** : re-tester Cucumber en entier, vérifier l'échantillon Money Making 
+(zéro testé pour l'instant côté Money Making).
+
+**Prochaines phases, pas commencées** :
+- Phase 2 : miner les 36 fichiers NEU déjà cachés bruts mais jamais mappés 
+  (`hotmlayout`/`hotflayout` en priorité — directement utile à `hotm_progress` déjà en 
+  base).
+- Phase 3 : calculateur de stat réel par item (base+reforge+étoiles+enchants+HPB+gemmes+
+  HotM) — actuellement rien ne fait ce calcul, `item_stats.health/defense/...` est connu 
+  vide pour la plupart des items endgame. Prérequis pour qu'une future table 
+  `activity_stat_weights` ait quoi que ce soit de fiable à pondérer.
+
+## ✅ Evolve Skills — SkillBar + SkillProgressOverlay, current = setup optimal possédé (29 juillet)
+
+Remplace les panneaux plats `SkillCard` current/target des 8 skills non-Slayer 
+(farming/mining/combat/foraging/fishing/alchemy/enchanting/dungeoneering) par une barre 
+XP horizontale par skill (`SkillBar.tsx`, vraie progression depuis `lib/skill-xp.ts`) qui 
+ouvre au clic un overlay plein écran 2 colonnes (`SkillProgressOverlay.tsx`) — gauche : le 
+vrai setup actuel du joueur via `SkinArmorRender` (réutilisé sans modification, enveloppé 
+par le nouveau `SetupCharacterPanel.tsx`) ; droite : le gear cible précis de Claude. 
+L'accordéon 6 boss de Slayer reste sur l'ancien composant `SkillCard` pour cette passe, 
+sur instruction explicite — sa conversion est un chantier séparé à venir.
+
+**Deux vrais bugs trouvés et corrigés en testant, pas seulement le travail visuel prévu** :
+1. `current` affichait toujours l'équipement littéralement porté (ex : le set 
+   "Groovy Fig", thème Foraging, apparaissait même sur la carte Farming de Cucumber) — 
+   `lib/skill-setup-adapter.ts` réécrit pour que `current` soit le setup OPTIMAL possédé 
+   par skill, scanné partout où le joueur a de l'armure (équipé + inventaire + ender 
+   chest + backpacks + Personal Vault + wardrobe), choisi par carte par Claude via un 
+   nouveau champ `armor_set_used`.
+2. `target` pouvait nommer un item réel mais dans la mauvaise catégorie fonctionnelle 
+   (une vraie épée de combat recommandée comme outil de Foraging parce que son nom 
+   contient "Axe") — catalogue arme/outil filtré par catégorie par skill 
+   (`SKILL_GEAR_CATEGORIES`, promu en table partagée dans la Phase 1 ci-dessus) plus une 
+   vérification côté serveur (`verifyGearName`) qui annule tout ce qui ne matche pas la 
+   bonne catégorie, défense en profondeur en plus de la règle de prompt.
+
+Trouvé au passage : un bug latent où l'ancien code lisait un champ `stars` qui n'existe 
+pas sur un item décodé réel (le vrai champ est `total_stars`, mettait silencieusement 
+`armor_stars` à 0 sur chaque rendu current), et un glyphe Unicode Private Use Area propre 
+à Hypixel dans les noms d'items qui cassait les lookups par nom exact même après trim des 
+espaces.
+
+Validé sur plusieurs runs réels Cucumber/Orange : `current` varie maintenant correctement 
+par skill (Mantid Cropie en farming, Wise Yog en mining, Groovy Figmail en foraging, 
+Calcified Sponge en fishing, Ancient Necron's/Shadow Assassin/Crimson en 
+combat/dungeoneering/slayer) au lieu d'un seul set répété partout ; `target.gear_name` ne 
+contamine jamais une autre activité (Advanced Gardening Hoe/Mithril Drill/Reinforced 
+Huntaxe/Inferno Rod/Shadow Fury, chacun correspondant à la bonne carte). Orange (EARLY, 
+profil vide) reste correctement `null` partout.
+
 ## 🔴 Régression prod critique post-migration Three.js + résilience — corrigées (28 juillet)
 
 **Signalé par l'utilisateur, priorité absolue** : en prod, cliquer sur un setup Money 
