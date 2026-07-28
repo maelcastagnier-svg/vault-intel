@@ -25,6 +25,7 @@ type PricedItem = {
   health: number; defense: number; strength: number
   crit_damage: number; crit_chance: number; intelligence: number; speed: number
   price: number
+  default_color: string | null
 }
 
 export async function loadPricedItems(): Promise<PricedItem[]> {
@@ -32,7 +33,7 @@ export async function loadPricedItems(): Promise<PricedItem[]> {
 
   const [{ data: stats }, { data: prices }] = await Promise.all([
     supabase.from('item_stats')
-      .select('item_id, display_name, category, rarity, health, defense, strength, crit_damage, crit_chance, intelligence, speed'),
+      .select('item_id, display_name, category, rarity, health, defense, strength, crit_damage, crit_chance, intelligence, speed, default_color'),
     supabase.from('price_history_ah')
       .select('base_item_id, avg_price, bucket_date')
       .eq('variant_key', '__all_variants_blended__')
@@ -63,6 +64,7 @@ export async function loadPricedItems(): Promise<PricedItem[]> {
       intelligence: s.intelligence || 0,
       speed:        s.speed        || 0,
       price:        latestPrice.get(s.item_id)!,
+      default_color: s.default_color || null,
     }))
 }
 
@@ -147,13 +149,26 @@ function matchesExact(displayName: string, freeText: string): boolean {
 const ARMOR_PIECE_CATEGORIES = new Set(['HELMET', 'CHESTPLATE', 'LEGGINGS', 'BOOTS'])
 const ARMOR_TYPE_WORDS       = new Set(['helmet', 'chestplate', 'leggings', 'boots'])
 
+// item_stats.default_color (real Hypixel-assigned leather dye color, from
+// NEU-REPO's items/{id}.json -- see armor-color-sync) attached per matched
+// piece's real category, not guessed -- null whenever the real matched item
+// isn't LEATHER_* (skull-reskinned helmets, or other-material sets like
+// Revenant Armor's diamond_chestplate base), which the renderer already
+// falls back to the vanilla placeholder color for.
+const ARMOR_COLOR_FIELD: Record<string, string> = {
+  HELMET:     'armor_helmet_color',
+  CHESTPLATE: 'armor_chestplate_color',
+  LEGGINGS:   'armor_leggings_color',
+  BOOTS:      'armor_boots_color',
+}
+
 function armorPiecePrefixWords(item: PricedItem): string[] {
   return significantWords(item.display_name).filter(w => !ARMOR_TYPE_WORDS.has(w))
 }
 
 // Retourne, pour chaque catégorie de pièce (HELMET/CHESTPLATE/LEGGINGS/BOOTS),
 // le meilleur item candidat pour armorSetText -- ou rien si aucun ne matche.
-function bestArmorPiecesForSet(priced: PricedItem[], armorSetText: string): PricedItem[] {
+export function bestArmorPiecesForSet(priced: PricedItem[], armorSetText: string): PricedItem[] {
   const targetWords = new Set(significantWords(armorSetText))
   const bestByCategory = new Map<string, { item: PricedItem; specificity: number }>()
 
@@ -267,7 +282,7 @@ function gearSpecFromSetup(setup: any, prefix: 'armor' | 'weapon'): GearSpec {
 // laissé à Claude (testé 2 fois en LATE Gemstone Mining : même avec une
 // règle de prompt explicite, Haiku continue de sortir un chiffre habituel
 // proche de coins_display plutôt que de sommer les vrais prix montrés).
-async function applyPreciseCost(setup: any, priced: PricedItem[]): Promise<void> {
+export async function applyPreciseCost(setup: any, priced: PricedItem[]): Promise<void> {
   const matchedIds = new Set<string>()
   const matched: { item_id: string; display_name: string; price: number; precision: string }[] = []
   let total = 0
@@ -287,6 +302,8 @@ async function applyPreciseCost(setup: any, priced: PricedItem[]): Promise<void>
     const keys = specVariantKeys(spec)
     for (const item of bestArmorPiecesForSet(priced, setup.armor_set)) {
       if (!setup.armor_rarity && item.rarity) setup.armor_rarity = item.rarity
+      const colorField = ARMOR_COLOR_FIELD[item.category]
+      if (colorField && item.default_color) setup[colorField] = item.default_color
       const precise = await lookupPreciseVariantPrice(item.item_id, keys, spec)
       addMatch(item, precise?.price ?? item.price, precise?.precision ?? 'blended')
     }
