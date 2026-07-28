@@ -129,20 +129,47 @@ function matchesExact(displayName: string, freeText: string): boolean {
 // armor_set nomme le SET, pas la pièce ("Infernal Crimson Armor") -- son mot
 // de type (Helmet/Chestplate/...) est donc censé être absent du texte. On le
 // retire via la vraie `category` de l'item (donnée réelle), jamais en devinant
-// "le dernier mot". Exige au moins 2 mots restants : un seul adjectif
-// générique partagé (ex "Crimson", "Magma" -- réutilisés dans plusieurs
-// familles d'items à des tiers totalement différents) ne suffit pas à
-// matcher -- confirmé en test réel : "Crimson Helmet" (~4M, T1 Kuudra) se
-// faisait matcher à tort par "Infernal Crimson Armor" (T5, la vraie pièce
-// visée étant Infernal Crimson Helmet, ~500M) avant ce garde-fou.
+// "le dernier mot".
+//
+// Pas un cutoff fixe sur le nombre de mots restants -- testé en vrai et ça
+// casse dans les deux sens : exiger 2+ mots rejette à tort les vrais sets à
+// un seul mot distinctif ("Sorrow Helmet"/"Sorrow Armor", confirmé réel et
+// pricé dans le catalogue, matchedCount tombait à 0) ; n'exiger qu'1 mot fait
+// remonter le faux positif d'origine ("Crimson Helmet" ~4M T1 matchant à tort
+// "Infernal Crimson Armor" T5, la vraie pièce visée étant Infernal Crimson
+// Helmet ~500M). La vraie distinction n'est pas la LONGUEUR du préfixe mais
+// sa SPÉCIFICITÉ relative : par catégorie de pièce, ne garder que le(s)
+// item(s) dont le préfixe est un sous-ensemble de mots du texte ET qui n'a
+// pas de concurrent avec un préfixe plus long/plus spécifique dans la même
+// catégorie -- "Infernal Crimson Helmet" (2 mots) bat "Crimson Helmet"
+// (1 mot) quand les deux matchent le même texte ; "Sorrow Helmet" (1 mot)
+// reste seul candidat pour "Sorrow Armor" et gagne donc par défaut.
 const ARMOR_PIECE_CATEGORIES = new Set(['HELMET', 'CHESTPLATE', 'LEGGINGS', 'BOOTS'])
 const ARMOR_TYPE_WORDS       = new Set(['helmet', 'chestplate', 'leggings', 'boots'])
-function matchesArmorSet(item: PricedItem, armorSetText: string): boolean {
-  if (!ARMOR_PIECE_CATEGORIES.has(item.category)) return false
-  const words = significantWords(item.display_name).filter(w => !ARMOR_TYPE_WORDS.has(w))
-  if (words.length < 2) return false
+
+function armorPiecePrefixWords(item: PricedItem): string[] {
+  return significantWords(item.display_name).filter(w => !ARMOR_TYPE_WORDS.has(w))
+}
+
+// Retourne, pour chaque catégorie de pièce (HELMET/CHESTPLATE/LEGGINGS/BOOTS),
+// le meilleur item candidat pour armorSetText -- ou rien si aucun ne matche.
+function bestArmorPiecesForSet(priced: PricedItem[], armorSetText: string): PricedItem[] {
   const targetWords = new Set(significantWords(armorSetText))
-  return words.every(w => targetWords.has(w))
+  const bestByCategory = new Map<string, { item: PricedItem; specificity: number }>()
+
+  for (const item of priced) {
+    if (!ARMOR_PIECE_CATEGORIES.has(item.category)) continue
+    const words = armorPiecePrefixWords(item)
+    if (words.length === 0) continue
+    if (!words.every(w => targetWords.has(w))) continue
+
+    const current = bestByCategory.get(item.category)
+    if (!current || words.length > current.specificity) {
+      bestByCategory.set(item.category, { item, specificity: words.length })
+    }
+  }
+
+  return Array.from(bestByCategory.values()).map(v => v.item)
 }
 
 function formatCoins(n: number): string {
@@ -230,8 +257,7 @@ async function applyPreciseCost(setup: any, priced: PricedItem[]): Promise<void>
   // item matché par slot.
   if (setup.armor_set) {
     const keys = specVariantKeys(gearSpecFromSetup(setup, 'armor'))
-    for (const item of priced) {
-      if (!matchesArmorSet(item, setup.armor_set)) continue
+    for (const item of bestArmorPiecesForSet(priced, setup.armor_set)) {
       if (!setup.armor_rarity && item.rarity) setup.armor_rarity = item.rarity
       const precise = await lookupPreciseVariantPrice(item.item_id, keys)
       addMatch(item, precise?.price ?? item.price, precise?.precision ?? 'blended')
