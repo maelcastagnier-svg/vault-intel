@@ -7,17 +7,21 @@
 // as a per-axis size delta on the same box, same technique as vanilla's
 // ArmorStandRenderer / HumanoidArmorLayer.CubeDeformation).
 //
-// Appearance: every Skyblock armor piece is, server-side, either a dyed
-// LEATHER_* item or (for some helmets) a re-skinned player head -- Hypixel
-// never ships a unique base-game texture per set (confirmed: even Necron's
-// Chestplate is just leather dyed to #E7413C under the hood; the "custom
-// look" people associate with Necron's/Storm's/Divan's comes entirely from
-// optional third-party resource packs, never from Hypixel's own data). This
-// component currently renders every armor set with the real, verified
-// vanilla default leather color (#A06540, RGB 160,101,64) rather than a
-// per-set custom texture -- a genuine Vault texture pack (real per-item dye
-// RGB via the multiply/destination-in technique, real skull skin.value for
-// helmets) is a separate future project, not yet started, see CLAUDE.md.
+// Appearance: no Skyblock armor piece has a unique base-game TEXTURE server
+// side -- the "custom look" people associate with Necron's/Storm's/Divan's
+// comes entirely from optional third-party resource packs. But most pieces
+// (~62%, sampled across NEU-REPO) ARE real dyed LEATHER_* items with a real
+// default color Hypixel assigns server-side (confirmed: Necron's Chestplate
+// is leather dyed to #E7413C), which we now source per-piece from
+// item_stats.default_color (armor-color-sync, fetched from NEU-REPO's
+// items/{id}.json) and attach to the matched setup via applyPreciseCost.
+// Falls back to the verified vanilla default leather color (#A06540, RGB
+// 160,101,64) whenever that's null -- genuinely no color exists server-side
+// for the other ~38% (re-skinned player heads for some helmets, or
+// non-leather base items like Revenant Armor's diamond_chestplate, both
+// 100% resource-pack-only looks). Real skull skin.value decoding for the
+// head-reskin case is a separate future project, not yet started, see
+// CLAUDE.md.
 'use client'
 import { useState } from 'react'
 import { BODY_PARTS, TEXTURE_SIZE, type UVMap, type BodyPart } from '../lib/skin-uv-map'
@@ -127,6 +131,19 @@ export default function SkinArmorRender({ skinUrl, setup, accentColor }: {
     lines: [setup.armor_stats, setup.armor_bonus].filter(Boolean),
   } : null
 
+  // Couleur réelle par pièce (item_stats.default_color, attaché par
+  // applyPreciseCost depuis le vrai item matché) quand elle existe, sinon le
+  // placeholder vanilla -- jamais un mélange des deux sur la même pièce.
+  // helmet -> head ; chestplate -> torso+bras ; boots -> jambes (le legging
+  // "inner" reste toujours enfermé et invisible, voir le commentaire de
+  // géométrie plus bas, donc c'est bien boots qui teinte visuellement la
+  // jambe entière, pas leggings).
+  const colorForPart = (k: BodyPart['key']): string => {
+    if (k === 'head') return setup.armor_helmet_color || VANILLA_LEATHER_COLOR
+    if (k === 'torso' || k === 'armRight' || k === 'armLeft') return setup.armor_chestplate_color || VANILLA_LEATHER_COLOR
+    return setup.armor_boots_color || VANILLA_LEATHER_COLOR // legRight, legLeft
+  }
+
   return (
     <div
       onMouseMove={e => tooltip.content && setTooltip(t => ({ ...t, x: e.clientX, y: e.clientY }))}
@@ -173,7 +190,7 @@ export default function SkinArmorRender({ skinUrl, setup, accentColor }: {
                   onMouseEnter={e => showTip(armorTip, e)} onMouseLeave={hideTip}
                   style={{ position: 'absolute', left: 0, top: 0, width: 1, height: 1, transformStyle: 'preserve-3d', transform: `translate3d(${part.x * SCALE}px, ${-part.y * SCALE}px, ${part.z * SCALE}px)` }}
                 >
-                  <ArmorLayer part={part} inflate={1.0} color={VANILLA_LEATHER_COLOR} onHover={() => {}} />
+                  <ArmorLayer part={part} inflate={1.0} color={colorForPart(k)} onHover={() => {}} />
                 </div>
               )
             })}
