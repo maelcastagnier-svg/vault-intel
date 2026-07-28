@@ -14,6 +14,34 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Resilience against Crafatar-specific outages (real incident: crafatar.com
+// returned a live 521 the same week SkinArmorRender started depending on it
+// for a WebGL texture instead of a CSS background-image, crashing the whole
+// dashboard on every setup click -- see the SceneErrorBoundary fix). Mojang's
+// own session server is the authoritative source Crafatar itself reads from,
+// confirmed reachable server-side and confirmed to serve the actual texture
+// with permissive CORS (Access-Control-Allow-Origin: *, verified directly)
+// -- a second live source, not a stored copy, so this doesn't touch the
+// still-open question about redistributing Mojang-authored skin assets.
+// Best-effort only: never let a slow/down Mojang API hold up this response,
+// the client already has its own further fallback (local placeholder).
+export async function resolveMojangSkinUrl(uuid: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${uuid}`, {
+      signal: AbortSignal.timeout(3000),
+    })
+    if (!res.ok) return null
+    const profile = await res.json()
+    const texturesProp = (profile?.properties || []).find((p: any) => p.name === 'textures')
+    if (!texturesProp?.value) return null
+    const decoded = JSON.parse(Buffer.from(texturesProp.value, 'base64').toString('utf8'))
+    const url: string | undefined = decoded?.textures?.SKIN?.url
+    return url ? url.replace(/^http:/, 'https:') : null
+  } catch {
+    return null
+  }
+}
+
 export async function GET() {
   const gate = await requirePlan('pro')
   if (!gate.ok) return gate.response
@@ -40,5 +68,6 @@ export async function GET() {
     hypixel_uuid: link.hypixel_uuid,
     profile_id: player?.profile_id || null,
     last_synced: player?.last_synced || null,
+    mojang_skin_url: await resolveMojangSkinUrl(link.hypixel_uuid),
   })
 }

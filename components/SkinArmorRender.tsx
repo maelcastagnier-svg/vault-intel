@@ -32,10 +32,10 @@
 // is now lit (also MeshStandardMaterial, so skin and armor share one coherent
 // lighting model instead of the old mix of unlit skin + manually-shaded armor).
 'use client'
-import { useEffect, useMemo, useState, Suspense, Component, type ReactNode } from 'react'
-import { Canvas, useLoader, useThree, type ThreeEvent } from '@react-three/fiber'
+import { useEffect, useMemo, useState, Component, type ReactNode } from 'react'
+import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
-import { BODY_PARTS, TEXTURE_SIZE, type BodyPart } from '../lib/skin-uv-map'
+import { BODY_PARTS, TEXTURE_SIZE, LOCAL_SKIN_PLACEHOLDER_URL, type BodyPart } from '../lib/skin-uv-map'
 import { st, nm, ar } from '../lib/setup-field-helpers'
 import { rarityColor } from '../lib/rarity-colors'
 
@@ -193,18 +193,64 @@ function CameraTarget() {
   return null
 }
 
-function Scene({ skinUrl, setup, onTooltip }: {
-  skinUrl: string; setup: Record<string, any>
+// Tries each URL in order, stopping at the first that actually loads --
+// resilience against a single source (Crafatar) being down, confirmed live
+// (see the file's earlier crash-fix comment). LOCAL_SKIN_PLACEHOLDER_URL is
+// ALWAYS appended as the final candidate: a same-origin static asset can't
+// fail for network reasons, so this chain always eventually resolves to
+// *something*, never leaving `texture` null in practice.
+//
+// Deliberately not useLoader()/Suspense: R3F's useLoader has no "try the next
+// URL on failure" concept, and a rejected load there throws a promise
+// rejection Suspense doesn't catch -- exactly the crash this whole chain
+// exists to prevent. A plain stateful async effect gives full control over
+// the retry sequence instead.
+function useResilientTexture(urls: string[]): THREE.Texture | null {
+  const key = urls.join('|')
+  const [texture, setTexture] = useState<THREE.Texture | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setTexture(null)
+
+    async function load() {
+      const loader = new THREE.TextureLoader()
+      loader.setCrossOrigin('anonymous')
+      const candidates = [...urls, LOCAL_SKIN_PLACEHOLDER_URL]
+
+      for (const url of candidates) {
+        try {
+          const tex = await loader.loadAsync(url)
+          if (cancelled) return
+          tex.magFilter = THREE.NearestFilter
+          tex.minFilter = THREE.NearestFilter
+          tex.colorSpace = THREE.SRGBColorSpace
+          tex.generateMipmaps = false
+          tex.needsUpdate = true
+          setTexture(tex)
+          return
+        } catch (err) {
+          console.warn('SkinArmorRender: skin source failed, trying next:', url, err)
+        }
+      }
+      // Unreachable in practice -- LOCAL_SKIN_PLACEHOLDER_URL is same-origin
+      // and always in `candidates` -- but if even that fails (a real deploy
+      // bug, not a network blip), leave texture null rather than throw;
+      // Scene skips rendering the skin cuboids in that case.
+    }
+    load()
+
+    return () => { cancelled = true }
+  }, [key])
+
+  return texture
+}
+
+function Scene({ skinUrls, setup, onTooltip }: {
+  skinUrls: string[]; setup: Record<string, any>
   onTooltip: (content: ArmorTooltip, e?: ThreeEvent<PointerEvent>) => void
 }) {
-  const texture = useLoader(THREE.TextureLoader, skinUrl, loader => loader.setCrossOrigin('anonymous'))
-  useEffect(() => {
-    texture.magFilter = THREE.NearestFilter
-    texture.minFilter = THREE.NearestFilter
-    texture.colorSpace = THREE.SRGBColorSpace
-    texture.generateMipmaps = false
-    texture.needsUpdate = true
-  }, [texture])
+  const texture = useResilientTexture(skinUrls)
 
   const hasArmor = !!setup.armor_set
 
@@ -234,7 +280,7 @@ function Scene({ skinUrl, setup, onTooltip }: {
 
   return (
     <group quaternion={RIG_QUATERNION}>
-      {BODY_PARTS.map(part => <SkinCuboid key={part.key} part={part} texture={texture} />)}
+      {texture && BODY_PARTS.map(part => <SkinCuboid key={part.key} part={part} texture={texture} />)}
 
       {/* Armure -- même géométrie d'inflate/couverture que la version CSS (voir
           son commentaire d'origine, toujours vrai ici) : helmet/chestplate/boots
@@ -251,18 +297,19 @@ function Scene({ skinUrl, setup, onTooltip }: {
   )
 }
 
-// The CSS version used background-image, which degrades silently on a failed
-// load -- the browser just shows nothing, no exception. useLoader() here does
-// the opposite: a texture that fails to load (network error, CORS, a down CDN)
-// throws a REJECTED promise during render, which Suspense does NOT catch (it
-// only catches the pending/loading state) -- an uncaught render error with no
-// boundary above it unmounts the entire React tree, not just this component.
-// Found for real, not hypothetically: crafatar.com (the CDN both
-// DEFAULT_SKIN_URL and every real player skin URL depend on) returned a live
-// 521 the same day this was first tested in production, taking the whole
-// dashboard down on every setup click. Any exception in the 3D scene --
-// texture load, WebGL context creation, anything -- degrades to this instead
-// of crashing the page.
+// History: the CSS version used background-image, which degrades silently on
+// a failed load. The first Three.js version used useLoader(), which threw a
+// REJECTED-promise exception straight through render on a failed load --
+// Suspense only catches the pending state, not a rejection -- and with zero
+// Error Boundaries anywhere in this app, that uncaught error unmounted the
+// ENTIRE React tree, not just this component. Found for real in production,
+// not hypothetically: crafatar.com returned a live 521 the same week this
+// shipped, taking the whole dashboard down on every setup click.
+// useResilientTexture() above now handles the texture-load failure case
+// directly (multiple sources, always resolves). This boundary stays as
+// defense in depth for everything else that can still throw in a WebGL
+// scene -- context creation, a future R3F bug, anything -- degrading to a
+// small placeholder instead of crashing the page.
 class SceneErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false }
   static getDerivedStateFromError() { return { hasError: true } }
@@ -283,8 +330,8 @@ class SceneErrorBoundary extends Component<{ children: ReactNode }, { hasError: 
   }
 }
 
-export default function SkinArmorRender({ skinUrl, setup, accentColor }: {
-  skinUrl: string
+export default function SkinArmorRender({ skinUrls, setup, accentColor }: {
+  skinUrls: string[] // tried in order; a local placeholder is always appended internally as the guaranteed-last resort
   setup: Record<string, any>
   accentColor: string
 }) {
@@ -311,9 +358,7 @@ export default function SkinArmorRender({ skinUrl, setup, accentColor }: {
           <ambientLight intensity={0.65} />
           <directionalLight position={[6, 10, 8]} intensity={1.1} />
           <directionalLight position={[-6, -4, -6]} intensity={0.25} />
-          <Suspense fallback={null}>
-            <Scene skinUrl={skinUrl} setup={setup} onTooltip={handleTooltip} />
-          </Suspense>
+          <Scene skinUrls={skinUrls} setup={setup} onTooltip={handleTooltip} />
         </Canvas>
       </SceneErrorBoundary>
 
