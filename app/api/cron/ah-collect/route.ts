@@ -38,12 +38,10 @@ async function fetchAllAuctions(): Promise<{ auctions: any[]; totalPages: number
   return { auctions: all, totalPages: total }
 }
 
-// ── Handler ───────────────────────────────────────────────────
-export async function GET(request: Request) {
-  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+// ── Logique extraite en fonction plain -- même pattern que
+// runAhAggregate() -- pour être appelable directement (import + call) par
+// une route de debug interne, sans passer par CRON_SECRET/HTTP. ──────────
+export async function runAhCollect() {
   // Recalcule a chaque invocation — une instance serverless qui reste chaude
   // (cron toutes les minutes) ne doit jamais figer cette date au cold start,
   // sinon scan_date derive silencieusement vers la veille apres minuit UTC.
@@ -53,7 +51,7 @@ export async function GET(request: Request) {
   const { data: lock } = await supabase
     .from('cron_locks').select('locked_until').eq('job_name', 'ah_collect').single()
   if (lock?.locked_until && new Date(lock.locked_until) > new Date()) {
-    return NextResponse.json({ message: 'Already running' })
+    return { message: 'Already running' }
   }
   await supabase.from('cron_locks').upsert(
     { job_name: 'ah_collect', locked_until: new Date(Date.now() + 120_000).toISOString() },
@@ -214,17 +212,40 @@ export async function GET(request: Request) {
     const baseItemIds = [...new Set(bufferRows.map(r => r.base_item_id))]
     const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0]
 
-    // Uniquement DAILY_EXACT — un flip n'est jamais scoré contre un historique
-    // base/monthly qui mélange des variantes différentes (voir plus bas).
-    const { data: historical } = await supabase
-      .from('price_history_ah')
-      .select('base_item_id, variant_key, avg_price')
-      .in('base_item_id', baseItemIds)
-      .eq('granularity', 'DAILY_EXACT')
-      .gte('bucket_date', sevenDaysAgo)
+    // price_history_ah_variants -- jamais price_history_ah -- un flip n'est
+    // jamais scoré contre un historique base/blended qui mélange des
+    // variantes différentes (voir plus bas). Chaque ligne de cette table EST
+    // déjà l'exact (1 ligne par variant_key par jour), donc pas de filtre
+    // granularity ici -- contrairement à price_history_ah qui distingue
+    // DAILY (blended) d'un ancien DAILY_EXACT jamais réécrit depuis que
+    // price_history_ah_variants existe (bug réel trouvé le 28 juillet :
+    // cette requête ciblait encore price_history_ah + granularity=DAILY_EXACT,
+    // une combinaison que ah-aggregate n'écrit plus du tout depuis sa
+    // reconstruction -- historical restait donc systématiquement vide,
+    // hist_precision toujours "none", et ah_live vidé puis réinséré à 0 ligne
+    // à chaque run, alors que le buffer lui-même se remplissait normalement).
+    // Batché -- un seul .in() avec ~2300+ base_item_id dépasse la limite de
+    // longueur d'URL de PostgREST (requête GET), et l'erreur qui en résulte
+    // n'était jamais vérifiée : `historical` retombait silencieusement à
+    // vide, jamais un throw visible. Bug réel trouvé le 28 juillet en
+    // instrumentant le retour (_debug_historical_rows_fetched restait à 0
+    // malgré 65k lignes réelles dans la table) -- même famille de bug que le
+    // granularity périmé plus haut, cette fois côté requête plutôt que côté
+    // schéma.
+    const historical: { base_item_id: string; variant_key: string; avg_price: number }[] = []
+    for (let i = 0; i < baseItemIds.length; i += 200) {
+      const batch = baseItemIds.slice(i, i + 200)
+      const { data, error } = await supabase
+        .from('price_history_ah_variants')
+        .select('base_item_id, variant_key, avg_price')
+        .in('base_item_id', batch)
+        .gte('bucket_date', sevenDaysAgo)
+      if (error) { console.error('historical fetch batch error', i, error.message); continue }
+      if (data) historical.push(...data)
+    }
 
     const histExact = new Map<string, number[]>()
-    for (const h of historical || []) {
+    for (const h of historical) {
       const k = `${h.base_item_id}::${h.variant_key}`
       if (!histExact.has(k)) histExact.set(k, [])
       histExact.get(k)!.push(Number(h.avg_price))
@@ -386,7 +407,7 @@ export async function GET(request: Request) {
 
     await supabase.from('cron_locks').update({ locked_until: null }).eq('job_name', 'ah_collect')
 
-    return NextResponse.json({
+    return {
       success:              true,
       total_bin:            binAuctions.length,
       total_pages:          totalPages,
@@ -396,10 +417,22 @@ export async function GET(request: Request) {
       relevant_after_filter: relevant.length,
       top_items:            finalItems.length,
       relevance_thresholds: { min_profit_coins: MIN_PROFIT_COINS, min_volume: MIN_VOLUME, precision_required: 'exact' },
-    })
+    }
 
   } catch (error: any) {
     await supabase.from('cron_locks').update({ locked_until: null }).eq('job_name', 'ah_collect')
+    throw error
+  }
+}
+
+// ── Handler ───────────────────────────────────────────────────
+export async function GET(request: Request) {
+  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  try {
+    return NextResponse.json(await runAhCollect())
+  } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
