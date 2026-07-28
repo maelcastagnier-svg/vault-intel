@@ -209,7 +209,7 @@ export function specVariantKeys(spec: GearSpec) {
   return buildVariantKeys(base)
 }
 
-export async function lookupPreciseVariantPrice(itemId: string, keys: { variant_key_full: string; variant_key_base: string }): Promise<{ price: number; precision: 'exact' | 'base' } | null> {
+export async function lookupPreciseVariantPrice(itemId: string, keys: { variant_key_full: string; variant_key_base: string }, spec: GearSpec): Promise<{ price: number; precision: 'exact' | 'base' | 'broad' } | null> {
   const { data: exact } = await supabase.from('price_history_ah_variants')
     .select('avg_price, bucket_date')
     .eq('base_item_id', itemId).eq('variant_key', keys.variant_key_full)
@@ -221,6 +221,33 @@ export async function lookupPreciseVariantPrice(itemId: string, keys: { variant_
     .eq('base_item_id', itemId).eq('variant_key_base', keys.variant_key_base)
     .gt('avg_price', 0).order('bucket_date', { ascending: false }).limit(1).maybeSingle()
   if (baseRow?.avg_price) return { price: Number(baseRow.avg_price), precision: 'base' }
+
+  // Troisième palier, plus large : étoiles+recomb seulement, en ignorant
+  // reforge/ultimate/hot potato. Trouvé en testant en vrai (Infernal Crimson
+  // Helmet) : les VRAIS exemplaires scannés sur l'AH portent quasi toujours
+  // un ultimate enchant (ex "habanero_tactics5", l'ultimate signature du set
+  // Wither) même quand notre spec hypothétique en laisse volontairement
+  // (armor_ultimate_enchant=null pour "la plupart des setups") -- la clé
+  // exacte/base ne matche donc jamais rien pour ce genre d'item, pas par bug
+  // mais parce que ce variant précis n'existe simplement pas en pratique.
+  // Moyenne pondérée par data_points (même logique que price_history_ah_variant_base
+  // lui-même) sur toutes les lignes partageant juste étoiles+recomb.
+  const starStr   = spec.stars > 0 ? `${Math.min(5, spec.stars)}star` : 'nostar'
+  const recombStr = spec.recomb ? 'recomb' : 'norecomb'
+  const { data: broadRows } = await supabase.from('price_history_ah_variant_base')
+    .select('avg_price, data_points')
+    .eq('base_item_id', itemId)
+    .like('variant_key_base', `${starStr}_${recombStr}%`)
+    .gt('avg_price', 0).order('bucket_date', { ascending: false }).limit(20)
+  if (broadRows && broadRows.length > 0) {
+    let weightedSum = 0, weightTotal = 0
+    for (const row of broadRows) {
+      const w = Number(row.data_points) || 1
+      weightedSum += Number(row.avg_price) * w
+      weightTotal += w
+    }
+    if (weightTotal > 0) return { price: weightedSum / weightTotal, precision: 'broad' }
+  }
 
   return null
 }
@@ -256,20 +283,22 @@ async function applyPreciseCost(setup: any, priced: PricedItem[]): Promise<void>
   // vraie valeur `tier` Hypixel via item_stats.rarity, prise sur le premier
   // item matché par slot.
   if (setup.armor_set) {
-    const keys = specVariantKeys(gearSpecFromSetup(setup, 'armor'))
+    const spec = gearSpecFromSetup(setup, 'armor')
+    const keys = specVariantKeys(spec)
     for (const item of bestArmorPiecesForSet(priced, setup.armor_set)) {
       if (!setup.armor_rarity && item.rarity) setup.armor_rarity = item.rarity
-      const precise = await lookupPreciseVariantPrice(item.item_id, keys)
+      const precise = await lookupPreciseVariantPrice(item.item_id, keys, spec)
       addMatch(item, precise?.price ?? item.price, precise?.precision ?? 'blended')
     }
   }
 
   if (setup.weapon_name) {
-    const keys = specVariantKeys(gearSpecFromSetup(setup, 'weapon'))
+    const spec = gearSpecFromSetup(setup, 'weapon')
+    const keys = specVariantKeys(spec)
     for (const item of priced) {
       if (!matchesExact(item.display_name, setup.weapon_name)) continue
       if (!setup.weapon_rarity && item.rarity) setup.weapon_rarity = item.rarity
-      const precise = await lookupPreciseVariantPrice(item.item_id, keys)
+      const precise = await lookupPreciseVariantPrice(item.item_id, keys, spec)
       addMatch(item, precise?.price ?? item.price, precise?.precision ?? 'blended')
     }
   }

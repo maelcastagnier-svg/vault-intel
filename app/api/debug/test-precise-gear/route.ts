@@ -72,14 +72,15 @@ export async function GET() {
   let variantDiagnostic: any = null
   if (setup?.armor_set) {
     const helmetId = 'INFERNAL_CRIMSON_HELMET'
-    const keys = specVariantKeys({
+    const armorSpec = {
       stars: Number(setup.armor_stars) || 0,
       recomb: !!setup.armor_recomb,
       reforge: setup.armor_reforge || null,
       hotPotato: Number(setup.armor_hot_potato_count) || 0,
       ultimateEnchant: null,
-    })
-    const lookup = await lookupPreciseVariantPrice(helmetId, keys)
+    }
+    const keys = specVariantKeys(armorSpec)
+    const lookup = await lookupPreciseVariantPrice(helmetId, keys, armorSpec)
     const { count: exactRowsForItem } = await supabase
       .from('price_history_ah_variants').select('*', { count: 'exact', head: true }).eq('base_item_id', helmetId)
     const { count: baseRowsForItem } = await supabase
