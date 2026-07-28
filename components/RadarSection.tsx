@@ -95,6 +95,7 @@ function ItemExplorer() {
   const [loading,  setLoading]  = useState(false)
   const [showDrop, setShowDrop] = useState(false)
   const [catLoaded,setCatLoaded]= useState(false)
+  const [catStats, setCatStats] = useState({ total: 0, bazaar: 0, ah: 0, variantRows: 0 })
 
   const debounceRef  = useRef<any>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -112,12 +113,18 @@ function ItemExplorer() {
   // Charge le catalogue une seule fois au montage
   useEffect(() => {
     async function loadCatalog() {
-      const { data } = await supabase
-        .from('items_catalog')
-        .select('item_id, item_name, source')
-        .order('item_id')
+      const [{ data }, { count: variantRows }] = await Promise.all([
+        supabase.from('items_catalog').select('item_id, item_name, source').order('item_id'),
+        supabase.from('price_history_ah_variants').select('*', { count: 'exact', head: true }),
+      ])
       if (data) {
         setCatalog(data.map(r => ({ item_id: r.item_id, item_name: r.item_name || toLabel(r.item_id), source: r.source as 'bazaar'|'ah', variant_count: 1 })))
+        setCatStats({
+          total: data.length,
+          bazaar: data.filter(r => r.source === 'bazaar').length,
+          ah: data.filter(r => r.source === 'ah').length,
+          variantRows: variantRows ?? 0,
+        })
         setCatLoaded(true)
       }
     }
@@ -322,7 +329,7 @@ function ItemExplorer() {
   return (
     <div style={{ background:'#0f0f0e', border:'1px solid rgba(201,168,76,0.2)', boxShadow:'0 0 20px rgba(201,168,76,0.06)', borderRadius:12, padding:'20px' }}>
       <div style={{ fontSize:9, color:'#c9a84c', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.03em', marginBottom:14, textShadow:'0 0 10px rgba(201,168,76,0.4)' }}>
-        📊 ITEM EXPLORER — 4781 ITEMS
+        📊 ITEM EXPLORER — {catStats.total || '…'} ITEMS
       </div>
 
       {/* Search */}
@@ -483,7 +490,7 @@ function ItemExplorer() {
         <div style={{ padding:'36px 20px', textAlign:'center' }}>
           <div style={{ fontSize:28,marginBottom:12,opacity:0.15 }}>🔍</div>
           <div style={{ fontSize:11,color:'#3a3a38',fontFamily:'Space Mono, monospace',marginBottom:4 }}>Search any item to view price history</div>
-          <div style={{ fontSize:9.5,color:'#2a2a28',fontFamily:'Space Mono, monospace' }}>2119 Bazaar · 2662 AH · 1429 variants tracked</div>
+          <div style={{ fontSize:9.5,color:'#2a2a28',fontFamily:'Space Mono, monospace' }}>{catStats.bazaar} Bazaar · {catStats.ah} AH · {fmt(catStats.variantRows)} variant price points tracked</div>
         </div>
       )}
       <style>{`@keyframes rp{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.6);opacity:1}}`}</style>
@@ -570,13 +577,18 @@ function IntelligenceVault({ marketData, dataLoading }: { marketData:Record<stri
 
 // ─── Main ─────────────────────────────────────────────────────
 export default function RadarSection({ marketData, dataLoading }: { marketData:Record<string,string>; dataLoading:boolean }) {
+  const [itemCount, setItemCount] = useState<number|null>(null)
+  useEffect(() => {
+    supabase.from('items_catalog').select('*', { count: 'exact', head: true })
+      .then(({ count }) => setItemCount(count ?? null))
+  }, [])
   return (
     <div style={{ display:'flex',flexDirection:'column',gap:16 }}>
       <div style={{ padding:'12px 16px',background:'linear-gradient(135deg,rgba(155,89,182,0.1),rgba(155,89,182,0.03))',border:'1px solid rgba(155,89,182,0.45)',boxShadow:'0 0 20px rgba(155,89,182,0.1)',borderRadius:10,display:'flex',alignItems:'center',gap:12 }}>
         <span style={{ fontSize:20 }}>📡</span>
         <div>
           <div style={{ fontSize:9,fontWeight:700,color:'#9b59b6',fontFamily:"'Press Start 2P', monospace",letterSpacing:'0.04em' }}>MARKET RADAR</div>
-          <div style={{ fontSize:10,color:'#3a3a38',marginTop:2 }}>Price explorer · 4781 items · Bazaar + AH · up to 3 years</div>
+          <div style={{ fontSize:10,color:'#3a3a38',marginTop:2 }}>Price explorer · {itemCount ?? '…'} items · Bazaar + AH · up to 3 years</div>
         </div>
         <div style={{ marginLeft:'auto',fontSize:8.5,color:'#3a3a38',fontFamily:'Space Mono, monospace',textAlign:'right' }}>Daily intelligence<br/>+ live charts</div>
       </div>
