@@ -38,12 +38,10 @@ async function fetchAllAuctions(): Promise<{ auctions: any[]; totalPages: number
   return { auctions: all, totalPages: total }
 }
 
-// ── Handler ───────────────────────────────────────────────────
-export async function GET(request: Request) {
-  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+// ── Logique extraite en fonction plain -- même pattern que
+// runAhAggregate() -- pour être appelable directement (import + call) par
+// une route de debug interne, sans passer par CRON_SECRET/HTTP. ──────────
+export async function runAhCollect() {
   // Recalcule a chaque invocation — une instance serverless qui reste chaude
   // (cron toutes les minutes) ne doit jamais figer cette date au cold start,
   // sinon scan_date derive silencieusement vers la veille apres minuit UTC.
@@ -53,7 +51,7 @@ export async function GET(request: Request) {
   const { data: lock } = await supabase
     .from('cron_locks').select('locked_until').eq('job_name', 'ah_collect').single()
   if (lock?.locked_until && new Date(lock.locked_until) > new Date()) {
-    return NextResponse.json({ message: 'Already running' })
+    return { message: 'Already running' }
   }
   await supabase.from('cron_locks').upsert(
     { job_name: 'ah_collect', locked_until: new Date(Date.now() + 120_000).toISOString() },
@@ -395,7 +393,7 @@ export async function GET(request: Request) {
 
     await supabase.from('cron_locks').update({ locked_until: null }).eq('job_name', 'ah_collect')
 
-    return NextResponse.json({
+    return {
       success:              true,
       total_bin:            binAuctions.length,
       total_pages:          totalPages,
@@ -405,10 +403,22 @@ export async function GET(request: Request) {
       relevant_after_filter: relevant.length,
       top_items:            finalItems.length,
       relevance_thresholds: { min_profit_coins: MIN_PROFIT_COINS, min_volume: MIN_VOLUME, precision_required: 'exact' },
-    })
+    }
 
   } catch (error: any) {
     await supabase.from('cron_locks').update({ locked_until: null }).eq('job_name', 'ah_collect')
+    throw error
+  }
+}
+
+// ── Handler ───────────────────────────────────────────────────
+export async function GET(request: Request) {
+  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  try {
+    return NextResponse.json(await runAhCollect())
+  } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
