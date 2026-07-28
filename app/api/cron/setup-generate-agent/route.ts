@@ -5,7 +5,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { TIER_CONFIG } from '../../../../lib/money-making-constants'
-import { buildVariantKeys, ULTIMATE_ENCHANTS, type DecodedItem } from '../../../../lib/skyblock-item-decoder'
+import { ULTIMATE_ENCHANTS } from '../../../../lib/skyblock-item-decoder'
+import {
+  type PricedItem, loadPricedItems, matchesExact, bestArmorPiecesForSet, formatCoins,
+  ARMOR_COLOR_FIELD, specVariantKeys, lookupPreciseVariantPrice, gearSpecFromSetup,
+} from '../../../../lib/gear-pricing'
 
 export const maxDuration = 120
 
@@ -14,59 +18,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// ── Catalogue d'items réels, prix réels — évite le hallucinated gear ──
-// item_stats = vrais stat blocks Hypixel (item_id/category/health/defense/
-// strength/crit_damage/crit_chance/intelligence/speed), confirmé via
-// skyblock-resources-sync/route.ts. price_history_ah = prix AH réel le plus
-// récent (moyenne toutes variantes, DAILY, __all_variants_blended__).
-// Jointure faite en JS (item_id commun aux deux tables).
-type PricedItem = {
-  item_id: string; display_name: string; category: string; rarity: string | null
-  health: number; defense: number; strength: number
-  crit_damage: number; crit_chance: number; intelligence: number; speed: number
-  price: number
-  default_color: string | null
-}
-
-export async function loadPricedItems(): Promise<PricedItem[]> {
-  const since = new Date(Date.now() - 4 * 86_400_000).toISOString().split('T')[0]
-
-  const [{ data: stats }, { data: prices }] = await Promise.all([
-    supabase.from('item_stats')
-      .select('item_id, display_name, category, rarity, health, defense, strength, crit_damage, crit_chance, intelligence, speed, default_color'),
-    supabase.from('price_history_ah')
-      .select('base_item_id, avg_price, bucket_date')
-      .eq('variant_key', '__all_variants_blended__')
-      .eq('granularity', 'DAILY')
-      .gte('bucket_date', since)
-      .gt('avg_price', 0)
-      .order('bucket_date', { ascending: false }),
-  ])
-
-  // Le prix le plus récent par item (premier vu, puisque trié desc par date)
-  const latestPrice = new Map<string, number>()
-  for (const p of prices || []) {
-    if (!latestPrice.has(p.base_item_id)) latestPrice.set(p.base_item_id, Number(p.avg_price))
-  }
-
-  return (stats || [])
-    .filter(s => latestPrice.has(s.item_id))
-    .map(s => ({
-      item_id:      s.item_id,
-      display_name: s.display_name,
-      category:     s.category || 'OTHER',
-      rarity:       s.rarity || null,
-      health:       s.health       || 0,
-      defense:      s.defense      || 0,
-      strength:     s.strength     || 0,
-      crit_damage:  s.crit_damage  || 0,
-      crit_chance:  s.crit_chance  || 0,
-      intelligence: s.intelligence || 0,
-      speed:        s.speed        || 0,
-      price:        latestPrice.get(s.item_id)!,
-      default_color: s.default_color || null,
-    }))
-}
+export { loadPricedItems, bestArmorPiecesForSet }
 
 // Filtre par bande de budget du tier + score de puissance brut (proxy simple,
 // pas une formule de jeu officielle — sert juste à trier, pas à afficher).
@@ -98,184 +50,6 @@ export function gearCatalogForBudget(priced: PricedItem[], maxGearCost: number):
 
   return '=== REAL GEAR CATALOG (actual traded items, current AH price, filtered to this tier\'s budget, sorted highest price first) ===\n' +
     rows.map(s => `${s.item_id} "${s.display_name}" [${s.category}] price=${Math.round(s.price).toLocaleString()}`).join('\n')
-}
-
-// ── Coût réel calculé en code, jamais laissé à Claude ──────────
-// Testé en vrai (LATE-tier Gemstone Mining) : même avec une règle de prompt
-// explicite demandant de sommer les prix du catalogue, Haiku continue de
-// sortir un chiffre habituel proche de coins_display (ex: "95-110M" alors que
-// Divan's Drill seul vaut 1.86B dans le catalogue montré) — reproduit 2 fois
-// de suite. Un LLM rapide/pas cher ne fait pas fiablement cette arithmétique
-// en texte libre. On calcule donc le coût nous-mêmes après génération, en
-// matchant les noms d'items renvoyés par Claude contre le catalogue prix réel
-// — Claude ne touche plus jamais ce chiffre.
-function normalizeText(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
-}
-
-function significantWords(s: string): string[] {
-  return normalizeText(s).split(' ').filter(w => w.length >= 3)
-}
-
-// weapon_name/tool/rod nomment un item précis -> on exige que TOUS ses mots
-// significatifs apparaissent comme mots entiers dans le texte (pas une
-// sous-chaîne : "Hyper Cleaver" ne doit jamais matcher "Hyperion", "hyper"
-// n'est pas un mot entier de "hyperion").
-function matchesExact(displayName: string, freeText: string): boolean {
-  const words = significantWords(displayName)
-  if (words.length === 0) return false
-  const targetWords = new Set(significantWords(freeText))
-  return words.every(w => targetWords.has(w))
-}
-
-// armor_set nomme le SET, pas la pièce ("Infernal Crimson Armor") -- son mot
-// de type (Helmet/Chestplate/...) est donc censé être absent du texte. On le
-// retire via la vraie `category` de l'item (donnée réelle), jamais en devinant
-// "le dernier mot".
-//
-// Pas un cutoff fixe sur le nombre de mots restants -- testé en vrai et ça
-// casse dans les deux sens : exiger 2+ mots rejette à tort les vrais sets à
-// un seul mot distinctif ("Sorrow Helmet"/"Sorrow Armor", confirmé réel et
-// pricé dans le catalogue, matchedCount tombait à 0) ; n'exiger qu'1 mot fait
-// remonter le faux positif d'origine ("Crimson Helmet" ~4M T1 matchant à tort
-// "Infernal Crimson Armor" T5, la vraie pièce visée étant Infernal Crimson
-// Helmet ~500M). La vraie distinction n'est pas la LONGUEUR du préfixe mais
-// sa SPÉCIFICITÉ relative : par catégorie de pièce, ne garder que le(s)
-// item(s) dont le préfixe est un sous-ensemble de mots du texte ET qui n'a
-// pas de concurrent avec un préfixe plus long/plus spécifique dans la même
-// catégorie -- "Infernal Crimson Helmet" (2 mots) bat "Crimson Helmet"
-// (1 mot) quand les deux matchent le même texte ; "Sorrow Helmet" (1 mot)
-// reste seul candidat pour "Sorrow Armor" et gagne donc par défaut.
-const ARMOR_PIECE_CATEGORIES = new Set(['HELMET', 'CHESTPLATE', 'LEGGINGS', 'BOOTS'])
-const ARMOR_TYPE_WORDS       = new Set(['helmet', 'chestplate', 'leggings', 'boots'])
-
-// item_stats.default_color (real Hypixel-assigned leather dye color, from
-// NEU-REPO's items/{id}.json -- see armor-color-sync) attached per matched
-// piece's real category, not guessed -- null whenever the real matched item
-// isn't LEATHER_* (skull-reskinned helmets, or other-material sets like
-// Revenant Armor's diamond_chestplate base), which the renderer already
-// falls back to the vanilla placeholder color for.
-const ARMOR_COLOR_FIELD: Record<string, string> = {
-  HELMET:     'armor_helmet_color',
-  CHESTPLATE: 'armor_chestplate_color',
-  LEGGINGS:   'armor_leggings_color',
-  BOOTS:      'armor_boots_color',
-}
-
-function armorPiecePrefixWords(item: PricedItem): string[] {
-  return significantWords(item.display_name).filter(w => !ARMOR_TYPE_WORDS.has(w))
-}
-
-// Retourne, pour chaque catégorie de pièce (HELMET/CHESTPLATE/LEGGINGS/BOOTS),
-// le meilleur item candidat pour armorSetText -- ou rien si aucun ne matche.
-export function bestArmorPiecesForSet(priced: PricedItem[], armorSetText: string): PricedItem[] {
-  const targetWords = new Set(significantWords(armorSetText))
-  const bestByCategory = new Map<string, { item: PricedItem; specificity: number }>()
-
-  for (const item of priced) {
-    if (!ARMOR_PIECE_CATEGORIES.has(item.category)) continue
-    const words = armorPiecePrefixWords(item)
-    if (words.length === 0) continue
-    if (!words.every(w => targetWords.has(w))) continue
-
-    const current = bestByCategory.get(item.category)
-    if (!current || words.length > current.specificity) {
-      bestByCategory.set(item.category, { item, specificity: words.length })
-    }
-  }
-
-  return Array.from(bestByCategory.values()).map(v => v.item)
-}
-
-function formatCoins(n: number): string {
-  if (n >= 1_000_000_000) {
-    const b = n / 1_000_000_000
-    return (b >= 10 ? b.toFixed(0) : b.toFixed(1).replace(/\.0$/, '')) + 'B'
-  }
-  return Math.round(n / 1_000_000) + 'M'
-}
-
-// ── Prix précis par variante exacte ────────────────────────────
-// Money Making recommande une pièce PRÉCISE (étoiles/reforge/hot potato/
-// ultimate enchant choisis par Claude et justifiés dans le prompt), pas un
-// exemplaire scanné réel — il n'y a donc pas de vrai blob NBT à décoder.
-// On construit quand même la MÊME clé de variante qu'un item scanné aurait
-// (buildVariantKeys, importée du décodeur AH — jamais réimplémentée en
-// parallèle, pour ne jamais diverger de la logique déjà validée sur les
-// vraies données) et on la requête contre price_history_ah_variants (prix
-// exact) puis price_history_ah_variant_base (prix du groupe base, un cran
-// moins précis) — jamais un prix inventé, toujours une vraie ligne AH ou
-// le prix blended du catalogue en dernier recours.
-type GearSpec = { stars: number; recomb: boolean; reforge: string | null; hotPotato: number; ultimateEnchant: string | null }
-
-export function specVariantKeys(spec: GearSpec) {
-  const base: Omit<DecodedItem, 'variant_key_full' | 'variant_key_base'> = {
-    item_id: '', item_name: '', item_uuid: null, item_origin: null, item_skin: null,
-    total_stars: Math.max(0, Math.min(5, spec.stars || 0)), master_stars: 0,
-    is_recomb: !!spec.recomb,
-    hot_potato_count: spec.hotPotato || 0, art_of_war_count: 0, art_of_peace_count: 0,
-    wood_singularity: 0, transmitted_count: 0, mana_disintegrator: 0, silex_applied: false,
-    reforge: spec.reforge ? spec.reforge.toLowerCase() : null,
-    enchantments: {}, ultimate_enchant: spec.ultimateEnchant, ultimate_level: spec.ultimateEnchant ? 1 : null,
-    gems: {}, gems_summary: '',
-    attributes: {}, attribute_1: null, attribute_1_level: null, attribute_2: null, attribute_2_level: null,
-    has_dye: false, dye_item: null, item_count: 1,
-  }
-  return buildVariantKeys(base)
-}
-
-export async function lookupPreciseVariantPrice(itemId: string, keys: { variant_key_full: string; variant_key_base: string }, spec: GearSpec): Promise<{ price: number; precision: 'exact' | 'base' | 'broad' } | null> {
-  const { data: exact } = await supabase.from('price_history_ah_variants')
-    .select('avg_price, bucket_date')
-    .eq('base_item_id', itemId).eq('variant_key', keys.variant_key_full)
-    .gt('avg_price', 0).order('bucket_date', { ascending: false }).limit(1).maybeSingle()
-  if (exact?.avg_price) return { price: Number(exact.avg_price), precision: 'exact' }
-
-  const { data: baseRow } = await supabase.from('price_history_ah_variant_base')
-    .select('avg_price, bucket_date')
-    .eq('base_item_id', itemId).eq('variant_key_base', keys.variant_key_base)
-    .gt('avg_price', 0).order('bucket_date', { ascending: false }).limit(1).maybeSingle()
-  if (baseRow?.avg_price) return { price: Number(baseRow.avg_price), precision: 'base' }
-
-  // Troisième palier, plus large : étoiles+recomb seulement, en ignorant
-  // reforge/ultimate/hot potato. Trouvé en testant en vrai (Infernal Crimson
-  // Helmet) : les VRAIS exemplaires scannés sur l'AH portent quasi toujours
-  // un ultimate enchant (ex "habanero_tactics5", l'ultimate signature du set
-  // Wither) même quand notre spec hypothétique en laisse volontairement
-  // (armor_ultimate_enchant=null pour "la plupart des setups") -- la clé
-  // exacte/base ne matche donc jamais rien pour ce genre d'item, pas par bug
-  // mais parce que ce variant précis n'existe simplement pas en pratique.
-  // Moyenne pondérée par data_points (même logique que price_history_ah_variant_base
-  // lui-même) sur toutes les lignes partageant juste étoiles+recomb.
-  const starStr   = spec.stars > 0 ? `${Math.min(5, spec.stars)}star` : 'nostar'
-  const recombStr = spec.recomb ? 'recomb' : 'norecomb'
-  const { data: broadRows } = await supabase.from('price_history_ah_variant_base')
-    .select('avg_price, data_points')
-    .eq('base_item_id', itemId)
-    .like('variant_key_base', `${starStr}_${recombStr}%`)
-    .gt('avg_price', 0).order('bucket_date', { ascending: false }).limit(20)
-  if (broadRows && broadRows.length > 0) {
-    let weightedSum = 0, weightTotal = 0
-    for (const row of broadRows) {
-      const w = Number(row.data_points) || 1
-      weightedSum += Number(row.avg_price) * w
-      weightTotal += w
-    }
-    if (weightTotal > 0) return { price: weightedSum / weightTotal, precision: 'broad' }
-  }
-
-  return null
-}
-
-function gearSpecFromSetup(setup: any, prefix: 'armor' | 'weapon'): GearSpec {
-  const ultimateRaw = setup[`${prefix}_ultimate_enchant`]
-  return {
-    stars:           Number(setup[`${prefix}_stars`]) || 0,
-    recomb:          !!setup[`${prefix}_recomb`],
-    reforge:         typeof setup[`${prefix}_reforge`] === 'string' ? setup[`${prefix}_reforge`] : null,
-    hotPotato:       Number(setup[`${prefix}_hot_potato_count`]) || 0,
-    ultimateEnchant: ULTIMATE_ENCHANTS.has(ultimateRaw) ? ultimateRaw : null,
-  }
 }
 
 // Calcule et écrase cost_budget/cost_optimal/cost_endgame en code, jamais

@@ -12,6 +12,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { TIER_CONFIG, GAME_TRUTHS } from '../../../../lib/money-making-constants'
+import { ULTIMATE_ENCHANTS } from '../../../../lib/skyblock-item-decoder'
+import { loadPricedItems, gearCatalogForBudget } from '../setup-generate-agent/route'
+import { buildCurrentSetup, buildTargetSetup } from '../../../../lib/skill-setup-adapter'
 
 export const maxDuration = 300
 
@@ -35,6 +38,8 @@ const SKILL_CARDS = [
 ] as const
 
 const SLAYER_BOSSES = ['zombie', 'spider', 'wolf', 'enderman', 'blaze', 'vampire'] as const
+
+const ULTIMATE_ENCHANT_LIST = Array.from(ULTIMATE_ENCHANTS).join(', ')
 
 function describeItem(item: any): string {
   if (!item) return ''
@@ -82,7 +87,7 @@ function collectOwnedButUnequipped(player: any): string {
 }
 
 // ── Formate l'état d'un joueur pour le prompt ───────────────────
-function formatPlayerContext(player: any, library: string): string {
+function formatPlayerContext(player: any, library: string, gearCatalog: string, reforgesText: string): string {
   const armor = Object.entries(player.equipped_armor || {})
     .map(([slot, item]: [string, any]) => `${slot}: ${describeItem(item) || 'empty'}`)
     .join('\n') || 'None equipped'
@@ -145,6 +150,11 @@ ${topCollections}
 
 === VALIDATED GENERAL METHOD LIBRARY FOR THEIR TIER (inspiration/reference only — never copy a coins/h number as-is, re-derive it from THIS player's real setup) ===
 ${library}
+
+${gearCatalog}
+
+=== REAL REFORGES (copy armor_reforge verbatim from this list, exact spelling — never invent one) ===
+${reforgesText}
 `
 }
 
@@ -194,6 +204,23 @@ Mark "confidence": "LOW" whenever a coins/h estimate has no verified internal st
 (e.g. tool speed/fortune stats aren't in our database) — say so honestly rather than presenting a
 guess as precise fact.
 
+=== TARGET ARMOR SPEC — precise, matched against the real gear catalog ===
+Whenever the target involves wearing specific armor (most cards do — combat/dungeoneering/slayer
+always; farming/mining/foraging/fishing/alchemy/enchanting whenever a coherent armor upgrade is
+part of reaching the target), name a PRECISE, JUSTIFIED spec, not just a set name:
+- armor_set MUST be picked from the REAL GEAR CATALOG in the player context when a matching set
+  exists there for this tier's budget — never invent a set the catalog doesn't have, never suggest
+  one priced far outside this tier's real budget band.
+- armor_reforge MUST be copied verbatim (exact spelling) from the REAL REFORGES list in the player
+  context — never invent a reforge name, never leave it as a vague rarity word like "Epic".
+- armor_ultimate_enchant MUST be exactly one of: ${ULTIMATE_ENCHANT_LIST} — or null if none fits.
+  Only set one when it clearly serves this system's target stat; most targets should leave this null.
+- armor_hot_potato_count: 0, 5, or 10 — 10 only when this tier's budget genuinely supports it.
+- If target.type is "free_swap", name the exact already-owned piece from the OWNED BUT NOT CURRENTLY
+  EQUIPPED list (same real item, not a different recommendation) so the render matches what they
+  already have. If target.type is "unlock_access" and no coherent armor target exists yet, leave
+  armor_set null rather than inventing one.
+
 === OUTPUT — strict JSON only ===
 {
   "summary": "1-2 sentences on this player's overall Skills situation",
@@ -216,7 +243,13 @@ guess as precise fact.
         "requirements": ["..."],
         "budget_estimate": 0,
         "expected_coins_display": "...",
-        "reasoning": "..."
+        "reasoning": "...",
+        "armor_set": "Name or null",
+        "armor_stars": 5,
+        "armor_recomb": true,
+        "armor_reforge": "exact reforge_name or null",
+        "armor_hot_potato_count": 0,
+        "armor_ultimate_enchant": null
       }
     }
   ]
@@ -248,13 +281,26 @@ export async function runEvolveSkills(filterProfileIds?: string[]) {
     } catch { /* section malformed, skip */ }
   }
 
+  // Catalogue de gear réel + reforges réels — même source que setup-generate-agent
+  // (jamais réimplémentée en parallèle), pour que le spec d'armure du "target" soit
+  // matchable contre de vrais items pricés plutôt qu'un nom halluciné.
+  const [pricedItems, { data: fullContext }] = await Promise.all([
+    loadPricedItems(),
+    supabase.rpc('get_full_context'),
+  ])
+  const reforgesText = ((fullContext?.reforges || []) as any[])
+    .map(r => `${r.reforge_name}(${r.item_types}):${JSON.stringify(r.stats)}`)
+    .join(' | ') || 'No reforge data available'
+
   const system = buildSystemPrompt()
 
   const results = await Promise.all(
     players.map(async (player: any) => {
       const tier = String(player.game_stage || 'early').toLowerCase()
       const library = libraryByTier[tier] || 'No general library available for this tier yet'
-      const context = formatPlayerContext(player, library)
+      const tierConfig = TIER_CONFIG[tier as keyof typeof TIER_CONFIG]
+      const gearCatalog = tierConfig ? gearCatalogForBudget(pricedItems, tierConfig.max_gear_cost) : ''
+      const context = formatPlayerContext(player, library, gearCatalog, reforgesText)
 
       try {
         const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -281,6 +327,26 @@ export async function runEvolveSkills(filterProfileIds?: string[]) {
       }
     })
   )
+
+  // Attache render_setup (shape attendue par SkinArmorRender.tsx, voir
+  // lib/skill-setup-adapter.ts) à chaque current/target -- current vient des
+  // vraies données déjà décodées (identique pour toutes les cartes d'un même
+  // joueur, jamais recalculé par carte), target vient du spec précis que
+  // Claude vient de nommer pour CETTE carte spécifiquement.
+  for (const r of results) {
+    if ('error' in r) continue
+    const { setup: currentSetup } = await buildCurrentSetup(r.player.equipped_armor)
+
+    const attachRenderSetups = (card: any) => {
+      if (card.current) card.current.render_setup = currentSetup
+      if (card.target) card.target.render_setup = buildTargetSetup(card.target, pricedItems).setup
+    }
+
+    for (const card of (r.data?.cards || [])) {
+      attachRenderSetups(card)
+      for (const boss of (card.bosses || [])) attachRenderSetups(boss)
+    }
+  }
 
   let saved = 0
   for (const r of results) {
