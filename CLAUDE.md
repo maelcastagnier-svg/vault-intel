@@ -20,6 +20,59 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Skin + armure réels dans SetupOverlay (Money Making) — testé en prod (28 juillet)
+
+Remplace la grille d'inventaire à icônes emoji de `SetupOverlay.tsx` par le vrai skin 
+Minecraft du joueur rendu en cuboïdes CSS 3D (`components/SkinArmorRender.tsx`, pas de 
+WebGL/skinview3d), avec l'armure équipée en couches gonflées par-dessus, hover = tooltip 
+avec les vraies stats du setup généré. Nouveau `lib/skin-uv-map.ts` (format UV skin 
+Minecraft standard 64×64, format public, pas un asset Mojang copyrighté).
+
+**Proportions et géométrie d'armure vérifiées contre le vrai modèle Mojang**, pas 
+approximées — plusieurs passes de correction avec l'utilisateur avant validation :
+- Dimensions du modèle (tête 8×8×8, torse 8×12×4, bras/jambes 4×12×4 chacun) correctes 
+  dès le départ, confirmées par recherche web.
+- Bug de projection trouvé : `perspective` CSS (un vrai point de fuite) faussait les 
+  pièces excentrées (bras en parallélogramme) et écrasait les proportions selon la 
+  profondeur. Une vraie vue isométrique n'a pas de point de fuite — `perspective` retiré 
+  entièrement (garde `preserve-3d`/`rotateX`/`rotateY`/`translateZ`, devient orthographique).
+- Géométrie d'armure incomplète : le plastron ne couvrait jamais les bras, les jambes 
+  étaient coupées en haut/bas (legging vs boots) sur une proportion inventée. Vérifié 
+  contre le vrai split Mojang outer_armor/inner_armor : casque+plastron+bottes partagent 
+  le modèle "outer" (inflate 1.0) sur tête/torse+bras/jambes ; le legging utilise "inner" 
+  (inflate 0.5) sur les MÊMES parties du corps — comme outer > inner sur la même boîte, 
+  la couche legging est toujours entièrement invisible sous un plastron+bottes portés 
+  (vrai en jeu aussi). Une seule couche outer (1.0) par partie couverte, jambe entière.
+- Item tenu en main (arme/outil visible dans la main) tenté sur 2 passes de positionnement 
+  sans jamais retomber juste (aucun outil pour vérifier visuellement le rendu CSS 3D) — 
+  abandonné à la demande de l'utilisateur, pas assez de valeur pour continuer à itérer à 
+  l'aveugle. weapon_name/tool/rod/stats/ability affichés en texte simple dans SetupOverlay 
+  à la place, pour ne pas perdre l'info.
+- Vérification visuelle faite via un Artifact autonome répliquant exactement la même 
+  logique de transform (CSP de l'Artifact bloque les images distantes — skin inliné en 
+  data URI pour un vrai test de texture, crafatar.com étant tombé en 521 au moment du test, 
+  contourné via le CDN de textures Mojang directement, même source que Crafatar utilise).
+
+**`app/api/player/status/route.ts`** renvoie maintenant aussi `hypixel_uuid` (déjà 
+sélectionné en base mais jamais renvoyé) pour que `SetupOverlay` puisse construire 
+l'URL du skin réel du joueur connecté ; fallback sur le skin Steve par défaut si aucun 
+compte Hypixel lié. Armure toujours en overlay teinté stylisé, jamais de vraie texture 
+Mojang/Hypixel (même limite légale que la grille emoji qu'elle remplace).
+
+**Testé end-to-end sur preview avant merge, avec un vrai compte et un vrai setup 
+généré** (pas juste relecture de code) : compte Vault jetable créé + plan Pro inséré 
+en base (contourne Stripe pour le test, même pattern que les comptes jetables déjà 
+utilisés cette semaine) + lié à un vrai compte Hypixel (CUCUMBER, résolution Mojang 
+réelle) → UUID réel `cec3ccc8-b31d-4cae-862f-6841a35e9686` → URL skin réelle 
+`crafatar.com/skins/cec3ccc8-...`. Setup LATE Gemstone Mining regénéré via le pipeline 
+groundé actuel : `armor_set: "Infernal Crimson"`, `weapon_name: "Hyperion"`, 
+`tool: "Divan's Drill + ..."`, `cost_optimal: "~4.8B (6 items matched)"` — cohérent 
+avec la validation du chantier grounding précédent. Contenu du tooltip d'armure dérivé 
+du même objet setup : `title: "Infernal Crimson ✪✪✪✪✪"`, 
+`lines: ["HP 2100+ | DEF 2200+ | STR 500+ | CD 150%+", "Set bonus: +50% Mining Speed in Crystal Hollows"]` 
+— tracé directement depuis `armor_stats`/`armor_bonus`, rien d'inventé. Compte jetable 
+et son lien Hypixel supprimés en fin de test (route de debug supprimée après validation).
+
 ## ✅ setup-generate-agent — grounding sur données réelles, testé en prod (28 juillet)
 
 Remplace la dépendance à la mémoire brute de Haiku pour nommer du gear précis — 
