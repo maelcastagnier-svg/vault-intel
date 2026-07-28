@@ -322,9 +322,12 @@ async function applyPreciseCost(setup: any, priced: PricedItem[]): Promise<void>
   }
 
   if (matchedIds.size === 0) return
-  const exactCount = matched.filter(m => m.precision === 'exact').length
+  const exactCount  = matched.filter(m => m.precision === 'exact').length
+  const baseCount   = matched.filter(m => m.precision === 'base').length
+  const broadCount  = matched.filter(m => m.precision === 'broad').length
+  const preciseCount = exactCount + baseCount + broadCount // toutes des vraies lignes AH, pas le blended
   setup.cost_budget  = `~${formatCoins(total * 0.75)} — cheaper rolls of the same real gear (fewer stars, no recomb)`
-  setup.cost_optimal = `~${formatCoins(total)} — real AH price of the exact spec (${matchedIds.size} item${matchedIds.size > 1 ? 's' : ''} matched, ${exactCount} exact variant${exactCount === 1 ? '' : 's'})`
+  setup.cost_optimal = `~${formatCoins(total)} — real AH price of the named spec (${matchedIds.size} item${matchedIds.size > 1 ? 's' : ''} matched, ${preciseCount} from real variant data${exactCount ? `, ${exactCount} exact` : ''})`
   setup.cost_endgame = `~${formatCoins(total * 1.4)} — recombobulated/5★ premium rolls of the same gear`
 }
 
