@@ -224,14 +224,28 @@ export async function runAhCollect() {
     // reconstruction -- historical restait donc systématiquement vide,
     // hist_precision toujours "none", et ah_live vidé puis réinséré à 0 ligne
     // à chaque run, alors que le buffer lui-même se remplissait normalement).
-    const { data: historical } = await supabase
-      .from('price_history_ah_variants')
-      .select('base_item_id, variant_key, avg_price')
-      .in('base_item_id', baseItemIds)
-      .gte('bucket_date', sevenDaysAgo)
+    // Batché -- un seul .in() avec ~2300+ base_item_id dépasse la limite de
+    // longueur d'URL de PostgREST (requête GET), et l'erreur qui en résulte
+    // n'était jamais vérifiée : `historical` retombait silencieusement à
+    // vide, jamais un throw visible. Bug réel trouvé le 28 juillet en
+    // instrumentant le retour (_debug_historical_rows_fetched restait à 0
+    // malgré 65k lignes réelles dans la table) -- même famille de bug que le
+    // granularity périmé plus haut, cette fois côté requête plutôt que côté
+    // schéma.
+    const historical: { base_item_id: string; variant_key: string; avg_price: number }[] = []
+    for (let i = 0; i < baseItemIds.length; i += 200) {
+      const batch = baseItemIds.slice(i, i + 200)
+      const { data, error } = await supabase
+        .from('price_history_ah_variants')
+        .select('base_item_id, variant_key, avg_price')
+        .in('base_item_id', batch)
+        .gte('bucket_date', sevenDaysAgo)
+      if (error) { console.error('historical fetch batch error', i, error.message); continue }
+      if (data) historical.push(...data)
+    }
 
     const histExact = new Map<string, number[]>()
-    for (const h of historical || []) {
+    for (const h of historical) {
       const k = `${h.base_item_id}::${h.variant_key}`
       if (!histExact.has(k)) histExact.set(k, [])
       histExact.get(k)!.push(Number(h.avg_price))
