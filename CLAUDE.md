@@ -113,11 +113,46 @@ navigateur). Revalidé : `65 168` lignes réelles → `"65.2K variant price poin
 `"1475 Bazaar · 3738 AH"`, `"5213 ITEMS"`. Compte test Elite jetable créé (résolution 
 `getUserPlan()` confirmée à `elite`, tab Radar bien atteignable), supprimé après test.
 
-**Reste à faire, dans l'ordre validé** : Patch Analysis — étendre le prompt/
-schéma pour couvrir l'impact mécanique/gameplay, pas seulement économique ; nettoyage 
-(`debug-boss-kills` mal placé dans `app/api/cron/`, `refresh-variant-stats`/
-`backfill-variant-stats` à évaluer — probablement des reliquats d'une architecture 
-legacy jamais nettoyés).
+**✅ Patch Analysis — impact mécanique/gameplay, testé en prod avec de vrais appels 
+Sonnet+Haiku** : le prompt de `patch-analysis-agent` était 100% focalisé économique 
+("Focus only on changes that affect item prices or money-making methods"), zéro 
+couverture des mécaniques générales (drop rates, XP, comportement des mobs, mécaniques 
+donjon/slayer, mouvement, rythme de progression). `LIVE_PROMPT` (Sonnet) et 
+`ALPHA_PROMPT` (Haiku) demandent maintenant une seconde dimension séparée 
+(`mechanics`/`gameplay`), explicitement instruits de ne jamais forcer un angle gameplay 
+sur un patch qui n'en a pas. Deux nouvelles colonnes `insight_patch` : 
+`mechanics_impact` (texte, résumé 1 phrase) et `gameplay_changes` (jsonb, tableau 
+`{system, change, significance}` — même forme que `items_affected`/`methods_affected` 
+existants, pas un nouveau pattern inventé). Migration manuelle exécutée par 
+l'utilisateur avant test (`ALTER TABLE insight_patch ADD COLUMN IF NOT EXISTS 
+mechanics_impact text, ADD COLUMN IF NOT EXISTS gameplay_changes jsonb DEFAULT 
+'[]'::jsonb`). `runPatchAnalysisAgent()` extraite en fonction plain (même pattern que 
+`runAhCollect()`/`runAhAggregate()`) pour test direct par route de debug.
+
+Validé en conditions réelles (2 runs, vrais appels API, vraies écritures DB) : 
+`"[July 23] Healing Revamp Hotfixes"` → Berserk reverti heal-on-hit + dégâts 
+multiplicatifs, dégâts Goldor/Dropship corrigés (tous `MAJOR`) ; `"[July 13]"` → 
+Chapitre VII Lotus Atoll verrouillé Expert, 4 slots Stat Tuning ajoutés ; côté alpha, 
+`"Torrhus Canyon... Sparkling Critters"` → conditionnel correctement formulé (`"IF 
+live: Safari Zone gains new rare encounter mechanic..."`). Garde-fou "ne pas forcer" 
+confirmé : `"[July 3]"` et `"0.26.1 Release Candidate"` ont bien `mechanics_impact: 
+null`/`gameplay_changes: []`. Gating revérifié sur un vrai compte Alert jetable : 
+`filterPatchInsight` transmet les nouveaux champs pour Alert+, les exclut pour Free 
+(`free_user_leaks_gameplay_fields: false`) — aucune modification nécessaire à 
+`lib/gate-content.ts`, la règle existante (row entière pour non-Free) couvrait déjà ce 
+cas. `PatchSection.tsx` : nouvelle section "🎮 Gameplay Impact" dans le Deep Dive modal 
+(même layout que Methods Affected) + indicateur discret sur la carte compacte.
+
+**Trouvé en testant, non lié à ce changement, pas touché** : `insight_patch` a déjà une 
+colonne `gameplay_impact` orpheline (toujours `null`, zéro référence dans tout le repo) 
+— probablement un reliquat d'une tentative antérieure jamais câblée. Ajouté à la liste 
+de nettoyage ci-dessous plutôt que fusionné avec `mechanics_impact` maintenant (éviter 
+d'ajouter une migration/re-test supplémentaire à un chantier déjà validé).
+
+**Reste à faire** : nettoyage (`debug-boss-kills` mal placé dans `app/api/cron/`, 
+`refresh-variant-stats`/`backfill-variant-stats` à évaluer — probablement des reliquats 
+d'une architecture legacy jamais nettoyés ; `insight_patch.gameplay_impact`, colonne 
+orpheline découverte ci-dessus, à supprimer ou fusionner avec `mechanics_impact`).
 
 ## ✅ Gear précis+justifié, pricing par variante exacte, rareté réelle, tooltips arme/outil/canne — testé en prod (28 juillet)
 
