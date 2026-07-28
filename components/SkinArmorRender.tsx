@@ -32,7 +32,7 @@
 // is now lit (also MeshStandardMaterial, so skin and armor share one coherent
 // lighting model instead of the old mix of unlit skin + manually-shaded armor).
 'use client'
-import { useEffect, useMemo, useState, Suspense } from 'react'
+import { useEffect, useMemo, useState, Suspense, Component, type ReactNode } from 'react'
 import { Canvas, useLoader, useThree, type ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
 import { BODY_PARTS, TEXTURE_SIZE, type BodyPart } from '../lib/skin-uv-map'
@@ -251,6 +251,38 @@ function Scene({ skinUrl, setup, onTooltip }: {
   )
 }
 
+// The CSS version used background-image, which degrades silently on a failed
+// load -- the browser just shows nothing, no exception. useLoader() here does
+// the opposite: a texture that fails to load (network error, CORS, a down CDN)
+// throws a REJECTED promise during render, which Suspense does NOT catch (it
+// only catches the pending/loading state) -- an uncaught render error with no
+// boundary above it unmounts the entire React tree, not just this component.
+// Found for real, not hypothetically: crafatar.com (the CDN both
+// DEFAULT_SKIN_URL and every real player skin URL depend on) returned a live
+// 521 the same day this was first tested in production, taking the whole
+// dashboard down on every setup click. Any exception in the 3D scene --
+// texture load, WebGL context creation, anything -- degrades to this instead
+// of crashing the page.
+class SceneErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false }
+  static getDerivedStateFromError() { return { hasError: true } }
+  componentDidCatch(error: unknown) {
+    console.error('SkinArmorRender: 3D scene failed, showing fallback instead of crashing the page:', error)
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', textAlign: 'center', padding: 16 }}>
+          <span style={{ fontSize: 10, color: '#4a4a45', fontFamily: 'Space Mono, monospace' }}>
+            3D preview unavailable right now
+          </span>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export default function SkinArmorRender({ skinUrl, setup, accentColor }: {
   skinUrl: string
   setup: Record<string, any>
@@ -268,20 +300,22 @@ export default function SkinArmorRender({ skinUrl, setup, accentColor }: {
       onMouseMove={e => tooltip.content && setTooltip(t => ({ ...t, x: e.clientX, y: e.clientY }))}
       style={{ position: 'relative', width: '100%', height: 260 }}
     >
-      <Canvas
-        orthographic
-        camera={{ position: [0, 16, 100], zoom: 6, near: 0.1, far: 1000 }}
-        gl={{ antialias: true, alpha: true }}
-        dpr={[1, 2]}
-      >
-        <CameraTarget />
-        <ambientLight intensity={0.65} />
-        <directionalLight position={[6, 10, 8]} intensity={1.1} />
-        <directionalLight position={[-6, -4, -6]} intensity={0.25} />
-        <Suspense fallback={null}>
-          <Scene skinUrl={skinUrl} setup={setup} onTooltip={handleTooltip} />
-        </Suspense>
-      </Canvas>
+      <SceneErrorBoundary>
+        <Canvas
+          orthographic
+          camera={{ position: [0, 16, 100], zoom: 6, near: 0.1, far: 1000 }}
+          gl={{ antialias: true, alpha: true }}
+          dpr={[1, 2]}
+        >
+          <CameraTarget />
+          <ambientLight intensity={0.65} />
+          <directionalLight position={[6, 10, 8]} intensity={1.1} />
+          <directionalLight position={[-6, -4, -6]} intensity={0.25} />
+          <Suspense fallback={null}>
+            <Scene skinUrl={skinUrl} setup={setup} onTooltip={handleTooltip} />
+          </Suspense>
+        </Canvas>
+      </SceneErrorBoundary>
 
       {tooltip.content && (() => {
         const c = tooltip.content
