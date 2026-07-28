@@ -33,7 +33,7 @@
 // lighting model instead of the old mix of unlit skin + manually-shaded armor).
 'use client'
 import { useEffect, useMemo, useState, Suspense } from 'react'
-import { Canvas, useLoader, type ThreeEvent } from '@react-three/fiber'
+import { Canvas, useLoader, useThree, type ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
 import { BODY_PARTS, TEXTURE_SIZE, type BodyPart } from '../lib/skin-uv-map'
 import { st, nm, ar } from '../lib/setup-field-helpers'
@@ -184,6 +184,15 @@ const RIG_QUATERNION = new THREE.Quaternion().setFromRotationMatrix(
     .multiply(new THREE.Matrix4().makeRotationY(THREE.MathUtils.degToRad(-38))) // CSS rotateY(-38deg), unchanged
 )
 
+// R3F's default camera does auto-lookAt(0,0,0), but the character spans
+// y:0 (feet) to y:32 (head top) -- explicit and independent of that default
+// so the character is reliably centered instead of trusting an assumption.
+function CameraTarget() {
+  const { camera } = useThree()
+  useEffect(() => { camera.lookAt(0, 16, 0) }, [camera])
+  return null
+}
+
 function Scene({ skinUrl, setup, onTooltip }: {
   skinUrl: string; setup: Record<string, any>
   onTooltip: (content: ArmorTooltip, e?: ThreeEvent<PointerEvent>) => void
@@ -261,10 +270,11 @@ export default function SkinArmorRender({ skinUrl, setup, accentColor }: {
     >
       <Canvas
         orthographic
-        camera={{ position: [0, 15, 100], zoom: 6, near: 0.1, far: 1000 }}
+        camera={{ position: [0, 16, 100], zoom: 6, near: 0.1, far: 1000 }}
         gl={{ antialias: true, alpha: true }}
         dpr={[1, 2]}
       >
+        <CameraTarget />
         <ambientLight intensity={0.65} />
         <directionalLight position={[6, 10, 8]} intensity={1.1} />
         <directionalLight position={[-6, -4, -6]} intensity={0.25} />
