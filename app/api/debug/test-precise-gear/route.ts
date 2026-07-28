@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
   loadPricedItems, gearCatalogForBudget, buildWikiContext, GROUNDING_RULES,
-  generateOne, methodKey,
+  generateOne, methodKey, specVariantKeys, lookupPreciseVariantPrice,
 } from '../../cron/setup-generate-agent/route'
 import { TIER_CONFIG } from '../../../../lib/money-making-constants'
 import { syncItemStats } from '../../cron/skyblock-resources-sync/route'
@@ -65,7 +65,40 @@ export async function GET() {
   const { data: allReforgeNames } = await supabase.from('reforges').select('reforge_name').limit(400)
   const distinctReforgeNames = Array.from(new Set((allReforgeNames || []).map((r: any) => r.reforge_name)))
 
+  // Diagnostic direct : pour la pièce armor du setup généré, combien de
+  // lignes existent en base pour ce base_item_id (tous variant_key
+  // confondus), et le lookup précis trouve-t-il quoi que ce soit (exact,
+  // base, ou rien) ?
+  let variantDiagnostic: any = null
+  if (setup?.armor_set) {
+    const helmetId = 'INFERNAL_CRIMSON_HELMET'
+    const keys = specVariantKeys({
+      stars: Number(setup.armor_stars) || 0,
+      recomb: !!setup.armor_recomb,
+      reforge: setup.armor_reforge || null,
+      hotPotato: Number(setup.armor_hot_potato_count) || 0,
+      ultimateEnchant: null,
+    })
+    const lookup = await lookupPreciseVariantPrice(helmetId, keys)
+    const { count: exactRowsForItem } = await supabase
+      .from('price_history_ah_variants').select('*', { count: 'exact', head: true }).eq('base_item_id', helmetId)
+    const { count: baseRowsForItem } = await supabase
+      .from('price_history_ah_variant_base').select('*', { count: 'exact', head: true }).eq('base_item_id', helmetId)
+    const { data: sampleExactKeys } = await supabase
+      .from('price_history_ah_variants').select('variant_key, avg_price, bucket_date').eq('base_item_id', helmetId)
+      .order('bucket_date', { ascending: false }).limit(10)
+    variantDiagnostic = {
+      tested_item: helmetId,
+      computed_keys: keys,
+      lookup_result: lookup,
+      total_variant_rows_for_this_item_ever: exactRowsForItem,
+      total_base_rows_for_this_item_ever: baseRowsForItem,
+      most_recent_real_variant_keys_seen: sampleExactKeys,
+    }
+  }
+
   return NextResponse.json({
+    variant_diagnostic: variantDiagnostic,
     item_stats_resync: syncResult,
     method_chosen: { id: method.id, method: method.method },
     generation_ok: ok,

@@ -193,7 +193,7 @@ function formatCoins(n: number): string {
 // le prix blended du catalogue en dernier recours.
 type GearSpec = { stars: number; recomb: boolean; reforge: string | null; hotPotato: number; ultimateEnchant: string | null }
 
-function specVariantKeys(spec: GearSpec) {
+export function specVariantKeys(spec: GearSpec) {
   const base: Omit<DecodedItem, 'variant_key_full' | 'variant_key_base'> = {
     item_id: '', item_name: '', item_uuid: null, item_origin: null, item_skin: null,
     total_stars: Math.max(0, Math.min(5, spec.stars || 0)), master_stars: 0,
@@ -209,7 +209,7 @@ function specVariantKeys(spec: GearSpec) {
   return buildVariantKeys(base)
 }
 
-async function lookupPreciseVariantPrice(itemId: string, keys: { variant_key_full: string; variant_key_base: string }): Promise<{ price: number; precision: 'exact' | 'base' } | null> {
+export async function lookupPreciseVariantPrice(itemId: string, keys: { variant_key_full: string; variant_key_base: string }): Promise<{ price: number; precision: 'exact' | 'base' } | null> {
   const { data: exact } = await supabase.from('price_history_ah_variants')
     .select('avg_price, bucket_date')
     .eq('base_item_id', itemId).eq('variant_key', keys.variant_key_full)
