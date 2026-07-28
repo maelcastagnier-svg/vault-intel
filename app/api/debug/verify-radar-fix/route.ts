@@ -5,6 +5,7 @@ const supabaseService = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, proc
 const supabaseAnon = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
 const TEST_EMAIL = 'mael.castagnier+radartest@gmail.com'
+const TEST_PASSWORD = 'VaultRadarTest2026!'
 
 // Même logique que fmt() dans RadarSection.tsx, pour reproduire le texte exact affiché
 function fmt(n: number) {
@@ -23,6 +24,13 @@ export async function GET() {
     .eq('email', TEST_EMAIL)
     .single()
   const resolvedPlan = (sub?.status === 'active' && ['alert', 'pro', 'elite'].includes(sub.plan)) ? sub.plan : 'free'
+
+  // price_history_ah_variants est une des 5 tables gated par has_plan() (audit sécurité
+  // du 23 juillet) -- un client anon SANS session authentifiée s'y voit toujours retourner
+  // 0 lignes. RadarSection.tsx tourne dans le navigateur d'un utilisateur réellement connecté
+  // (JWT attaché automatiquement), donc pour reproduire fidèlement ce qu'il verrait, on se
+  // connecte réellement comme le compte de test avant de lancer les mêmes requêtes.
+  const { error: signInErr } = await supabaseAnon.auth.signInWithPassword({ email: TEST_EMAIL, password: TEST_PASSWORD })
 
   // 2. Reproduit exactement les requêtes anon de RadarSection.tsx pour obtenir
   //    les vrais chiffres qui s'afficheraient dans le composant.
@@ -49,6 +57,7 @@ export async function GET() {
       item_explorer_header: `📊 ITEM EXPLORER — ${total || '…'} ITEMS`,
       empty_state_line: `${bazaar} Bazaar · ${ah} AH · ${fmt(variantRows ?? 0)} variant price points tracked`,
     },
+    _debug_signin_error: signInErr?.message || null,
     _debug_variant_rows_raw: variantRows,
     _debug_variant_error: variantErr?.message || null,
   })
