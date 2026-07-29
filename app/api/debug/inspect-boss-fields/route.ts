@@ -2,7 +2,7 @@
 // endpoint player/sync already uses) and searches it for any key whose
 // name suggests boss kills (Kuudra/Arachne/Ender Dragon), rather than
 // trusting a remembered field path. Zero Claude cost -- Hypixel API only.
-// Deleted after use.
+// Deleted after use. (forcing a fresh build to pick up the refreshed key)
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
