@@ -19,6 +19,41 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Boss kills (Kuudra/Arachne/Ender Dragon) — 1re zone du chantier collecte totale
+// repris. Structure vérifiée sur un vrai profil (Cucumber) avant codage, jamais
+// devinée. Exportée en fonction pure (même member déjà décodé, zéro appel réseau
+// propre) pour être testable directement sans passer par le handler GET complet
+// (qui chaîne runEvolveSkills, un vrai coût Sonnet, après chaque sync réussi).
+// - member.nether_island_player_data.kuudra_completed_tiers est un objet PLAT
+//   mélangeant deux familles de clés pour les tiers réellement tentés : le nom du
+//   tier lui-même ("none") = nombre de complétions, et "highest_wave_<tier>" = la
+//   meilleure vague atteinte dans ce tier (stat de progression, pas une complétion).
+//   Séparées ici plutôt que stockées telles quelles pour ne pas mélanger les deux
+//   sens dans une même clé.
+// - member.objectives.defeat_arachne_keeper est un objet quête standard
+//   {status, progress, completed_at} — "COMPLETE" (confirmé par le vrai statut brut
+//   Hypixel, pas deviné) avec completed_at>0 = Arachne vaincue.
+// - member.player_stats.end_island.dragon_fight.fastest_kill n'a PAS de compteur de
+//   kills réel — seulement un meilleur temps par variante de dragon (young/strong/
+//   etc). La présence d'une entrée pour une variante = au moins un kill de cette
+//   variante ; jamais transformé en un total inventé.
+export function extractBossKills(member: any) {
+  const kuudraRaw = member.nether_island_player_data?.kuudra_completed_tiers || {}
+  const kuudraCompletedTiers: Record<string, number> = {}
+  const kuudraHighestWave: Record<string, number> = {}
+  for (const [key, value] of Object.entries(kuudraRaw as Record<string, number>)) {
+    if (key.startsWith('highest_wave_')) kuudraHighestWave[key.replace('highest_wave_', '')] = value
+    else kuudraCompletedTiers[key] = value
+  }
+  const arachneObjective = member.objectives?.defeat_arachne_keeper
+  const dragonFastestKill: Record<string, number> = member.player_stats?.end_island?.dragon_fight?.fastest_kill || {}
+  return {
+    kuudra: { completed_tiers: kuudraCompletedTiers, highest_wave: kuudraHighestWave },
+    arachne: { defeated: !!arachneObjective && arachneObjective.status === 'COMPLETE', completed_at: arachneObjective?.completed_at ?? 0 },
+    ender_dragon: { killed_types: Object.keys(dragonFastestKill), fastest_kill_ms: dragonFastestKill },
+  }
+}
+
 const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -334,6 +369,10 @@ export async function GET(req: NextRequest) {
       pickaxe_ability: member.mining_core?.selected_pickaxe_ability ?? null,
     }
 
+    // 5d. Boss kills (Kuudra/Arachne/Ender Dragon) — voir extractBossKills en tête de
+    // fichier pour la justification de chaque champ.
+    const bossKills = extractBossKills(member)
+
     // 6. Collections
     const collections: Record<string, number> = member.collection || {}
 
@@ -498,6 +537,7 @@ export async function GET(req: NextRequest) {
       skills:            skillLevels,
       slayers,
       dungeons,
+      boss_kills:        bossKills,
       collections,
       pets,
       inventory_summary: inventorySummary,

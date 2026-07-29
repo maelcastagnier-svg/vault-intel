@@ -1,0 +1,11 @@
+-- Adds player_data.boss_kills -- first zone of the resumed "collecte totale"
+-- initiative (Kuudra/Arachne/Ender Dragon). Run manually in the Supabase SQL
+-- editor, same workflow as every prior migration in this project.
+--
+-- Shape written by app/api/player/sync/route.ts:
+-- {
+--   "kuudra": { "completed_tiers": {"none": 1}, "highest_wave": {"none": 10} },
+--   "arachne": { "defeated": false, "completed_at": 0 },
+--   "ender_dragon": { "killed_types": ["young","strong"], "fastest_kill_ms": {"young": 10850, "strong": 23550} }
+-- }
+ALTER TABLE player_data ADD COLUMN IF NOT EXISTS boss_kills jsonb DEFAULT '{}'::jsonb;
