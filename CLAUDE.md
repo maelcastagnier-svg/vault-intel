@@ -22,6 +22,61 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Chantier collecte totale repris — Phase 2 zone 1 : Boss kills (Kuudra/Arachne/Ender Dragon) (29 juillet)
+
+Reprise du chantier "collecte totale" (Phase 1 — infra + classes de donjon — terminée 
+le 23 juillet, Phase 2 jamais commencée jusqu'ici). Même méthode que le chantier NBT : 
+structure brute Hypixel vérifiée sur un vrai profil (Cucumber) avant tout codage, jamais 
+devinée depuis la mémoire ni depuis les types d'une lib tierce (`hypixel-api-reborn` 
+n'est en fait pas une dépendance de ce projet — vérifié, `player/sync` fait des `fetch()` 
+directs vers `api.hypixel.net`).
+
+**Zéro coût API Claude sur toute cette zone** — confirmé avant de commencer 
+(`player/sync/route.ts` ne contient aucun appel Anthropic) et respecté tout du long : 
+`extractBossKills(member)` extraite en fonction pure exportée (même `member` déjà 
+récupéré, zéro appel réseau propre) pour être testable directement sans jamais passer 
+par le handler `GET` complet, qui chaîne `runEvolveSkills` (un vrai coût Sonnet) après 
+chaque sync réussi — piège identifié avant de tester, pas découvert après coup.
+
+**Structure réelle vérifiée en direct sur Cucumber, deux bugs trouvés en testant** :
+- `HYPIXEL_API_KEY` à nouveau expirée (même clé de dev à renouvellement périodique déjà 
+  documentée) — rechargée par l'utilisateur, mais le déploiement preview existant avait 
+  l'ancienne clé figée au build ; a fallu forcer un nouveau build pour la voir passer.
+- Bug trouvé dans ma propre route de diagnostic : `profiles[0]` pris à l'aveugle au lieu 
+  de matcher le vrai `profile_id` de Cucumber — elle a 2 profils sous le même compte 
+  Hypixel (Voxui09, partagé avec Orange). `member` est indexé par l'UUID **sans tirets**, 
+  pas la forme avec tirets utilisée partout ailleurs — retrouvé en lisant le code déjà 
+  fonctionnel de `player/sync` plutôt qu'en devinant.
+
+**Kuudra** — `member.nether_island_player_data.kuudra_completed_tiers` est un objet PLAT 
+mélangeant deux familles de clés pour les tiers réellement tentés : le nom du tier 
+lui-même (`"none"`) = nombre de complétions, `"highest_wave_<tier>"` = meilleure vague 
+atteinte dans ce tier (stat de progression, pas une complétion). Séparées en 
+`completed_tiers`/`highest_wave` pour ne jamais mélanger les deux sens sous une même clé.
+
+**Arachne** — `member.objectives.defeat_arachne_keeper` est un objet quête standard 
+`{status, progress, completed_at}` — `status === 'COMPLETE'` avec `completed_at > 0` = 
+Arachne vaincue (Cucumber : `status: "ACTIVE"`, pas encore vaincue).
+
+**Ender Dragon** — `member.player_stats.end_island.dragon_fight.fastest_kill` n'a **pas** 
+de compteur de kills réel, seulement un meilleur temps par variante (`young`, `strong`, 
+etc). La présence d'une entrée pour une variante = au moins un kill de cette variante, 
+jamais transformé en total inventé. **Bug réel trouvé en testant** : cet objet contient 
+aussi une clé `"best"` (record toutes variantes confondues — sa valeur était identique à 
+celle de `"young"`, confirmant que ce n'est pas une variante réelle) — exclue 
+explicitement pour ne jamais gonfler `killed_types` d'un faux type de dragon.
+
+**Nouvelle colonne `player_data.boss_kills`** (jsonb, `add_boss_kills_column.sql`, 
+migration manuelle exécutée par l'utilisateur). Validé en écriture réelle sur Cucumber 
+(`persisted: true`) : `{"kuudra":{"completed_tiers":{"none":1},"highest_wave":{"none":10}},
+"arachne":{"defeated":false,"completed_at":0},"ender_dragon":{"killed_types":["young",
+"strong"],"fastest_kill_ms":{"young":10850,"strong":23550}}}` — correspond exactement 
+aux valeurs brutes Hypixel inspectées en direct.
+
+**Prochaine zone** : Tier de banque, puis Essence (8 boutiques), Minions, Bestiary, Rift, 
+puis le reste (dojo/harp/abiphone/community shop/festivals) — même méthode, zone par 
+zone, structure brute vérifiée avant chaque mapping.
+
 ## ✅ Phase 1 — base de connaissances jeu partagée (activity_gear_categories + progression_tiers) — mergée et testée complètement (29 juillet)
 
 Premier étage d'une architecture proposée pour éliminer la dépendance à la "mémoire" 
@@ -1128,8 +1183,9 @@ maintenant.
   cohérent avec 220 runs Catacombs), `archer` 158 641, `tank` 53 541, `mage` 42 470, 
   `healer` 21 165.
 
-**Prochaine étape** : Phase 2 (Boss kills — Kuudra tiers, Arachne, Dragons de l'End). 
-Pas commencé — structure brute à vérifier sur un vrai profil avant codage.
+**✅ Phase 2, zone 1 (Boss kills — Kuudra tiers, Arachne, Dragons de l'End) — terminée et 
+validée le 29 juillet**, voir la section dédiée tout en haut de ce document. Prochaine 
+zone : Tier de banque, Essence, Minions, Bestiary, Rift, puis le reste.
 
 ## Evolve — état réel (mis à jour session du 22 juillet, source de vérité actuelle)
 
@@ -1570,7 +1626,13 @@ en actualisant ce document en conséquence.
    de se traduire silencieusement en 404 "No matching Skyblock profile found" — c'est 
    exactement comme ça que la panne Phase 2 était passée inaperçue jusqu'à l'audit manuel. 
    Phase 0 (infra) et Phase 1 (Classes de donjon) du chantier collecte totale restent 
-   terminées et validées ; Phase 2 (Boss kills) peut reprendre.
+   terminées et validées ; Phase 2 (Boss kills) a repris et sa première zone est 
+   terminée (29 juillet, voir section dédiée en haut de ce document). **Expirée une 
+   deuxième fois le 29 juillet, rechargée à nouveau** — confirme le rythme périodique, 
+   pas un incident isolé. Piège additionnel trouvé ce jour-là : un déploiement preview 
+   déjà construit garde l'ancienne clé figée au build, un simple redéploiement de la 
+   prod ne suffit pas à la propager aux previews existants — il faut un nouveau build 
+   sur la branche concernée.
 2. Étendre la couverture `data_available:true` de Milestones/Daily Missions au fur et à 
    mesure que le chantier collecte totale avance (essence, musée, minions, accessoires 
    précis...) — les 12 catégories `uncollected` ajoutées le 23 juillet passeront à 
