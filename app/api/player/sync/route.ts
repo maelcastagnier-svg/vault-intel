@@ -59,6 +59,23 @@ export function extractEssence(member: any) {
   return result
 }
 
+// Minions — 5e zone du chantier collecte totale. Structure vérifiée sur Cucumber :
+// member.player_data.crafted_generators est un array réel de strings "TYPE_TIER"
+// (ex "COBBLESTONE_7", "MITHRIL_2") — confirmé sur 2 coéquipiers du même profil coop
+// (128 et 46 entrées). PAS partagé au niveau du profil comme la banque : chaque
+// membre a sa propre liste, contrairement à l'hypothèse initiale de cette recherche.
+// Piège évité en vérifiant en direct : le champ est absent (pas juste vide) sur le
+// membre correctement résolu de Cucumber (via son vrai hypixel_uuid) — cohérent avec
+// l'absence totale de l'objectif craft_wheat_minion sur son membre alors qu'il est
+// présent (COMPLETE) chez un coéquipier. Résultat réel, pas un bug : Cucumber n'a
+// jamais crafté de minion. `|| []` retombe donc légitimement sur un array vide pour
+// elle plutôt que d'aller chercher (à tort) la donnée d'un autre membre du coop.
+export function extractMinions(member: any) {
+  return {
+    crafted_generators: (member.player_data?.crafted_generators || []) as string[],
+  }
+}
+
 const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -381,6 +398,9 @@ export async function GET(req: NextRequest) {
     // 5f. Essence — voir extractEssence en tête de fichier pour la justification.
     const essence = extractEssence(member)
 
+    // 5g. Minions — voir extractMinions en tête de fichier pour la justification.
+    const minions = extractMinions(member)
+
     // 6. Collections
     const collections: Record<string, number> = member.collection || {}
 
@@ -543,6 +563,7 @@ export async function GET(req: NextRequest) {
       bank_tier:          bankFastTravel.bank_tier,
       fast_travel_zones:  bankFastTravel.fast_travel_zones,
       essence,
+      crafted_generators: minions.crafted_generators,
       networth,
       networth_breakdown: networthBreakdown,
       skills:            skillLevels,
