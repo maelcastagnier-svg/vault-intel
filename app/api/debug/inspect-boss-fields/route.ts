@@ -53,8 +53,9 @@ export async function GET() {
   }
 
   const profiles = profileData.profiles || []
-  const member = profiles[0]?.members?.[uuid]
-  if (!member) return NextResponse.json({ error: 'No member data found', profileCount: profiles.length })
+  const profile = profiles.find((p: any) => p.profile_id === CUCUMBER_PROFILE_ID) || profiles[0]
+  const member = profile?.members?.[uuid]
+  if (!member) return NextResponse.json({ error: 'No member data found', profileCount: profiles.length, profileIds: profiles.map((p: any) => p.profile_id) })
 
   const results: { path: string; value: any }[] = []
   findMatchingPaths(member, '', results)
