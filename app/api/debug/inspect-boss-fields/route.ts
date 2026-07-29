@@ -54,8 +54,10 @@ export async function GET() {
 
   const profiles = profileData.profiles || []
   const profile = profiles.find((p: any) => p.profile_id === CUCUMBER_PROFILE_ID) || profiles[0]
-  const member = profile?.members?.[uuid]
-  if (!member) return NextResponse.json({ error: 'No member data found', profileCount: profiles.length, profileIds: profiles.map((p: any) => p.profile_id) })
+  // Real gotcha, confirmed against the production sync route: profile.members
+  // is keyed by the UNDASHED uuid, not the dashed form used everywhere else.
+  const member = profile?.members?.[uuid.replace(/-/g, '')]
+  if (!member) return NextResponse.json({ error: 'No member data found', profileCount: profiles.length, profileIds: profiles.map((p: any) => p.profile_id), memberKeys: Object.keys(profile?.members || {}) })
 
   const results: { path: string; value: any }[] = []
   findMatchingPaths(member, '', results)
