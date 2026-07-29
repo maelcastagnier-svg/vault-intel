@@ -94,6 +94,24 @@ export function extractBestiary(member: any) {
   }
 }
 
+// Rift — 7e zone du chantier collecte totale. Structure vérifiée sur Cucumber :
+// member.rift existe avec 11 sous-systèmes réels (village_plaza, wither_cage,
+// black_lagoon, dead_cats, wizard_tower, enigma, gallery, west_village, wyld_woods,
+// castle, dreadfarm) — mais TOUS vides sur son profil, et member.currencies.motes
+// (la monnaie Rift) est carrément absent. Cohérent avec le reste de son profil
+// (jamais crafté de minion) : elle n'a quasiment jamais engagé le Rift. Seul
+// `access.charge_track_timestamp` porte une vraie valeur. Faute de donnée réelle
+// non-vide pour vérifier la forme des sous-systèmes (village_plaza.murder/cowboy/
+// seraphine etc., wyld_woods, castle...), volontairement PAS mappés cette passe —
+// pas deviné pour gagner du temps, à revisiter avec un profil réellement engagé
+// dans le Rift. `rift_motes` suit le même pattern déjà validé que `essence`
+// (member.currencies.<type>.current), 0 par défaut si le champ est absent.
+export function extractRift(member: any) {
+  return {
+    rift_motes: member.currencies?.motes?.current ?? 0,
+  }
+}
+
 const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -422,6 +440,9 @@ export async function GET(req: NextRequest) {
     // 5h. Bestiary — voir extractBestiary en tête de fichier pour la justification.
     const bestiary = extractBestiary(member)
 
+    // 5i. Rift — voir extractRift en tête de fichier pour la justification.
+    const rift = extractRift(member)
+
     // 6. Collections
     const collections: Record<string, number> = member.collection || {}
 
@@ -587,6 +608,7 @@ export async function GET(req: NextRequest) {
       crafted_generators: minions.crafted_generators,
       bestiary_kills:     bestiary.bestiary_kills,
       bestiary_milestone: bestiary.bestiary_milestone,
+      rift_motes:         rift.rift_motes,
       networth,
       networth_breakdown: networthBreakdown,
       skills:            skillLevels,
