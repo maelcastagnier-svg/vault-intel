@@ -1213,8 +1213,45 @@ réellement engagé dans le Rift. `extractRift(member)` mappe uniquement `rift_m
 l'absence du champ. Migration `add_rift_motes_column.sql` appliquée via MCP, testé en 
 direct : `rift_motes: 0`, `persisted: true`.
 
-**Prochaine étape** : Phase 8 (Long tail misc — dojo/harp/abiphone/community shop/
-festivals). Pas commencé — structure brute à vérifier sur un vrai profil avant codage.
+**✅ Phase 8 — Long tail (Dojo/Harp/Abiphone/Community/Festivals) — TERMINÉ (mapping 
+partiel honnête) et validé sur Cucumber (29 juillet)** : dernière zone nommée de la 
+liste d'origine, chaque sous-champ vérifié individuellement, mappé seulement quand une 
+vraie donnée non-nulle en confirme la forme :
+- **Dojo** : aucun bloc de stats dédié n'existe sur son profil 
+  (`nether_island_player_data.dojo` absent) — seul le statut de la quête d'unlock 
+  (`quests.quest_data.dojo`, `{status:"ACTIVE", progress:0, completed_at:0}`) est réel 
+  et mappé.
+- **Harp** : `foraging.songs.harp` confirmé exister mais vide — structure confirmée, 
+  aucun contenu réel à mapper au-delà.
+- **Abiphone** : donnée réelle et riche — `active_contacts` (4 contacts débloqués : 
+  dean/elle/captain_ahone/igrupan) + stats d'appel par contact, mappés tels quels.
+- **"Community shop"** : aucun champ littéralement nommé ainsi n'existe. Le vrai 
+  système équivalent trouvé est `profile.community_upgrades` (Community Center — 
+  partagé au niveau du profil coop comme la banque, pas un "shop") : 12 upgrades réels 
+  (island_size/minion_slots/coins_allowance/guests_count) avec tier/date/claimant. 
+  Documenté comme la correspondance la plus proche du terme demandé plutôt que 
+  d'inventer un système inexistant.
+- **Festivals** : `player_stats.candy_collected` a de la vraie donnée Spooky Festival 
+  (4 instances réelles). Mining Fiesta / Fishing Festival / Jacob's Farming Contest 
+  (les 3 autres catégories déjà notées dans `sblevel_tasks`) n'apparaissent sous aucun 
+  champ contenant "festival" — non mappés, à reprendre avec un profil qui y a 
+  participé plutôt que deviné.
+
+`extractLongTail(member, profile)` — première fonction de zone à prendre `profile` en 
+plus de `member` (nécessaire pour `community_upgrades`, partagé au niveau profil). 
+Migration `add_longtail_columns.sql` appliquée via MCP, testé en direct : toutes les 
+valeurs extraites identiques à l'inspection brute, `persisted: true`.
+
+**Chantier collecte totale — les 8 zones nommées de la liste d'origine sont maintenant 
+toutes traitées** (Phase 0 infra → Classes de donjon → Boss kills → Banque/Fast Travel → 
+Essence → Minions → Bestiary → Rift → Long tail). Statut de fusion réel à date : 
+Phase 0/1 mergées sur master ; Boss kills sur `feat/collecte-totale-boss-kills` (pas 
+encore mergée) ; Banque/Fast Travel/Essence/Minions/Bestiary/Rift/Long tail toutes sur 
+cette même branche `feat/collecte-totale-bank-fasttravel` (pas encore mergée non plus). 
+Fusion à décider avec l'utilisateur, pas faite unilatéralement. Champs volontairement 
+non mappés cette passe (à traiter zone par zone si besoin réel émerge) : `deaths` 
+(Bestiary), les sous-systèmes Rift (village_plaza/wyld_woods/castle/etc., vides sur le 
+seul profil de test disponible), Mining Fiesta/Fishing Festival/Jacob's Farming Contest.
 
 ## Evolve — état réel (mis à jour session du 22 juillet, source de vérité actuelle)
 
