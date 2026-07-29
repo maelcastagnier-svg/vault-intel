@@ -1174,7 +1174,32 @@ lieu de fournir un fichier `.sql` à coller manuellement ; les migrations plus s
 (DROP, changement de type sur une table déjà peuplée, etc.) restent soumises à validation 
 avant exécution.
 
-**Prochaine étape** : Phase 5 (Minions). Pas commencé — structure brute à vérifier sur un 
+**✅ Phase 5 — Minions — TERMINÉ et validé sur Cucumber (29 juillet)** : 
+`extractMinions(member)` lit `member.player_data.crafted_generators`, un array réel de 
+strings `"TYPE_TIER"` (ex `"COBBLESTONE_7"`, `"MITHRIL_2"`) — confirmé **par membre**, 
+pas partagé au niveau du profil comme la banque (deux coéquipiers du même profil coop 
+ont des listes différentes de 128 et 46 entrées). Résultat réel trouvé en vérifiant, pas 
+un bug : le champ est absent (pas juste vide) sur le membre correctement résolu de 
+Cucumber — cohérent avec l'absence totale de l'objectif `craft_wheat_minion` sur son 
+membre alors qu'il est présent et `COMPLETE` chez un coéquipier. Elle n'a jamais crafté 
+de minion ; `|| []` retombe honnêtement sur un array vide plutôt que d'aller chercher 
+(à tort) la donnée d'un autre membre du coop — même garde-fou que Banque/Fast Travel. 
+Migration `add_crafted_generators_column.sql` appliquée via MCP, testé en direct : 
+`crafted_generators: []`, `persisted: true`.
+
+**✅ Phase 6 — Bestiary — TERMINÉ et validé sur Cucumber (29 juillet)** : 
+`extractBestiary(member)` lit `member.bestiary = {miscellaneous, kills, milestone, 
+deaths}`. `kills` est un objet réel mob_id+tier → compteur (252 entrées sur Cucumber, 
+ex `"graveyard_zombie_1": 240`), stocké tel quel (pass-through, inclut la clé annexe 
+`last_killed_mob`, cohérent avec le format brut Hypixel). `milestone.
+last_claimed_milestone` (71) est le vrai palier de progression Bestiary du jeu. `deaths` 
+repéré dans la même structure mais volontairement non mappé cette passe — aucune feature 
+Vault existante ne le consomme, même logique de report que `visited_modes`/les objectifs 
+warp individuels notés dans les zones précédentes. Migration `add_bestiary_columns.sql` 
+appliquée via MCP, testé en direct : `bestiary_milestone: 71`, 252 kills, 
+`persisted: true`.
+
+**Prochaine étape** : Phase 7 (Rift). Pas commencé — structure brute à vérifier sur un 
 vrai profil avant codage.
 
 ## Evolve — état réel (mis à jour session du 22 juillet, source de vérité actuelle)
