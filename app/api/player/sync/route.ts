@@ -112,6 +112,40 @@ export function extractRift(member: any) {
   }
 }
 
+// Long tail (Dojo/Harp/Abiphone/Community/Festivals) — 8e et dernière zone nommée du
+// chantier collecte totale. Chaque sous-champ vérifié individuellement sur Cucumber,
+// mappé seulement si une vraie donnée non-nulle existe pour confirmer la forme :
+// - Dojo : member.nether_island_player_data.dojo (un bloc de stats dédié) est ABSENT
+//   sur son profil — seul le statut de la quête d'unlock existe
+//   (nether_island_player_data.quests.quest_data.dojo, {status/progress/completed_at}).
+//   Rien d'autre trouvé à mapper cette passe.
+// - Harp : member.foraging.songs.harp confirmé exister mais vide ({}) — aucune chanson
+//   débloquée/jouée par Cucumber. Structure confirmée, contenu réel absent.
+// - Abiphone : member.nether_island_player_data.abiphone — donnée réelle et riche.
+//   `active_contacts` (array de contacts débloqués) + `contact_data` (stats d'appel
+//   par contact) mappés tels quels.
+// - "Community shop" : aucun champ littéralement nommé ainsi n'existe. Le vrai système
+//   équivalent trouvé est `profile.community_upgrades` (Community Center — partagé au
+//   niveau du profil coop, pas "shop", comme la banque) : `upgrade_states`, un array
+//   réel d'upgrades (island_size/minion_slots/coins_allowance/guests_count) avec
+//   tier/started_ms/claimed_by. Documenté comme la correspondance la plus proche du
+//   terme "community shop" plutôt que d'inventer un système qui n'existe pas.
+// - Festivals : member.player_stats.candy_collected.<festival_instance_id> — données
+//   réelles pour Spooky Festival uniquement (4 instances trouvées sur Cucumber). Mining
+//   Fiesta / Fishing Festival / Jacob Farming Contest (les 3 autres event categories
+//   déjà notées dans sblevel_tasks) n'apparaissent sous AUCUN champ contenant
+//   "festival" dans cette recherche — pas mappés, à revisiter avec un vrai profil qui y
+//   a participé plutôt que deviné.
+export function extractLongTail(member: any, profile: any) {
+  return {
+    dojo_status: member.nether_island_player_data?.quests?.quest_data?.dojo ?? null,
+    harp_songs: (member.foraging?.songs?.harp || {}) as Record<string, any>,
+    abiphone_contacts: (member.nether_island_player_data?.abiphone?.active_contacts || []) as string[],
+    community_upgrades: (profile.community_upgrades?.upgrade_states || []) as any[],
+    festival_candy: (member.player_stats?.candy_collected || {}) as Record<string, any>,
+  }
+}
+
 const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -443,6 +477,9 @@ export async function GET(req: NextRequest) {
     // 5i. Rift — voir extractRift en tête de fichier pour la justification.
     const rift = extractRift(member)
 
+    // 5j. Long tail (Dojo/Harp/Abiphone/Community/Festivals) — voir extractLongTail.
+    const longTail = extractLongTail(member, profile)
+
     // 6. Collections
     const collections: Record<string, number> = member.collection || {}
 
@@ -609,6 +646,11 @@ export async function GET(req: NextRequest) {
       bestiary_kills:     bestiary.bestiary_kills,
       bestiary_milestone: bestiary.bestiary_milestone,
       rift_motes:         rift.rift_motes,
+      dojo_status:        longTail.dojo_status,
+      harp_songs:         longTail.harp_songs,
+      abiphone_contacts:  longTail.abiphone_contacts,
+      community_upgrades: longTail.community_upgrades,
+      festival_candy:     longTail.festival_candy,
       networth,
       networth_breakdown: networthBreakdown,
       skills:            skillLevels,
