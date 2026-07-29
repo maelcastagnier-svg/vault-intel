@@ -22,7 +22,7 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
-## 🟡 Phase 1 — base de connaissances jeu partagée (activity_gear_categories + progression_tiers) — mergée, validation partielle (29 juillet)
+## ✅ Phase 1 — base de connaissances jeu partagée (activity_gear_categories + progression_tiers) — mergée et testée complètement (29 juillet)
 
 Premier étage d'une architecture proposée pour éliminer la dépendance à la "mémoire" 
 du LLM sur la hiérarchie/catégorisation d'équipement et les seuils de progression — 
@@ -73,17 +73,21 @@ mais bloquants pour la valider** :
    vide — trouvé en direct (un raté transitoire faisait lire "aucun slot dédié" à 
    chaque activité, `gear_name` retombait à `null` partout sans aucun signal).
 
-**⚠️ Statut de vérification — honnête, pas encore complet.** Orange (profil réel, vide) 
-validé : 0 violation de catégorie sur les 2 items de sa dernière génération réussie 
-(`Worn Huntaxe - Genesis` → `AXE` → foraging, `Basic Fishing Net` → `FISHING_NET` → 
-fishing, les deux corrects). Cucumber (le profil le plus chargé en gear, le test le plus 
-exigeant pour un bug classe Ragnarok Axe) et l'échantillon Money Making n'ont pas pu être 
-vérifiés jusqu'au bout — le compte Anthropic est tombé à court de crédit en cours de 
-route (confirmé via le vrai corps d'erreur API, pas un bug de code). Mergé quand même sur 
-instruction explicite : le filtre catégorie est du code déterministe sans dépendance API, 
-et le résultat propre d'Orange est une vraie preuve positive. **Reste à faire dès que le 
-crédit est rechargé** : re-tester Cucumber en entier, vérifier l'échantillon Money Making 
-(zéro testé pour l'instant côté Money Making).
+**✅ Vérification complétée (29 juillet, après recharge crédit)** — un seul appel groupé, 
+budget-conscient (Cucumber seule pour Evolve Skills, Orange déjà validée pas re-testée ; 
+3 méthodes Money Making au lieu de 5, une par activité distincte). Orange (profil réel, 
+vide) déjà validé plus tôt : 0 violation sur ses 2 items (`Worn Huntaxe - Genesis` → 
+`AXE` → foraging, `Basic Fishing Net` → `FISHING_NET` → fishing). Cucumber (le profil le 
+plus chargé en gear, le test le plus exigeant pour un bug classe Ragnarok Axe) : run 
+complet réussi (`saved:1, errors:[]`), 4 items target.gear_name vérifiés, 0 violation 
+(`Advanced Gardening Hoe` → `FARMING_TOOL` → farming, `Mithril Drill SX-R226` → `DRILL` → 
+mining, `Magma Rod` → `FISHING_ROD` → fishing, `Shadow Fury` → `SWORD` → slayer/zombie) ; 
+`current.armor_set_used` varie bien par carte (Mantid Cropie/farming, Calcified 
+Sponge/fishing, Ancient Necron's/slayer). Échantillon Money Making (3/3 générations 
+Haiku réussies) : `Hyperion` → `SWORD` → combat (Infernal Kuudra), Divan's Drill (mining, 
+chaîne multi-composants, non re-vérifiable par un match exact simple mais générée sans 
+erreur), Pest Farming (farming) — 0 violation détectée sur ce qui était vérifiable. 
+Chantier Phase 1 considéré clos.
 
 **Prochaines phases, pas commencées** :
 - Phase 2 : miner les 36 fichiers NEU déjà cachés bruts mais jamais mappés 
