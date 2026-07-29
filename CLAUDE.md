@@ -1199,8 +1199,22 @@ warp individuels notés dans les zones précédentes. Migration `add_bestiary_co
 appliquée via MCP, testé en direct : `bestiary_milestone: 71`, 252 kills, 
 `persisted: true`.
 
-**Prochaine étape** : Phase 7 (Rift). Pas commencé — structure brute à vérifier sur un 
-vrai profil avant codage.
+**✅ Phase 7 — Rift — TERMINÉ (mapping minimal) et validé sur Cucumber (29 juillet)** : 
+`member.rift` confirmé exister avec 11 vrais sous-systèmes (`village_plaza`, 
+`wither_cage`, `black_lagoon`, `dead_cats`, `wizard_tower`, `enigma`, `gallery`, 
+`west_village`, `wyld_woods`, `castle`, `dreadfarm`) — mais **tous vides** sur le profil 
+de Cucumber, et `member.currencies.motes` (la monnaie Rift) carrément absent. Cohérent 
+avec le reste de son profil (jamais crafté de minion, voir Phase 5) : elle n'a 
+quasiment jamais engagé le Rift. Faute de donnée réelle non-vide pour vérifier la forme 
+des sous-systèmes, **volontairement pas mappés cette passe** — même logique que les 
+champs annexes déjà reportés dans les zones précédentes, à reprendre avec un profil 
+réellement engagé dans le Rift. `extractRift(member)` mappe uniquement `rift_motes` 
+(même pattern `currencies.<type>.current` déjà validé pour Essence), honnêtement à 0 vu 
+l'absence du champ. Migration `add_rift_motes_column.sql` appliquée via MCP, testé en 
+direct : `rift_motes: 0`, `persisted: true`.
+
+**Prochaine étape** : Phase 8 (Long tail misc — dojo/harp/abiphone/community shop/
+festivals). Pas commencé — structure brute à vérifier sur un vrai profil avant codage.
 
 ## Evolve — état réel (mis à jour session du 22 juillet, source de vérité actuelle)
 
