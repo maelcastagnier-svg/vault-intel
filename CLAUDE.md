@@ -73,9 +73,77 @@ migration manuelle exécutée par l'utilisateur). Validé en écriture réelle s
 "strong"],"fastest_kill_ms":{"young":10850,"strong":23550}}}` — correspond exactement 
 aux valeurs brutes Hypixel inspectées en direct.
 
-**Prochaine zone** : Tier de banque, puis Essence (8 boutiques), Minions, Bestiary, Rift, 
-puis le reste (dojo/harp/abiphone/community shop/festivals) — même méthode, zone par 
-zone, structure brute vérifiée avant chaque mapping.
+**Prochaine zone après celle-ci (Boss kills)** : toutes les zones suivantes ont depuis 
+été traitées et mergées sur master — voir le récapitulatif complet ci-dessous.
+
+## ✅ Chantier collecte totale — Phase 2 complète : 8 zones mergées sur master (29 juillet)
+
+Récapitulatif de bout en bout des 8 zones nommées de la liste d'origine (Boss kills → 
+Banque/Fast Travel → Essence → Minions → Bestiary → Rift → Long tail), chacune 
+développée sur sa propre branche, testée en direct sur Cucumber (jamais devinée depuis 
+la mémoire), puis fusionnées sur master dans cet ordre : `feat/collecte-totale-boss-kills` 
+d'abord (fast-forward, aucun conflit), puis `feat/collecte-totale-bank-fasttravel` 
+par-dessus (2 conflits texte dans `app/api/player/sync/route.ts` et `CLAUDE.md` — les 
+deux branches ajoutaient leurs fonctions d'extraction au même point d'ancrage, avant 
+`const HYPIXEL_KEY` — résolus par concaténation, aucune perte de code, `tsc --noEmit` 
+propre après résolution). Build de production Vercel confirmé `READY` après chacun des 
+deux merges. Zéro coût API Claude sur l'ensemble de ce chantier — toutes les fonctions 
+d'extraction sont du JS pur sur des données déjà récupérées, testées via des routes de 
+debug temporaires qui contournent le chaînage `runEvolveSkills` (Sonnet) du handler 
+`GET` complet, jamais par un vrai appel `player/sync` de bout en bout.
+
+**Fiable, prêt à être consommé par une feature (Milestones, Evolve, etc.)** :
+- **Boss kills** (`player_data.boss_kills`) — Kuudra (`completed_tiers`/`highest_wave` 
+  par tier, séparés proprement), Arachne (`defeated`/`completed_at`), Ender Dragon 
+  (`killed_types`/`fastest_kill_ms` par variante réelle, le faux type méta `"best"` 
+  exclu).
+- **Banque + Fast Travel** (`bank_tier`, `fast_travel_zones`) — tier réel du Personal 
+  Bank + 152 zones réellement débloquées, alimente directement la tâche Milestones 
+  `fast_travel_unlocked` jusque-là sans donnée.
+- **Essence** (`essence`) — les 8 vraies boutiques, valeurs réelles par type, lues 
+  dynamiquement (pas de liste de types codée en dur).
+- **Minions** (`crafted_generators`) — confirmé par-membre (pas partagé coop comme la 
+  banque), garde-fou anti-contamination coop validé (Cucumber : array vide, résultat 
+  réel et honnête, pas un bug).
+- **Bestiary** (`bestiary_kills`, `bestiary_milestone`) — 252 compteurs de kills réels + 
+  le vrai palier de progression Bestiary.
+
+**Partiel — mapping minimal ou honnêtement incomplet, à compléter plus tard** :
+- **Rift** (`rift_motes`) — seule la monnaie est mappée (0, car le champ est absent chez 
+  Cucumber). Les 11 sous-systèmes réels (`village_plaza`, `wyld_woods`, `castle`, 
+  `dreadfarm`, etc.) existent mais étaient **tous vides** sur le seul profil de test 
+  disponible — leur forme reste non vérifiée contre une vraie donnée non-nulle, donc 
+  volontairement pas mappée plutôt que devinée. À reprendre avec un profil réellement 
+  engagé dans le Rift.
+- **Festivals** (`festival_candy`) — seul Spooky Festival a de la donnée réelle (4 
+  instances). Mining Fiesta / Fishing Festival / Jacob's Farming Contest n'apparaissent 
+  sous aucun champ contenant "festival" dans la recherche menée — non mappés, à 
+  reprendre avec un profil qui y a participé.
+- **Dojo** (`dojo_status`) — aucun bloc de stats dédié n'existe sur le profil de test, 
+  seul le statut de la quête d'unlock (`ACTIVE`, jamais complétée) est réel et mappé. 
+  Un vrai système de temps/scores par salle d'entraînement pourrait exister ailleurs 
+  dans l'API mais n'a pas été localisé cette passe.
+- **"Community shop"** (`community_upgrades`) — ce terme n'a pas d'équivalent Hypixel 
+  littéral ; le vrai système mappé est le Community Center (`profile.community_upgrades`, 
+  partagé au niveau du profil coop comme la banque), documenté comme la correspondance 
+  la plus proche plutôt qu'un système inventé.
+- **Harp** (`harp_songs`) — structure confirmée réelle mais vide chez Cucumber (aucune 
+  chanson débloquée) ; forme d'un contenu non-vide jamais vérifiée.
+
+**Non mappé du tout, noté explicitement pour ne pas être redécouvert par erreur plus 
+tard** : `bestiary.deaths` (même forme que `kills`, aucune feature ne le consomme 
+aujourd'hui), `member.attributes.stacks.*_essence` (mécanisme de fusion d'Attribute 
+Shards, confirmé distinct de la vraie monnaie Essence), `member.player_data.
+visited_modes` (taxonomie différente de `visited_zones`, pas utilisée), les objectifs 
+warp individuels (`objectives.warp_*`/`travel_to_*`, plus granulaires que 
+`visited_zones` mais pas nécessaires pour l'instant).
+
+**État des branches à cette date** : `feat/collecte-totale-boss-kills` et 
+`feat/collecte-totale-bank-fasttravel` sont toutes les deux mergées sur `master` — 
+peuvent être supprimées quand l'utilisateur le souhaite. Les autres branches en attente 
+non liées à ce chantier (`feat/milestones-route`, `feat/vault-roadmap-content`, 
+`feat/free-tier-real-access`) restent inchangées, décision de fusion séparée à prendre 
+au cas par cas.
 
 ## ✅ Phase 1 — base de connaissances jeu partagée (activity_gear_categories + progression_tiers) — mergée et testée complètement (29 juillet)
 
