@@ -76,6 +76,24 @@ export function extractMinions(member: any) {
   }
 }
 
+// Bestiary — 6e zone du chantier collecte totale. Structure vérifiée sur Cucumber :
+// member.bestiary = {miscellaneous, kills, milestone, deaths}. `kills` est un objet
+// réel mob_id+tier → compteur (252 entrées sur Cucumber, ex "graveyard_zombie_1": 240),
+// plus une clé `last_killed_mob` (string, pas un compteur — laissée telle quelle dans
+// le pass-through, cohérent avec le format brut Hypixel). `milestone.
+// last_claimed_milestone` (71 sur Cucumber) est le vrai palier de progression Bestiary
+// du jeu. `deaths` (même forme que kills mais pour les morts du joueur) repéré mais
+// volontairement non mappé cette passe — pas de lien avec une feature Vault existante,
+// repris plus tard si besoin (même logique que visited_modes/warp objectives notés
+// non mappés dans les zones précédentes).
+export function extractBestiary(member: any) {
+  const bestiary = member.bestiary || {}
+  return {
+    bestiary_kills: (bestiary.kills || {}) as Record<string, any>,
+    bestiary_milestone: bestiary.milestone?.last_claimed_milestone ?? 0,
+  }
+}
+
 const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -401,6 +419,9 @@ export async function GET(req: NextRequest) {
     // 5g. Minions — voir extractMinions en tête de fichier pour la justification.
     const minions = extractMinions(member)
 
+    // 5h. Bestiary — voir extractBestiary en tête de fichier pour la justification.
+    const bestiary = extractBestiary(member)
+
     // 6. Collections
     const collections: Record<string, number> = member.collection || {}
 
@@ -564,6 +585,8 @@ export async function GET(req: NextRequest) {
       fast_travel_zones:  bankFastTravel.fast_travel_zones,
       essence,
       crafted_generators: minions.crafted_generators,
+      bestiary_kills:     bestiary.bestiary_kills,
+      bestiary_milestone: bestiary.bestiary_milestone,
       networth,
       networth_breakdown: networthBreakdown,
       skills:            skillLevels,
