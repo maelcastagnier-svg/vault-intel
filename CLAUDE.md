@@ -1128,8 +1128,54 @@ maintenant.
   cohérent avec 220 runs Catacombs), `archer` 158 641, `tank` 53 541, `mage` 42 470, 
   `healer` 21 165.
 
-**Prochaine étape** : Phase 2 (Boss kills — Kuudra tiers, Arachne, Dragons de l'End). 
-Pas commencé — structure brute à vérifier sur un vrai profil avant codage.
+**✅ Phase 2 — Boss kills — TERMINÉ et validé sur Cucumber (29 juillet, branche 
+`feat/collecte-totale-boss-kills`, pas encore mergée sur master à la date de rédaction 
+de ce paragraphe)** : `extractBossKills(member)` (fonction pure, même pattern que les 
+phases suivantes) mappe Kuudra (tiers), Arachne et les variantes de l'Ender Dragon 
+depuis leur vraie structure Hypixel. Bug réel trouvé en testant : `dragon_fight.
+fastest_kill` contient une clé `"best"` qui est un agrégat méta (meilleur temps toutes 
+variantes confondues, valeur identique à la variante la plus rapide réelle) et non une 
+4e variante de dragon — exclue explicitement (`DRAGON_FASTEST_KILL_META_KEYS`) avant 
+construction de `killed_types`. Migration `add_boss_kills_column.sql` exécutée, 
+persistance confirmée sur données réelles.
+
+**✅ Phase 3 — Banque + Fast Travel — TERMINÉ et validé sur Cucumber (29 juillet)** : 
+`extractBankAndFastTravel(member)` — `member.profile.personal_bank_upgrade` (entier réel, 
+tier du Personal Bank, distinct du `bank` déjà collecté qui est le solde coop partagé 
+`profile.banking.balance`) + `member.player_data.visited_zones` (array réel de 152 zones 
+Fast Travel débloquées, alimente enfin la tâche Milestones `fast_travel_unlocked` 
+jusque-là `data_available:false`). Piège trouvé en vérifiant la structure brute : 
+`profile.members` contient tous les coéquipiers du même profil coop, pas seulement 
+Cucumber — une clé ressemblant par hasard à son `profile_id` appartenait en fait à un 
+autre joueur ; seul le lookup par son vrai `hypixel_uuid` (pattern déjà en place ailleurs 
+dans le fichier) est fiable. Migration `add_bank_tier_fast_travel_columns.sql` exécutée 
+directement via le MCP Supabase (`apply_migration`, voir note sur la reconnexion MCP 
+ci-dessous), testé en direct : `bank_tier: 1`, 152 zones, `persisted: true`, valeurs 
+identiques à l'inspection brute.
+
+**✅ Phase 4 — Essence — TERMINÉ et validé sur Cucumber (29 juillet)** : 
+`extractEssence(member)` lit `member.currencies.essence`, un objet réel indexé par type 
+(`DIAMOND/DRAGON/WITHER/SPIDER/UNDEAD/ICE/GOLD/CRIMSON` — les 8 vraies boutiques Essence), 
+chaque entrée `{current: N}`. Types lus dynamiquement depuis les clés réellement 
+renvoyées par Hypixel plutôt que codés en dur (règle 7 — pas de constante de jeu 
+reconstituée de mémoire), pour ne jamais diverger si une 9e essence est ajoutée un jour. 
+`member.attributes.stacks.*_essence` trouvé pendant la même recherche mais confirmé être 
+un mécanisme séparé (stacks de fusion d'Attribute Shards) — exclu. Migration 
+`add_essence_column.sql` appliquée via MCP, testé en direct : `DIAMOND: 744, DRAGON: 536, 
+WITHER: 1, SPIDER: 612, UNDEAD: 1927, ICE: 868, GOLD: 891, CRIMSON: 555`, `persisted: true`.
+
+**Note d'outillage — MCP Supabase reconnecté avec droits d'écriture (29 juillet)** : le 
+connecteur `supabase` déclaré dans `.mcp.json` (hébergé, `https://mcp.supabase.com/mcp`) 
+s'était déconnecté ; reconnecté via `/mcp` dans une session interactive (le flow OAuth ne 
+peut pas se déclencher depuis une session non-interactive). Donne accès à 
+`apply_migration`/`execute_sql`/`list_tables` etc. directement — les migrations additives 
+non-destructives (`ADD COLUMN IF NOT EXISTS`) sont désormais appliquées directement au 
+lieu de fournir un fichier `.sql` à coller manuellement ; les migrations plus sensibles 
+(DROP, changement de type sur une table déjà peuplée, etc.) restent soumises à validation 
+avant exécution.
+
+**Prochaine étape** : Phase 5 (Minions). Pas commencé — structure brute à vérifier sur un 
+vrai profil avant codage.
 
 ## Evolve — état réel (mis à jour session du 22 juillet, source de vérité actuelle)
 
