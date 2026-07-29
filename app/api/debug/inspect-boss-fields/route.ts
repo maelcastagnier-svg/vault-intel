@@ -66,5 +66,15 @@ export async function GET() {
     profileCount: profiles.length,
     topLevelMemberKeys: Object.keys(member),
     matches: results,
+    // Full, un-truncated values for the 3 candidate fields identified from
+    // the first pass -- the preview above only showed object keys, not
+    // their actual leaf values.
+    fullValues: {
+      kuudra_completed_tiers: member?.nether_island_player_data?.kuudra_completed_tiers,
+      defeat_arachne_keeper: member?.objectives?.defeat_arachne_keeper,
+      dragon_fight: member?.player_stats?.end_island?.dragon_fight,
+      last_minibosses_killed: member?.nether_island_player_data?.last_minibosses_killed,
+      miniboss_data: member?.nether_island_player_data?.quests?.miniboss_data,
+    },
   })
 }
