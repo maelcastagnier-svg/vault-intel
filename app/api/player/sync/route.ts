@@ -36,7 +36,12 @@ const supabase = createClient(
 // - member.player_stats.end_island.dragon_fight.fastest_kill n'a PAS de compteur de
 //   kills réel — seulement un meilleur temps par variante de dragon (young/strong/
 //   etc). La présence d'une entrée pour une variante = au moins un kill de cette
-//   variante ; jamais transformé en un total inventé.
+//   variante ; jamais transformé en un total inventé. Bug réel trouvé en testant sur
+//   Cucumber : cet objet contient aussi une clé "best" (le record TOUTES variantes
+//   confondues, valeur identique à sa variante "young" la plus rapide au moment du
+//   test) — pas une variante réelle. Exclue explicitement pour ne jamais gonfler
+//   killed_types d'un faux type de dragon.
+const DRAGON_FASTEST_KILL_META_KEYS = new Set(['best'])
 export function extractBossKills(member: any) {
   const kuudraRaw = member.nether_island_player_data?.kuudra_completed_tiers || {}
   const kuudraCompletedTiers: Record<string, number> = {}
@@ -46,7 +51,10 @@ export function extractBossKills(member: any) {
     else kuudraCompletedTiers[key] = value
   }
   const arachneObjective = member.objectives?.defeat_arachne_keeper
-  const dragonFastestKill: Record<string, number> = member.player_stats?.end_island?.dragon_fight?.fastest_kill || {}
+  const dragonFastestKillRaw: Record<string, number> = member.player_stats?.end_island?.dragon_fight?.fastest_kill || {}
+  const dragonFastestKill = Object.fromEntries(
+    Object.entries(dragonFastestKillRaw).filter(([key]) => !DRAGON_FASTEST_KILL_META_KEYS.has(key))
+  )
   return {
     kuudra: { completed_tiers: kuudraCompletedTiers, highest_wave: kuudraHighestWave },
     arachne: { defeated: !!arachneObjective && arachneObjective.status === 'COMPLETE', completed_at: arachneObjective?.completed_at ?? 0 },
