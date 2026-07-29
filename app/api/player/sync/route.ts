@@ -19,6 +19,28 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Bank tier + Fast Travel — 2e zone du chantier collecte totale repris. Structure
+// vérifiée sur un vrai profil (Cucumber) avant codage. Fonction pure exportée (même
+// pattern que extractBossKills) pour être testable sans passer par le handler GET
+// complet (qui chaîne runEvolveSkills, un vrai coût Sonnet).
+// - member.profile.personal_bank_upgrade est un entier réel = le tier du Personal
+//   Bank (distinct de member.profile.bank_account, le SOLDE du bank personnel — déjà
+//   couvert ailleurs par `bank` via profile.banking.balance, le bank de coop partagé.
+//   Piège trouvé en vérifiant : `profile.members` contient TOUS les joueurs du même
+//   profil coop, pas seulement Cucumber — une clé ressemblant par hasard à son
+//   profile_id appartenait en fait à un coéquipier différent. Seul le lookup par le
+//   vrai hypixel_uuid (déjà utilisé partout ailleurs dans ce fichier) est fiable.
+// - member.player_data.visited_zones est la vraie liste des zones Fast Travel
+//   débloquées (chaque zone visitée devient un warp instantané dans le menu Fast
+//   Travel) — mappe directement sur la tâche Milestones "fast_travel_unlocked"
+//   (jusque-là data_available:false, jamais reliée à une vraie donnée collectée).
+export function extractBankAndFastTravel(member: any) {
+  return {
+    bank_tier: member.profile?.personal_bank_upgrade ?? 0,
+    fast_travel_zones: (member.player_data?.visited_zones || []) as string[],
+  }
+}
+
 const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -334,6 +356,10 @@ export async function GET(req: NextRequest) {
       pickaxe_ability: member.mining_core?.selected_pickaxe_ability ?? null,
     }
 
+    // 5e. Bank tier + Fast Travel — voir extractBankAndFastTravel en tête de fichier
+    // pour la justification de chaque champ.
+    const bankFastTravel = extractBankAndFastTravel(member)
+
     // 6. Collections
     const collections: Record<string, number> = member.collection || {}
 
@@ -493,6 +519,8 @@ export async function GET(req: NextRequest) {
       profile_id:        profile.profile_id,
       purse,
       bank,
+      bank_tier:          bankFastTravel.bank_tier,
+      fast_travel_zones:  bankFastTravel.fast_travel_zones,
       networth,
       networth_breakdown: networthBreakdown,
       skills:            skillLevels,
