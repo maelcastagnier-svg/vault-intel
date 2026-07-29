@@ -41,6 +41,24 @@ export function extractBankAndFastTravel(member: any) {
   }
 }
 
+// Essence — 3e zone du chantier collecte totale. Structure vérifiée sur Cucumber :
+// member.currencies.essence est un objet réel indexé par type d'essence
+// (DIAMOND/DRAGON/WITHER/SPIDER/UNDEAD/ICE/GOLD/CRIMSON — les 8 boutiques Essence du
+// jeu), chaque entrée `{current: N}`. Types lus dynamiquement depuis les clés
+// réellement renvoyées par Hypixel plutôt que codés en dur, pour ne jamais diverger
+// si une 9e essence est ajoutée un jour (règle 7 CLAUDE.md — pas de constante de jeu
+// reconstituée de mémoire). `member.attributes.stacks.*_essence` est un mécanisme
+// séparé (stacks de fusion d'Attribute Shards) trouvé pendant la même recherche mais
+// hors scope ici — exclu volontairement, ne pas confondre avec la vraie monnaie Essence.
+export function extractEssence(member: any) {
+  const essence = member.currencies?.essence || {}
+  const result: Record<string, number> = {}
+  for (const [type, obj] of Object.entries(essence)) {
+    result[type] = (obj as any)?.current ?? 0
+  }
+  return result
+}
+
 const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -360,6 +378,9 @@ export async function GET(req: NextRequest) {
     // pour la justification de chaque champ.
     const bankFastTravel = extractBankAndFastTravel(member)
 
+    // 5f. Essence — voir extractEssence en tête de fichier pour la justification.
+    const essence = extractEssence(member)
+
     // 6. Collections
     const collections: Record<string, number> = member.collection || {}
 
@@ -521,6 +542,7 @@ export async function GET(req: NextRequest) {
       bank,
       bank_tier:          bankFastTravel.bank_tier,
       fast_travel_zones:  bankFastTravel.fast_travel_zones,
+      essence,
       networth,
       networth_breakdown: networthBreakdown,
       skills:            skillLevels,
