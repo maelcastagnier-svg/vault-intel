@@ -62,6 +62,133 @@ export function extractBossKills(member: any) {
   }
 }
 
+// Bank tier + Fast Travel — 2e zone du chantier collecte totale repris. Structure
+// vérifiée sur un vrai profil (Cucumber) avant codage. Fonction pure exportée (même
+// pattern que extractBossKills) pour être testable sans passer par le handler GET
+// complet (qui chaîne runEvolveSkills, un vrai coût Sonnet).
+// - member.profile.personal_bank_upgrade est un entier réel = le tier du Personal
+//   Bank (distinct de member.profile.bank_account, le SOLDE du bank personnel — déjà
+//   couvert ailleurs par `bank` via profile.banking.balance, le bank de coop partagé.
+//   Piège trouvé en vérifiant : `profile.members` contient TOUS les joueurs du même
+//   profil coop, pas seulement Cucumber — une clé ressemblant par hasard à son
+//   profile_id appartenait en fait à un coéquipier différent. Seul le lookup par le
+//   vrai hypixel_uuid (déjà utilisé partout ailleurs dans ce fichier) est fiable.
+// - member.player_data.visited_zones est la vraie liste des zones Fast Travel
+//   débloquées (chaque zone visitée devient un warp instantané dans le menu Fast
+//   Travel) — mappe directement sur la tâche Milestones "fast_travel_unlocked"
+//   (jusque-là data_available:false, jamais reliée à une vraie donnée collectée).
+export function extractBankAndFastTravel(member: any) {
+  return {
+    bank_tier: member.profile?.personal_bank_upgrade ?? 0,
+    fast_travel_zones: (member.player_data?.visited_zones || []) as string[],
+  }
+}
+
+// Essence — 3e zone du chantier collecte totale. Structure vérifiée sur Cucumber :
+// member.currencies.essence est un objet réel indexé par type d'essence
+// (DIAMOND/DRAGON/WITHER/SPIDER/UNDEAD/ICE/GOLD/CRIMSON — les 8 boutiques Essence du
+// jeu), chaque entrée `{current: N}`. Types lus dynamiquement depuis les clés
+// réellement renvoyées par Hypixel plutôt que codés en dur, pour ne jamais diverger
+// si une 9e essence est ajoutée un jour (règle 7 CLAUDE.md — pas de constante de jeu
+// reconstituée de mémoire). `member.attributes.stacks.*_essence` est un mécanisme
+// séparé (stacks de fusion d'Attribute Shards) trouvé pendant la même recherche mais
+// hors scope ici — exclu volontairement, ne pas confondre avec la vraie monnaie Essence.
+export function extractEssence(member: any) {
+  const essence = member.currencies?.essence || {}
+  const result: Record<string, number> = {}
+  for (const [type, obj] of Object.entries(essence)) {
+    result[type] = (obj as any)?.current ?? 0
+  }
+  return result
+}
+
+// Minions — 5e zone du chantier collecte totale. Structure vérifiée sur Cucumber :
+// member.player_data.crafted_generators est un array réel de strings "TYPE_TIER"
+// (ex "COBBLESTONE_7", "MITHRIL_2") — confirmé sur 2 coéquipiers du même profil coop
+// (128 et 46 entrées). PAS partagé au niveau du profil comme la banque : chaque
+// membre a sa propre liste, contrairement à l'hypothèse initiale de cette recherche.
+// Piège évité en vérifiant en direct : le champ est absent (pas juste vide) sur le
+// membre correctement résolu de Cucumber (via son vrai hypixel_uuid) — cohérent avec
+// l'absence totale de l'objectif craft_wheat_minion sur son membre alors qu'il est
+// présent (COMPLETE) chez un coéquipier. Résultat réel, pas un bug : Cucumber n'a
+// jamais crafté de minion. `|| []` retombe donc légitimement sur un array vide pour
+// elle plutôt que d'aller chercher (à tort) la donnée d'un autre membre du coop.
+export function extractMinions(member: any) {
+  return {
+    crafted_generators: (member.player_data?.crafted_generators || []) as string[],
+  }
+}
+
+// Bestiary — 6e zone du chantier collecte totale. Structure vérifiée sur Cucumber :
+// member.bestiary = {miscellaneous, kills, milestone, deaths}. `kills` est un objet
+// réel mob_id+tier → compteur (252 entrées sur Cucumber, ex "graveyard_zombie_1": 240),
+// plus une clé `last_killed_mob` (string, pas un compteur — laissée telle quelle dans
+// le pass-through, cohérent avec le format brut Hypixel). `milestone.
+// last_claimed_milestone` (71 sur Cucumber) est le vrai palier de progression Bestiary
+// du jeu. `deaths` (même forme que kills mais pour les morts du joueur) repéré mais
+// volontairement non mappé cette passe — pas de lien avec une feature Vault existante,
+// repris plus tard si besoin (même logique que visited_modes/warp objectives notés
+// non mappés dans les zones précédentes).
+export function extractBestiary(member: any) {
+  const bestiary = member.bestiary || {}
+  return {
+    bestiary_kills: (bestiary.kills || {}) as Record<string, any>,
+    bestiary_milestone: bestiary.milestone?.last_claimed_milestone ?? 0,
+  }
+}
+
+// Rift — 7e zone du chantier collecte totale. Structure vérifiée sur Cucumber :
+// member.rift existe avec 11 sous-systèmes réels (village_plaza, wither_cage,
+// black_lagoon, dead_cats, wizard_tower, enigma, gallery, west_village, wyld_woods,
+// castle, dreadfarm) — mais TOUS vides sur son profil, et member.currencies.motes
+// (la monnaie Rift) est carrément absent. Cohérent avec le reste de son profil
+// (jamais crafté de minion) : elle n'a quasiment jamais engagé le Rift. Seul
+// `access.charge_track_timestamp` porte une vraie valeur. Faute de donnée réelle
+// non-vide pour vérifier la forme des sous-systèmes (village_plaza.murder/cowboy/
+// seraphine etc., wyld_woods, castle...), volontairement PAS mappés cette passe —
+// pas deviné pour gagner du temps, à revisiter avec un profil réellement engagé
+// dans le Rift. `rift_motes` suit le même pattern déjà validé que `essence`
+// (member.currencies.<type>.current), 0 par défaut si le champ est absent.
+export function extractRift(member: any) {
+  return {
+    rift_motes: member.currencies?.motes?.current ?? 0,
+  }
+}
+
+// Long tail (Dojo/Harp/Abiphone/Community/Festivals) — 8e et dernière zone nommée du
+// chantier collecte totale. Chaque sous-champ vérifié individuellement sur Cucumber,
+// mappé seulement si une vraie donnée non-nulle existe pour confirmer la forme :
+// - Dojo : member.nether_island_player_data.dojo (un bloc de stats dédié) est ABSENT
+//   sur son profil — seul le statut de la quête d'unlock existe
+//   (nether_island_player_data.quests.quest_data.dojo, {status/progress/completed_at}).
+//   Rien d'autre trouvé à mapper cette passe.
+// - Harp : member.foraging.songs.harp confirmé exister mais vide ({}) — aucune chanson
+//   débloquée/jouée par Cucumber. Structure confirmée, contenu réel absent.
+// - Abiphone : member.nether_island_player_data.abiphone — donnée réelle et riche.
+//   `active_contacts` (array de contacts débloqués) + `contact_data` (stats d'appel
+//   par contact) mappés tels quels.
+// - "Community shop" : aucun champ littéralement nommé ainsi n'existe. Le vrai système
+//   équivalent trouvé est `profile.community_upgrades` (Community Center — partagé au
+//   niveau du profil coop, pas "shop", comme la banque) : `upgrade_states`, un array
+//   réel d'upgrades (island_size/minion_slots/coins_allowance/guests_count) avec
+//   tier/started_ms/claimed_by. Documenté comme la correspondance la plus proche du
+//   terme "community shop" plutôt que d'inventer un système qui n'existe pas.
+// - Festivals : member.player_stats.candy_collected.<festival_instance_id> — données
+//   réelles pour Spooky Festival uniquement (4 instances trouvées sur Cucumber). Mining
+//   Fiesta / Fishing Festival / Jacob Farming Contest (les 3 autres event categories
+//   déjà notées dans sblevel_tasks) n'apparaissent sous AUCUN champ contenant
+//   "festival" dans cette recherche — pas mappés, à revisiter avec un vrai profil qui y
+//   a participé plutôt que deviné.
+export function extractLongTail(member: any, profile: any) {
+  return {
+    dojo_status: member.nether_island_player_data?.quests?.quest_data?.dojo ?? null,
+    harp_songs: (member.foraging?.songs?.harp || {}) as Record<string, any>,
+    abiphone_contacts: (member.nether_island_player_data?.abiphone?.active_contacts || []) as string[],
+    community_upgrades: (profile.community_upgrades?.upgrade_states || []) as any[],
+    festival_candy: (member.player_stats?.candy_collected || {}) as Record<string, any>,
+  }
+}
+
 const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -381,6 +508,25 @@ export async function GET(req: NextRequest) {
     // fichier pour la justification de chaque champ.
     const bossKills = extractBossKills(member)
 
+    // 5e. Bank tier + Fast Travel — voir extractBankAndFastTravel en tête de fichier
+    // pour la justification de chaque champ.
+    const bankFastTravel = extractBankAndFastTravel(member)
+
+    // 5f. Essence — voir extractEssence en tête de fichier pour la justification.
+    const essence = extractEssence(member)
+
+    // 5g. Minions — voir extractMinions en tête de fichier pour la justification.
+    const minions = extractMinions(member)
+
+    // 5h. Bestiary — voir extractBestiary en tête de fichier pour la justification.
+    const bestiary = extractBestiary(member)
+
+    // 5i. Rift — voir extractRift en tête de fichier pour la justification.
+    const rift = extractRift(member)
+
+    // 5j. Long tail (Dojo/Harp/Abiphone/Community/Festivals) — voir extractLongTail.
+    const longTail = extractLongTail(member, profile)
+
     // 6. Collections
     const collections: Record<string, number> = member.collection || {}
 
@@ -540,6 +686,18 @@ export async function GET(req: NextRequest) {
       profile_id:        profile.profile_id,
       purse,
       bank,
+      bank_tier:          bankFastTravel.bank_tier,
+      fast_travel_zones:  bankFastTravel.fast_travel_zones,
+      essence,
+      crafted_generators: minions.crafted_generators,
+      bestiary_kills:     bestiary.bestiary_kills,
+      bestiary_milestone: bestiary.bestiary_milestone,
+      rift_motes:         rift.rift_motes,
+      dojo_status:        longTail.dojo_status,
+      harp_songs:         longTail.harp_songs,
+      abiphone_contacts:  longTail.abiphone_contacts,
+      community_upgrades: longTail.community_upgrades,
+      festival_candy:     longTail.festival_candy,
       networth,
       networth_breakdown: networthBreakdown,
       skills:            skillLevels,

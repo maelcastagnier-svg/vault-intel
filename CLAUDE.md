@@ -1183,9 +1183,130 @@ maintenant.
   cohérent avec 220 runs Catacombs), `archer` 158 641, `tank` 53 541, `mage` 42 470, 
   `healer` 21 165.
 
-**✅ Phase 2, zone 1 (Boss kills — Kuudra tiers, Arachne, Dragons de l'End) — terminée et 
-validée le 29 juillet**, voir la section dédiée tout en haut de ce document. Prochaine 
-zone : Tier de banque, Essence, Minions, Bestiary, Rift, puis le reste.
+**✅ Phase 2 — Boss kills — TERMINÉ et validé sur Cucumber (29 juillet)**, voir aussi la 
+section dédiée tout en haut de ce document : `extractBossKills(member)` (fonction pure, 
+même pattern que les 
+phases suivantes) mappe Kuudra (tiers), Arachne et les variantes de l'Ender Dragon 
+depuis leur vraie structure Hypixel. Bug réel trouvé en testant : `dragon_fight.
+fastest_kill` contient une clé `"best"` qui est un agrégat méta (meilleur temps toutes 
+variantes confondues, valeur identique à la variante la plus rapide réelle) et non une 
+4e variante de dragon — exclue explicitement (`DRAGON_FASTEST_KILL_META_KEYS`) avant 
+construction de `killed_types`. Migration `add_boss_kills_column.sql` exécutée, 
+persistance confirmée sur données réelles.
+
+**✅ Phase 3 — Banque + Fast Travel — TERMINÉ et validé sur Cucumber (29 juillet)** : 
+`extractBankAndFastTravel(member)` — `member.profile.personal_bank_upgrade` (entier réel, 
+tier du Personal Bank, distinct du `bank` déjà collecté qui est le solde coop partagé 
+`profile.banking.balance`) + `member.player_data.visited_zones` (array réel de 152 zones 
+Fast Travel débloquées, alimente enfin la tâche Milestones `fast_travel_unlocked` 
+jusque-là `data_available:false`). Piège trouvé en vérifiant la structure brute : 
+`profile.members` contient tous les coéquipiers du même profil coop, pas seulement 
+Cucumber — une clé ressemblant par hasard à son `profile_id` appartenait en fait à un 
+autre joueur ; seul le lookup par son vrai `hypixel_uuid` (pattern déjà en place ailleurs 
+dans le fichier) est fiable. Migration `add_bank_tier_fast_travel_columns.sql` exécutée 
+directement via le MCP Supabase (`apply_migration`, voir note sur la reconnexion MCP 
+ci-dessous), testé en direct : `bank_tier: 1`, 152 zones, `persisted: true`, valeurs 
+identiques à l'inspection brute.
+
+**✅ Phase 4 — Essence — TERMINÉ et validé sur Cucumber (29 juillet)** : 
+`extractEssence(member)` lit `member.currencies.essence`, un objet réel indexé par type 
+(`DIAMOND/DRAGON/WITHER/SPIDER/UNDEAD/ICE/GOLD/CRIMSON` — les 8 vraies boutiques Essence), 
+chaque entrée `{current: N}`. Types lus dynamiquement depuis les clés réellement 
+renvoyées par Hypixel plutôt que codés en dur (règle 7 — pas de constante de jeu 
+reconstituée de mémoire), pour ne jamais diverger si une 9e essence est ajoutée un jour. 
+`member.attributes.stacks.*_essence` trouvé pendant la même recherche mais confirmé être 
+un mécanisme séparé (stacks de fusion d'Attribute Shards) — exclu. Migration 
+`add_essence_column.sql` appliquée via MCP, testé en direct : `DIAMOND: 744, DRAGON: 536, 
+WITHER: 1, SPIDER: 612, UNDEAD: 1927, ICE: 868, GOLD: 891, CRIMSON: 555`, `persisted: true`.
+
+**Note d'outillage — MCP Supabase reconnecté avec droits d'écriture (29 juillet)** : le 
+connecteur `supabase` déclaré dans `.mcp.json` (hébergé, `https://mcp.supabase.com/mcp`) 
+s'était déconnecté ; reconnecté via `/mcp` dans une session interactive (le flow OAuth ne 
+peut pas se déclencher depuis une session non-interactive). Donne accès à 
+`apply_migration`/`execute_sql`/`list_tables` etc. directement — les migrations additives 
+non-destructives (`ADD COLUMN IF NOT EXISTS`) sont désormais appliquées directement au 
+lieu de fournir un fichier `.sql` à coller manuellement ; les migrations plus sensibles 
+(DROP, changement de type sur une table déjà peuplée, etc.) restent soumises à validation 
+avant exécution.
+
+**✅ Phase 5 — Minions — TERMINÉ et validé sur Cucumber (29 juillet)** : 
+`extractMinions(member)` lit `member.player_data.crafted_generators`, un array réel de 
+strings `"TYPE_TIER"` (ex `"COBBLESTONE_7"`, `"MITHRIL_2"`) — confirmé **par membre**, 
+pas partagé au niveau du profil comme la banque (deux coéquipiers du même profil coop 
+ont des listes différentes de 128 et 46 entrées). Résultat réel trouvé en vérifiant, pas 
+un bug : le champ est absent (pas juste vide) sur le membre correctement résolu de 
+Cucumber — cohérent avec l'absence totale de l'objectif `craft_wheat_minion` sur son 
+membre alors qu'il est présent et `COMPLETE` chez un coéquipier. Elle n'a jamais crafté 
+de minion ; `|| []` retombe honnêtement sur un array vide plutôt que d'aller chercher 
+(à tort) la donnée d'un autre membre du coop — même garde-fou que Banque/Fast Travel. 
+Migration `add_crafted_generators_column.sql` appliquée via MCP, testé en direct : 
+`crafted_generators: []`, `persisted: true`.
+
+**✅ Phase 6 — Bestiary — TERMINÉ et validé sur Cucumber (29 juillet)** : 
+`extractBestiary(member)` lit `member.bestiary = {miscellaneous, kills, milestone, 
+deaths}`. `kills` est un objet réel mob_id+tier → compteur (252 entrées sur Cucumber, 
+ex `"graveyard_zombie_1": 240`), stocké tel quel (pass-through, inclut la clé annexe 
+`last_killed_mob`, cohérent avec le format brut Hypixel). `milestone.
+last_claimed_milestone` (71) est le vrai palier de progression Bestiary du jeu. `deaths` 
+repéré dans la même structure mais volontairement non mappé cette passe — aucune feature 
+Vault existante ne le consomme, même logique de report que `visited_modes`/les objectifs 
+warp individuels notés dans les zones précédentes. Migration `add_bestiary_columns.sql` 
+appliquée via MCP, testé en direct : `bestiary_milestone: 71`, 252 kills, 
+`persisted: true`.
+
+**✅ Phase 7 — Rift — TERMINÉ (mapping minimal) et validé sur Cucumber (29 juillet)** : 
+`member.rift` confirmé exister avec 11 vrais sous-systèmes (`village_plaza`, 
+`wither_cage`, `black_lagoon`, `dead_cats`, `wizard_tower`, `enigma`, `gallery`, 
+`west_village`, `wyld_woods`, `castle`, `dreadfarm`) — mais **tous vides** sur le profil 
+de Cucumber, et `member.currencies.motes` (la monnaie Rift) carrément absent. Cohérent 
+avec le reste de son profil (jamais crafté de minion, voir Phase 5) : elle n'a 
+quasiment jamais engagé le Rift. Faute de donnée réelle non-vide pour vérifier la forme 
+des sous-systèmes, **volontairement pas mappés cette passe** — même logique que les 
+champs annexes déjà reportés dans les zones précédentes, à reprendre avec un profil 
+réellement engagé dans le Rift. `extractRift(member)` mappe uniquement `rift_motes` 
+(même pattern `currencies.<type>.current` déjà validé pour Essence), honnêtement à 0 vu 
+l'absence du champ. Migration `add_rift_motes_column.sql` appliquée via MCP, testé en 
+direct : `rift_motes: 0`, `persisted: true`.
+
+**✅ Phase 8 — Long tail (Dojo/Harp/Abiphone/Community/Festivals) — TERMINÉ (mapping 
+partiel honnête) et validé sur Cucumber (29 juillet)** : dernière zone nommée de la 
+liste d'origine, chaque sous-champ vérifié individuellement, mappé seulement quand une 
+vraie donnée non-nulle en confirme la forme :
+- **Dojo** : aucun bloc de stats dédié n'existe sur son profil 
+  (`nether_island_player_data.dojo` absent) — seul le statut de la quête d'unlock 
+  (`quests.quest_data.dojo`, `{status:"ACTIVE", progress:0, completed_at:0}`) est réel 
+  et mappé.
+- **Harp** : `foraging.songs.harp` confirmé exister mais vide — structure confirmée, 
+  aucun contenu réel à mapper au-delà.
+- **Abiphone** : donnée réelle et riche — `active_contacts` (4 contacts débloqués : 
+  dean/elle/captain_ahone/igrupan) + stats d'appel par contact, mappés tels quels.
+- **"Community shop"** : aucun champ littéralement nommé ainsi n'existe. Le vrai 
+  système équivalent trouvé est `profile.community_upgrades` (Community Center — 
+  partagé au niveau du profil coop comme la banque, pas un "shop") : 12 upgrades réels 
+  (island_size/minion_slots/coins_allowance/guests_count) avec tier/date/claimant. 
+  Documenté comme la correspondance la plus proche du terme demandé plutôt que 
+  d'inventer un système inexistant.
+- **Festivals** : `player_stats.candy_collected` a de la vraie donnée Spooky Festival 
+  (4 instances réelles). Mining Fiesta / Fishing Festival / Jacob's Farming Contest 
+  (les 3 autres catégories déjà notées dans `sblevel_tasks`) n'apparaissent sous aucun 
+  champ contenant "festival" — non mappés, à reprendre avec un profil qui y a 
+  participé plutôt que deviné.
+
+`extractLongTail(member, profile)` — première fonction de zone à prendre `profile` en 
+plus de `member` (nécessaire pour `community_upgrades`, partagé au niveau profil). 
+Migration `add_longtail_columns.sql` appliquée via MCP, testé en direct : toutes les 
+valeurs extraites identiques à l'inspection brute, `persisted: true`.
+
+**Chantier collecte totale — les 8 zones nommées de la liste d'origine sont maintenant 
+toutes traitées** (Phase 0 infra → Classes de donjon → Boss kills → Banque/Fast Travel → 
+Essence → Minions → Bestiary → Rift → Long tail). Statut de fusion réel à date : 
+Phase 0/1 mergées sur master ; Boss kills sur `feat/collecte-totale-boss-kills` (pas 
+encore mergée) ; Banque/Fast Travel/Essence/Minions/Bestiary/Rift/Long tail toutes sur 
+cette même branche `feat/collecte-totale-bank-fasttravel` (pas encore mergée non plus). 
+Fusion à décider avec l'utilisateur, pas faite unilatéralement. Champs volontairement 
+non mappés cette passe (à traiter zone par zone si besoin réel émerge) : `deaths` 
+(Bestiary), les sous-systèmes Rift (village_plaza/wyld_woods/castle/etc., vides sur le 
+seul profil de test disponible), Mining Fiesta/Fishing Festival/Jacob's Farming Contest.
 
 ## Evolve — état réel (mis à jour session du 22 juillet, source de vérité actuelle)
 
