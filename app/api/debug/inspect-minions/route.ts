@@ -61,8 +61,13 @@ export async function GET() {
   findMatchingPaths(profile, 'profile', results)
 
   return NextResponse.json({
+    resolvedUuidUsed: uuid,
+    resolvedMemberKeyUsed: uuid.replace(/-/g, ''),
     topLevelMemberKeys: Object.keys(member),
     topLevelProfileKeys: Object.keys(profile),
+    allCoopMemberKeys: Object.keys(profile.members || {}),
+    memberPlayerDataKeys: Object.keys(member.player_data || {}),
+    memberPlayerDataCraftedGenerators: member.player_data?.crafted_generators ?? 'MISSING',
     matches: results,
   })
 }
