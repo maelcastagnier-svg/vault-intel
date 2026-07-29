@@ -62,5 +62,10 @@ export async function GET() {
   return NextResponse.json({
     topLevelMemberKeys: Object.keys(member),
     matches: results,
+    netherIslandTopLevelKeys: Object.keys(member.nether_island_player_data || {}),
+    netherIslandDojo: member.nether_island_player_data?.dojo ?? 'MISSING',
+    netherIslandKuudra: member.nether_island_player_data?.kuudra_completed_tiers ?? 'MISSING (checked separately, see boss kills zone)',
+    communityUpgrades: profile.community_upgrades ?? 'MISSING',
+    foragingSongsFull: member.foraging?.songs ?? 'MISSING',
   })
 }
