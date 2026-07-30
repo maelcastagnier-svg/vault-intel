@@ -22,6 +22,64 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Bloc 3 (plan d'audit 8 blocs) — fidélité du scoring AH, 2 écarts fermés (31 juillet)
+
+Suite directe des Blocs 1-2. Deux écarts réels entre le comportement du scoring de flip 
+AH (`ah-collect`) et son intention documentée, fermés dans le même bloc car tous les deux 
+touchent la même fonction `runAhCollect()`.
+
+**3.1 — Top 25/catégorie réel vs 50/catégorie + 300 global** : la promesse produit 
+("Top 25 per AH category", présente dans `app/page.tsx`, `app/features/page.tsx`, 
+`FlashAlertsPage.tsx` — libellé UI "🎯 {category} — Top 25", `FreeFlashPreview.tsx`) 
+divergeait du code réel, qui cappait chaque catégorie à 50 puis appliquait un cap global 
+de 300 sur l'ensemble combiné. **Vérifié en base avant fix** : `weapon`/`armor`/`misc`/
+`cosmetic` saturaient chacune leur cap à 50 pendant que `runes`/`dyes` tombaient à 1 ligne 
+— le cap global, appliqué APRÈS le cap par catégorie sur le classement combiné toutes 
+catégories confondues, laissait les catégories fortes écraser les plus faibles. Tranché en 
+faveur de la cible documentée (pas du code) : chaque catégorie plafonnée à 25 
+(`catItems.slice(0, 25)`), le cap global renommé `TOP_ITEMS_SAFETY_CEILING` et relevé 
+(1000) pour redevenir un pur filet de sécurité plutôt qu'une contrainte fonctionnelle — 
+avec ~10 catégories AH réelles, 25×10=250 reste naturellement sous ce seuil, donc plus 
+aucune catégorie n'est structurellement affamée par une autre.
+
+**3.2 — Cascade exact→base→blended, corrige une exclusion silencieuse** : un item sans 
+historique EXACT suffisant (variante rare — étoiles/reforge/ultimate précis peu scannés, 
+ex: une pièce Necron's 5★) était totalement exclu du classement même quand un historique 
+BASE solide existait (même étoiles+recomb, reforge/ultimate/hot potato ignorés) — un vrai 
+flip exploitable disparaissait sans raison métier. Ajout d'un fetch bulk batché 
+(`price_history_ah_variant_base`, même fenêtre 7 jours, même pattern de batching par 200 
+que l'exact existant) comme second palier ; palier "blended" 
+(`price_history_ah.__all_variants_blended__`) calculé aussi pour transparence 
+(`hist_precision` visible sur chaque item scoré) mais **volontairement jamais inclus dans 
+`relevant`** — décision explicite avec l'utilisateur avant codage : comparer une variante 
+précise contre une moyenne qui mélange 0★ bradés et 5★ rares produit un discount_pct 
+trompeur dans les deux sens, l'objectif étant des flips précis entre variantes réellement 
+comparables ("pour identifier les flips AH la pertinence maximale, on compare le prix 
+actuel d'un item avec son alter ego vendu en historique, jamais un 0★ contre un 5★"), pas 
+une couverture maximale au prix de faux signaux.
+
+**Vérifié en conditions réelles avant merge** (route de debug temporaire, supprimée après 
+validation, appelant le vrai handler `GET` de `ah-collect` — le `cron_locks` anti-doublon 
+partagé avec le cron prod réel a fait échouer le premier essai avec "Already running", 
+contourné en revérifiant l'état du lock via SQL puis en retentant dans une fenêtre libre) : 
+`scored_precision_breakdown` a montré 560-966 variantes/run tombant sur le palier "base" 
+(auparavant `hist_precision:'none'`, exclues silencieusement) ; `relevant_by_precision` a 
+montré 52-227 de ces items entrant réellement dans le classement grâce au nouveau 
+fallback. Exemples nommés concrets confirmés réels au moment du test : **Necron's Leggings** 
+(`POWER_WITHER_LEGGINGS`) et une **Ancient Shadow Assassin Chestplate ✪✪✪✪✪**, tous deux 
+sans historique exact mais avec un match base solide — exactement la classe d'item citée 
+dans le plan (3.3). `top_items_by_category` confirmé à 25 pour chaque catégorie bien 
+peuplée, les catégories plus rares (`runes`, `barn_skins`) légitimement sous 25 par manque 
+réel de candidats, plus jamais par troncature du cap global.
+
+**Build prod confirmé `READY`** (`vault-intel-iota.vercel.app` dans les alias) après merge 
+sur master. Branche `feat/bloc3-ah-scoring-fidelity` supprimée après merge.
+
+**Suite du plan (8 blocs)** : Bloc 4 (remplir les 11 axes Milestones sans contenu de 
+tâches — `boss_kill`/`bank_tier`/`minion_count`/`bestiary_milestone`/etc, capacité déjà 
+construite lors de l'extension `computeMilestones()` du 30 juillet mais zéro ligne 
+`milestone_tasks` les référençant encore) est la prochaine étape prévue dans l'ordre.
+
 ## ✅ Bloc 2 (plan d'audit 8 blocs) — observability, 10 crons instrumentés (30 juillet)
 
 Suite directe du Bloc 1. Avant cette passe, seuls 5/15 crons actifs écrivaient dans 
