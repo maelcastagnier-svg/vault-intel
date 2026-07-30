@@ -324,6 +324,30 @@ export function extractChocolateFactory(member: any) {
   }
 }
 
+// Auctions — résumé d'activité AH par joueur. 5e zone du chantier "audit
+// hypixel-api-reborn" — la plus pertinente pour Vault spécifiquement, jamais dans la
+// liste d'origine du chantier collecte totale. Structure vérifiée sur Cucumber :
+// member.player_stats.auctions = {bids, highest_bid, won, gold_spent, created, fees,
+// completed, gold_earned, no_bids, total_sold, total_bought}. total_sold/total_bought
+// sont des objets réels par rareté PLUS une clé "total" (vrai agrégat fourni par
+// Hypixel, pas un faux type méta comme dragon_fight.fastest_kill.best — gardé tel quel).
+export function extractAuctionStats(member: any) {
+  const auctions = member.player_stats?.auctions || {}
+  return {
+    bids:         auctions.bids ?? 0,
+    highest_bid:  auctions.highest_bid ?? 0,
+    won:          auctions.won ?? 0,
+    gold_spent:   auctions.gold_spent ?? 0,
+    created:      auctions.created ?? 0,
+    fees:         auctions.fees ?? 0,
+    completed:    auctions.completed ?? 0,
+    gold_earned:  auctions.gold_earned ?? 0,
+    no_bids:      auctions.no_bids ?? 0,
+    total_sold:   (auctions.total_sold || {}) as Record<string, number>,
+    total_bought: (auctions.total_bought || {}) as Record<string, number>,
+  }
+}
+
 const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -674,6 +698,9 @@ export async function GET(req: NextRequest) {
     // 5n. Chocolate Factory (Easter) — voir extractChocolateFactory en tête de fichier.
     const chocolateFactory = extractChocolateFactory(member)
 
+    // 5o. Auctions — voir extractAuctionStats en tête de fichier.
+    const auctionStats = extractAuctionStats(member)
+
     // 6. Collections
     const collections: Record<string, number> = member.collection || {}
 
@@ -856,6 +883,7 @@ export async function GET(req: NextRequest) {
       jacob_personal_bests:      jacobsContests.jacob_personal_bests,
       jacob_contests:            jacobsContests.jacob_contests,
       chocolate_factory:         chocolateFactory,
+      auction_stats:             auctionStats,
       networth,
       networth_breakdown: networthBreakdown,
       skills:            skillLevels,
