@@ -22,6 +22,38 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Unification taxonomie tiers — progression_tiers fusionnée dans milestone_tier_totals (29 juillet)
+
+Suite à l'audit de référence (hypixel-api-reborn + SkyCrypt) qui a fait remonter une masse 
+de zones joueur manquantes, la question s'est posée d'unifier ça avec la vision "connaissance 
+joueur centralisée par les 7 tiers" — a fait remonter une duplication réelle : `progression_tiers` 
+(Phase 1, squelette networth/purse par tier) et les 7 tiers de Milestones 
+(`milestone_tasks`/`milestone_tier_totals`, Starter→Master) étaient deux échelles séparées 
+risquant de diverger, alors qu'elles utilisaient déjà **exactement les mêmes libellés** 
+(`Starter/Amateur/Intermediate/Skilled/Expert/Professional/Master`, vérifié caractère pour 
+caractère avant de trancher) — confirmé aussi que `progression_tiers` n'était consommée par 
+**aucun code applicatif** (grep sur tout le repo : seules références dans CLAUDE.md et le 
+fichier de migration d'origine), donc zéro risque de casser une route existante en la 
+supprimant.
+
+**Décision** : `milestone_tier_totals` devient la table unique des 7 tiers. Colonnes 
+`tier_order`/`networth_min`/`networth_max`/`purse_reference`/`money_making_tier_key`/
+`calibration_note` ajoutées dessus, données migrées depuis `progression_tiers` (jointure sur 
+`milestone_tier_totals.tier = progression_tiers.label`), puis `progression_tiers` supprimée. 
+`tier_order` est un ajout bonus : `milestone_tier_totals` n'en avait aucun jusque-là (l'ordre 
+Starter→Master était implicite côté appli) — refermé en même temps plutôt que laissé traîner. 
+Vérifié après migration : les 7 lignes ont leurs valeurs networth identiques à celles de 
+l'ancienne table, `tier_order` 1→7 correct, `money_making_tier_key` intact (le pont vers 
+`TIER_CONFIG` de Money Making fonctionne toujours, juste depuis la bonne table).
+
+**Conséquence pour le Pilier 1 de la vision unifiée** ("connaissance joueur centralisée par 
+les 7 tiers") : `milestone_tasks`/`milestone_tier_totals` + `computeMilestones()` sont déjà 
+l'architecture de ce pilier, pas un système à reconstruire. Le vrai travail restant est 
+d'étendre le taxonomy `requirement_type` de `computeMilestones()` (aujourd'hui seulement 
+`skill`/`collection`) pour couvrir les zones collectées dans le chantier collecte totale 
+(boss_kills, essence, minions, bestiary, banque, rift, long tail) et celles en cours de 
+collecte ci-dessous — zéro coût Claude, du branchement JS pur sur des données déjà en base.
+
 ## ✅ Chantier collecte totale repris — Phase 2 zone 1 : Boss kills (Kuudra/Arachne/Ender Dragon) (29 juillet)
 
 Reprise du chantier "collecte totale" (Phase 1 — infra + classes de donjon — terminée 
@@ -162,7 +194,9 @@ l'utilisateur comme toute migration de ce projet) :
   la logique dupliquée par fichier — Evolve Skills ET Money Making 
   (`setup-generate-agent`) lisent maintenant la même table, fermant exactement le risque 
   de divergence qui avait causé le bug initial.
-- **`progression_tiers`** — squelette 7 tiers (Starter→Master) qui relie l'échelle 7 
+- **`progression_tiers`** *(⚠️ table supprimée le 29 juillet, voir la section "Unification 
+  taxonomie tiers" tout en haut de ce document — fusionnée dans `milestone_tier_totals`, 
+  ne plus la chercher)* — squelette 7 tiers (Starter→Master) qui relie l'échelle 7 
   tiers de Milestones et le `TIER_CONFIG` 4 tiers déjà existant de Money Making. Bornes 
   networth à 50M/500M/5B réelles (plafonds déjà validés en prod de `TIER_CONFIG`) ; 
   5M/150M/1.5B interpolées (milieu géométrique de chaque bande réelle), explicitement 
