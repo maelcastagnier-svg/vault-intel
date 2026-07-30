@@ -22,6 +22,58 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ computeMilestones() étendu — 15 nouveaux requirement_type, zéro coût Claude (30 juillet)
+
+Suite directe de l'unification de taxonomie et de l'audit hypixel-api-reborn : Milestones 
+avait déjà l'architecture du "Pilier 1" (connaissance joueur centralisée par les 7 tiers) 
+mais `computeMilestones()` ne savait vérifier que `skill`/`collection`/`fairy_souls` — 
+tout le reste des zones collectées (boss kills, banque, essence, minions, bestiary, 
+slayer, Jacob's, festivals, donjons, chocolate factory, auctions, fishing) dormait dans 
+`player_data` sans jamais être exploité par Milestones. Branchement fait en 3 lots, testé 
+sur Cucumber et Orange après chacun, toujours du JS pur sur des données déjà en base — 
+zéro appel Claude.
+
+**Lot 1** (`boss_kill`, `bank_tier`, `fast_travel_count`, `essence_amount`, `minion_count`, 
+`bestiary_milestone`) — les 6 zones d'origine du chantier collecte totale.
+
+**Lot 2** (`slayer_claimed_level`, `slayer_tier_kills`, `jacob_contest_participation`, 
+`jacob_medal_count`, `festival_participation`) — les zones de l'audit qui correspondent 
+directement à des tâches vault déjà existantes.
+
+**Lot 3** (`dungeon_floor_played`, `chocolate_factory_amount`, `auction_activity`, 
+`fishing_activity`) — le reste des zones de l'audit, capacité nette pour du futur contenu 
+Vault-authored (aucune tâche existante ne les référence encore).
+
+**4 tâches vault placeholder flippées de `uncollected` vers un vrai type computable**, 
+maintenant que la vraie donnée existe :
+- "Unlock Fast Travel Zones" → `fast_travel_count` (Cucumber : `current:152`, `target:null` 
+  — honnête, aucun total maximum vérifié n'existe pour inventer un seuil de complétion).
+- "Crimson Essence Shop" → `essence_amount` (`current:555`, `target:1`, `met:true`).
+- "Participate in Spooky Festival" → `festival_participation` (`current:1`, `met:true`).
+- "Participate in Jacob's Farming Contest" → `jacob_contest_participation` 
+  (`current:25`, `met:true`).
+
+**Vérifié après chaque lot sur Cucumber ET Orange** : `tasks_computable`/`tasks_completed` 
+montent exactement du nombre de tâches flippées à chaque lot (ex : Amateur 51→53 
+computable, 31→33 completed après le lot 2, exactement les 2 tâches concernées), Orange 
+(profil vide) reste à 0 partout sur les 4 tâches flippées — même garde-fou early-game que 
+partout ailleurs. Les 3 types du lot 3 (sans tâche existante à flipper) vérifiés via 4 
+lignes `milestone_tasks` temporaires insérées puis supprimées après validation (valeurs 
+réelles confirmées : floor 6 `times_played:46`, chocolat `561333761`, gold_earned auction 
+`314699000`, `sea_creature_kills:333` — tout exact, tout à 0 côté Orange).
+
+**Reste hors scope de cette passe** : les tâches `uncollected` restantes 
+(`mining`/`farming`/`fishing` "Activity", `mining_fiesta`, `fishing_festival`, 
+`unlocking_relays`, `mythological_kills`, `complete_objectives`) n'ont soit aucune donnée 
+correspondante collectée (Mining Fiesta, Fishing Festival, Mythological Ritual — ce 
+dernier existe bien côté Hypixel via `player_stats.mythos`, mais n'a jamais été collecté, 
+zone 7 potentielle pas encore construite), soit une donnée réelle mais sans seuil cible 
+vérifié dans le wiki d'origine (les 3 "Activity") — pas de seuil inventé dans les deux cas. 
+Les tâches `mobtype` (5 lignes, catégories Bestiary larges type "Arthropod"/"Undead") 
+restent aussi non calculables : nécessiteraient une table de référence mob→catégorie 
+qu'on n'a pas encore (existe côté hypixel-api-reborn/SkyCrypt sous forme de constantes 
+statiques, jamais reconstruite ici).
+
 ## ✅ Unification taxonomie tiers — progression_tiers fusionnée dans milestone_tier_totals (29 juillet)
 
 Suite à l'audit de référence (hypixel-api-reborn + SkyCrypt) qui a fait remonter une masse 
