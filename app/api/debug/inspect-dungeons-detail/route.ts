@@ -56,5 +56,9 @@ export async function GET() {
     treasuresTopLevelKeys: Object.keys(dungeons.treasures || {}),
     treasures_runs_sample: (dungeons.treasures?.runs || []).slice(0, 1),
     treasures_chests_sample: (dungeons.treasures?.chests || []).slice(0, 1),
+    daily_runs: dungeons.daily_runs,
+    dungeons_blah_blah: dungeons.dungeons_blah_blah,
+    catacombs_milestone_completions: catacombs.milestone_completions,
+    catacombs_fastest_time_raw: catacombs.fastest_time,
   })
 }
