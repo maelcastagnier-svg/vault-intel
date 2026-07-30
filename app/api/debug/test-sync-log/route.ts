@@ -5,8 +5,6 @@
 // setup-generate-agent next Monday). Deleted after validation.
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { runAhCollect } from '../../cron/ah-collect/route'
-import { runAhAggregate } from '../../cron/ah-aggregate/route'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,25 +20,23 @@ function fakeAuthedRequest(): Request {
 export async function GET() {
   const before = new Date().toISOString()
 
-  // ah-collect / ah-aggregate have plain exported functions -- call directly.
-  let ahCollectResult: any = null
-  let ahAggregateResult: any = null
-  try { ahCollectResult = await runAhCollect() } catch (e: any) { ahCollectResult = { error: e.message } }
-  try { ahAggregateResult = await runAhAggregate() } catch (e: any) { ahAggregateResult = { error: e.message } }
-
-  // bazaar-collect / data-retention / patch-collect / update-catalog only
-  // export GET -- call it directly with a real CRON_SECRET-bearing Request,
-  // same trick as always (direct in-process call, never HTTP self-fetch,
-  // which hits the Vercel SSO wall).
+  // startSync/finishSync live in each route's GET wrapper, not in the plain
+  // exported run*() functions -- must go through GET itself (direct in-process
+  // call with a real CRON_SECRET-bearing Request, never HTTP self-fetch, which
+  // hits the Vercel SSO wall) to actually exercise the instrumentation.
+  const { GET: ahCollectGET }     = await import('../../cron/ah-collect/route')
+  const { GET: ahAggregateGET }   = await import('../../cron/ah-aggregate/route')
   const { GET: bazaarGET }        = await import('../../cron/bazaar-collect/route')
   const { GET: retentionGET }     = await import('../../cron/data-retention/route')
   const { GET: patchCollectGET }  = await import('../../cron/patch-collect/route')
   const { GET: catalogGET }       = await import('../../cron/update-catalog/route')
 
-  const bazaarRes    = await bazaarGET(fakeAuthedRequest() as any)
-  const retentionRes = await retentionGET(fakeAuthedRequest() as any)
-  const patchRes      = await patchCollectGET(fakeAuthedRequest() as any)
-  const catalogRes   = await catalogGET(fakeAuthedRequest() as any)
+  const ahCollectRes   = await ahCollectGET(fakeAuthedRequest() as any)
+  const ahAggregateRes = await ahAggregateGET(fakeAuthedRequest() as any)
+  const bazaarRes      = await bazaarGET(fakeAuthedRequest() as any)
+  const retentionRes   = await retentionGET(fakeAuthedRequest() as any)
+  const patchRes       = await patchCollectGET(fakeAuthedRequest() as any)
+  const catalogRes     = await catalogGET(fakeAuthedRequest() as any)
 
   const { data: rows } = await supabase
     .from('sync_log')
@@ -49,8 +45,8 @@ export async function GET() {
     .order('started_at', { ascending: true })
 
   return NextResponse.json({
-    ah_collect: ahCollectResult,
-    ah_aggregate: ahAggregateResult,
+    ah_collect: await ahCollectRes.json(),
+    ah_aggregate: await ahAggregateRes.json(),
     bazaar_collect: await bazaarRes.json(),
     data_retention: await retentionRes.json(),
     patch_collect: await patchRes.json(),
