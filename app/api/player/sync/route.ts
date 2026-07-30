@@ -189,6 +189,60 @@ export function extractLongTail(member: any, profile: any) {
   }
 }
 
+// Donjons — détail par étage. 1re zone du chantier "audit hypixel-api-reborn" (29 juillet) :
+// notre mapping existant (dungeons[type].highest_floor/experience/runs) ne capturait que des
+// agrégats, jamais le détail par étage que la référence hypixel-api-reborn documentait.
+// Structure vérifiée sur Cucumber (220 runs Catacombs, bon profil de test) :
+// member.dungeons.dungeon_types.catacombs.<champ>.<étage> pour tier_completions/best_score/
+// mobs_killed/most_mobs_killed/watcher_kills/fastest_time/fastest_time_s/fastest_time_s_plus —
+// chaque champ est un objet indexé par étage ("0".."7") PLUS une clé annexe "total" ou "best"
+// (agrégat, pas un étage réel) qu'on exclut explicitement, même piège que dragon_fight.
+// fastest_time (sans suffixe) est un 3e champ de temps réel, distinct de fastest_time_s/
+// fastest_time_s_plus (S/S+ sont les paliers de score du jeu, pas des variantes inventées) —
+// fastest_time = meilleur temps toutes notes confondues, les deux autres = meilleur temps
+// avec au moins la note S / S+ atteinte.
+// most_damage_<classe> et best_runs (historique complet des runs) volontairement PAS mappés
+// cette passe — flavor/leaderboard, pas des métriques de progression Milestones. Pareil pour
+// treasures.runs/chests (historique d'activité, pas de la progression) et 2 champs trouvés
+// mais écartés : daily_runs (compteur journalier, transitoire) et dungeons_blah_blah (un nom
+// de champ littéralement placeholder côté Hypixel, contient des flags de quête one-shot type
+// "gatekeeper_first_talk" — pas de valeur de progression claire). milestone_completions
+// trouvé mais identique à tier_completions sur Cucumber — pas remappé en double.
+function extractDungeonFloorStats(modeData: any) {
+  const floorFields = ['tier_completions', 'best_score', 'mobs_killed', 'most_mobs_killed', 'watcher_kills', 'fastest_time', 'fastest_time_s', 'fastest_time_s_plus']
+  const floorKeys = new Set<string>()
+  for (const field of floorFields) {
+    for (const key of Object.keys(modeData?.[field] || {})) {
+      if (key === 'total' || key === 'best') continue
+      floorKeys.add(key)
+    }
+  }
+  const floors: Record<string, any> = {}
+  for (const floor of floorKeys) {
+    floors[floor] = {
+      times_played:         modeData.tier_completions?.[floor] ?? 0,
+      best_score:           modeData.best_score?.[floor] ?? 0,
+      mobs_killed:          modeData.mobs_killed?.[floor] ?? 0,
+      most_mobs_killed:     modeData.most_mobs_killed?.[floor] ?? 0,
+      watcher_kills:        modeData.watcher_kills?.[floor] ?? 0,
+      fastest_time_ms:      modeData.fastest_time?.[floor] ?? 0,
+      fastest_time_s_ms:    modeData.fastest_time_s?.[floor] ?? 0,
+      fastest_time_s_plus_ms: modeData.fastest_time_s_plus?.[floor] ?? 0,
+    }
+  }
+  return floors
+}
+
+export function extractDungeonDetail(member: any) {
+  const dungeonData = member.dungeons || {}
+  return {
+    dungeon_secrets:            dungeonData.secrets ?? 0,
+    dungeon_unlocked_journals:  (dungeonData.dungeon_journal?.unlocked_journals || []) as string[],
+    catacombs_floors:           extractDungeonFloorStats(dungeonData.dungeon_types?.catacombs || {}),
+    master_catacombs_floors:    extractDungeonFloorStats(dungeonData.dungeon_types?.master_catacombs || {}),
+  }
+}
+
 const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -527,6 +581,9 @@ export async function GET(req: NextRequest) {
     // 5j. Long tail (Dojo/Harp/Abiphone/Community/Festivals) — voir extractLongTail.
     const longTail = extractLongTail(member, profile)
 
+    // 5k. Donjons — détail par étage. Voir extractDungeonDetail en tête de fichier.
+    const dungeonDetail = extractDungeonDetail(member)
+
     // 6. Collections
     const collections: Record<string, number> = member.collection || {}
 
@@ -698,6 +755,10 @@ export async function GET(req: NextRequest) {
       abiphone_contacts:  longTail.abiphone_contacts,
       community_upgrades: longTail.community_upgrades,
       festival_candy:     longTail.festival_candy,
+      dungeon_secrets:           dungeonDetail.dungeon_secrets,
+      dungeon_unlocked_journals: dungeonDetail.dungeon_unlocked_journals,
+      catacombs_floors:          dungeonDetail.catacombs_floors,
+      master_catacombs_floors:   dungeonDetail.master_catacombs_floors,
       networth,
       networth_breakdown: networthBreakdown,
       skills:            skillLevels,
