@@ -22,6 +22,67 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Bloc 2 (plan d'audit 8 blocs) — observability, 10 crons instrumentés (30 juillet)
+
+Suite directe du Bloc 1. Avant cette passe, seuls 5/15 crons actifs écrivaient dans 
+`sync_log` (`neu-sync`, `wiki-auto-sync`, `skyblock-resources-sync`, `milestones-sync`, 
+`armor-color-sync`) — les 10 autres (`ah-collect`, `ah-aggregate`, `bazaar-collect`, 
+`data-retention`, `patch-collect`, `money-making-agent`, `setup-generate-agent`, 
+`patch-analysis-agent`, `radar-agent`, `update-catalog`) n'avaient aucun historique 
+persistant : un job cassé ou muet n'était visible qu'en creusant les logs Vercel a 
+posteriori — exactement le pattern qui avait laissé le crash loop `historic-import` et le 
+bug `ah-collect TODAY` tourner plusieurs jours sans être détectés (voir plus bas dans ce 
+document).
+
+**Instrumenté les 10 crons manquants**, même pattern `startSync`/`finishSync` que les 5 
+déjà en place (`lib/sync-log.ts`, inchangé). Deux d'entre eux (`data-retention`, 
+`update-catalog`) n'avaient même pas de `try/catch` avant cette passe — une exception non 
+gérée tombait sur la page d'erreur par défaut de Next.js plutôt qu'un vrai 500 JSON propre, 
+et serait de toute façon restée invisible de `sync_log`. Aucune logique métier touchée dans 
+aucun des 10 fichiers — uniquement l'ajout de l'import + wrapping `startSync(...)`/
+`await finishSync(...)` autour du corps déjà existant.
+
+**Vérifié en conditions réelles avant merge** (route de debug temporaire important les 
+handlers `GET` réels de chaque cron — pas les fonctions plain exportées seules, un premier 
+essai s'est trompé sur `ah-collect`/`ah-aggregate` en appelant `runAhCollect()`/
+`runAhAggregate()` directement, ce qui contourne le wrapper `GET` où vit l'instrumentation ; 
+corrigé en repassant par `GET` avec une vraie `Request` porteuse du header 
+`CRON_SECRET`) : les 6 crons sans coût Claude (`ah-collect`, `ah-aggregate`, 
+`bazaar-collect`, `data-retention`, `patch-collect`, `update-catalog`) confirmés écrire de 
+vraies lignes `sync_log` avec `status`/`rows_written` corrects — y compris le chemin 
+`cron_locks` "Already running" de `ah-collect`, qui écrit bien une ligne `success`/0 lignes 
+plutôt que de sauter l'instrumentation. Les 4 crons à coût Claude réel (`money-making-agent`, 
+`patch-analysis-agent`, `radar-agent`, `setup-generate-agent`) volontairement **pas** 
+déclenchés manuellement pour éviter une dépense API inutile juste pour vérifier un wrapper 
+identique déjà validé 6 fois sur les autres crons — seront confirmés naturellement par leur 
+propre planning réel (`radar-agent`/`patch-analysis-agent` sous 24h, `money-making-agent`/
+`setup-generate-agent` au prochain lundi).
+
+**Anomalie `armor-color-sync` de l'audit du 30 juillet résolue** — le cron avait déjà 
+l'instrumentation `sync_log` correcte dans son code, mais zéro ligne en base malgré 
+`neu-sync` (même jour, même semaine) fonctionnant normalement. Cause réelle trouvée via 
+`git log` : la route `armor-color-sync` et son entrée `vercel.json` (`30 5 * * 1`, lundi 
+5h30) ont été ajoutées au commit `c28481b` le **28 juillet** (un mardi) — après le passage 
+du lundi 27 juillet 5h30, donc après la seule fenêtre de déclenchement possible cette 
+semaine-là. Le prochain déclenchement réel est le lundi 3 août, qui n'a pas encore eu lieu 
+à la date de cet audit (30 juillet). Zéro ligne `sync_log` est donc le comportement attendu, 
+pas un bug — mystère refermé sans code à changer.
+
+**Trouvé au passage, hors scope de ce bloc, pas corrigé** : `get_runtime_errors` a fait 
+remonter une vraie erreur récurrente sur `patch-analysis-agent` — 
+`"Alpha parse error: SyntaxError: Unexpected non-whitespace character after JSON..."`, 
+observée à plusieurs dates (25 → 30 juillet). Le `parseJSON` de la réponse Haiku pour les 
+patches alpha échoue occasionnellement (`alphaAnalysis` retombe alors sur `[]`, pas de 
+crash du cron dans son ensemble). Noté pour une passe future (candidat naturel : le même 
+fallback "découpe premier `{` au dernier `}`" déjà appliqué à `evolve-skills` lors du 
+chantier Phase 1).
+
+**Build prod confirmé `READY`** (`vault-intel-iota.vercel.app` dans les alias) après merge 
+sur master. Branche `feat/bloc2-observability` supprimée après merge.
+
+**Suite du plan (8 blocs)** : Bloc 3 (AH scoring fidelity fixes) est la prochaine étape 
+prévue dans l'ordre.
+
 ## ✅ Bloc 1 (plan d'audit 8 blocs) — pipeline prix de vente AH mort depuis toujours, corrigé (30 juillet)
 
 Suite directe de l'audit architectural complet (voir plus bas dans ce document pour le 
