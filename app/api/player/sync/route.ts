@@ -273,6 +273,28 @@ export function extractSlayerDetail(member: any) {
   return detail
 }
 
+// Jacob's Farming Contests — 3e zone du chantier "audit hypixel-api-reborn". Système de
+// progression Farming complet, jusque-là zéro mapping (n'était même pas dans la liste
+// d'origine du chantier collecte totale). Structure vérifiée sur Cucumber :
+// member.jacobs_contest = {perks, medals_inv, unique_brackets, personal_bests, contests,
+// talked}. `medals_inv`/`unique_brackets` n'ont que les clés réellement atteintes
+// (Cucumber : bronze/silver seulement, aucune clé "gold" — absente, pas à zéro, même
+// pattern que les autres zones). `personal_bests` = record réel crop→meilleur total
+// collecté en un seul concours. `contests` = historique réel des 25 concours participés
+// (clé composite "480:5_1:WHEAT", {collected, claimed_participants, claimed_position,
+// claimed_rewards}) — inclus tel quel, volume raisonnable (contrairement à l'historique
+// de coffres trésor des donjons, écarté pour être trop volumineux).
+export function extractJacobsContests(member: any) {
+  const jacob = member.jacobs_contest || {}
+  return {
+    jacob_medals:          (jacob.medals_inv || {}) as Record<string, number>,
+    jacob_perks:           (jacob.perks || {}) as Record<string, any>,
+    jacob_unique_brackets: (jacob.unique_brackets || {}) as Record<string, string[]>,
+    jacob_personal_bests:  (jacob.personal_bests || {}) as Record<string, number>,
+    jacob_contests:        (jacob.contests || {}) as Record<string, any>,
+  }
+}
+
 const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -617,6 +639,9 @@ export async function GET(req: NextRequest) {
     // 5l. Slayer — claimed_levels + détail par tier. Voir extractSlayerDetail.
     const slayerDetail = extractSlayerDetail(member)
 
+    // 5m. Jacob's Farming Contests — voir extractJacobsContests en tête de fichier.
+    const jacobsContests = extractJacobsContests(member)
+
     // 6. Collections
     const collections: Record<string, number> = member.collection || {}
 
@@ -793,6 +818,11 @@ export async function GET(req: NextRequest) {
       catacombs_floors:          dungeonDetail.catacombs_floors,
       master_catacombs_floors:   dungeonDetail.master_catacombs_floors,
       slayer_detail:             slayerDetail,
+      jacob_medals:              jacobsContests.jacob_medals,
+      jacob_perks:               jacobsContests.jacob_perks,
+      jacob_unique_brackets:     jacobsContests.jacob_unique_brackets,
+      jacob_personal_bests:      jacobsContests.jacob_personal_bests,
+      jacob_contests:            jacobsContests.jacob_contests,
       networth,
       networth_breakdown: networthBreakdown,
       skills:            skillLevels,
