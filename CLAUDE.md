@@ -54,6 +54,75 @@ d'étendre le taxonomy `requirement_type` de `computeMilestones()` (aujourd'hui 
 (boss_kills, essence, minions, bestiary, banque, rift, long tail) et celles en cours de 
 collecte ci-dessous — zéro coût Claude, du branchement JS pur sur des données déjà en base.
 
+## ✅ Audit hypixel-api-reborn — 6 nouvelles zones collectées, jamais dans la liste d'origine (29 juillet)
+
+Nouvelle méthode d'audit demandée : au lieu d'inspecter un seul profil de test (limité à 
+ce qu'un joueur précis a rempli), trouver une vraie source de référence documentant la 
+structure exhaustive d'un profil Skyblock. `hypixel-api-reborn` (lib TS activement 
+maintenue, ~150 fichiers de types, un par sous-système du `member` object) a servi de 
+référence principale, recoupée avec le code source réel de SkyCrypt sur un point précis 
+(minions). Rapport complet livré avant tout code, comparant champ par champ ce qui était 
+déjà mappé vs ce que la référence documentait — voir la conversation pour le détail 
+complet du rapport (zones fiables/partielles/techniques/hors-scope).
+
+**🔴 Bug confirmé et non corrigé par cette passe** (documenté, pas un ajout de zone) : 
+`rift_motes` lit `currencies.motes.current`, alors que le vrai champ Hypixel (confirmé 
+par hypixel-api-reborn ET vérifié en direct sur Cucumber) est `currencies.motes_purse` — 
+un nombre plat, pas un objet imbriqué. Sur Cucumber les deux chemins renvoient 0 par pure 
+coïncidence (elle n'a ni l'un ni l'autre — `member.currencies` n'a que `coin_purse` + 
+`essence`), donc jamais détecté par le test à profil unique. Pour tout joueur ayant 
+réellement des Motes, le code actuel retournerait silencieusement 0. **Pas encore 
+corrigé** — noté ici pour ne pas être oublié, correction triviale (`rift_motes: 
+member.currencies?.motes_purse ?? 0`) à faire dès que la Phase 7 (Rift) sera retouchée.
+
+**6 zones réelles trouvées et collectées, aucune n'était dans la liste d'origine du 
+chantier collecte totale** (toutes vérifiées en direct sur Cucumber avant codage, testées 
+via le pattern debug établi — bypass `runEvolveSkills`, zéro coût Claude) :
+
+- **Donjons — détail par étage** (`dungeon_secrets`, `dungeon_unlocked_journals`, 
+  `catacombs_floors`, `master_catacombs_floors`) — l'ancien mapping ne capturait que des 
+  agrégats (étage max, XP totale, nombre de runs). Chaque étage (0-7) a maintenant son 
+  vrai détail : `times_played`/`best_score`/`mobs_killed`/`most_mobs_killed`/
+  `watcher_kills`/`fastest_time_ms`/`fastest_time_s_ms`/`fastest_time_s_plus_ms`. 
+  `fastest_time` (sans suffixe) est un 3e champ de temps réel, distinct de 
+  `fastest_time_s`/`s_plus` (S/S+ sont les vrais paliers de score du jeu). Volontairement 
+  pas mappés : `most_damage_<classe>`/`best_runs` (flavor/leaderboard), `treasures.runs/
+  chests` (historique d'activité), `daily_runs` (compteur journalier transitoire), 
+  `dungeons_blah_blah` (un nom de champ littéralement placeholder côté Hypixel, contient 
+  des flags de quête one-shot), `milestone_completions` (identique à `tier_completions` 
+  sur Cucumber, pas dupliqué).
+- **Slayer — claimed_levels + détail par tier** (`slayer_detail`, additif — la colonne 
+  `slayers` existante et ses consommateurs restent inchangés) — `claimed_levels` ne 
+  contient QUE les niveaux réellement réclamés (jamais `false`, absent si non réclamé), 
+  déjà calculé par Hypixel, aucun seuil à reconstruire nous-mêmes. `boss_kills_tier_0..4` 
+  et `boss_attempts_tier_0..4` détaillent par tier (l'ancien mapping ne stockait que la 
+  somme tous tiers confondus).
+- **Jacob's Farming Contests** (`jacob_medals`, `jacob_perks`, `jacob_unique_brackets`, 
+  `jacob_personal_bests`, `jacob_contests`) — système de progression Farming complet, 
+  zéro mapping avant cette passe. Médailles/brackets n'ont que les clés réellement 
+  atteintes (Cucumber : bronze/silver, pas de "gold" — absent, pas à zéro, même pattern 
+  que partout ailleurs). Historique des 25 concours inclus tel quel (volume raisonnable, 
+  contrairement à l'historique de coffres trésor des donjons).
+- **Chocolate Factory (événement Easter)** (`chocolate_factory`) — repéré pendant Long 
+  tail (`events.easter.rabbits`) mais écarté à tort comme hors-scope : c'est un vrai 
+  système de progression complet (chocolat, employees, niveau de grange, lapins trouvés). 
+  `chocolate_level`/`chocolate_multiplier_upgrades`/`rabbit_rarity_upgrades`/
+  `supreme_chocolate_bars` absents chez Cucumber (jamais prestige) — pas mappés faute de 
+  vraie donnée. Un champ `shop` trouvé mais absent de la référence — pas deviné.
+- **Auctions** (`auction_stats`) — la zone la plus directement pertinente pour Vault 
+  spécifiquement : bids/won/gold dépensé-gagné/complétées + vendu/acheté par rareté, un 
+  vrai résumé d'activité AH par joueur.
+- **Fishing** (`fishing_stats`) — n'avait jamais eu sa propre zone malgré être un skill à 
+  part entière. `sea_creature_kills` + `items_fished` (normal/treasure/large_treasure/
+  trophy_fish).
+
+**Un piège de déploiement rencontré, sans rapport avec les données** : un push vers la 
+branche `feat/collecte-totale-audit-zones` n'a exceptionnellement déclenché aucun build 
+Vercel (webhook GitHub→Vercel manqué, confirmé — le commit était bien sur GitHub, `git 
+log origin/...` le confirmait, mais `list_deployments` ne voyait rien même après plus 
+d'une minute d'attente). Un commit trivial de relance a suffi à débloquer le build 
+suivant normalement — épisode isolé, pas un problème structurel.
+
 ## ✅ Chantier collecte totale repris — Phase 2 zone 1 : Boss kills (Kuudra/Arachne/Ender Dragon) (29 juillet)
 
 Reprise du chantier "collecte totale" (Phase 1 — infra + classes de donjon — terminée 
