@@ -22,6 +22,60 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Bloc 1 (plan d'audit 8 blocs) — pipeline prix de vente AH mort depuis toujours, corrigé (30 juillet)
+
+Suite directe de l'audit architectural complet (voir plus bas dans ce document pour le 
+détail complet de l'audit) qui avait trouvé `avg_sold_price`/`sold_count` à 0 sur 
+70 910/70 910 lignes de `price_history_ah_variants` sur 7 jours glissants — le prix de 
+VENTE réel (par opposition au prix de listing/BIN) n'a jamais été collecté depuis que la 
+fonctionnalité existe dans le code, silencieusement.
+
+**Diagnostic en 2 passes, la 1ère une fausse piste partielle** :
+1. `fetchSoldAuctions()` (`ah-collect/route.ts`) appelait `https://api.hypixel.net/v2/skyblock/auctions/ended` 
+   sans header `API-Key` — confirmé cassé par curl direct (`400 Missing API-Key header`). 
+   1er fix : header ajouté + logging d'erreur explicite remplaçant l'échec silencieux 
+   (`return { auctions: [] }` sans aucune trace). Déployé, mais la vérification en direct 
+   montrait toujours un échec.
+2. **Vraie cause trouvée en creusant plus loin** : ce chemin d'URL n'existe simplement pas 
+   côté Hypixel. Le vrai endpoint est `/v2/skyblock/auctions_ended` (underscore, pas de 
+   slash) — confirmé par un vrai test réseau direct (`200 OK`, aucune clé requise, endpoint 
+   public comme `/v2/skyblock/auctions`) et recoupé avec la doc à jour du forum Hypixel. 
+   Piège qui explique pourquoi la fausse piste semblait plausible : le WAF Hypixel valide 
+   la clé API **avant** le routing — une clé absente/invalide sur le mauvais chemin renvoie 
+   une erreur trompeuse liée à la clé au lieu du vrai 404 "Unknown endpoint", qui ne 
+   ressort qu'une fois une vraie clé valide testée contre le mauvais chemin.
+
+**Propagation à toutes les couches d'agrégation** — jusqu'ici seule Table 1 
+(`price_history_ah_variants`, exact) portait déjà les colonnes `avg_sold_price`/
+`sold_count` (jamais alimentées à cause du bug) ; ajoutées aussi à Table 3 
+(`price_history_ah_variant_base`, palier intermédiaire) et Table 2 (`price_history_ah`, 
+blended `__all_variants_blended__` — la table qui assure la continuité avec l'historique 
+SkyCofl 6 ans, basé sur le vendu). Migration `add_sold_price_to_ah_blended_and_base` 
+(ALTER TABLE additif, appliquée via MCP Supabase) : `avg_sold_price numeric DEFAULT 0`, 
+`sold_count integer DEFAULT 0` sur les 2 tables. Pondération par `sold_count` (fiabilité du 
+vendu), jamais par `scan_count` (fiabilité du listing — axe différent), cohérent avec le 
+pattern déjà en place pour `avg_price`/`scan_count` dans `ah-aggregate`.
+
+**Vérifié en conditions réelles avant merge** (route de debug temporaire, supprimée après 
+validation — piège trouvé au passage : la route de debug elle-même avait le mauvais chemin 
+d'URL codé en dur séparément dans son propre diagnostic, corrigé avant la vérification 
+finale) : `/v2/skyblock/auctions_ended` → 200/success, 162 enchères vendues réelles ; 
+`runAhCollect()` → `ah_scan_buffer` avec 114 lignes `sold_count > 0` réelles (ex : 
+`THUNDER_BOOTS` nostar/norecomb/fierce, `avg_sold_price: 500000, sold_count: 1`) ; 
+`runAhAggregate()` forcé en avance sur la journée → les 3 tables journalières montrent des 
+lignes réelles `sold_count > 0` (variants: 18, base: 10, blended: 8). Volumes modestes par 
+run isolé, normal et attendu : `/auctions_ended` ne renvoie qu'une fenêtre glissante de 
+~60 secondes par appel — la couverture 24h s'accumule naturellement via le cron réel à la 
+minute, aucun code supplémentaire nécessaire pour ça (voir Bloc 1.5 du plan, pas une action 
+mais une simple attente).
+
+**Build prod confirmé `READY`** (`vault-intel-iota.vercel.app` dans les alias) après merge 
+sur master. Branche `fix/ah-sold-price-observability` supprimée après merge.
+
+**Suite du plan (8 blocs, audit du 30 juillet)** : Bloc 2 (observability — instrumenter 
+`sync_log` sur les ~10 crons qui ne le font pas encore, investiguer l'anomalie 
+`armor-color-sync`) est la prochaine étape prévue dans l'ordre du plan.
+
 ## ✅ computeMilestones() étendu — 15 nouveaux requirement_type, zéro coût Claude (30 juillet)
 
 Suite directe de l'unification de taxonomie et de l'audit hypixel-api-reborn : Milestones 
