@@ -15,7 +15,15 @@ const supabase = createClient(
 )
 
 const HYPIXEL_AH_URL = 'https://api.hypixel.net/v2/skyblock/auctions'
-const TOP_ITEMS      = 300
+// Palier de sécurité global, pas la vraie cible fonctionnelle -- le vrai
+// contrat (voir Bloc 3.1, audit du 30/31 juillet) est "top 25 par catégorie"
+// (documenté partout côté produit : app/page.tsx, app/features/page.tsx,
+// FlashAlertsPage.tsx, FreeFlashPreview.tsx -- confirmé par grep avant de
+// trancher). Avec ~10 catégories AH réelles (confirmé en base : weapon/
+// armor/misc/cosmetic/accessories/consumables/other_skins/helmet_skins/
+// runes/dyes), 25/cat plafonne déjà à 250 total -- ce chiffre n'est qu'un
+// filet de sécurité si Hypixel ajoutait un jour beaucoup plus de catégories.
+const TOP_ITEMS_SAFETY_CEILING = 1000
 
 // ── Fetch toutes les pages en parallèle ──────────────────────
 async function fetchAllAuctions(): Promise<{ auctions: any[]; totalPages: number }> {
@@ -252,13 +260,67 @@ export async function runAhCollect() {
       histExact.get(k)!.push(Number(h.avg_price))
     }
 
+    // ── Cascade exact→base→blended (Bloc 3.2, audit du 30/31 juillet) ────
+    // Avant cette passe, un item sans historique EXACT suffisant (variante
+    // rare — ex: Necron's 5★ avec peu de scans à cette combinaison précise
+    // d'étoiles/reforge/ultimate) était silencieusement exclu de `relevant`
+    // même quand un historique BASE solide existait (même étoiles+recomb,
+    // juste le reforge/ultimate/hot potato ignorés) -- un vrai flip
+    // exploitable disparaissait du classement sans raison métier.
+    // Palier "base" (price_history_ah_variant_base) : même bucket 7 jours,
+    // même batching par 200 base_item_id. Palier "blended"
+    // (price_history_ah, __all_variants_blended__) calculé aussi pour
+    // transparence (hist_precision visible sur chaque item scoré) mais
+    // JAMAIS inclus dans `relevant` plus bas -- décision explicite avec
+    // l'utilisateur (31 juillet) : comparer une variante précise contre une
+    // moyenne qui mélange 0★ bradés et 5★ rares produit un discount_pct
+    // trompeur dans les deux sens, l'objectif étant des flips précis entre
+    // variantes réellement comparables, pas une couverture maximale au prix
+    // de faux signaux.
+    const historicalBase: { base_item_id: string; variant_key_base: string; avg_price: number }[] = []
+    for (let i = 0; i < baseItemIds.length; i += 200) {
+      const batch = baseItemIds.slice(i, i + 200)
+      const { data, error } = await supabase
+        .from('price_history_ah_variant_base')
+        .select('base_item_id, variant_key_base, avg_price')
+        .in('base_item_id', batch)
+        .gte('bucket_date', sevenDaysAgo)
+      if (error) { console.error('historicalBase fetch batch error', i, error.message); continue }
+      if (data) historicalBase.push(...data)
+    }
+    const histBase = new Map<string, number[]>()
+    for (const h of historicalBase) {
+      const k = `${h.base_item_id}::${h.variant_key_base}`
+      if (!histBase.has(k)) histBase.set(k, [])
+      histBase.get(k)!.push(Number(h.avg_price))
+    }
+
+    const historicalBlended: { base_item_id: string; avg_price: number }[] = []
+    for (let i = 0; i < baseItemIds.length; i += 200) {
+      const batch = baseItemIds.slice(i, i + 200)
+      const { data, error } = await supabase
+        .from('price_history_ah')
+        .select('base_item_id, avg_price')
+        .in('base_item_id', batch)
+        .eq('variant_key', '__all_variants_blended__')
+        .eq('granularity', 'DAILY')
+        .gte('bucket_date', sevenDaysAgo)
+      if (error) { console.error('historicalBlended fetch batch error', i, error.message); continue }
+      if (data) historicalBlended.push(...data)
+    }
+    const histBlended = new Map<string, number[]>()
+    for (const h of historicalBlended) {
+      if (!histBlended.has(h.base_item_id)) histBlended.set(h.base_item_id, [])
+      histBlended.get(h.base_item_id)!.push(Number(h.avg_price))
+    }
+
     const avg = (arr: number[]) => arr.reduce((s, p) => s + p, 0) / arr.length
 
     // Seuils de pertinence — un flip n'est proposé que s'il est réellement
-    // exploitable : comparé à l'historique de LA MÊME variante (jamais un
-    // fallback base/monthly qui mélange les variantes et produit un faux
-    // discount), avec un profit absolu et un volume qui prouvent qu'il est
-    // vendable, pas juste une enchère isolée à un prix aberrant.
+    // exploitable : comparé à l'historique d'une variante réellement
+    // comparable (exact ou base -- jamais blended, voir plus haut), avec un
+    // profit absolu et un volume qui prouvent qu'il est vendable, pas juste
+    // une enchère isolée à un prix aberrant.
     const MIN_PROFIT_COINS = 500_000
     const MIN_VOLUME       = 3
 
@@ -299,12 +361,25 @@ export async function runAhCollect() {
       const avgPrice  = prices.reduce((s, p) => s + p, 0) / prices.length
       const bestItem  = items.reduce((best, i) => i.price < best.price ? i : best, items[0])
 
-      // Uniquement la précision "exact" (même variant_key_full) — un flip
-      // n'est jamais comparé à un prix historique base/monthly qui mélange
-      // des variantes différentes, sinon le discount_pct est trompeur.
+      // Cascade exact→base→blended -- exact (même variant_key_full) toujours
+      // préféré ; base (même étoiles+recomb, reforge/ultimate/hot potato
+      // ignorés) en second recours quand l'exact n'a pas assez de données ;
+      // blended calculé pour transparence mais jamais utilisé pour filtrer
+      // `relevant` (voir le commentaire plus haut).
       const exactKey = `${d.item_id}::${d.variant_key_full}`
-      const histPrice = histExact.has(exactKey) ? avg(histExact.get(exactKey)!) : 0
-      const precision = histPrice > 0 ? 'exact' : 'none'
+      const baseKey  = `${d.item_id}::${d.variant_key_base}`
+      let histPrice = 0
+      let precision: 'exact' | 'base' | 'blended' | 'none' = 'none'
+      if (histExact.has(exactKey)) {
+        histPrice = avg(histExact.get(exactKey)!)
+        precision = 'exact'
+      } else if (histBase.has(baseKey)) {
+        histPrice = avg(histBase.get(baseKey)!)
+        precision = 'base'
+      } else if (histBlended.has(d.item_id)) {
+        histPrice = avg(histBlended.get(d.item_id)!)
+        precision = 'blended'
+      }
 
       const discountPct = histPrice > 0 ? Math.round(((histPrice - bestPrice) / histPrice) * 100) : 0
       const spreadPct   = avgPrice  > 0 ? Math.round(((avgPrice - bestPrice)  / avgPrice)  * 100) : 0
@@ -338,15 +413,23 @@ export async function runAhCollect() {
       })
     }
 
-    // Filtre pertinence : precision exacte + profit + volume minimums avant
-    // même de rentrer dans le classement par catégorie.
+    // Filtre pertinence : precision exact OU base (jamais blended, voir plus
+    // haut) + profit + volume minimums avant même de rentrer dans le
+    // classement par catégorie.
     const relevant = scored.filter(item =>
-      item.hist_precision === 'exact' &&
+      (item.hist_precision === 'exact' || item.hist_precision === 'base') &&
       item.profit_coins   >= MIN_PROFIT_COINS &&
       item.volume          >= MIN_VOLUME
     )
 
-    // TOP 300 par catégorie (max 50/cat)
+    // TOP 25 par catégorie (Bloc 3.1, audit du 30/31 juillet) -- aligné sur
+    // la vraie cible documentée côté produit plutôt que le cap 50/cat +
+    // 300 global précédent, qui pouvait affamer une petite catégorie
+    // (confirmé en base avant ce fix : weapon/armor/misc/cosmetic saturaient
+    // chacune leur cap à 50 pendant que runes/dyes tombaient à 1 ligne,
+    // écrasées par le cap global de 300 appliqué APRÈS le cap par catégorie).
+    // Pas de cap global fonctionnel nécessaire avec ~10 catégories réelles
+    // (25×10=250) -- TOP_ITEMS_SAFETY_CEILING reste un filet de sécurité pur.
     const byCat = new Map<string, ScoredItem[]>()
     for (const item of relevant) {
       const cat = item.category ?? 'other'
@@ -360,13 +443,13 @@ export async function runAhCollect() {
         (b.discount_pct * 0.6 + b.spread_pct * 0.4) -
         (a.discount_pct * 0.6 + a.spread_pct * 0.4)
       )
-      topItems.push(...catItems.slice(0, 50))
+      topItems.push(...catItems.slice(0, 25))
     }
     topItems.sort((a, b) =>
       (b.discount_pct * 0.6 + b.spread_pct * 0.4) -
       (a.discount_pct * 0.6 + a.spread_pct * 0.4)
     )
-    const finalItems = topItems.slice(0, TOP_ITEMS)
+    const finalItems = topItems.slice(0, TOP_ITEMS_SAFETY_CEILING)
 
     // DELETE + INSERT ah_live
     await supabase.from('ah_live').delete().gte('id', 0)
@@ -408,6 +491,9 @@ export async function runAhCollect() {
 
     await supabase.from('cron_locks').update({ locked_until: null }).eq('job_name', 'ah_collect')
 
+    const precisionCounts = { exact: 0, base: 0, blended: 0, none: 0 }
+    for (const item of scored) precisionCounts[item.hist_precision as keyof typeof precisionCounts]++
+
     return {
       success:              true,
       total_bin:            binAuctions.length,
@@ -415,9 +501,15 @@ export async function runAhCollect() {
       variants_grouped:     grouped.size,
       buffer_upserted:      bufferRows.length,
       scored_variants:      scored.length,
+      scored_precision_breakdown: precisionCounts,
       relevant_after_filter: relevant.length,
+      relevant_by_precision: {
+        exact: relevant.filter(i => i.hist_precision === 'exact').length,
+        base:  relevant.filter(i => i.hist_precision === 'base').length,
+      },
       top_items:            finalItems.length,
-      relevance_thresholds: { min_profit_coins: MIN_PROFIT_COINS, min_volume: MIN_VOLUME, precision_required: 'exact' },
+      top_items_by_category: Array.from(byCat.entries()).map(([cat, items]) => ({ category: cat, count: Math.min(items.length, 25) })),
+      relevance_thresholds: { min_profit_coins: MIN_PROFIT_COINS, min_volume: MIN_VOLUME, precision_required: 'exact_or_base' },
     }
 
   } catch (error: any) {
