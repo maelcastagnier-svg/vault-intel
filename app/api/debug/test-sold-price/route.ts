@@ -1,4 +1,5 @@
-// TEMP debug route -- verifies the sold-price pipeline fix end to end (Bloc 1.3):
+// TEMP debug route (retry push -- previous push didn't trigger a build) -- verifies
+// the sold-price pipeline fix end to end (Bloc 1.3):
 // 1. Direct HTTP check of /v2/skyblock/auctions/ended WITH the API key (confirms 1.1)
 // 2. Calls runAhCollect() directly (bypasses CRON_SECRET/HTTP), checks ah_scan_buffer
 //    for real sold_count > 0 rows
