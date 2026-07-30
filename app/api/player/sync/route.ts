@@ -295,6 +295,35 @@ export function extractJacobsContests(member: any) {
   }
 }
 
+// Chocolate Factory (event Easter) — 4e zone du chantier "audit hypixel-api-reborn".
+// Repéré pendant l'investigation Long tail (member.events.easter.rabbits) mais écarté à
+// tort comme hors-scope — c'est en fait un vrai système de progression complet, jamais
+// dans la liste d'origine du chantier collecte totale. Structure vérifiée sur Cucumber :
+// member.events.easter = {chocolate, total_chocolate, chocolate_since_prestige,
+// rabbit_barn_capacity_level, click_upgrades, employees, time_tower, rabbit_hitmen, shop,
+// rabbits}. `chocolate_level`/`chocolate_multiplier_upgrades`/`rabbit_rarity_upgrades`/
+// `supreme_chocolate_bars` sont carrément ABSENTS chez elle (jamais prestige) — pas
+// mappés faute de vraie donnée pour confirmer la forme. `time_tower`/`rabbit_hitmen`
+// existent mais vides. `shop` trouvé mais absent de la référence hypixel-api-reborn —
+// pas deviné, pas mappé. `rabbits` mélange 2 clés annexes (collected_eggs/
+// collected_locations, pas des lapins) avec les vrais compteurs de lapins trouvés —
+// filtré pour ne garder que ces derniers.
+export function extractChocolateFactory(member: any) {
+  const easter = member.events?.easter || {}
+  const rabbitsFound = Object.fromEntries(
+    Object.entries(easter.rabbits || {}).filter(([key]) => key !== 'collected_eggs' && key !== 'collected_locations')
+  )
+  return {
+    chocolate:                  easter.chocolate ?? 0,
+    total_chocolate:            easter.total_chocolate ?? 0,
+    chocolate_since_prestige:   easter.chocolate_since_prestige ?? 0,
+    rabbit_barn_capacity_level: easter.rabbit_barn_capacity_level ?? 0,
+    click_upgrades:             easter.click_upgrades ?? 0,
+    employees:                  (easter.employees || {}) as Record<string, number>,
+    rabbits_found:              rabbitsFound as Record<string, number>,
+  }
+}
+
 const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -642,6 +671,9 @@ export async function GET(req: NextRequest) {
     // 5m. Jacob's Farming Contests — voir extractJacobsContests en tête de fichier.
     const jacobsContests = extractJacobsContests(member)
 
+    // 5n. Chocolate Factory (Easter) — voir extractChocolateFactory en tête de fichier.
+    const chocolateFactory = extractChocolateFactory(member)
+
     // 6. Collections
     const collections: Record<string, number> = member.collection || {}
 
@@ -823,6 +855,7 @@ export async function GET(req: NextRequest) {
       jacob_unique_brackets:     jacobsContests.jacob_unique_brackets,
       jacob_personal_bests:      jacobsContests.jacob_personal_bests,
       jacob_contests:            jacobsContests.jacob_contests,
+      chocolate_factory:         chocolateFactory,
       networth,
       networth_breakdown: networthBreakdown,
       skills:            skillLevels,
