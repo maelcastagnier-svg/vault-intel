@@ -140,18 +140,24 @@ export function extractBestiary(member: any) {
 // Rift — 7e zone du chantier collecte totale. Structure vérifiée sur Cucumber :
 // member.rift existe avec 11 sous-systèmes réels (village_plaza, wither_cage,
 // black_lagoon, dead_cats, wizard_tower, enigma, gallery, west_village, wyld_woods,
-// castle, dreadfarm) — mais TOUS vides sur son profil, et member.currencies.motes
-// (la monnaie Rift) est carrément absent. Cohérent avec le reste de son profil
-// (jamais crafté de minion) : elle n'a quasiment jamais engagé le Rift. Seul
-// `access.charge_track_timestamp` porte une vraie valeur. Faute de donnée réelle
-// non-vide pour vérifier la forme des sous-systèmes (village_plaza.murder/cowboy/
-// seraphine etc., wyld_woods, castle...), volontairement PAS mappés cette passe —
-// pas deviné pour gagner du temps, à revisiter avec un profil réellement engagé
-// dans le Rift. `rift_motes` suit le même pattern déjà validé que `essence`
-// (member.currencies.<type>.current), 0 par défaut si le champ est absent.
+// castle, dreadfarm) — mais TOUS vides sur son profil, et la monnaie Rift est
+// carrément absente. Cohérent avec le reste de son profil (jamais crafté de minion) :
+// elle n'a quasiment jamais engagé le Rift. Seul `access.charge_track_timestamp`
+// porte une vraie valeur. Faute de donnée réelle non-vide pour vérifier la forme des
+// sous-systèmes (village_plaza.murder/cowboy/seraphine etc., wyld_woods, castle...),
+// volontairement PAS mappés cette passe — pas deviné pour gagner du temps, à
+// revisiter avec un profil réellement engagé dans le Rift.
+// 🔴 Bug corrigé (30 juillet, trouvé pendant l'audit hypixel-api-reborn) : le champ
+// lisait member.currencies.motes.current par analogie avec Essence, jamais vérifié
+// contre une vraie donnée. Le vrai champ Hypixel (confirmé par hypixel-api-reborn ET
+// vérifié en direct sur Cucumber : member.currencies n'a que coin_purse+essence,
+// aucun "motes" sous aucune forme) est member.currencies.motes_purse — un nombre
+// plat, pas un objet imbriqué. Les deux chemins renvoyaient 0 par coïncidence chez
+// elle ; le mauvais chemin aurait silencieusement retourné 0 pour n'importe quel
+// joueur ayant réellement des Motes.
 export function extractRift(member: any) {
   return {
-    rift_motes: member.currencies?.motes?.current ?? 0,
+    rift_motes: member.currencies?.motes_purse ?? 0,
   }
 }
 
