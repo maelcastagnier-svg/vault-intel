@@ -8,6 +8,7 @@
 // 5. TRUNCATE ah_scan_buffer
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse }  from 'next/server'
+import { startSync, finishSync } from '../../../../lib/sync-log'
 
 export const maxDuration = 60
 
@@ -264,9 +265,14 @@ export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const logId = await startSync('ah-aggregate')
   try {
-    return NextResponse.json(await runAhAggregate())
+    const result = await runAhAggregate()
+    const rows = (result as any).variants_inserted ?? 0
+    await finishSync(logId, 'success', rows, result)
+    return NextResponse.json(result)
   } catch (e: any) {
+    await finishSync(logId, 'error', 0, undefined, e.message)
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }

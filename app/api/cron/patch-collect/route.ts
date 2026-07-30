@@ -2,6 +2,7 @@
 // Scrape les patch notes Hypixel (live + alpha) → patch_notes
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { startSync, finishSync } from '../../../../lib/sync-log'
 
 export const maxDuration = 60
 
@@ -54,6 +55,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const logId = await startSync('patch-collect')
   try {
     let inserted = 0, skipped = 0
 
@@ -83,8 +85,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    await finishSync(logId, 'success', inserted, { inserted, skipped })
     return NextResponse.json({ success: true, inserted, skipped })
   } catch (e: any) {
+    await finishSync(logId, 'error', 0, undefined, e.message)
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }

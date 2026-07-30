@@ -3,6 +3,7 @@
 // → TOP 10 opportunités positives + négatives
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { startSync, finishSync } from '../../../../lib/sync-log'
 
 export const maxDuration = 60
 
@@ -61,6 +62,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const logId = await startSync('radar-agent')
   try {
     // Charge tout le contexte en parallèle
     const [
@@ -171,14 +173,17 @@ export async function GET(req: NextRequest) {
       updated_at: new Date().toISOString(),
     }, { onConflict: 'section' })
 
-    return NextResponse.json({
+    const result = {
       success:   true,
       positive:  (parsed.positive || []).length,
       negative:  (parsed.negative || []).length,
       summary:   parsed.summary,
-    })
+    }
+    await finishSync(logId, 'success', result.positive + result.negative, result)
+    return NextResponse.json(result)
 
   } catch (e: any) {
+    await finishSync(logId, 'error', 0, undefined, e.message)
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }

@@ -3,6 +3,7 @@
 // Format JSON compact pour éviter la troncature
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { startSync, finishSync } from '../../../../lib/sync-log'
 
 export const maxDuration = 120
 
@@ -216,10 +217,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const logId = await startSync('patch-analysis-agent')
   try {
     const result = await runPatchAnalysisAgent()
+    await finishSync(logId, 'success', result.live_saved + result.alpha_saved, result)
     return NextResponse.json(result)
   } catch (e: any) {
+    await finishSync(logId, 'error', 0, undefined, e.message)
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }

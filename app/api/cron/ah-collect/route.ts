@@ -7,6 +7,7 @@
 import { createClient }   from '@supabase/supabase-js'
 import { NextResponse }    from 'next/server'
 import { decodeItemBytes } from '@/lib/skyblock-item-decoder'
+import { startSync, finishSync } from '../../../../lib/sync-log'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -430,9 +431,14 @@ export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const logId = await startSync('ah-collect')
   try {
-    return NextResponse.json(await runAhCollect())
+    const result = await runAhCollect()
+    const rows = (result as any).buffer_upserted ?? 0
+    await finishSync(logId, 'success', rows, result)
+    return NextResponse.json(result)
   } catch (error: any) {
+    await finishSync(logId, 'error', 0, undefined, error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }

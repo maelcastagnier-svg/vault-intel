@@ -4,6 +4,7 @@
 // 2. Met à jour les noms depuis l'API Hypixel officielle
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { startSync, finishSync } from '../../../../lib/sync-log'
 
 export const maxDuration = 60
 
@@ -21,58 +22,66 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // 1. Fetch noms officiels Hypixel
-  const hypixelRes  = await fetch('https://api.hypixel.net/v2/resources/skyblock/items')
-  const hypixelData = await hypixelRes.json()
-  const hypixelItems: { id: string; name: string }[] = hypixelData.items || []
-  const hypixelNames = new Map<string, string>()
-  for (const item of hypixelItems) {
-    if (item.id && item.name) hypixelNames.set(item.id, item.name)
+  const logId = await startSync('update-catalog')
+  try {
+    // 1. Fetch noms officiels Hypixel
+    const hypixelRes  = await fetch('https://api.hypixel.net/v2/resources/skyblock/items')
+    const hypixelData = await hypixelRes.json()
+    const hypixelItems: { id: string; name: string }[] = hypixelData.items || []
+    const hypixelNames = new Map<string, string>()
+    for (const item of hypixelItems) {
+      if (item.id && item.name) hypixelNames.set(item.id, item.name)
+    }
+
+    // 2. Fetch TOUS les items via fonction SQL (pas de limite Supabase)
+    const { data: allDbItems } = await supabase.rpc('get_all_catalog_items')
+    const bzIds = (allDbItems || []).filter((r: any) => r.source === 'bazaar').map((r: any) => r.item_id as string)
+    const ahIds = (allDbItems || []).filter((r: any) => r.source === 'ah').map((r: any) => r.item_id as string)
+
+    // 4. Construit les rows avec noms Hypixel si disponible
+    const allItems = [
+      ...bzIds.map((id: string) => ({
+        item_id:    id,
+        item_name:  hypixelNames.get(id) || toLabel(id),
+        source:     'bazaar',
+        updated_at: new Date().toISOString(),
+      })),
+      ...ahIds.map((id: string) => ({
+        item_id:    id,
+        item_name:  hypixelNames.get(id) || toLabel(id),
+        source:     'ah',
+        updated_at: new Date().toISOString(),
+      })),
+    ]
+
+    // 5. Upsert tout le catalog en une fois (met à jour les noms existants aussi)
+    let upserted = 0
+    for (let i = 0; i < allItems.length; i += 200) {
+      const { error } = await supabase
+        .from('items_catalog')
+        .upsert(allItems.slice(i, i + 200), { onConflict: 'item_id' })
+      if (!error) upserted += Math.min(200, allItems.length - i)
+    }
+
+    // Stats
+    const hypixelMatched = allItems.filter(i => hypixelNames.has(i.item_id)).length
+    const fallback       = allItems.length - hypixelMatched
+
+    const result = {
+      success:          true,
+      total:            allItems.length,
+      upserted,
+      hypixel_named:    hypixelMatched,
+      fallback_named:   fallback,
+      sample: allItems
+        .filter(i => hypixelNames.has(i.item_id))
+        .slice(0, 5)
+        .map(i => ({ id: i.item_id, name: i.item_name }))
+    }
+    await finishSync(logId, 'success', upserted, result)
+    return NextResponse.json(result)
+  } catch (e: any) {
+    await finishSync(logId, 'error', 0, undefined, e.message)
+    return NextResponse.json({ error: e.message }, { status: 500 })
   }
-
-  // 2. Fetch TOUS les items via fonction SQL (pas de limite Supabase)
-  const { data: allDbItems } = await supabase.rpc('get_all_catalog_items')
-  const bzIds = (allDbItems || []).filter((r: any) => r.source === 'bazaar').map((r: any) => r.item_id as string)
-  const ahIds = (allDbItems || []).filter((r: any) => r.source === 'ah').map((r: any) => r.item_id as string)
-
-  // 4. Construit les rows avec noms Hypixel si disponible
-  const allItems = [
-    ...bzIds.map((id: string) => ({
-      item_id:    id,
-      item_name:  hypixelNames.get(id) || toLabel(id),
-      source:     'bazaar',
-      updated_at: new Date().toISOString(),
-    })),
-    ...ahIds.map((id: string) => ({
-      item_id:    id,
-      item_name:  hypixelNames.get(id) || toLabel(id),
-      source:     'ah',
-      updated_at: new Date().toISOString(),
-    })),
-  ]
-
-  // 5. Upsert tout le catalog en une fois (met à jour les noms existants aussi)
-  let upserted = 0
-  for (let i = 0; i < allItems.length; i += 200) {
-    const { error } = await supabase
-      .from('items_catalog')
-      .upsert(allItems.slice(i, i + 200), { onConflict: 'item_id' })
-    if (!error) upserted += Math.min(200, allItems.length - i)
-  }
-
-  // Stats
-  const hypixelMatched = allItems.filter(i => hypixelNames.has(i.item_id)).length
-  const fallback       = allItems.length - hypixelMatched
-
-  return NextResponse.json({
-    success:          true,
-    total:            allItems.length,
-    upserted,
-    hypixel_named:    hypixelMatched,
-    fallback_named:   fallback,
-    sample: allItems
-      .filter(i => hypixelNames.has(i.item_id))
-      .slice(0, 5)
-      .map(i => ({ id: i.item_id, name: i.item_name }))
-  })
 }

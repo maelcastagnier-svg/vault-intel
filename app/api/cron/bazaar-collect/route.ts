@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+import { startSync, finishSync } from '../../../../lib/sync-log'
 
 export const maxDuration = 60
 
@@ -28,6 +29,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const logId = await startSync('bazaar-collect')
   try {
     const res  = await fetch(HYPIXEL_BAZAAR_URL)
     const data = await res.json()
@@ -117,15 +119,18 @@ export async function GET(request: Request) {
       if (error) console.error('Bazaar batch upsert error', i, error)
     }
 
-    return NextResponse.json({
+    const result = {
       success:              true,
       items_total:          allItems.length,
       flip_candidates:      flipCandidates.length,
       bucket_date:          bucketDate
-    })
+    }
+    await finishSync(logId, 'success', allItems.length, result)
+    return NextResponse.json(result)
 
   } catch (error: any) {
     console.error('bazaar-collect error:', error)
+    await finishSync(logId, 'error', 0, undefined, error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }

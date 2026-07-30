@@ -12,6 +12,7 @@ import {
   buildActivityGearCatalogSection,
 } from '../../../../lib/gear-pricing'
 import { loadActivityGearCategories, type ActivityGearCategories } from '../../../../lib/activity-gear'
+import { startSync, finishSync } from '../../../../lib/sync-log'
 
 export const maxDuration = 120
 
@@ -333,48 +334,58 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data: analyses } = await supabase
-    .from('claude_analysis')
-    .select('section, content')
-    .like('section', 'money_making_%')
+  const logId = await startSync('setup-generate-agent')
+  try {
+    const { data: analyses } = await supabase
+      .from('claude_analysis')
+      .select('section, content')
+      .like('section', 'money_making_%')
 
-  if (!analyses?.length) {
-    return NextResponse.json({ error: 'No methods in DB — run money-making-agent first' }, { status: 400 })
-  }
-
-  const [{ data: ctx }, pricedItems, activityGear] = await Promise.all([
-    supabase.rpc('get_full_context'),
-    loadPricedItems(),
-    loadActivityGearCategories(),
-  ])
-  const baseWikiContext = buildWikiContext(ctx) + '\n' + GROUNDING_RULES
-
-  let ok = 0, fail = 0
-
-  for (const analysis of analyses) {
-    const tier = analysis.section.replace('money_making_', '') as keyof typeof TIER_CONFIG
-    let tierData: any
-    try { tierData = JSON.parse(analysis.content) } catch { continue }
-
-    const methods: any[] = [...(tierData.active || []), ...(tierData.vault || [])]
-
-    const tierConfig = TIER_CONFIG[tier]
-    // Contexte système spécifique au tier (wiki partagé + catalogue budgé) —
-    // cache actif dès le 2e appel du MÊME tier, pas across-tier (le catalogue
-    // change de bande de prix par tier, donc le cache ne peut pas être partagé
-    // au-delà d'un tier sans réintroduire le risque de gear hors-budget).
-    const wikiContext = tierConfig
-      ? baseWikiContext + '\n\n' + gearCatalogForBudget(pricedItems, tierConfig.max_gear_cost) +
-        '\n\n' + buildActivityGearCatalogSection(pricedItems, tierConfig.max_gear_cost, MONEY_MAKING_ACTIVITIES, activityGear)
-      : baseWikiContext
-
-    // Batch de 3 parallèles — même wikiContext → cache actif dès le 2e appel
-    for (let i = 0; i < methods.length; i += 3) {
-      const batch   = methods.slice(i, i + 3)
-      const results = await Promise.all(batch.map(m => generateOne(m, tier, wikiContext, pricedItems, activityGear)))
-      results.forEach(r => r ? ok++ : fail++)
+    if (!analyses?.length) {
+      const msg = 'No methods in DB — run money-making-agent first'
+      await finishSync(logId, 'error', 0, undefined, msg)
+      return NextResponse.json({ error: msg }, { status: 400 })
     }
-  }
 
-  return NextResponse.json({ success: true, generated: ok, failed: fail, model: 'haiku-4-5', cached_context: 'per-tier' })
+    const [{ data: ctx }, pricedItems, activityGear] = await Promise.all([
+      supabase.rpc('get_full_context'),
+      loadPricedItems(),
+      loadActivityGearCategories(),
+    ])
+    const baseWikiContext = buildWikiContext(ctx) + '\n' + GROUNDING_RULES
+
+    let ok = 0, fail = 0
+
+    for (const analysis of analyses) {
+      const tier = analysis.section.replace('money_making_', '') as keyof typeof TIER_CONFIG
+      let tierData: any
+      try { tierData = JSON.parse(analysis.content) } catch { continue }
+
+      const methods: any[] = [...(tierData.active || []), ...(tierData.vault || [])]
+
+      const tierConfig = TIER_CONFIG[tier]
+      // Contexte système spécifique au tier (wiki partagé + catalogue budgé) —
+      // cache actif dès le 2e appel du MÊME tier, pas across-tier (le catalogue
+      // change de bande de prix par tier, donc le cache ne peut pas être partagé
+      // au-delà d'un tier sans réintroduire le risque de gear hors-budget).
+      const wikiContext = tierConfig
+        ? baseWikiContext + '\n\n' + gearCatalogForBudget(pricedItems, tierConfig.max_gear_cost) +
+          '\n\n' + buildActivityGearCatalogSection(pricedItems, tierConfig.max_gear_cost, MONEY_MAKING_ACTIVITIES, activityGear)
+        : baseWikiContext
+
+      // Batch de 3 parallèles — même wikiContext → cache actif dès le 2e appel
+      for (let i = 0; i < methods.length; i += 3) {
+        const batch   = methods.slice(i, i + 3)
+        const results = await Promise.all(batch.map(m => generateOne(m, tier, wikiContext, pricedItems, activityGear)))
+        results.forEach(r => r ? ok++ : fail++)
+      }
+    }
+
+    const result = { success: true, generated: ok, failed: fail, model: 'haiku-4-5', cached_context: 'per-tier' }
+    await finishSync(logId, fail > 0 && ok === 0 ? 'error' : fail > 0 ? 'partial' : 'success', ok, result)
+    return NextResponse.json(result)
+  } catch (e: any) {
+    await finishSync(logId, 'error', 0, undefined, e.message)
+    return NextResponse.json({ error: e.message }, { status: 500 })
+  }
 }

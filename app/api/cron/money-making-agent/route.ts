@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { TIER_CONFIG, GAME_TRUTHS, type TierConfig } from '../../../../lib/money-making-constants'
+import { startSync, finishSync } from '../../../../lib/sync-log'
 
 export const maxDuration = 120
 
@@ -177,65 +178,74 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Charge contexte + bibliothèque + feedback
-  const [{ data: ctx }, { data: existingMethods }, { data: feedbackData }] = await Promise.all([
-    supabase.rpc('get_full_context'),
-    supabase.from('money_making_methods').select('*').eq('status', 'active').order('last_validated_at', { ascending: false }),
-    supabase.from('method_feedback_summary').select('*'),
-  ])
+  const logId = await startSync('money-making-agent')
+  try {
+    // Charge contexte + bibliothèque + feedback
+    const [{ data: ctx }, { data: existingMethods }, { data: feedbackData }] = await Promise.all([
+      supabase.rpc('get_full_context'),
+      supabase.from('money_making_methods').select('*').eq('status', 'active').order('last_validated_at', { ascending: false }),
+      supabase.from('method_feedback_summary').select('*'),
+    ])
 
-  const context = formatContext(
-    ctx,
-    existingMethods || [],
-    feedbackData    || []
-  )
-
-  const results = await Promise.all(
-    Object.entries(TIER_CONFIG).map(async ([tier, config]) => {
-      try {
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
-          method:  'POST',
-          headers: {
-            'x-api-key':         process.env.ANTHROPIC_API_KEY!,
-            'anthropic-version': '2023-06-01',
-            'content-type':      'application/json',
-          },
-          body: JSON.stringify({
-            model:      'claude-sonnet-4-6',
-            max_tokens: 4000,
-            system: [{ type: 'text', text: buildPrompt(tier, config), cache_control: { type: 'ephemeral' } }],
-            messages: [{ role: 'user', content: context }],
-          }),
-        })
-
-        if (!res.ok) return { tier, error: String(res.status) }
-        const data   = await res.json()
-        const parsed = parseJSON(data.content?.[0]?.text || '')
-        return { tier, data: parsed }
-      } catch (e: any) {
-        return { tier, error: e.message }
-      }
-    })
-  )
-
-  for (const r of results) {
-    if ('error' in r) { console.error(r.tier, r.error); continue }
-
-    const section  = 'money_making_' + r.tier
-    const { data: old } = await supabase.from('claude_analysis').select('content').eq('section', section).single()
-    if (old) await supabase.from('claude_memory').insert({ section, content: old.content, archived_at: new Date().toISOString() })
-    await supabase.from('claude_analysis').upsert(
-      { section, content: JSON.stringify(r.data), updated_at: new Date().toISOString() },
-      { onConflict: 'section' }
+    const context = formatContext(
+      ctx,
+      existingMethods || [],
+      feedbackData    || []
     )
 
-    // Sauvegarde dans la bibliothèque
-    const allMethods = [...(r.data.active || []), ...(r.data.vault || [])]
-    await saveToLibrary(allMethods, r.tier, ctx?.bazaar_live || [])
-  }
+    const results = await Promise.all(
+      Object.entries(TIER_CONFIG).map(async ([tier, config]) => {
+        try {
+          const res = await fetch('https://api.anthropic.com/v1/messages', {
+            method:  'POST',
+            headers: {
+              'x-api-key':         process.env.ANTHROPIC_API_KEY!,
+              'anthropic-version': '2023-06-01',
+              'content-type':      'application/json',
+            },
+            body: JSON.stringify({
+              model:      'claude-sonnet-4-6',
+              max_tokens: 4000,
+              system: [{ type: 'text', text: buildPrompt(tier, config), cache_control: { type: 'ephemeral' } }],
+              messages: [{ role: 'user', content: context }],
+            }),
+          })
 
-  return NextResponse.json({
-    success: true,
-    results: results.map(r => ({ tier: r.tier, ok: !('error' in r) }))
-  })
+          if (!res.ok) return { tier, error: String(res.status) }
+          const data   = await res.json()
+          const parsed = parseJSON(data.content?.[0]?.text || '')
+          return { tier, data: parsed }
+        } catch (e: any) {
+          return { tier, error: e.message }
+        }
+      })
+    )
+
+    for (const r of results) {
+      if ('error' in r) { console.error(r.tier, r.error); continue }
+
+      const section  = 'money_making_' + r.tier
+      const { data: old } = await supabase.from('claude_analysis').select('content').eq('section', section).single()
+      if (old) await supabase.from('claude_memory').insert({ section, content: old.content, archived_at: new Date().toISOString() })
+      await supabase.from('claude_analysis').upsert(
+        { section, content: JSON.stringify(r.data), updated_at: new Date().toISOString() },
+        { onConflict: 'section' }
+      )
+
+      // Sauvegarde dans la bibliothèque
+      const allMethods = [...(r.data.active || []), ...(r.data.vault || [])]
+      await saveToLibrary(allMethods, r.tier, ctx?.bazaar_live || [])
+    }
+
+    const result = {
+      success: true,
+      results: results.map(r => ({ tier: r.tier, ok: !('error' in r) }))
+    }
+    const okCount = results.filter(r => !('error' in r)).length
+    await finishSync(logId, okCount === results.length ? 'success' : 'partial', okCount, result)
+    return NextResponse.json(result)
+  } catch (e: any) {
+    await finishSync(logId, 'error', 0, undefined, e.message)
+    return NextResponse.json({ error: e.message }, { status: 500 })
+  }
 }
