@@ -45,6 +45,10 @@ type Requirement =
   | { type: 'jacob_contest_participation'; target?: number }
   | { type: 'jacob_medal_count'; rarity: string; target: number }
   | { type: 'festival_participation'; festival: string }
+  | { type: 'dungeon_floor_played'; mode: 'catacombs' | 'master_catacombs'; floor: string; target?: number }
+  | { type: 'chocolate_factory_amount'; metric: string; target: number }
+  | { type: 'auction_activity'; metric: string; target?: number }
+  | { type: 'fishing_activity'; metric: string; target?: number }
   | { type: 'mobtype'; name: string }
   | { type: 'item'; item_name: string }
   | { type: 'uncollected'; task_key: string }
@@ -70,7 +74,7 @@ export type EvaluatedTask = {
 export async function computeMilestones(uuid: string, profileId: string) {
   const { data: player, error } = await supabase
     .from('player_data')
-    .select('skills, collections, fairy_souls, boss_kills, bank_tier, fast_travel_zones, essence, crafted_generators, bestiary_milestone, slayer_detail, jacob_medals, jacob_contests, festival_candy')
+    .select('skills, collections, fairy_souls, boss_kills, bank_tier, fast_travel_zones, essence, crafted_generators, bestiary_milestone, slayer_detail, jacob_medals, jacob_contests, festival_candy, catacombs_floors, master_catacombs_floors, chocolate_factory, auction_stats, fishing_stats')
     .eq('hypixel_uuid', uuid)
     .eq('profile_id', profileId)
     .single()
@@ -126,6 +130,13 @@ export async function computeMilestones(uuid: string, profileId: string) {
   const jacobMedals         = player.jacob_medals || {}
   const jacobContests       = player.jacob_contests || {}
   const festivalCandy       = player.festival_candy || {}
+  // Zones de l'audit hypixel-api-reborn (3e lot, capacite nette pour du futur contenu
+  // Vault-authored -- aucune tache existante ne reference encore ces zones aujourd'hui).
+  const catacombsFloors       = player.catacombs_floors || {}
+  const masterCatacombsFloors = player.master_catacombs_floors || {}
+  const chocolateFactory      = player.chocolate_factory || {}
+  const auctionStats          = player.auction_stats || {}
+  const fishingStats          = player.fishing_stats || {}
 
   function evaluateTask(row: TaskRow): EvaluatedTask {
     const r = row.requirement
@@ -203,6 +214,28 @@ export async function computeMilestones(uuid: string, profileId: string) {
       const prefix = `${r.festival}_festival_`
       const hasAny = Object.keys(festivalCandy).some(key => key.startsWith(prefix))
       return { ...base, data_available: true, current: hasAny ? 1 : 0, target: 1, met: hasAny }
+    }
+    if (r.type === 'dungeon_floor_played') {
+      const floors  = r.mode === 'master_catacombs' ? masterCatacombsFloors : catacombsFloors
+      const current = floors[r.floor]?.times_played ?? 0
+      const target  = r.target ?? 1
+      return { ...base, data_available: true, current, target, met: current >= target }
+    }
+    if (r.type === 'chocolate_factory_amount') {
+      const current = chocolateFactory[r.metric] ?? 0
+      return { ...base, data_available: true, current, target: r.target, met: current >= r.target }
+    }
+    if (r.type === 'auction_activity') {
+      const current = auctionStats[r.metric] ?? 0
+      const target  = r.target ?? 1
+      return { ...base, data_available: true, current, target, met: current >= target }
+    }
+    if (r.type === 'fishing_activity') {
+      const current = r.metric === 'sea_creature_kills'
+        ? (fishingStats.sea_creature_kills ?? 0)
+        : (fishingStats.items_fished?.[r.metric] ?? 0)
+      const target = r.target ?? null
+      return { ...base, data_available: true, current, target, met: target !== null ? current >= target : null }
     }
     // item / mobtype / uncollected : pas verifiable aujourd'hui
     return { ...base, data_available: false, current: null, target: null, met: null }
