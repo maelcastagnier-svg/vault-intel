@@ -40,6 +40,11 @@ type Requirement =
   | { type: 'essence_amount'; essence_type: string; target?: number }
   | { type: 'minion_count'; target?: number }
   | { type: 'bestiary_milestone'; target: number }
+  | { type: 'slayer_claimed_level'; boss: string; level: number }
+  | { type: 'slayer_tier_kills'; boss: string; tier: number; target: number }
+  | { type: 'jacob_contest_participation'; target?: number }
+  | { type: 'jacob_medal_count'; rarity: string; target: number }
+  | { type: 'festival_participation'; festival: string }
   | { type: 'mobtype'; name: string }
   | { type: 'item'; item_name: string }
   | { type: 'uncollected'; task_key: string }
@@ -65,7 +70,7 @@ export type EvaluatedTask = {
 export async function computeMilestones(uuid: string, profileId: string) {
   const { data: player, error } = await supabase
     .from('player_data')
-    .select('skills, collections, fairy_souls, boss_kills, bank_tier, fast_travel_zones, essence, crafted_generators, bestiary_milestone')
+    .select('skills, collections, fairy_souls, boss_kills, bank_tier, fast_travel_zones, essence, crafted_generators, bestiary_milestone, slayer_detail, jacob_medals, jacob_contests, festival_candy')
     .eq('hypixel_uuid', uuid)
     .eq('profile_id', profileId)
     .single()
@@ -116,6 +121,11 @@ export async function computeMilestones(uuid: string, profileId: string) {
   const essence             = player.essence || {}
   const craftedGenerators: string[] = player.crafted_generators || []
   const bestiaryMilestone   = player.bestiary_milestone ?? 0
+  // Zones de l'audit hypixel-api-reborn (2e lot) — voir CLAUDE.md "Audit hypixel-api-reborn".
+  const slayerDetail        = player.slayer_detail || {}
+  const jacobMedals         = player.jacob_medals || {}
+  const jacobContests       = player.jacob_contests || {}
+  const festivalCandy       = player.festival_candy || {}
 
   function evaluateTask(row: TaskRow): EvaluatedTask {
     const r = row.requirement
@@ -171,6 +181,28 @@ export async function computeMilestones(uuid: string, profileId: string) {
     }
     if (r.type === 'bestiary_milestone') {
       return { ...base, data_available: true, current: bestiaryMilestone, target: r.target, met: bestiaryMilestone >= r.target }
+    }
+    if (r.type === 'slayer_claimed_level') {
+      const claimed = !!slayerDetail[r.boss]?.claimed_levels?.[`level_${r.level}`]
+      return { ...base, data_available: true, current: claimed ? 1 : 0, target: 1, met: claimed }
+    }
+    if (r.type === 'slayer_tier_kills') {
+      const current = slayerDetail[r.boss]?.tiers?.[r.tier]?.kills ?? 0
+      return { ...base, data_available: true, current, target: r.target, met: current >= r.target }
+    }
+    if (r.type === 'jacob_contest_participation') {
+      const current = Object.keys(jacobContests).length
+      const target  = r.target ?? 1
+      return { ...base, data_available: true, current, target, met: current >= target }
+    }
+    if (r.type === 'jacob_medal_count') {
+      const current = jacobMedals[r.rarity] ?? 0
+      return { ...base, data_available: true, current, target: r.target, met: current >= r.target }
+    }
+    if (r.type === 'festival_participation') {
+      const prefix = `${r.festival}_festival_`
+      const hasAny = Object.keys(festivalCandy).some(key => key.startsWith(prefix))
+      return { ...base, data_available: true, current: hasAny ? 1 : 0, target: 1, met: hasAny }
     }
     // item / mobtype / uncollected : pas verifiable aujourd'hui
     return { ...base, data_available: false, current: null, target: null, met: null }
