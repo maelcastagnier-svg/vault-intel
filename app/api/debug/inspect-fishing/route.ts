@@ -1,7 +1,7 @@
 // TEMP debug route -- dumps member.player_stats.sea_creature_kills + items_fished
 // directly on Cucumber's real profile. Path confirmed via hypixel-api-reborn reference
-// audit, verified here against real data before coding. Zero Claude cost -- Hypixel API
-// only. Deleted after use.
+// audit, verified here against real data before coding. Zero Claude cost -- Hypixel
+// API only. Deleted after use.
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
