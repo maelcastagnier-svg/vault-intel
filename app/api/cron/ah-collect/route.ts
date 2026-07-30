@@ -438,16 +438,22 @@ export async function GET(request: Request) {
 }
 
 // ── Fetch enchères BIN vendues (prix réels de vente) ─────────
-// Bug reel trouve le 30 juillet (audit architectural) : contrairement a
-// /v2/skyblock/auctions (public, aucune cle requise), /v2/skyblock/
-// auctions/ended EXIGE une cle API -- confirme en direct (400 "Missing
-// API-Key header"). L'ancien code ne passait aucun header, donc cet appel
-// echouait a 100% des invocations depuis sa creation, et le
-// `if (!res.ok) return { auctions: [] }` avalait l'echec sans aucune
-// trace (pas de console.error) -- confirme en base : 0 ligne avec
-// avg_sold_price > 0 sur 70 910 lignes recentes de price_history_ah_variants.
+// Bug reel trouve le 30 juillet (audit architectural), diagnostic en 2 passes :
+// 1re passe (fausse piste partielle) : l'URL utilisee, /v2/skyblock/auctions/ended,
+// renvoyait "400 Missing API-Key header" sans cle, laissant croire que la cle etait
+// le seul probleme.
+// 2e passe (vraie cause, confirmee par un vrai test reseau direct + recherche de la
+// doc Hypixel a jour) : ce chemin n'existe simplement pas. Le vrai endpoint est
+// /v2/skyblock/auctions_ended (underscore, pas de slash) -- confirme en direct :
+// 200 OK, aucune cle requise (endpoint public, comme /v2/skyblock/auctions), donnees
+// reelles retournees. Avec la cle reelle du projet sur l'ANCIEN mauvais chemin,
+// Hypixel repondait "404 Unknown endpoint" (le WAF valide d'abord la cle avant meme
+// de router — d'ou les messages d'erreur trompeurs a chaque etape du diagnostic).
+// L'ancien code ne gerait aucun de ces cas et repartait sur `{ auctions: [] }`
+// silencieusement -- confirme en base : 0 ligne avec avg_sold_price > 0 sur 70 910
+// lignes recentes de price_history_ah_variants.
 async function fetchSoldAuctions(): Promise<{ auctions: any[] }> {
-  const res = await fetch('https://api.hypixel.net/v2/skyblock/auctions/ended', {
+  const res = await fetch('https://api.hypixel.net/v2/skyblock/auctions_ended', {
     headers: { 'API-Key': process.env.HYPIXEL_API_KEY! },
   })
   if (!res.ok) {
