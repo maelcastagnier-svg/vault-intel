@@ -84,17 +84,31 @@ export async function runAhAggregate() {
     // ── TABLE 2 : price_history_ah ────────────────────────────
     // 1 row par item (base_item_id) par jour = moyenne toutes variantes
     // Groupe par base_item_id + scan_date
-    const itemMap = new Map<string, { prices: number[]; volumes: number[]; scan_date: string }>()
+    // avg_sold_price/sold_count ajoutes le 30 juillet (Bloc 1.4, audit
+    // architectural) -- avant cette passe, seule Table 1 (variants) portait
+    // le prix de vente reel, cassant la continuite avec l'historique SkyCofl
+    // (base sur le vendu) pour cette table precisement. Pondere par
+    // sold_count comme Table 3, jamais un simple moyenne de moyennes.
+    const itemMap = new Map<string, {
+      prices: number[]; volumes: number[]; scan_date: string
+      soldPriceWeightedSum: number; soldCountSum: number
+    }>()
     for (const b of buffer) {
       const key = `${b.base_item_id}::${b.scan_date}`
       if (!itemMap.has(key)) {
-        itemMap.set(key, { prices: [], volumes: [], scan_date: b.scan_date })
+        itemMap.set(key, { prices: [], volumes: [], scan_date: b.scan_date, soldPriceWeightedSum: 0, soldCountSum: 0 })
       }
-      itemMap.get(key)!.prices.push(Number(b.avg_price))
-      itemMap.get(key)!.volumes.push(Number(b.volume))
+      const entry = itemMap.get(key)!
+      entry.prices.push(Number(b.avg_price))
+      entry.volumes.push(Number(b.volume))
+      const soldCount = Number(b.sold_count) || 0
+      if (soldCount > 0) {
+        entry.soldPriceWeightedSum += Number(b.avg_sold_price) * soldCount
+        entry.soldCountSum         += soldCount
+      }
     }
 
-    const dailyRows = Array.from(itemMap.entries()).map(([key, { prices, volumes, scan_date }]) => {
+    const dailyRows = Array.from(itemMap.entries()).map(([key, { prices, volumes, scan_date, soldPriceWeightedSum, soldCountSum }]) => {
       const base_item_id = key.split('::')[0]
       const avg_price    = Math.round(prices.reduce((s, p) => s + p, 0) / prices.length)
       const volume       = volumes.reduce((s, v) => s + v, 0)
@@ -116,6 +130,8 @@ export async function runAhAggregate() {
         buy_price:        avg_price,
         volume,
         data_points:      prices.length,
+        avg_sold_price:   soldCountSum > 0 ? Math.round(soldPriceWeightedSum / soldCountSum) : 0,
+        sold_count:       soldCountSum,
       }
     })
 
@@ -146,6 +162,11 @@ export async function runAhAggregate() {
       dataPointsSum:    number
       variantKeys:      Set<string>
       best:             any // ligne au plus haut scan_count du groupe — source des champs descriptifs (non agrégés)
+      // avg_sold_price/sold_count ajoutes le 30 juillet (Bloc 1.4) -- pondere
+      // par sold_count (fiabilite du vendu), jamais par scan_count (fiabilite
+      // du listing, un axe different).
+      soldPriceWeightedSum: number
+      soldCountSum:         number
     }
     const baseGroupMap = new Map<string, BaseGroup>()
 
@@ -157,6 +178,7 @@ export async function runAhAggregate() {
           weightedPriceSum: 0, weightTotal: 0,
           minPrices: [], maxPrices: [], volumeSum: 0, dataPointsSum: 0,
           variantKeys: new Set(), best: b,
+          soldPriceWeightedSum: 0, soldCountSum: 0,
         })
       }
       const g = baseGroupMap.get(key)!
@@ -168,6 +190,11 @@ export async function runAhAggregate() {
       g.dataPointsSum    += b.scan_count
       g.variantKeys.add(b.variant_key)
       if (b.scan_count > g.best.scan_count) g.best = b
+      const soldCount = Number(b.sold_count) || 0
+      if (soldCount > 0) {
+        g.soldPriceWeightedSum += Number(b.avg_sold_price) * soldCount
+        g.soldCountSum         += soldCount
+      }
     }
 
     // Seuil de fiabilité minimum avant d'écrire la ligne base : soit assez de
@@ -192,6 +219,8 @@ export async function runAhAggregate() {
           volume:                 g.volumeSum,
           data_points:            g.dataPointsSum,
           contributing_variants:  g.variantKeys.size,
+          avg_sold_price:         g.soldCountSum > 0 ? Math.round(g.soldPriceWeightedSum / g.soldCountSum) : 0,
+          sold_count:             g.soldCountSum,
           total_stars:            g.best.total_stars,
           master_stars:           g.best.master_stars,
           is_recomb:              g.best.is_recomb,

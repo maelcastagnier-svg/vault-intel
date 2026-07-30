@@ -438,10 +438,28 @@ export async function GET(request: Request) {
 }
 
 // ── Fetch enchères BIN vendues (prix réels de vente) ─────────
+// Bug reel trouve le 30 juillet (audit architectural) : contrairement a
+// /v2/skyblock/auctions (public, aucune cle requise), /v2/skyblock/
+// auctions/ended EXIGE une cle API -- confirme en direct (400 "Missing
+// API-Key header"). L'ancien code ne passait aucun header, donc cet appel
+// echouait a 100% des invocations depuis sa creation, et le
+// `if (!res.ok) return { auctions: [] }` avalait l'echec sans aucune
+// trace (pas de console.error) -- confirme en base : 0 ligne avec
+// avg_sold_price > 0 sur 70 910 lignes recentes de price_history_ah_variants.
 async function fetchSoldAuctions(): Promise<{ auctions: any[] }> {
-  const res = await fetch('https://api.hypixel.net/v2/skyblock/auctions/ended')
-  if (!res.ok) return { auctions: [] }
+  const res = await fetch('https://api.hypixel.net/v2/skyblock/auctions/ended', {
+    headers: { 'API-Key': process.env.HYPIXEL_API_KEY! },
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    console.error(`fetchSoldAuctions failed: HTTP ${res.status} — ${body.slice(0, 300)}`)
+    return { auctions: [] }
+  }
   const data = await res.json()
+  if (!data.success) {
+    console.error(`fetchSoldAuctions failed: Hypixel success:false — ${JSON.stringify(data).slice(0, 300)}`)
+    return { auctions: [] }
+  }
   // Filtre uniquement les BIN
   return { auctions: (data.auctions || []).filter((a: any) => a.bin) }
 }
