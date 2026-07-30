@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   // 1. Direct endpoint check with the key
   const keyPresent = !!process.env.HYPIXEL_API_KEY
   const keyLength   = process.env.HYPIXEL_API_KEY?.length ?? 0
-  const endedRes = await fetch('https://api.hypixel.net/v2/skyblock/auctions/ended', {
+  const endedRes = await fetch('https://api.hypixel.net/v2/skyblock/auctions_ended', {
     headers: { 'API-Key': process.env.HYPIXEL_API_KEY! },
   })
   const endedRawText = await endedRes.text()
