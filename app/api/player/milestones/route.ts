@@ -32,6 +32,14 @@ type Requirement =
   | { type: 'skill'; skill: string; level: number }
   | { type: 'collection'; item_name: string; tier: number }
   | { type: 'fairy_souls'; target: number }
+  | { type: 'boss_kill'; boss: 'kuudra'; tier: string; target: number }
+  | { type: 'boss_kill'; boss: 'arachne' }
+  | { type: 'boss_kill'; boss: 'dragon'; variant: string }
+  | { type: 'bank_tier'; target: number }
+  | { type: 'fast_travel_count'; target?: number }
+  | { type: 'essence_amount'; essence_type: string; target?: number }
+  | { type: 'minion_count'; target?: number }
+  | { type: 'bestiary_milestone'; target: number }
   | { type: 'mobtype'; name: string }
   | { type: 'item'; item_name: string }
   | { type: 'uncollected'; task_key: string }
@@ -57,7 +65,7 @@ export type EvaluatedTask = {
 export async function computeMilestones(uuid: string, profileId: string) {
   const { data: player, error } = await supabase
     .from('player_data')
-    .select('skills, collections, fairy_souls')
+    .select('skills, collections, fairy_souls, boss_kills, bank_tier, fast_travel_zones, essence, crafted_generators, bestiary_milestone')
     .eq('hypixel_uuid', uuid)
     .eq('profile_id', profileId)
     .single()
@@ -99,6 +107,15 @@ export async function computeMilestones(uuid: string, profileId: string) {
   const skills      = player.skills || {}
   const collections = player.collections || {}
   const fairySouls  = player.fairy_souls ?? 0
+  // Zones du chantier collecte totale (1er lot) — voir CLAUDE.md "Audit hypixel-api-reborn"
+  // pour la justification de chaque champ source. Toutes ces colonnes existent deja sur
+  // player_data, rien de nouveau a collecter ici : juste brancher computeMilestones dessus.
+  const bossKills           = player.boss_kills || {}
+  const bankTier            = player.bank_tier ?? 0
+  const fastTravelZones: string[] = player.fast_travel_zones || []
+  const essence             = player.essence || {}
+  const craftedGenerators: string[] = player.crafted_generators || []
+  const bestiaryMilestone   = player.bestiary_milestone ?? 0
 
   function evaluateTask(row: TaskRow): EvaluatedTask {
     const r = row.requirement
@@ -120,6 +137,40 @@ export async function computeMilestones(uuid: string, profileId: string) {
     }
     if (r.type === 'fairy_souls') {
       return { ...base, data_available: true, current: fairySouls, target: r.target, met: fairySouls >= r.target }
+    }
+    if (r.type === 'boss_kill') {
+      if (r.boss === 'kuudra') {
+        const current = bossKills.kuudra?.completed_tiers?.[r.tier] ?? 0
+        return { ...base, data_available: true, current, target: r.target, met: current >= r.target }
+      }
+      if (r.boss === 'arachne') {
+        const defeated = !!bossKills.arachne?.defeated
+        return { ...base, data_available: true, current: defeated ? 1 : 0, target: 1, met: defeated }
+      }
+      // r.boss === 'dragon'
+      const killed = (bossKills.ender_dragon?.killed_types || []).includes(r.variant)
+      return { ...base, data_available: true, current: killed ? 1 : 0, target: 1, met: killed }
+    }
+    if (r.type === 'bank_tier') {
+      return { ...base, data_available: true, current: bankTier, target: r.target, met: bankTier >= r.target }
+    }
+    if (r.type === 'fast_travel_count') {
+      const current = fastTravelZones.length
+      const target  = r.target ?? null
+      return { ...base, data_available: true, current, target, met: target !== null ? current >= target : null }
+    }
+    if (r.type === 'essence_amount') {
+      const current = essence[r.essence_type] ?? 0
+      const target  = r.target ?? 1 // pas de cible explicite -> lecture "a deja utilise ce type d'essence"
+      return { ...base, data_available: true, current, target, met: current >= target }
+    }
+    if (r.type === 'minion_count') {
+      const current = craftedGenerators.length
+      const target  = r.target ?? 1
+      return { ...base, data_available: true, current, target, met: current >= target }
+    }
+    if (r.type === 'bestiary_milestone') {
+      return { ...base, data_available: true, current: bestiaryMilestone, target: r.target, met: bestiaryMilestone >= r.target }
     }
     // item / mobtype / uncollected : pas verifiable aujourd'hui
     return { ...base, data_available: false, current: null, target: null, met: null }
