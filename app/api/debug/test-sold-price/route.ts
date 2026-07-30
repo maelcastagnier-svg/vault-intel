@@ -9,7 +9,7 @@
 //    tables for sold_count > 0 on today's bucket_date
 // Zero Claude cost. Deleted after use.
 import { createClient } from '@supabase/supabase-js'
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { runAhCollect } from '../../cron/ah-collect/route'
 import { runAhAggregate } from '../../cron/ah-aggregate/route'
 
@@ -18,12 +18,30 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   // 1. Direct endpoint check with the key
+  const keyPresent = !!process.env.HYPIXEL_API_KEY
+  const keyLength   = process.env.HYPIXEL_API_KEY?.length ?? 0
   const endedRes = await fetch('https://api.hypixel.net/v2/skyblock/auctions/ended', {
     headers: { 'API-Key': process.env.HYPIXEL_API_KEY! },
   })
-  const endedBody = await endedRes.json().catch(() => null)
+  const endedRawText = await endedRes.text()
+  let endedBody: any = null
+  try { endedBody = JSON.parse(endedRawText) } catch { /* not JSON */ }
+
+  const step1 = {
+    status: endedRes.status,
+    success: endedBody?.success,
+    auctions_count: endedBody?.auctions?.length ?? null,
+    key_present: keyPresent,
+    key_length: keyLength,
+    raw_body_sample: endedRawText.slice(0, 300),
+  }
+
+  // ?diag=1 -- isolate step 1 only, skip the expensive full AH scan while debugging
+  if (req.nextUrl.searchParams.get('diag') === '1') {
+    return NextResponse.json({ step1_ended_endpoint: step1 })
+  }
 
   // 2. Real collection run
   const collectResult = await runAhCollect()
@@ -45,7 +63,7 @@ export async function GET() {
   ])
 
   return NextResponse.json({
-    step1_ended_endpoint: { status: endedRes.status, success: endedBody?.success, auctions_count: endedBody?.auctions?.length ?? null },
+    step1_ended_endpoint: step1,
     step2_collect: { ...collectResult, buffer_rows_with_sold_price: bufferSoldCount, buffer_sample: bufferSample },
     step3_aggregate: { ...aggregateResult, today, variants_with_sold_today: variantsWithSold, base_with_sold_today: baseWithSold, blended_with_sold_today: blendedWithSold },
   })
