@@ -243,6 +243,36 @@ export function extractDungeonDetail(member: any) {
   }
 }
 
+// Slayer — claimed_levels + détail par tier. 2e zone du chantier "audit hypixel-api-reborn".
+// Notre mapping existant (section 4, "slayers") ne stocke que xp + la somme des kills tous
+// tiers confondus — jamais quels paliers de récompense ont déjà été réclamés, alors que
+// Hypixel le calcule et l'expose directement (aucun seuil à deviner, contrairement à ce que
+// CLAUDE.md notait pour les seuils de tier XP "verified:false"). Structure vérifiée sur
+// Cucumber : member.slayer.slayer_bosses.<boss>.claimed_levels = objet ne contenant QUE les
+// niveaux réellement réclamés (level_1..level_9, true) — un niveau non réclamé est absent,
+// jamais false. Une clé "level_N_special" existe aussi (zombie, niveau 7) — variante réelle
+// du même palier, pas une clé à ignorer. boss_kills_tier_0..4 et boss_attempts_tier_0..4 sont
+// deux compteurs réels distincts par tier (kills vs tentatives) — attempts pas dans le mapping
+// existant, ajouté ici en plus.
+export function extractSlayerDetail(member: any) {
+  const bosses = member.slayer?.slayer_bosses || {}
+  const detail: Record<string, any> = {}
+  for (const [boss, data] of Object.entries(bosses as Record<string, any>)) {
+    const tiers: Record<string, { kills: number; attempts: number }> = {}
+    for (let tier = 0; tier <= 4; tier++) {
+      const kills = data[`boss_kills_tier_${tier}`]
+      const attempts = data[`boss_attempts_tier_${tier}`]
+      if (kills === undefined && attempts === undefined) continue
+      tiers[tier] = { kills: kills ?? 0, attempts: attempts ?? 0 }
+    }
+    detail[boss] = {
+      claimed_levels: (data.claimed_levels || {}) as Record<string, boolean>,
+      tiers,
+    }
+  }
+  return detail
+}
+
 const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -584,6 +614,9 @@ export async function GET(req: NextRequest) {
     // 5k. Donjons — détail par étage. Voir extractDungeonDetail en tête de fichier.
     const dungeonDetail = extractDungeonDetail(member)
 
+    // 5l. Slayer — claimed_levels + détail par tier. Voir extractSlayerDetail.
+    const slayerDetail = extractSlayerDetail(member)
+
     // 6. Collections
     const collections: Record<string, number> = member.collection || {}
 
@@ -759,6 +792,7 @@ export async function GET(req: NextRequest) {
       dungeon_unlocked_journals: dungeonDetail.dungeon_unlocked_journals,
       catacombs_floors:          dungeonDetail.catacombs_floors,
       master_catacombs_floors:   dungeonDetail.master_catacombs_floors,
+      slayer_detail:             slayerDetail,
       networth,
       networth_breakdown: networthBreakdown,
       skills:            skillLevels,
