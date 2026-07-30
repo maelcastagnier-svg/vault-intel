@@ -348,6 +348,20 @@ export function extractAuctionStats(member: any) {
   }
 }
 
+// Fishing — 6e et dernière zone du chantier "audit hypixel-api-reborn". Fishing n'avait
+// jamais eu sa propre zone malgré être un skill à part entière. Structure vérifiée sur
+// Cucumber : member.player_stats.sea_creature_kills (nombre réel au niveau racine, pas
+// nested) + member.player_stats.items_fished = {total, normal, treasure, large_treasure,
+// trophy_fish} — "total" ici est un vrai agrégat Hypixel (250+34+3+27=314, confirmé
+// cohérent), gardé tel quel.
+export function extractFishingStats(member: any) {
+  const playerStats = member.player_stats || {}
+  return {
+    sea_creature_kills: playerStats.sea_creature_kills ?? 0,
+    items_fished:       (playerStats.items_fished || {}) as Record<string, number>,
+  }
+}
+
 const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -701,6 +715,9 @@ export async function GET(req: NextRequest) {
     // 5o. Auctions — voir extractAuctionStats en tête de fichier.
     const auctionStats = extractAuctionStats(member)
 
+    // 5p. Fishing — voir extractFishingStats en tête de fichier.
+    const fishingStats = extractFishingStats(member)
+
     // 6. Collections
     const collections: Record<string, number> = member.collection || {}
 
@@ -884,6 +901,7 @@ export async function GET(req: NextRequest) {
       jacob_contests:            jacobsContests.jacob_contests,
       chocolate_factory:         chocolateFactory,
       auction_stats:             auctionStats,
+      fishing_stats:             fishingStats,
       networth,
       networth_breakdown: networthBreakdown,
       skills:            skillLevels,
