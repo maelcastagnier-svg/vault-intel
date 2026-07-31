@@ -18,7 +18,9 @@ type SearchResult = { item_id: string; item_name: string; source: 'bazaar'|'ah';
 type PricePoint   = { date: string; sell_price?: number; buy_price?: number; avg_price?: number; volume?: number }
 type VariantMeta  = { key: string; label: string; data_points: number; color: string }
 type RadarItem    = { item_id: string; item_name: string; signal: string; reason: string; drivers: string[]; timeframe: string; price_target: string; confidence: string }
-type RadarData    = { positive: RadarItem[]; negative: RadarItem[]; summary: string }
+type LongTermMover = { item_id: string; avg_recent_year: number; avg_prior_year: number; change_yoy_pct: number; years_of_data: number }
+type LongTermMovers = { gainers: LongTermMover[]; decliners: LongTermMover[]; pool_size: number }
+type RadarData    = { positive: RadarItem[]; negative: RadarItem[]; summary: string; long_term_movers?: LongTermMovers }
 
 // Fixed-order categorical palette (dark-mode steps from the validated reference
 // palette — run through scripts/validate_palette.js before touching these).
@@ -28,8 +30,15 @@ type RadarData    = { positive: RadarItem[]; negative: RadarItem[]; summary: str
 const CHART_PALETTE = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767']
 
 // ─── Config ──────────────────────────────────────────────────
-const PERIODS = ['1D','1W','1M','1Y','3Y']
-const PERIOD_DAYS: Record<string,number> = { '1D':1,'1W':7,'1M':30,'1Y':365,'3Y':1095 }
+// 'ALL' covers the real depth already in price_history/price_history_ah --
+// confirmed live (30/31 juillet, Bloc 5) : plus ancienne ligne réelle
+// 2019-06-19, donc ~7.1 ans, pas seulement les "3 years" annoncés jusque-là
+// dans le header. 99999 jours en borne basse pour 'ALL' plutôt qu'un calcul
+// dynamique de la vraie date de départ -- gte() sur une date antérieure à
+// toute donnée réelle revient simplement à ne pas filtrer, sans requête
+// supplémentaire pour connaître la date exacte de la ligne la plus ancienne.
+const PERIODS = ['1D','1W','1M','1Y','3Y','ALL']
+const PERIOD_DAYS: Record<string,number> = { '1D':1,'1W':7,'1M':30,'1Y':365,'3Y':1095,'ALL':99999 }
 const SIGNAL_COLORS: Record<string,string> = { BUY:'#1baf7a',INVEST:'#9b59b6',SELL:'#e34948',AVOID:'#e34948',WATCH:'#c9a84c' }
 const CONF_COLORS:   Record<string,string> = { HIGH:'#1baf7a',MED:'#c9a84c',LOW:'#e34948' }
 const DRIVER_LABELS: Record<string,string> = {
@@ -159,6 +168,11 @@ function ItemExplorer() {
     const useScans  = p==='1D'||p==='1W'
 
     if (item.source==='bazaar') {
+      // Limite explicite -- sans elle, PostgREST retombe sur son défaut serveur
+      // (1000 lignes), qui aurait silencieusement tronqué 'ALL'/'3Y' sur un item
+      // à profondeur réelle max (~2000 lignes, confirmé en base) puisque le tri
+      // est ascendant : les lignes les PLUS RÉCENTES auraient été coupées, pas
+      // les plus anciennes. 3000 couvre confortablement la profondeur réelle.
       const { data } = await supabase
         .from('price_history')
         .select('bucket_date,buy_price,sell_price,volume')
@@ -166,6 +180,7 @@ function ItemExplorer() {
         .gte('bucket_date', startDate)
         .gt('sell_price', 0)
         .order('bucket_date', { ascending:true })
+        .limit(3000)
 
       return (data||[]).map(d=>({ date:d.bucket_date, buy_price:Number(d.buy_price), sell_price:Number(d.sell_price), volume:Number(d.volume) }))
     }
@@ -192,6 +207,11 @@ function ItemExplorer() {
         .limit(1500)
       hist = data
     } else {
+      // Limite relevée 1500->3000 (Bloc 5, 30/31 juillet) -- la profondeur
+      // réelle max d'un item bien suivi dépasse 2300 lignes DAILY (~7.1 ans
+      // depuis 2019-06-19, confirmé en base), donc 1500 tronquait déjà
+      // silencieusement 'ALL'/'3Y' pour tout item ancien, en coupant les
+      // lignes les plus RÉCENTES (tri ascendant + limite).
       let q = supabase
         .from('price_history_ah')
         .select('bucket_date,created_at,avg_price,volume,variant_key')
@@ -199,7 +219,7 @@ function ItemExplorer() {
         .in('granularity', useScans ? ['SCAN'] : ['DAILY','DAILY_EXACT','MONTHLY'])
         .gt('avg_price', 0)
         .order(useScans ? 'created_at' : 'bucket_date', { ascending:true })
-        .limit(useScans ? 2000 : 1500)
+        .limit(useScans ? 2000 : 3000)
 
       if (useScans) q = q.gte('created_at', new Date(Date.now()-days*86_400_000).toISOString())
       else          q = q.gte('bucket_date', startDate)
@@ -534,6 +554,51 @@ function RadarCard({ item, type }: { item: RadarItem; type:'positive'|'negative'
   )
 }
 
+// ─── Long-Term Movers (Bloc 5.3/5.4, 31 juillet) ──────────────
+// Rendu purement à partir de données calculées en SQL/JS côté cron (voir
+// computeLongTermMovers dans radar-agent/route.ts) -- aucun texte généré
+// par Claude ici, juste les vrais chiffres année N vs N-1.
+function MoverRow({ m, positive }: { m: LongTermMover; positive: boolean }) {
+  const color = positive ? '#1baf7a' : '#e34948'
+  return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', borderRadius:7, background:'#111110', marginBottom:6 }}>
+      <div style={{ minWidth:0 }}>
+        <div style={{ fontSize:11, color:'#e8e6df', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{toLabel(m.item_id)}</div>
+        <div style={{ fontSize:9, color:'#4a4a45', fontFamily:'Space Mono, monospace' }}>{m.years_of_data}y tracked · {fmt(m.avg_prior_year)} → {fmt(m.avg_recent_year)}</div>
+      </div>
+      <div style={{ fontSize:12, fontWeight:700, color, fontFamily:'Space Mono, monospace', flexShrink:0, marginLeft:10 }}>
+        {m.change_yoy_pct>=0?'+':''}{m.change_yoy_pct}%
+      </div>
+    </div>
+  )
+}
+
+function LongTermMoversSection({ movers }: { movers?: LongTermMovers }) {
+  if (!movers || movers.pool_size===0) return null
+  return (
+    <div style={{ marginTop:16, borderTop:'1px solid rgba(155,89,182,0.1)', paddingTop:16 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
+        <span style={{ fontSize:9, fontWeight:700, color:'#9b59b6', fontFamily:"'Press Start 2P', monospace", letterSpacing:'0.03em' }}>📆 LONG-TERM MOVERS</span>
+        <span style={{ fontSize:8.5, color:'#3a3a38', fontFamily:'Space Mono, monospace' }}>year-over-year · {movers.pool_size} long-tracked items analyzed</span>
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+        <div>
+          <div style={{ fontSize:9, color:'#4a4a45', fontFamily:'Space Mono, monospace', textTransform:'uppercase', marginBottom:8 }}>Gainers</div>
+          {movers.gainers.length===0
+            ? <div style={{ fontSize:10, color:'#2a2a28', fontFamily:'Space Mono, monospace' }}>None found</div>
+            : movers.gainers.map((m,i)=><MoverRow key={i} m={m} positive/>)}
+        </div>
+        <div>
+          <div style={{ fontSize:9, color:'#4a4a45', fontFamily:'Space Mono, monospace', textTransform:'uppercase', marginBottom:8 }}>Decliners</div>
+          {movers.decliners.length===0
+            ? <div style={{ fontSize:10, color:'#2a2a28', fontFamily:'Space Mono, monospace' }}>None found</div>
+            : movers.decliners.map((m,i)=><MoverRow key={i} m={m} positive={false}/>)}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Intelligence Vault ───────────────────────────────────────
 function IntelligenceVault({ marketData, dataLoading }: { marketData:Record<string,string>; dataLoading:boolean }) {
   let radar: RadarData = { positive:[],negative:[],summary:'' }
@@ -571,6 +636,7 @@ function IntelligenceVault({ marketData, dataLoading }: { marketData:Record<stri
           </div>
         </div>
       )}
+      <LongTermMoversSection movers={radar.long_term_movers}/>
     </div>
   )
 }
@@ -588,7 +654,7 @@ export default function RadarSection({ marketData, dataLoading }: { marketData:R
         <span style={{ fontSize:20 }}>📡</span>
         <div>
           <div style={{ fontSize:9,fontWeight:700,color:'#9b59b6',fontFamily:"'Press Start 2P', monospace",letterSpacing:'0.04em' }}>MARKET RADAR</div>
-          <div style={{ fontSize:10,color:'#3a3a38',marginTop:2 }}>Price explorer · {itemCount ?? '…'} items · Bazaar + AH · up to 3 years</div>
+          <div style={{ fontSize:10,color:'#3a3a38',marginTop:2 }}>Price explorer · {itemCount ?? '…'} items · Bazaar + AH · up to 7+ years</div>
         </div>
         <div style={{ marginLeft:'auto',fontSize:8.5,color:'#3a3a38',fontFamily:'Space Mono, monospace',textAlign:'right' }}>Daily intelligence<br/>+ live charts</div>
       </div>
