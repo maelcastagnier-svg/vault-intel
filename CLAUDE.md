@@ -22,6 +22,87 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Bloc 7 (plan d'audit 8 blocs) — zones joueur restantes, structure vérifiée avant mapping (31 juillet)
+
+Suite directe du Bloc 6, même méthode que toute la Phase 2 (chantier collecte totale) : 
+structure brute vérifiée sur Cucumber avant tout mapping, jamais devinée. La clé 
+`HYPIXEL_API_KEY` était de nouveau expirée en entamant ce bloc (même pattern récurrent déjà 
+documenté) — rechargée par l'utilisateur, nouveau build déclenché pour la propager à la 
+branche preview.
+
+**Réellement débloquées cette passe** :
+- **Garden** — `garden_player_data` (`copper`, `discovered_greenhouse_crops`) et 
+  `player_data.garden_chips` (inventaire réel de chips, 8 types possédés chez Cucumber) 
+  confirmés réels et non-vides. La grosse partie de la progression Garden (cultures/niveau/
+  barn) vit sur un endpoint séparé (`/v2/skyblock/garden`), pas mappée cette passe — hors 
+  scope du plan (qui ne demandait l'endpoint séparé que pour Museum).
+- **AccessoryBag tuning** — `accessory_bag_storage` confirmé riche et non-vide : tuning par 
+  slot (stats réparties), `highest_magical_power`, `selected_power`, `unlocked_powers`.
+- **AutoPets** — `pets_data.autopet.rules` confirmé comme vraie structure (array de règles, 
+  vide chez Cucumber — même limite que `harp_songs` en son temps : forme connue, contenu 
+  non-vide jamais vérifié).
+- **"Gifts/Winter" — la vraie donnée trouvée n'est pas celle supposée par l'audit d'origine** : 
+  aucun champ "Winter gifting" n'existe côté API (recherché explicitement : gift/santa/winter, 
+  seul hit hors-sujet `attributes.stacks.winter_serendipity`, un stack d'attribut sans rapport). 
+  En revanche, les vrais gifts de Hina (Foraging) — `foraging.tree_gifts`, 
+  `foraging_core.daily_gifts` — sont réels, non-vides, et jamais mappés jusqu'ici : capturés à 
+  la place, avec la correction documentée plutôt que de forcer le mapping "Winter" deviné.
+- **Museum (7.3)** — nouvel appel réseau séparé `/v2/skyblock/museum?profile=X` (absent de 
+  `/v2/skyblock/profiles`, confirmé). Structure vérifiée : `{value, appraisal, items: 
+  {ITEM_ID: {donated_time, items:{type,data}}}, special}` — chaque item donné est un blob NBT 
+  décodable avec le décodeur déjà existant. Mappé cette passe : `museum_value` (109 188 742 
+  chez Cucumber) + `museum_donated_item_ids` (40 vrais item_id réels, ex HYPERION/
+  ASPECT_OF_THE_VOID/CRIMSON). **Piste ouverte notée, pas traitée ici** : les 416 tâches 
+  Milestones "Museum Donations" (`item_owned`, Bloc 6) vérifient actuellement la présence en 
+  INVENTAIRE, alors que l'intention réelle du wiki est la présence en tant que DON MUSÉE — deux 
+  sources différentes qui se recoupent partiellement mais pas totalement. Correction possible 
+  maintenant que `museum_donated_item_ids` existe, mais nécessite de résoudre item_id → nom 
+  affiché (item_stats ne couvre que 22-33%, voir Bloc 6) — pas fait cette passe pour ne pas 
+  élargir un bloc déjà large.
+- **HOTM Forge (7.5)** — la vraie table de durées existait déjà dans le wiki caché 
+  (`game_mechanics_misc.the_forge_table`, jamais exploitée). Parsée en 119 lignes réelles 
+  (item, durée en secondes, palier HOTM requis) dans une nouvelle table 
+  `hotm_forge_durations` — spot-check contre la source confirmé exact (Refined Diamond 8h/II, 
+  Drill Motor 1 jour 6h/II, Perfect Plate 30 min/X). Débloque l'axe comme demandé — aucune 
+  fonctionnalité consommatrice câblée cette passe (le process de forge en cours d'un joueur 
+  n'a jamais pu être vérifié : `mining_core.forge` absent chez Cucumber, elle n'a jamais 
+  forgé). Défaut mineur noté : le champ `section` de chaque ligne contient la phrase de 
+  description du sous-tableau wiki plutôt qu'un intitulé court ("Refine your ores into more 
+  valuable ores." plutôt que "Refining") — cosmétique, n'affecte ni `item_name` ni 
+  `duration_seconds`, pas corrigé (aucune fonctionnalité ne lit encore ce champ).
+
+**Restent honnêtement bloquées, avec la raison réelle vérifiée** :
+- **Mythological Ritual (7.1)** — `player_stats.mythos` confirmé présent mais **littéralement 
+  vide** (`{}`, zéro clé) chez Cucumber. Contrairement à d'autres zones vides-mais-structurées 
+  (harp_songs, autopet_rules), impossible d'inférer ne serait-ce qu'un schéma partiel — pas de 
+  colonne ajoutée, rien à mapper tant qu'aucun profil réel n'a de contenu ici.
+- **Rift, 11 sous-systèmes (7.2)** — recherche explicite tentée (recherche web d'un joueur 
+  public reconnu pour un vrai engagement Rift) sans candidat concret trouvé. Les 11 
+  sous-systèmes restent vides chez Cucumber, seul `rift.access.charge_track_timestamp` porte 
+  une vraie valeur non-nulle (un timestamp brut, signification incertaine — pas mappé sans 
+  interprétation confirmée). Documenté bloqué plutôt que deviné, conformément à la consigne.
+- **Mining Crystals / Crystal Hollows (7.4)** — `mining_core` confirmé réel et non-vide 
+  (powder mithril/gemstone), mais aucune clé `crystals` présente chez Cucumber (jamais placé 
+  de cristal) — même limite que Rift, structure non vérifiable sur ce profil.
+- **Dojo réel (7.6)** — reconfirmé : seul le statut de quête d'unlock existe côté API 
+  (`nether_island_player_data.quests.quest_data.dojo`), aucune donnée de points par minigame 
+  trouvée sous aucune clé contenant "dojo" — verified-absent, pas juste non-trouvé sur ce 
+  profil précis.
+
+**Vérifié en conditions réelles avant merge** (route de debug temporaire appelant les 
+fonctions d'extraction réelles + écriture partielle ciblée sur `player_data`, sans passer par 
+le handler `GET` complet de `player/sync` qui est protégé par une vraie session Vault) : toutes 
+les nouvelles valeurs confirmées identiques au dump brut sur Cucumber, et à zéro/vide/null sur 
+Orange — même garde-fou early-game que partout ailleurs.
+
+**Build prod confirmé `READY`** (`vault-intel-iota.vercel.app` dans les alias) après merge sur 
+master. Branche `feat/bloc7-uncovered-zones` supprimée après merge.
+
+**Suite du plan (8 blocs)** : Bloc 8 (Pluton, moteur d'intelligence comparative) est la 
+dernière étape prévue — rappel de la contrainte explicite de l'utilisateur : 100% calcul 
+déterministe, zéro appel IA à l'exécution, évaluation de faisabilité (8.1) à rapporter 
+honnêtement avant tout code.
+
 ## ✅ Bloc 6 (plan d'audit 8 blocs) — requirement_type item_owned, +40,8 points de tasks_computable (31 juillet)
 
 Suite directe du Bloc 5. Les 1302 tâches `item` (81% du total Milestones) restaient 
