@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getUserPlan } from '../../../lib/get-plan'
 import { filterMoneyMaking, filterPatchAnalysisContent, filterPatchInsight } from '../../../lib/gate-content'
+import { SLAYER_BUG_CONTAMINATED_METHOD_IDS } from '../../../lib/money-making-constants'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -63,7 +64,13 @@ export async function GET() {
     if (!isPro) { result[key] = ''; continue }
     try {
       const parsed = JSON.parse(raw[key] || '{}')
-      result[key] = JSON.stringify(filterMoneyMaking(parsed, plan))
+      const filtered = filterMoneyMaking(parsed, plan)
+      // Masque les méthodes contaminées par le bug Slayer Blaze/Spider (voir CLAUDE.md) --
+      // pur filtrage en lecture, le contenu généré en base n'est pas touché, en attendant
+      // une régénération groupée future.
+      filtered.active = filtered.active.filter((m: any) => !SLAYER_BUG_CONTAMINATED_METHOD_IDS.has(m?.id))
+      filtered.vault = filtered.vault.filter((m: any) => !SLAYER_BUG_CONTAMINATED_METHOD_IDS.has(m?.id))
+      result[key] = JSON.stringify(filtered)
     } catch {
       result[key] = ''
     }

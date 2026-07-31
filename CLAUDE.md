@@ -53,15 +53,42 @@ s'accordent — `GAME_TRUTHS` avait bien les deux inversés.
 avait la même erreur recopiée à la main) — branche `fix/slayer-tier-blaze-spider-swap`,
 mergée sur master, prod confirmée `READY`.
 
-**Contamination réelle trouvée avant de corriger, PAS nettoyée (coût API réel, pas
-lancé sans accord)** : `claude_analysis.money_making_end`/`money_making_late`
-contiennent 2 méthodes entièrement fabriquées autour d'un "Blaze Slayer T5" qui
-n'existe pas (`blaze_t5_slayer_grind`, `blaze_t5_slayer_scorched_books_arbitrage`) ;
-`method_setups` a les mêmes 2 + `spider_t4_slayer` (mid, étiqueté "MAX" à tort) ; les
-2 générations `player_skill_cards` de Cucumber (seul profil de test réel) mentionnent
-aussi ces erreurs. Le fix de code empêche toute nouvelle génération fausse, mais ce
-contenu déjà servi reste faux jusqu'à régénération (prochain cron programmé, ou
-déclenchement manuel à décider).
+**Contamination réelle trouvée avant de corriger, masquée en code — PAS régénérée
+(coût API réel, à faire en un seul lot groupé plus tard, décision explicite de
+l'utilisateur)** :
+
+- **`claude_analysis`** (3 sections, pas 2 — `spider_t4_slayer` trouvé dans
+  `money_making_mid` en recroisant précisément après le masquage, absent du premier
+  balayage par phrase) : `money_making_end` contient `blaze_t5_slayer_grind`,
+  `money_making_late` contient `blaze_t5_slayer_scorched_books_arbitrage`,
+  `money_making_mid` contient `spider_t4_slayer` (étiqueté "MAX" à tort — le vrai
+  max Spider est T5, pas T4).
+- **`method_setups`** — les mêmes 3 lignes exactement (`method_key`+`tier` :
+  `blaze_t5_slayer_grind`/end, `blaze_t5_slayer_scorched_books_arbitrage`/late,
+  `spider_t4_slayer`/mid).
+- **`player_skill_cards`** — les 2 lignes de Cucumber (seul profil de test réel avec
+  du Slayer), générées 2026-07-28 23:16:18 et 2026-07-29 00:08:07. Relecture complète
+  du contenu réel : la 1ère (profil quasi-vide, tout en `unlock_access`) ne cite aucun
+  max tier erroné littéralement, mais reste générée sous l'ancien `GAME_TRUTHS` fautif.
+  La 2ème cite explicitement `"T4 Tarantula (max)"` sur la carte Spider — la preuve
+  concrète et vérifiée du bug dans du contenu réellement servi.
+
+**Masquage 100% pur code, zéro appel Claude, mergé sur master** (branche
+`fix/mask-slayer-contamination`) :
+`SLAYER_BUG_CONTAMINATED_METHOD_IDS` (Set des 3 method_key, `lib/money-making-constants.ts`)
+filtré en lecture dans `app/api/market-data/route.ts` (retiré de `active`/`vault` avant
+d'être servi au frontend) + vérifié en défense en profondeur dans
+`app/api/setup/generate/route.ts` (retourne `not_ready` si un client tente quand même de
+récupérer le setup d'une de ces 3 méthodes). Le contenu en base n'est pas touché — seule
+la lecture filtre. Pour `player_skill_cards`, masquer une carte entière est disproportionné
+(c'est TOUTE la section Slayer du joueur) : `SLAYER_BUG_FIX_DEPLOYED_AT` (timestamp du
+commit `a365b4e`) compare `generated_at` de la carte, `app/api/player/skills/route.ts`
+renvoie `stale_slayer_data: true` si la carte Slayer existe et a été générée avant le fix
+— `SkillsTab.tsx` affiche un bandeau "à resync" au-dessus des 6 sous-cartes boss plutôt que
+de les cacher ou d'inventer un contenu corrigé. **À faire avant le lancement** : régénérer
+en un lot groupé (1 appel `money-making-agent` end+late, 1 appel `setup-generate-agent`
+mid+end+late, re-sync Cucumber) puis retirer `SLAYER_BUG_CONTAMINATED_METHOD_IDS`/le
+bandeau une fois confirmé propre.
 
 ### ✅ weight_formulas reconstruite — Senither weight (Lily documentée, pas chargée)
 

@@ -73,6 +73,10 @@ export interface SkillsResponse {
   cards: SkillCardData[]
   model: string
   generated_at: string
+  // true si cette carte a été générée avant le fix du bug Slayer Blaze/Spider max tier
+  // inversé (voir CLAUDE.md) -- current/target de la carte Slayer peuvent citer le
+  // mauvais max tier tant que le joueur n'a pas resync.
+  stale_slayer_data?: boolean
 }
 
 // ── /api/player/milestones ──────────────────────────────────────────────

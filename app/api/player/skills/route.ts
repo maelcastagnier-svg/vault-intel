@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { requirePlan } from '../../../../lib/get-plan'
 import { skillProgress } from '../../../../lib/skill-xp'
+import { SLAYER_BUG_FIX_DEPLOYED_AT } from '../../../../lib/money-making-constants'
 
 export const maxDuration = 15
 
@@ -63,5 +64,11 @@ export async function GET(req: NextRequest) {
     return { ...card, progress: skillProgress(card.skill_key, xp) }
   })
 
-  return NextResponse.json({ ...data, cards })
+  // Carte Slayer générée avant le fix du bug Blaze/Spider max tier inversé (voir CLAUDE.md)
+  // -- current/target de cette carte peuvent citer le mauvais max tier. Pur flag en lecture,
+  // rien régénéré ; le frontend doit afficher un bandeau "à resync" plutôt que masquer.
+  const hasSlayerCard = cards.some((c: any) => c.skill_key === 'slayer')
+  const staleSlayerData = hasSlayerCard && new Date(data.generated_at) < new Date(SLAYER_BUG_FIX_DEPLOYED_AT)
+
+  return NextResponse.json({ ...data, cards, stale_slayer_data: staleSlayerData })
 }
