@@ -22,6 +22,56 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Bloc 5 (plan d'audit 8 blocs) — Radar multi-timeframe réel, jusqu'à 7+ ans (31 juillet)
+
+Suite directe du Bloc 4. Radar plafonnait à 3 ans côté frontend et à une fenêtre 30 jours 
+étiquetée "long" côté `radar-agent`, alors que 7,1 ans de vraie donnée existent déjà en base 
+(`price_history_ah`, ligne la plus ancienne confirmée en direct : 2019-06-19 — plus profond 
+que les "6,4 ans" supposés dans le plan d'audit d'origine).
+
+**5.1 — vrai bug trouvé en étendant `PERIODS`** : ajouter `'ALL'` seul n'aurait pas suffi. 
+`loadSeries()` (`RadarSection.tsx`) plafonnait déjà la requête générale à `.limit(1500)` — 
+avec un tri **ascendant** par date, cette limite aurait silencieusement coupé les lignes les 
+plus **récentes** dès qu'un item dépasse ~4 ans d'historique (confirmé en base : les items 
+les mieux suivis ont jusqu'à 2297 lignes DAILY réelles). Relevé à 3000. Découvert au passage : 
+le chemin Bazaar (`price_history`) n'avait **aucune** limite explicite, reposant sur le 
+défaut serveur PostgREST — même risque de troncature silencieuse, corrigé en ajoutant 
+`.limit(3000)` explicite là aussi. Header du bandeau Radar mis à jour ("up to 3 years" → 
+"up to 7+ years").
+
+**5.2 — renommage** : les labels `short|mid|long` du prompt `radar-agent` (1-7j/1-4sem/
+1-3mois) collisionnaient sémantiquement avec le vrai pluriannuel introduit en 5.3 — renommés 
+`short|mid|extended`, comportement des 3 fenêtres inchangé.
+
+**5.3 — `computeLongTermMovers()`, 100% déterministe, zéro coût Claude** — nouvelle fonction 
+SQL RPC `get_longstanding_ah_items(min_rows, limit_n)` (migration additive) trouve les vrais 
+items avec ≥1000 lignes DAILY (~3+ ans de profondeur réelle), pour ne jamais comparer 
+année N vs N-1 sur un item tracké depuis 2 semaines. Pool de 80 items réels, comparaison 
+moyenne 365 derniers jours vs 365 jours précédents (exigeant ≥30 points réels de chaque côté 
+avant de calculer une moyenne, jamais sur un échantillon trop mince). Stocké dans le même 
+blob JSON `claude_analysis.radar` que le contenu déjà généré par Sonnet (`long_term_movers`), 
+sans appel Claude supplémentaire — la fonction elle-même ne produit aucun texte, seulement 
+des chiffres.
+
+**5.4 — exposé côté frontend** : nouvelle section "📆 Long-Term Movers" dans 
+`IntelligenceVault` (`RadarSection.tsx`), gainers/decliners rendus directement depuis les 
+chiffres calculés — aucun texte généré par Claude dans cette section, contrairement aux 
+cartes Top Opportunities/Risk Items existantes.
+
+**Vérifié en conditions réelles avant merge** (route de debug temporaire appelant 
+`computeLongTermMovers()` seule — jamais `runRadarAgent()` en entier, pour éviter un vrai 
+coût Sonnet juste pour vérifier une fonction purement déterministe) : pool de 80 items réels 
+confirmé, 7 à 7,1 ans de profondeur chacun. Résultats cohérents, pas du bruit : **ASPECT_OF_
+THE_END** (item populaire choisi spécifiquement pour ce test) montre +297% sur l'année (1,29M 
+→ 5,12M de moyenne), `DIAMOND_SWORD` +60%, `DIAMOND_PICKAXE` -68% — mouvements réels 
+explicables, aucun artefact à un seul point aberrant.
+
+**Build prod confirmé `READY`** (`vault-intel-iota.vercel.app` dans les alias) après merge 
+sur master. Branche `feat/bloc5-radar-multitimeframe` supprimée après merge.
+
+**Suite du plan (8 blocs)** : Bloc 6 (faisabilité du type de tâche "item", 1302 tâches 
+Milestones hors scope) est la prochaine étape prévue dans l'ordre.
+
 ## ✅ Bloc 4 (plan d'audit 8 blocs) — 11 axes Milestones comblés, 69 tâches réelles (31 juillet)
 
 Suite directe du Bloc 3 et de l'extension `computeMilestones()` du 30 juillet : 15 
