@@ -76,7 +76,7 @@ export type EvaluatedTask = {
 export async function computeMilestones(uuid: string, profileId: string) {
   const { data: player, error } = await supabase
     .from('player_data')
-    .select('skills, collections, fairy_souls, boss_kills, bank_tier, fast_travel_zones, essence, crafted_generators, bestiary_milestone, slayer_detail, jacob_medals, jacob_contests, festival_candy, catacombs_floors, master_catacombs_floors, chocolate_factory, auction_stats, fishing_stats, equipped_armor, equipped_accessories, inventory_items, ender_chest_items, backpacks, personal_vault_items, wardrobe_slots, pets')
+    .select('skills, collections, fairy_souls, boss_kills, bank_tier, fast_travel_zones, essence, crafted_generators, bestiary_milestone, slayer_detail, jacob_medals, jacob_contests, festival_candy, catacombs_floors, master_catacombs_floors, chocolate_factory, auction_stats, fishing_stats, equipped_armor, equipped_accessories, inventory_items, ender_chest_items, backpacks, personal_vault_items, wardrobe_slots, pets, museum_donated_item_ids')
     .eq('hypixel_uuid', uuid)
     .eq('profile_id', profileId)
     .single()
@@ -114,6 +114,36 @@ export async function computeMilestones(uuid: string, profileId: string) {
       collectionItemIdByName.set(def.item_name, def.item_id)
     } catch { /* tiers malformees, requirement ignoree */ }
   }
+
+  // Museum Donations (item_owned) — résout item_name -> item_id réel via
+  // item_stats/items_catalog, pour vérifier le vrai don musée
+  // (museum_donated_item_ids, Bloc 7) plutôt que la possession en
+  // inventaire (Bloc 6, sémantique différente — piste ouverte fermée le
+  // 31 juillet). Mesuré avant d'implémenter : 265/416 (63,7%) des tâches
+  // Museum Donations résolvent vers un vrai item_id ; les 151 restantes
+  // restent honnêtement data_available:false plutôt que de retomber sur
+  // la vérification inventaire (question différente, pas un pis-aller
+  // acceptable ici — voir la clarification explicite de l'utilisateur).
+  const museumItemNames = new Set<string>()
+  for (const row of taskRows as TaskRow[]) {
+    if (row.requirement.type === 'item_owned' && row.category === 'Museum Donations') {
+      museumItemNames.add(row.requirement.item_name)
+    }
+  }
+  const museumItemIdByName = new Map<string, string>()
+  if (museumItemNames.size > 0) {
+    const namesArr = Array.from(museumItemNames)
+    const [{ data: statsMatches }, { data: catalogMatches }] = await Promise.all([
+      supabase.from('item_stats').select('item_id, display_name').in('display_name', namesArr),
+      supabase.from('items_catalog').select('item_id, item_name').in('item_name', namesArr),
+    ])
+    // items_catalog rempli en second pour ne jamais écraser un match item_stats
+    // déjà trouvé (les deux sont d'aussi bonnes sources l'une que l'autre, mais
+    // pas la peine de repasser dessus si déjà résolu).
+    for (const c of catalogMatches || []) museumItemIdByName.set(c.item_name.toLowerCase(), c.item_id)
+    for (const s of statsMatches || []) museumItemIdByName.set(s.display_name.toLowerCase(), s.item_id)
+  }
+  const museumDonatedIds = new Set<string>((player.museum_donated_item_ids || []) as string[])
 
   const skills      = player.skills || {}
   const collections = player.collections || {}
@@ -244,6 +274,16 @@ export async function computeMilestones(uuid: string, profileId: string) {
       return { ...base, data_available: true, current, target, met: target !== null ? current >= target : null }
     }
     if (r.type === 'item_owned') {
+      // Museum Donations vérifie le vrai don musée (museum_donated_item_ids),
+      // jamais la possession en inventaire -- question différente (voir
+      // Bloc 7). Les autres catégories (Accessories/Pets) restent sur le
+      // scan d'inventaire réel, correct pour elles.
+      if (row.category === 'Museum Donations') {
+        const itemId = museumItemIdByName.get(r.item_name.toLowerCase())
+        if (!itemId) return { ...base, data_available: false, current: null, target: null, met: null }
+        const donated = museumDonatedIds.has(itemId)
+        return { ...base, data_available: true, current: donated ? 1 : 0, target: 1, met: donated }
+      }
       const owned = isItemOwned(ownedItems, r.item_name, row.category)
       return { ...base, data_available: true, current: owned ? 1 : 0, target: 1, met: owned }
     }
