@@ -4,6 +4,65 @@
 > Basé sur la session la plus récente disponible (22 juillet). En cas de 
 > divergence avec une session antérieure sur le même sujet, cette version fait foi.
 
+## 🚧 Bloc 8 (plan d'audit 8 blocs) — Pluton, calculateur Mining en cours (31 juillet)
+
+**Décision d'architecture actée : Pluton n'inclut JAMAIS le HOTM du joueur.** 
+Pluton calcule le meilleur setup **générique** par tier de budget (indépendant de tout 
+joueur précis) — `hotm_perks` a bien les vraies formules par node (`mining_speed` = 
+niveau×20, `mining_fortune` = niveau×2, 46 lignes déjà en base), mais le niveau investi 
+dans chaque node est une donnée **par joueur** (`player_data.hotm_progress`), sans 
+équivalent générique valide : aucune source ne justifie un "niveau HOTM typique par 
+tier de budget" (violerait la règle 7). Evolve Skills reste le bon endroit pour 
+personnaliser un setup avec le vrai HOTM d'un joueur — **ne jamais faire converger ces 
+deux systèmes**, ni faire deviner un niveau HOTM générique à Pluton pour combler l'écart 
+de coins/h avec la réalité (voir ci-dessous).
+
+**Ce qui EST inclus dans le calcul Mining** aujourd'hui (armure+outil de base, plus 
+trois ajouts validés le 31 juillet sur le cas concret Divan's Armor + Divan's Drill / 
+Titanium Ore / Late tier) :
+- **Gemmes Perfect** (Amber→Mining Speed, Jade→Mining Fortune) — table `gemstones` 
+  peuplée (70 lignes, Amber+Jade uniquement, scalées par la vraie rareté de chaque 
+  pièce), slots réels lus depuis `gemstone_slot_costs` (708 lignes, déjà en base, 
+  jamais exploitée avant cette passe).
+- **Enchant Compact X** (+10 Mining Speed) et **Efficiency X** (+210 Mining Speed) — 
+  Efficiency sourcé hors cache directement sur le wiki officiel (pas dans 
+  `game_mechanics_misc`), cross-vérifié sur 2 pages indépendantes.
+- **Reforge Jaded** (armure uniquement, jamais les outils — confirmé "requiert Mining 
+  niveau 30 pour s'appliquer à l'armure") — Mining Speed 5/12/20/30/45/60 et Mining 
+  Fortune 5/10/15/20/25/30 par rareté Common→Mythic, sourcé hors cache, cross-vérifié 
+  (Mining Speed sur 2 pages + un exemple chiffré exact : +180 sur un set complet 
+  Legendary = 4×45). Divine non trouvé nulle part, volontairement absent plutôt que 
+  deviné. Mining Fortune n'a qu'une seule source confirmée, plus faible que Mining Speed.
+
+**Résultat honnête, pas encore satisfaisant** : sur le cas de validation (Divan's/
+Titanium Ore/Late), le calcul passe de 1 525 898 → 5 709 516 coins/h (`raw_block_only`, 
+×3,74) une fois gemmes+Compact+Efficiency+Jaded cumulés — mais reste **5 à 10× en 
+dessous** des 30-60M/h réels que l'utilisateur connaît en jeu. Confirme l'hypothèse : le 
+HOTM réel d'un joueur (volontairement exclu, voir ci-dessus) est probablement le 
+contributeur dominant restant, possiblement combiné à d'autres sources non modélisées 
+(accessoires/talismans à effet Mining, pets, Powder Buff HOTM...) — non vérifiées cette 
+passe, à creuser si besoin plutôt que deviné. **`coins_per_hour_raw_block_only` reste 
+donc, même après ces ajouts, un plancher théorique générique (zéro HOTM), pas une 
+prédiction du revenu réel d'un joueur donné** — distinction à garder visible partout où 
+ce chiffre sera affiché côté produit.
+
+**Calcul isolé, pas encore généralisé** : gemmes/Compact/Efficiency/Jaded sont validés 
+via une route de debug ciblée sur un seul setup (`pluton-gems-compact-validation`), PAS 
+encore branchés dans `computeMiningRanking()`/la pipeline persistée (`pluton_setups`/
+`pluton_rankings`, 35 lignes actuelles = armure+outil de base uniquement). Généraliser 
+demande de résoudre un vrai problème d'allocation (quel gemme mettre dans un slot 
+`UNIVERSAL`/`MINING` combiné parmi 7 types possibles, pour chacun des 44 pièces 
+d'armure × 29 outils du catalogue) — pas fait, décision à prendre avec l'utilisateur 
+avant de s'y lancer.
+
+**État du reste du Bloc 8** : 9 blocs cibles × tiers pertinents calculés et persistés 
+(35 lignes `pluton_rankings`, armure+outil base uniquement — voir ci-dessus pour ce qui 
+manque). Plancher de prix armure retiré (même limite que les outils, voir 8.3) après 
+avoir trouvé qu'il excluait Divan's Armor — le meilleur set Mining réel — au tier Late. 
+Branche `feat/bloc8-pluton-mining`, pas encore mergée. Suite : décider avec l'utilisateur 
+si/comment généraliser gemmes/enchants/reforge à tout le catalogue, avant de connecter 
+Pluton à Money Making/Skills.
+
 ## Vision
 
 Plateforme SaaS d'intelligence économique gaming par abonnement, démarrage sur 
