@@ -64,8 +64,34 @@ const PET_CANDIDATES = [
   { pet_id: 'MOLE', rarity: 'LEGENDARY' },
 ]
 
+// Accessoires Mining -- sourcés du wiki officiel (31 juillet, hors cache),
+// page "Equipment" pour les 4 slots (Necklace/Cloak/Belt/Bracelet, un item
+// par slot, les 4 portés simultanément -- pas de conflit) + pages dédiées
+// pour Titanium Relic / Haste Artifact (Accessory Bag, stackables avec
+// l'Equipment et entre eux). "Relic of Power" (item_id réel POWER_RELIC,
+// confirmé via la page wiki) reste absent de item_stats/items_catalog --
+// vrai trou de collecte, pas une erreur de nom, exclu cette passe faute de
+// prix/stats. L'effet Haste III de Haste Artifact n'est PAS modélisé (la
+// page "Achieving Maximum" ne donne qu'une conversion approximative
+// "équivalent à +150 Mining Speed", pas la vraie formule d'interaction
+// avec le calcul par ticks déjà sourcé -- deviner cette conversion
+// violerait la règle 7). Seul le stat "+25 Mining Speed" direct et confirmé
+// de Haste Artifact est inclus.
+const EQUIPMENT_SLOTS: { slot: string; item_id: string; speed: number; fortune: number }[] = [
+  { slot: 'Necklace', item_id: 'DIVAN_PENDANT', speed: 100, fortune: 25 },
+  { slot: 'Cloak', item_id: 'SAPPHIRE_CLOAK', speed: 30, fortune: 10 },
+  { slot: 'Belt', item_id: 'JADE_BELT', speed: 30, fortune: 10 },
+  { slot: 'Bracelet', item_id: 'DWARVEN_HANDWARMERS', speed: 45, fortune: 30 },
+]
+const ACCESSORY_BAG_ITEMS: { item_id: string; speed: number; fortune: number }[] = [
+  { item_id: 'TITANIUM_RELIC', speed: 60, fortune: 0 },
+  { item_id: 'HASTE_ARTIFACT', speed: 25, fortune: 0 },
+]
+
 export async function GET() {
-  const [{ data: itemRarities }, { data: slots }, { data: gems }, { data: block }, { data: armorStats }, { data: toolStats }, { data: bazaarPrice }, { data: petRows }] = await Promise.all([
+  const accessoryItemIds = [...EQUIPMENT_SLOTS.map(e => e.item_id), ...ACCESSORY_BAG_ITEMS.map(a => a.item_id)]
+
+  const [{ data: itemRarities }, { data: slots }, { data: gems }, { data: block }, { data: armorStats }, { data: toolStats }, { data: bazaarPrice }, { data: petRows }, { data: accessoryPriceRows }] = await Promise.all([
     supabase.from('item_stats').select('item_id, rarity').in('item_id', [...ARMOR_PIECES, DRILL]),
     supabase.from('gemstone_slot_costs').select('item_id, slot_id').in('item_id', [...ARMOR_PIECES, DRILL]),
     supabase.from('gemstones').select('gem_type, stat_name, gear_rarity, bonus_value').eq('quality', 'PERFECT'),
@@ -74,6 +100,7 @@ export async function GET() {
     supabase.from('pluton_mining_tool_stats').select('*').eq('item_id', DRILL).single(),
     supabase.from('price_history').select('sell_price').eq('item_id', 'TITANIUM_ORE').gt('sell_price', 0).order('bucket_date', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('pet_stat_progression').select('pet_id, rarity, stat_nums').eq('level', 100).in('pet_id', PET_CANDIDATES.map(p => p.pet_id)),
+    supabase.from('price_history_ah').select('base_item_id, avg_price, bucket_date').in('base_item_id', accessoryItemIds).eq('variant_key', '__all_variants_blended__').order('bucket_date', { ascending: false }),
   ])
 
   const rarityByItem = new Map((itemRarities || []).map(r => [r.item_id, r.rarity]))
@@ -161,13 +188,52 @@ export async function GET() {
     })
     .sort((a, b) => b.coinsPerHourRawBlockOnly - a.coinsPerHourRawBlockOnly)
 
+  const bestPet = petComparison[0]
+
+  // Accessoires -- 4 slots Equipment distincts (portés simultanément, pas
+  // de conflit) + 2 items Accessory Bag stackables.
+  const latestPriceByItem = new Map<string, number>()
+  for (const row of accessoryPriceRows || []) {
+    if (!latestPriceByItem.has(row.base_item_id)) latestPriceByItem.set(row.base_item_id, Number(row.avg_price))
+  }
+  let accessorySpeedBonus = 0, accessoryFortuneBonus = 0, accessoryCost = 0
+  const accessoryBreakdown: any[] = []
+  for (const eq of EQUIPMENT_SLOTS) {
+    accessorySpeedBonus += eq.speed
+    accessoryFortuneBonus += eq.fortune
+    const price = latestPriceByItem.get(eq.item_id) ?? null
+    if (price) accessoryCost += price
+    accessoryBreakdown.push({ type: 'equipment', slot: eq.slot, item_id: eq.item_id, speed: eq.speed, fortune: eq.fortune, price })
+  }
+  for (const acc of ACCESSORY_BAG_ITEMS) {
+    accessorySpeedBonus += acc.speed
+    accessoryFortuneBonus += acc.fortune
+    const price = latestPriceByItem.get(acc.item_id) ?? null
+    if (price) accessoryCost += price
+    accessoryBreakdown.push({ type: 'accessory_bag', item_id: acc.item_id, speed: acc.speed, fortune: acc.fortune, price })
+  }
+
+  const withAccessoriesSpeed = bestPet.total_mining_speed + accessorySpeedBonus
+  const withAccessoriesFortune = bestPet.total_mining_fortune + accessoryFortuneBonus
+
   return NextResponse.json({
     target_block: block?.block_name,
     before: { total_mining_speed: baseMiningSpeed, total_mining_fortune: baseMiningFortune, ...scoreSetup(baseMiningSpeed, baseMiningFortune) },
     after_gems_and_compact: { total_mining_speed: gemsCompactSpeed, total_mining_fortune: gemsCompactFortune, gem_mining_speed_bonus: gemMiningSpeedBonus, gem_mining_fortune_bonus: gemMiningFortuneBonus, compact_bonus: COMPACT_X_MINING_SPEED, ...scoreSetup(gemsCompactSpeed, gemsCompactFortune) },
     after_gems_compact_efficiency_jaded: { total_mining_speed: gemsCompactEfficiencyJadedSpeed, total_mining_fortune: gemsCompactEfficiencyJadedFortune, efficiency_bonus: EFFICIENCY_X_MINING_SPEED, jaded_speed_bonus: jadedMiningSpeedBonus, jaded_fortune_bonus: jadedMiningFortuneBonus, ...scoreSetup(gemsCompactEfficiencyJadedSpeed, gemsCompactEfficiencyJadedFortune) },
     pet_comparison_all_candidates: petComparison,
-    after_best_pet: { ...petComparison[0], note: 'Prix marché réel indisponible (pipeline AH ne capture les pets que sous un base_item_id générique, jamais nommément) -- pet ajouté sans gate budget cette passe, comme gemmes/enchants/reforge.' },
+    after_best_pet: { ...bestPet, note: 'Prix marché réel indisponible (pipeline AH ne capture les pets que sous un base_item_id générique, jamais nommément) -- pet ajouté sans gate budget cette passe, comme gemmes/enchants/reforge.' },
+    after_accessories: {
+      total_mining_speed: withAccessoriesSpeed,
+      total_mining_fortune: withAccessoriesFortune,
+      accessory_speed_bonus: accessorySpeedBonus,
+      accessory_fortune_bonus: accessoryFortuneBonus,
+      accessory_total_cost: accessoryCost,
+      relic_of_power_note: "item_id réel POWER_RELIC confirmé (page wiki) mais absent de item_stats/items_catalog -- vrai trou de collecte, exclu faute de prix/stats.",
+      haste_artifact_note: "Effet Haste III non modélisé -- seul le stat direct +25 Mining Speed est inclus, la conversion 'équivalent +150' du wiki est une approximation non sourcée précisément.",
+      ...scoreSetup(withAccessoriesSpeed, withAccessoriesFortune),
+    },
+    accessory_breakdown: accessoryBreakdown,
     slot_breakdown: breakdown,
   })
 }
