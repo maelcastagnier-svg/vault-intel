@@ -34,6 +34,10 @@ export async function GET(req: Request) {
   const member = profile.members?.[uuid.replace(/-/g, '')]
   if (!member) return NextResponse.json({ error: 'member_not_found' }, { status: 404 })
 
+  const museumRes = await fetch(`https://api.hypixel.net/v2/skyblock/museum?profile=${profileParam}`, { headers: { 'API-Key': HYPIXEL_KEY } })
+  const museumData = await museumRes.json()
+  const museumMember = museumData?.members?.[uuid.replace(/-/g, '')]
+
   return NextResponse.json({
     top_level_member_keys: Object.keys(member),
     top_level_profile_keys: Object.keys(profile),
@@ -49,5 +53,8 @@ export async function GET(req: Request) {
     santa_keys_found:   findKeysContaining(member, 'santa').concat(findKeysContaining(member, 'winter')).concat(findKeysContaining(member, 'jerry')),
     dojo:               member.nether_island_player_data?.dojo ?? 'ABSENT',
     dojo_keys_found:    findKeysContaining(member, 'dojo'),
+    museum_success:     museumData?.success ?? false,
+    museum_top_keys:    museumMember ? Object.keys(museumMember) : 'ABSENT',
+    museum_sample:      museumMember ?? museumData,
   })
 }
