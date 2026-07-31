@@ -368,6 +368,45 @@ export function extractFishingStats(member: any) {
   }
 }
 
+// Bloc 7 (audit 8 blocs), 31 juillet -- zones réelles non couvertes trouvées en
+// re-vérifiant la structure brute sur Cucumber. Garden/AccessoryBag tuning/
+// AutoPets confirmés réels et non-vides ; les vrais "gifts" trouvés sont ceux
+// de Hina (Foraging) -- "Winter Gifts" supposé par l'audit d'origine n'existe
+// pas comme champ API (recherché explicitement : aucune clé gift/santa/winter
+// pertinente au-delà de member.attributes.stacks.winter_serendipity, un stack
+// d'attribut sans rapport avec un compteur de dons).
+//
+// Garden : member.garden_player_data = {copper, discovered_greenhouse_crops}
+// (vrai, confirmé non-vide). member.player_data.garden_chips = objet réel
+// type_de_chip -> nombre possédé (vrai, confirmé non-vide, 8 chips réels chez
+// Cucumber). La grosse partie de la progression Garden (cultures/niveau/barn)
+// vit sur un endpoint SÉPARÉ (/v2/skyblock/garden), pas mappée cette passe --
+// hors scope du plan (qui ne demandait l'endpoint séparé que pour Museum).
+//
+// AccessoryBag tuning : member.accessory_bag_storage = {tuning: {slot_N:
+// {health,defense,walk_speed,strength,critical_damage,critical_chance,
+// attack_speed,intelligence} | {purchase_ts}, highest_unlocked_slot, refund_2},
+// highest_magical_power, selected_power, unlocked_powers} -- vrai, riche,
+// confirmé non-vide.
+//
+// AutoPets : member.pets_data.autopet = {rules: [...]} -- structure confirmée
+// réelle (vide chez Cucumber, aucune règle configurée), même limite que
+// harp_songs (forme connue, contenu non-vide jamais vérifié).
+export function extractBloc7Zones(member: any) {
+  return {
+    garden_copper:            member.garden_player_data?.copper ?? 0,
+    garden_greenhouse_crops:  (member.garden_player_data?.discovered_greenhouse_crops || []) as string[],
+    garden_chips:             (member.player_data?.garden_chips || {}) as Record<string, number>,
+    accessory_tuning:         (member.accessory_bag_storage?.tuning || {}) as Record<string, any>,
+    accessory_magical_power:  member.accessory_bag_storage?.highest_magical_power ?? 0,
+    accessory_selected_power: member.accessory_bag_storage?.selected_power ?? null,
+    accessory_unlocked_powers: (member.accessory_bag_storage?.unlocked_powers || []) as string[],
+    autopet_rules:            (member.pets_data?.autopet?.rules || []) as any[],
+    hina_tree_gifts:          (member.foraging?.tree_gifts || {}) as Record<string, any>,
+    hina_daily_gifts:         member.foraging_core?.daily_gifts ?? 0,
+  }
+}
+
 const HYPIXEL_KEY = process.env.HYPIXEL_API_KEY!
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -724,6 +763,32 @@ export async function GET(req: NextRequest) {
     // 5p. Fishing — voir extractFishingStats en tête de fichier.
     const fishingStats = extractFishingStats(member)
 
+    // 5q. Bloc 7 (audit 8 blocs) — Garden/AccessoryBag tuning/AutoPets/Hina gifts.
+    // Voir extractBloc7Zones en tête de fichier pour la justification de chaque champ.
+    const bloc7Zones = extractBloc7Zones(member)
+
+    // 5r. Musée — endpoint SÉPARÉ de /v2/skyblock/profiles (Bloc 7.3, audit 8 blocs).
+    // Structure vérifiée sur Cucumber avant mapping : {value, appraisal, items:
+    // {ITEM_ID: {donated_time, featured_slot, items:{type,data}}}, special}.
+    // Décoder chaque NBT donné est un chantier séparé (permettrait de vérifier les
+    // 416 tâches "Museum Donations" par vrai don plutôt que par présence en
+    // inventaire, voir CLAUDE.md) -- volontairement pas fait cette passe, juste le
+    // résumé réel (valeur totale + vrais item_id donnés) pour ne pas complexifier
+    // ce bloc déjà large.
+    let museumValue = 0
+    let museumDonatedItemIds: string[] = []
+    try {
+      const museumRes = await fetch(`https://api.hypixel.net/v2/skyblock/museum?profile=${profile.profile_id}`, { headers: { 'API-Key': HYPIXEL_KEY } })
+      const museumData = await museumRes.json()
+      const museumMember = museumData?.members?.[uuid.replace(/-/g, '')]
+      if (museumData.success && museumMember) {
+        museumValue = museumMember.value ?? 0
+        museumDonatedItemIds = Object.keys(museumMember.items || {})
+      }
+    } catch (e) {
+      console.error('museum fetch failed:', e)
+    }
+
     // 6. Collections
     const collections: Record<string, number> = member.collection || {}
 
@@ -908,6 +973,18 @@ export async function GET(req: NextRequest) {
       chocolate_factory:         chocolateFactory,
       auction_stats:             auctionStats,
       fishing_stats:             fishingStats,
+      garden_copper:             bloc7Zones.garden_copper,
+      garden_greenhouse_crops:   bloc7Zones.garden_greenhouse_crops,
+      garden_chips:              bloc7Zones.garden_chips,
+      accessory_tuning:          bloc7Zones.accessory_tuning,
+      accessory_magical_power:   bloc7Zones.accessory_magical_power,
+      accessory_selected_power:  bloc7Zones.accessory_selected_power,
+      accessory_unlocked_powers: bloc7Zones.accessory_unlocked_powers,
+      autopet_rules:             bloc7Zones.autopet_rules,
+      hina_tree_gifts:           bloc7Zones.hina_tree_gifts,
+      hina_daily_gifts:          bloc7Zones.hina_daily_gifts,
+      museum_value:              museumValue,
+      museum_donated_item_ids:   museumDonatedItemIds,
       networth,
       networth_breakdown: networthBreakdown,
       skills:            skillLevels,
