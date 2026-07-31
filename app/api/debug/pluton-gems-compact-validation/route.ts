@@ -2,13 +2,12 @@
 // setup Divan's Armor + Divan's Drill (meilleur setup Late/Titanium Ore
 // actuel) recalculé avec gemmes Perfect (Amber->Mining Speed, Jade->Mining
 // Fortune, réellement sourcées dans `gemstones`, voir migration
-// populate_gemstones_amber_jade_mining_only) + enchant Compact X
-// (+10 Mining Speed, sourcé du wiki, page "Compact"). Deleted after
-// validation -- ne touche PAS encore computeMiningRanking()/la pipeline
-// persistée, c'est un calcul isolé pour répondre à la question "est-ce que
-// ça se rapproche des 30-60M/h réels" avant de généraliser l'allocation de
-// gemmes à tout le catalogue (problème d'optimisation différent, pas fait
-// ici).
+// populate_gemstones_amber_jade_mining_only) + enchant Compact X + enchant
+// Efficiency X + reforge Jaded. Deleted after validation -- ne touche PAS
+// encore computeMiningRanking()/la pipeline persistée, c'est un calcul
+// isolé pour répondre à la question "est-ce que ça se rapproche des
+// 30-60M/h réels" avant de généraliser l'allocation gemmes/enchants/reforge
+// à tout le catalogue (problème d'optimisation différent, pas fait ici).
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -21,6 +20,30 @@ const supabase = createClient(
 // wiki "Compact" (déjà en cache) : I=+1 ... X=+10. Applique au Drill
 // (catégorie éligible confirmée : Pickaxes/Drills/Gemstone Gauntlet).
 const COMPACT_X_MINING_SPEED = 10
+
+// Efficiency enchant tier X (max), sourcé du wiki officiel (31 juillet,
+// hors cache -- 2 fetches indépendants convergents : page "Efficiency"
+// directe + page "Enchantments") : I=30, II=50, III=70, IV=90, V=110,
+// VI=130, VII=150, VIII=170, IX=190, X=210 Mining Speed. Applique au Drill
+// (catégorie éligible confirmée : Axe/Pickaxe/Shovel/Drill/Shears/Gauntlet).
+const EFFICIENCY_X_MINING_SPEED = 210
+
+// Reforge Jaded (Jaderald), sourcé du wiki officiel (31 juillet, hors
+// cache) : Armor UNIQUEMENT (Jaderald "requiert Mining niveau 30 pour
+// s'appliquer à l'armure"), pas d'effet outil. Valeurs par rareté de la
+// PIÈCE (pas de la gemme) -- croisées sur 2 pages indépendantes
+// (Reforging/Armor (Advanced) + tableau de reforges de la page Mining
+// Speed) + un exemple chiffré cohérent (+180 Mining Speed sur un set
+// complet = 4 x 45 Legendary, exact). Mining Fortune n'a qu'une seule
+// source confirmée (moins solide que Mining Speed, mais structurellement
+// cohérente). DIVINE non trouvé sur aucune source -- volontairement absent
+// plutôt que deviné (règle 7).
+const JADED_MINING_SPEED_BY_RARITY: Record<string, number> = {
+  COMMON: 5, UNCOMMON: 12, RARE: 20, EPIC: 30, LEGENDARY: 45, MYTHIC: 60,
+}
+const JADED_MINING_FORTUNE_BY_RARITY: Record<string, number> = {
+  COMMON: 5, UNCOMMON: 10, RARE: 15, EPIC: 20, LEGENDARY: 25, MYTHIC: 30,
+}
 
 const ARMOR_PIECES = ['DIVAN_HELMET', 'DIVAN_CHESTPLATE', 'DIVAN_LEGGINGS', 'DIVAN_BOOTS']
 const DRILL = 'DIVAN_DRILL'
@@ -57,6 +80,8 @@ export async function GET() {
 
   let gemMiningSpeedBonus = 0
   let gemMiningFortuneBonus = 0
+  let jadedMiningSpeedBonus = 0
+  let jadedMiningFortuneBonus = 0
   const breakdown: any[] = []
   for (const itemId of [...ARMOR_PIECES, DRILL]) {
     const rarity = rarityByItem.get(itemId)
@@ -69,7 +94,17 @@ export async function GET() {
     const fortuneFromJade = counts.jade * perfectJade
     gemMiningSpeedBonus += speedFromAmber + speedFromCombo
     gemMiningFortuneBonus += fortuneFromJade
-    breakdown.push({ itemId, rarity, amber_slots: counts.amber, jade_slots: counts.jade, mining_combo_slots: counts.miningCombo, speed_from_amber: speedFromAmber, speed_from_combo: speedFromCombo, fortune_from_jade: fortuneFromJade })
+
+    // Jaded (armure uniquement, jamais le drill)
+    let jadedSpeed = 0, jadedFortune = 0
+    if (ARMOR_PIECES.includes(itemId) && rarity) {
+      jadedSpeed = JADED_MINING_SPEED_BY_RARITY[rarity] ?? 0
+      jadedFortune = JADED_MINING_FORTUNE_BY_RARITY[rarity] ?? 0
+      jadedMiningSpeedBonus += jadedSpeed
+      jadedMiningFortuneBonus += jadedFortune
+    }
+
+    breakdown.push({ itemId, rarity, amber_slots: counts.amber, jade_slots: counts.jade, mining_combo_slots: counts.miningCombo, speed_from_amber: speedFromAmber, speed_from_combo: speedFromCombo, fortune_from_jade: fortuneFromJade, jaded_speed: jadedSpeed, jaded_fortune: jadedFortune })
   }
 
   const divanArmor = (armorStats || [])[0]
@@ -78,8 +113,11 @@ export async function GET() {
   const baseMiningSpeed = divanArmor.set_mining_speed + divanDrill.base_mining_speed
   const baseMiningFortune = Number(divanArmor.set_mining_fortune) + Number(divanDrill.base_mining_fortune)
 
-  const newMiningSpeed = baseMiningSpeed + gemMiningSpeedBonus + COMPACT_X_MINING_SPEED
-  const newMiningFortune = baseMiningFortune + gemMiningFortuneBonus
+  const gemsCompactSpeed = baseMiningSpeed + gemMiningSpeedBonus + COMPACT_X_MINING_SPEED
+  const gemsCompactFortune = baseMiningFortune + gemMiningFortuneBonus
+
+  const newMiningSpeed = gemsCompactSpeed + EFFICIENCY_X_MINING_SPEED + jadedMiningSpeedBonus
+  const newMiningFortune = gemsCompactFortune + jadedMiningFortuneBonus
 
   function scoreSetup(miningSpeed: number, miningFortune: number) {
     const miningTimeTicks = Math.round((block!.block_strength * 30) / miningSpeed)
@@ -95,7 +133,8 @@ export async function GET() {
   return NextResponse.json({
     target_block: block?.block_name,
     before: { total_mining_speed: baseMiningSpeed, total_mining_fortune: baseMiningFortune, ...scoreSetup(baseMiningSpeed, baseMiningFortune) },
-    after_gems_and_compact: { total_mining_speed: newMiningSpeed, total_mining_fortune: newMiningFortune, gem_mining_speed_bonus: gemMiningSpeedBonus, gem_mining_fortune_bonus: gemMiningFortuneBonus, compact_bonus: COMPACT_X_MINING_SPEED, ...scoreSetup(newMiningSpeed, newMiningFortune) },
+    after_gems_and_compact: { total_mining_speed: gemsCompactSpeed, total_mining_fortune: gemsCompactFortune, gem_mining_speed_bonus: gemMiningSpeedBonus, gem_mining_fortune_bonus: gemMiningFortuneBonus, compact_bonus: COMPACT_X_MINING_SPEED, ...scoreSetup(gemsCompactSpeed, gemsCompactFortune) },
+    after_gems_compact_efficiency_jaded: { total_mining_speed: newMiningSpeed, total_mining_fortune: newMiningFortune, efficiency_bonus: EFFICIENCY_X_MINING_SPEED, jaded_speed_bonus: jadedMiningSpeedBonus, jaded_fortune_bonus: jadedMiningFortuneBonus, ...scoreSetup(newMiningSpeed, newMiningFortune) },
     slot_breakdown: breakdown,
   })
 }
