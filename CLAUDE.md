@@ -22,6 +22,86 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Bloc 4 (plan d'audit 8 blocs) — 11 axes Milestones comblés, 69 tâches réelles (31 juillet)
+
+Suite directe du Bloc 3 et de l'extension `computeMilestones()` du 30 juillet : 15 
+`requirement_type` supportés côté code, mais seuls 4 avaient une vraie ligne 
+`milestone_tasks` (les placeholders flippés ce jour-là). Ce bloc remplit les 11 axes 
+restants avec du vrai contenu — 69 tâches insérées, réparties en 4 lots, chaque seuil 
+sourcé avant codage (jamais deviné), conformément à la règle 7.
+
+**Recherche de sources réelles avant tout Haiku/insert** — deux ajustements demandés par 
+l'utilisateur avant de lancer la génération, tous les deux confirmés utiles :
+- **Bank tier** : le wiki interne déjà caché (`game_mechanics_misc.bank`) donne la vraie 
+  table complète à 6 tiers réels (Starter→Gold→Deluxe→Super Deluxe→Premier→Luxurious→
+  Palatial) — utilisé intégralement (6 tâches, target 1→6) au lieu du plafond arbitraire à 
+  2 initialement proposé par prudence.
+- **Lot 4 (minions/bestiary/chocolate factory/auctions/fishing)** : recherche supplémentaire 
+  a trouvé deux vrais plafonds officiels non détectés au premier passage — la table 
+  "Bestiary Milestone Rewards" (checkpoints réels V/X/XV/XX.../C, contrairement à la table 
+  "Cumulative Kill Brackets" par famille de mob, différente) et la table "Chocolate Factory 
+  Milestones" (chocolat total à vie, checkpoints réels 1k→700b). Les deux utilisées 
+  intégralement (vrais nombres Hypixel, zéro invention). À l'inverse, `minion_count` s'est 
+  révélé ne PAS avoir de plafond utilisable : `crafted_generators.length` compte chaque 
+  palier de minion jamais acheté (pas les types distincts), donc même le total réel de 61 
+  minions (compté depuis nos propres pages wiki `*_minion` déjà scrapées) ne mappait pas 
+  proprement dessus — laissé à une seule tâche minimale (target=1), `calibration_note` 
+  explicite. `auction_activity`/`fishing_activity` n'ont aucun plafond officiel non plus 
+  (compteurs d'activité, pas des totaux d'espèces/objets) — calibrés sur les vraies valeurs 
+  observées de Cucumber (completed:56, sea_creature_kills:333), `calibration_note` explicite 
+  sur chaque tâche pour signaler que c'est provisoire.
+
+**4 lots, sources réelles par axe** :
+- **Lot 1 (20 tâches)** — Kuudra 5 tiers réels (`none`/`hot`/`burning`/`fiery`/`infernal`, 
+  confirmés via le wiki interne déjà caché, page `kuudra_teeth`) ; Arachne (1 tâche) ; 
+  Ender Dragon 7 variantes réelles (Young/Old/Protector/Strong/Superior/Unstable/Wise, 
+  confirmées via nos propres lignes `milestone_tasks` scrapées du wiki, catégorie 
+  "Slay Dragons") ; Essence 7 types restants (DIAMOND/DRAGON/SPIDER/GOLD/WITHER/UNDEAD/ICE), 
+  target=1 — miroir exact de la tâche Crimson déjà existante, zéro nouveau pattern.
+- **Lot 2 (14 tâches)** — Slayer claimed_levels, réel et pré-calculé par Hypixel lui-même : 
+  limité aux 4 boss avec de vraies clés `claimed_levels` observées sur Cucumber (Zombie/
+  Spider/Wolf/Enderman) — Blaze/Vampire volontairement exclus, aucune donnée réelle pour 
+  confirmer leurs noms de clé. Jacob's medals bronze/silver/gold, target=1 chacune (mêmes 
+  vraies raretés de médaille que le jeu, pas de nombre inventé).
+- **Lot 3 (20 tâches)** — Catacombs F1-F7 + Master Catacombs M1-M7 (numérotation réelle du 
+  jeu), target=1 ("jouée au moins une fois", comportement par défaut du type) ; Bank tier 
+  1→6 (voir ci-dessus).
+- **Lot 4 (15 tâches)** — Minions (1 tâche, voir ci-dessus) ; Bestiary milestone 5/15/30/50/
+  75/100 (checkpoints réels) ; Chocolate Factory 1M/100M/1B/10B chocolat à vie (checkpoints 
+  réels) ; Auctions 5/25 ventes complétées (calibré, `calibration_note`) ; Fishing 25/150 
+  sea creatures tuées (calibré, `calibration_note`).
+
+**Vérifié en conditions réelles avant merge** (route de debug temporaire appelant 
+`computeMilestones()` directement — un premier passage de vérification avait un bug dans 
+sa propre requête de filtrage, pas dans les données insérées : il matchait par texte de 
+catégorie et attrapait par erreur des centaines de lignes wiki préexistantes "Craft 
+Minions" qui partagent par coïncidence `category:"Minions"` ; corrigé en filtrant par le 
+vrai `task_key` inséré) : les 69 nouvelles lignes confirmées `data_available:true` à 100% 
+sur les deux profils. **Cucumber** (progression réelle) : 41/69 tâches complétées, cohérent 
+avec ses vraies données (Wolf Slayer Level 2 réclamé, Bestiary 71≥5, Bank tier 1 atteint, 
+Arachne et minions correctement non complétés puisqu'elle n'a ni l'un ni l'autre). 
+**Orange** (profil vide) : 69/69 computable mais 0/69 complété — même garde-fou early-game 
+que partout ailleurs, aucune progression fabriquée.
+
+**Nouveau taux réel de `tasks_computable`** (4.5) : 337/1685 tâches computables en direct 
+au runtime (20,0%), contre 268/1616 avant ce bloc (16,6% — recalculé en excluant les 69 
+nouvelles lignes du total post-merge, puisque aucune ligne préexistante n'a été modifiée). 
+Écart honnête à noter : un classement statique par `requirement_type` "computable" donnait 
+301 avant / 370 après (301+69, +1685 lignes) — plus élevé que les chiffres runtime 
+ci-dessus, parce que certaines tâches `collection` déjà existantes ont un `item_name` qui 
+ne matche aucune ligne de la table `collections` interne et retombent donc à 
+`data_available:false` en pratique malgré leur type nominalement "computable" — un écart de 
+données préexistant, sans rapport avec ce bloc, pas creusé ici. **Toujours pas 100%** : 
+les tâches `item` (1302, wiki-scrapées, mécanisme structurellement différent — voir Bloc 6) 
+et `mobtype` (5, nécessite une table de référence mob→catégorie pas encore construite) 
+restent hors scope, comme prévu dès l'audit du 30 juillet.
+
+**Build prod confirmé `READY`** (`vault-intel-iota.vercel.app` dans les alias) après merge 
+sur master. Branche `feat/bloc4-milestones-content` supprimée après merge.
+
+**Suite du plan (8 blocs)** : Bloc 5 (Radar multi-timeframe) est la prochaine étape prévue 
+dans l'ordre.
+
 ## ✅ Bloc 3 (plan d'audit 8 blocs) — fidélité du scoring AH, 2 écarts fermés (31 juillet)
 
 Suite directe des Blocs 1-2. Deux écarts réels entre le comportement du scoring de flip 
