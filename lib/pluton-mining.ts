@@ -6,8 +6,18 @@
 // Formules utilisées (toutes sourcées des pages wiki déjà en cache, voir
 // 8.2 -- jamais reconstituées de mémoire) :
 // - Mining Time (ticks) = round(Block Strength * 30 / Mining Speed)
-// - Softcap (ticks)     = floor((20/3) * Block Strength) + 1  [jamais < 4 ticks]
-// - Mining Fortune      : chaque 100 = +1 drop garanti, le reste = % de chance
+// - Softcap : "Softcap = floor((20/3) * Block Strength) + 1" -- bug réel
+//   trouvé en testant le cas concret Mithril MID (31 juillet) : cette
+//   formule est exprimée en unités de MINING SPEED (le seuil de vitesse
+//   minimum pour atteindre le plancher de 4 ticks), PAS un nombre de ticks
+//   -- confirmé par les exemples du wiki (colonne "Softcap" = 54/101/134/
+//   3334 pour Netherrack/Stone/Cobblestone/Obsidian, des ordres de grandeur
+//   de vitesse, pas de ticks). Comparer directement raw ticks à cette
+//   valeur (comme fait dans une 1re version) gonflait artificiellement le
+//   temps de minage à des centaines de secondes par bloc quelle que soit la
+//   vitesse réelle -- le vrai plancher est simplement 4 ticks, littéral,
+//   jamais recalculé par bloc.
+// - Mining Fortune : chaque 100 = +1 drop garanti, le reste = % de chance
 //
 // MVP volontairement simplifié (documenté, pas caché) :
 // - Bypass instamine (30x/60x Block Strength) PAS implémenté -- les deux
@@ -116,8 +126,9 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
     .filter(c => c.total_mining_speed > 0)
     .map(c => {
       const miningTimeTicks = Math.round((block.block_strength * 30) / c.total_mining_speed)
-      const softcapTicks = Math.floor((20 / 3) * block.block_strength) + 1
-      const effectiveTicks = Math.max(miningTimeTicks, softcapTicks, 4)
+      // Plancher littéral de 4 ticks (0.2s) -- jamais plus rapide sans
+      // instamine (non implémenté cette passe, voir en-tête de fichier).
+      const effectiveTicks = Math.max(miningTimeTicks, 4)
       const miningTimeSeconds = effectiveTicks / 20
       const actionsPerHour = 3600 / miningTimeSeconds
       const yieldPerHour = actionsPerHour * (1 + c.total_mining_fortune / 100)
