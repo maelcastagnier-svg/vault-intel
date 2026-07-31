@@ -88,6 +88,45 @@ const ACCESSORY_BAG_ITEMS: { item_id: string; speed: number; fortune: number }[]
   { item_id: 'HASTE_ARTIFACT', speed: 25, fortune: 0 },
 ]
 
+// HOTM -- décision d'architecture actée avec l'utilisateur (31 juillet) :
+// Pluton reste 100% générique, HOTM y est inclus comme un calcul
+// d'allocation optimale de Powder PAR TIER, jamais lié à un joueur réel
+// (la personnalisation réelle reste le rôle d'Evolve Skills, en aval).
+// Axe de progression : le vrai niveau HOTM (1-10, système XP indépendant
+// des coins, confirmé via le wiki -- Core of the Mountain NE définit PAS
+// ce niveau, correction actée après une 1re hypothèse fausse). Mapping
+// tier->niveau HOTM : Early=3 et Mid=6 déjà actés dans
+// TIER_CONFIG.access ("Dwarven Mines HotM 1-3" / "Crystal Hollows HotM
+// 4-6", money-making-constants.ts, pas inventé ici). End=9/Late=10 n'ont
+// PAS de source tierce -- extrapolation honnête de la séquence connue
+// (3->6->9->10), documentée comme telle, PAS justifiée par le networth
+// (le networth ne prouve rien sur la progression réelle, rappel acté
+// plusieurs fois cette semaine -- un joueur "early" peut recevoir un item
+// cher en cadeau sans avoir le vrai temps de jeu qui va avec).
+// Cette validation porte sur Late (HOTM 10, tous les nodes débloqués).
+// Scope limité aux 2 nodes déjà mappés à nos stats trackées
+// (perk_id 'mining_speed'/'mining_fortune', cost_formula/stat_formula
+// réels dans hotm_perks) -- le wiki liste au moins 7 autres nodes réels
+// donnant Mining Speed/Fortune (Gemstone Expertise, Deep Caves, Tungsten
+// Affinity, Mineshaft Depth, Hard Stone Mastery, Mineshaft Loot, le
+// mécanisme de particule des Pickaxe Enchantments) jamais mappés à un
+// perk_id précis de hotm_perks cette passe -- réel gap de généralisation,
+// pas caché, à faire avant de considérer HOTM complet.
+const HOTM_TIER_LEVEL: Record<string, number> = { early: 3, mid: 6, end: 9, late: 10 }
+function hotmNodeMaxCost(costExponent: number, maxLevel: number): number {
+  let total = 0
+  for (let level = 1; level <= maxLevel; level++) total += Math.pow(level + 2, costExponent)
+  return total
+}
+// mining_speed: cost_formula "(pow (+ level 2) 3)", stat_formula "(* level 20)", max_level 50
+// mining_fortune: cost_formula "(pow (+ level 2) 3.05)", stat_formula "(* level 2)", max_level 50
+const HOTM_MINING_SPEED_MAX_LEVEL = 50
+const HOTM_MINING_FORTUNE_MAX_LEVEL = 50
+const HOTM_MINING_SPEED_STAT = HOTM_MINING_SPEED_MAX_LEVEL * 20
+const HOTM_MINING_FORTUNE_STAT = HOTM_MINING_FORTUNE_MAX_LEVEL * 2
+const HOTM_MINING_SPEED_POWDER_COST = hotmNodeMaxCost(3, HOTM_MINING_SPEED_MAX_LEVEL)
+const HOTM_MINING_FORTUNE_POWDER_COST = hotmNodeMaxCost(3.05, HOTM_MINING_FORTUNE_MAX_LEVEL)
+
 export async function GET() {
   const accessoryItemIds = [...EQUIPMENT_SLOTS.map(e => e.item_id), ...ACCESSORY_BAG_ITEMS.map(a => a.item_id)]
 
@@ -216,6 +255,13 @@ export async function GET() {
   const withAccessoriesSpeed = bestPet.total_mining_speed + accessorySpeedBonus
   const withAccessoriesFortune = bestPet.total_mining_fortune + accessoryFortuneBonus
 
+  // HOTM -- validation sur Late (HOTM 10, tous les nodes débloqués),
+  // mining_speed + mining_fortune nodes maxés (niveau 50 chacun, coût réel
+  // calculé, pas gate sur un budget -- même méthode que gemmes/enchants/
+  // pets/accessoires jusqu'ici).
+  const withHotmSpeed = withAccessoriesSpeed + HOTM_MINING_SPEED_STAT
+  const withHotmFortune = withAccessoriesFortune + HOTM_MINING_FORTUNE_STAT
+
   return NextResponse.json({
     target_block: block?.block_name,
     before: { total_mining_speed: baseMiningSpeed, total_mining_fortune: baseMiningFortune, ...scoreSetup(baseMiningSpeed, baseMiningFortune) },
@@ -234,6 +280,16 @@ export async function GET() {
       ...scoreSetup(withAccessoriesSpeed, withAccessoriesFortune),
     },
     accessory_breakdown: accessoryBreakdown,
+    after_hotm: {
+      total_mining_speed: withHotmSpeed,
+      total_mining_fortune: withHotmFortune,
+      hotm_tier_level: HOTM_TIER_LEVEL.late,
+      hotm_tier_level_note: "Late=10 : extrapolation honnête de la séquence Early=3/Mid=6 (déjà actés via TIER_CONFIG.access) -- PAS prouvé par une source tierce, PAS justifié par le networth (le networth ne prouve rien sur la vraie progression d'un joueur).",
+      mining_speed_node: { max_level: HOTM_MINING_SPEED_MAX_LEVEL, stat_bonus: HOTM_MINING_SPEED_STAT, powder_cost_mithril: HOTM_MINING_SPEED_POWDER_COST },
+      mining_fortune_node: { max_level: HOTM_MINING_FORTUNE_MAX_LEVEL, stat_bonus: HOTM_MINING_FORTUNE_STAT, powder_cost_mithril: HOTM_MINING_FORTUNE_POWDER_COST },
+      scope_note: "Seuls les 2 nodes déjà mappés à nos stats trackées sont inclus -- au moins 7 autres nodes réels donnant Mining Speed/Fortune existent (Gemstone Expertise, Deep Caves, Tungsten Affinity, Mineshaft Depth, Hard Stone Mastery, Mineshaft Loot, Pickaxe Enchantments) mais ne sont pas encore mappés à un perk_id précis de hotm_perks.",
+      ...scoreSetup(withHotmSpeed, withHotmFortune),
+    },
     slot_breakdown: breakdown,
   })
 }
