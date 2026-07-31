@@ -100,9 +100,19 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
 
   const priceById = new Map<string, PricedItem>(priced.map(p => [p.item_id, p]))
   const tierConfig = TIER_CONFIG[tier]
-  const armorMin = tierConfig.max_gear_cost / 25
   const armorMax = tierConfig.max_gear_cost * 3
-  const toolMax  = tierConfig.max_gear_cost * 3 // pas de plancher pour les outils, voir 8.3
+  const toolMax  = tierConfig.max_gear_cost * 3
+  // Pas de plancher de prix sur l'armure (ni sur les outils, voir plus bas)
+  // -- seulement un plafond. Le plancher budget/25 hérité de Money Making
+  // (catalogue général dense à tous les paliers de prix) a produit un vrai
+  // bug en généralisant (31 juillet) : à LATE (plancher ~400M), même
+  // Divan's Armor (~368M, le set Mining le plus cher qui existe
+  // réellement) tombait sous le plancher -- 0/9 blocs éligibles, alors que
+  // Divan's est authentiquement le meilleur choix Mining endgame. Mining
+  // n'a que 11 sets de référence connus (catégorie clairsemée, pas un
+  // marché dense comme l'armure générale) -- un plancher y exclut le
+  // meilleur set réel au lieu de filtrer du gear sous-optimal. Même
+  // logique déjà appliquée aux outils ci-dessous, étendue à l'armure.
 
   const combos: {
     armor_set: string; tool: string; tool_item_id: string
@@ -116,12 +126,12 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
     const piecePrices = pieces.map(id => priceById.get(id)?.price)
     if (piecePrices.some(p => p === undefined)) continue // un ou plusieurs items sans prix réel récent -- skip, jamais inventé
     const armorCost = piecePrices.reduce((s, p) => s! + p!, 0)!
-    if (armorCost < armorMin || armorCost > armorMax) continue
+    if (armorCost > armorMax) continue
 
     for (const tool of toolStats || []) {
       totalChecked++
       const toolPrice = priceById.get(tool.item_id)?.price
-      if (toolPrice === undefined || toolPrice > toolMax) continue
+      if (toolPrice === undefined || toolPrice > toolMax) continue // pas de plancher pour les outils non plus, voir 8.3
 
       const totalBP = tool.base_breaking_power
       if (totalBP < block.required_breaking_power) continue // filtre d'éligibilité, 8.2
