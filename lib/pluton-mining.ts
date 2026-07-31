@@ -62,10 +62,12 @@ const supabase = createClient(
 
 export type MiningRankingResult = {
   target_block: string
+  target_block_id: number
   tier: string
   top_setup: {
     armor_set: string
     tool: string
+    tool_item_id: string
     total_mining_speed: number
     total_mining_fortune: number
     total_breaking_power: number
@@ -78,6 +80,13 @@ export type MiningRankingResult = {
   eligible_combos_count: number
   total_combos_checked: number
 }
+
+export const MINING_TARGET_BLOCK_IDS = [
+  'COAL_ORE', 'IRON_ORE', 'GOLD_ORE', 'DIAMOND_ORE',
+  'MITHRIL_ORE', 'TITANIUM_ORE', 'RUBY_GEMSTONE', 'JADE_GEMSTONE', 'GLACITE',
+] as const
+
+export const MINING_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
 
 export async function computeMiningRanking(tier: TierKey, blockId: string): Promise<MiningRankingResult> {
   const [{ data: block }, { data: toolStats }, { data: armorStats }, priced] = await Promise.all([
@@ -96,7 +105,7 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
   const toolMax  = tierConfig.max_gear_cost * 3 // pas de plancher pour les outils, voir 8.3
 
   const combos: {
-    armor_set: string; tool: string
+    armor_set: string; tool: string; tool_item_id: string
     total_mining_speed: number; total_mining_fortune: number; total_breaking_power: number
     real_cost: number
   }[] = []
@@ -120,6 +129,7 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
       combos.push({
         armor_set: armor.set_name,
         tool: tool.display_name,
+        tool_item_id: tool.item_id,
         total_mining_speed:   armor.set_mining_speed + tool.base_mining_speed,
         total_mining_fortune: Number(armor.set_mining_fortune) + Number(tool.base_mining_fortune),
         total_breaking_power: totalBP,
@@ -159,9 +169,80 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
 
   return {
     target_block: block.block_name,
+    target_block_id: block.id,
     tier,
     top_setup: scored[0] ?? null,
     eligible_combos_count: combos.length,
     total_combos_checked: totalChecked,
   }
+}
+
+// Généralise computeMiningRanking() aux 9 blocs cibles x 4 tiers (31
+// juillet, Bloc 8 -- après validation du cas concret Mithril MID) et
+// persiste le résultat dans pluton_setups/pluton_rankings. Même limite de
+// scope que le MVP validé : un seul palier d'investissement ('optimal'),
+// et seul le TOP 1 setup par (tier, bloc) est retenu -- pluton_rankings
+// admet une colonne `rank` pour un futur top N, pas construit cette passe,
+// jamais fabriqué au-delà du setup réellement calculé comme meilleur.
+// Certaines combinaisons (bloc à forte Breaking Power requise à un tier
+// bas budget) produiront honnêtement top_setup:null / eligible_combos:0
+// -- pas persistées (rien à classer), pas un bug.
+export type PersistedMiningResult = {
+  tier: TierKey
+  block_id: string
+  target_block: string
+  has_setup: boolean
+  coins_per_hour_raw_block_only: number | null
+}
+
+export async function computeAndPersistAllMiningRankings(): Promise<PersistedMiningResult[]> {
+  const out: PersistedMiningResult[] = []
+
+  for (const tier of MINING_TIER_KEYS) {
+    for (const blockId of MINING_TARGET_BLOCK_IDS) {
+      const result = await computeMiningRanking(tier, blockId)
+
+      if (!result.top_setup) {
+        out.push({ tier, block_id: blockId, target_block: result.target_block, has_setup: false, coins_per_hour_raw_block_only: null })
+        continue
+      }
+
+      const s = result.top_setup
+      const { data: setupRow, error: setupErr } = await supabase
+        .from('pluton_setups')
+        .insert({
+          activity_key: 'mining',
+          tier,
+          investment_level: 'optimal',
+          armor_set_prefix: s.armor_set,
+          tool_item_id: s.tool_item_id,
+          total_mining_speed: s.total_mining_speed,
+          total_mining_fortune: s.total_mining_fortune,
+          total_breaking_power: s.total_breaking_power,
+          real_cost: s.real_cost,
+        })
+        .select('id')
+        .single()
+      if (setupErr || !setupRow) throw new Error(`pluton_setups insert failed for ${tier}/${blockId}: ${setupErr?.message}`)
+
+      const { error: rankErr } = await supabase
+        .from('pluton_rankings')
+        .insert({
+          activity_key: 'mining',
+          tier,
+          target_block_id: result.target_block_id,
+          setup_id: setupRow.id,
+          rank: 1,
+          mining_time_seconds: s.mining_time_seconds,
+          actions_per_hour: s.actions_per_hour,
+          yield_per_hour: s.yield_per_hour,
+          coins_per_hour_raw_block_only: s.coins_per_hour_raw_block_only,
+        })
+      if (rankErr) throw new Error(`pluton_rankings insert failed for ${tier}/${blockId}: ${rankErr.message}`)
+
+      out.push({ tier, block_id: blockId, target_block: result.target_block, has_setup: true, coins_per_hour_raw_block_only: s.coins_per_hour_raw_block_only })
+    }
+  }
+
+  return out
 }
