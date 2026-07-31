@@ -18,6 +18,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { requirePlan } from '../../../../lib/get-plan'
+import { collectOwnedItemNames, isItemOwned } from '../../../../lib/owned-items'
 
 export const maxDuration = 30
 
@@ -51,6 +52,7 @@ type Requirement =
   | { type: 'fishing_activity'; metric: string; target?: number }
   | { type: 'mobtype'; name: string }
   | { type: 'item'; item_name: string }
+  | { type: 'item_owned'; item_name: string }
   | { type: 'uncollected'; task_key: string }
 
 type TaskRow = {
@@ -74,7 +76,7 @@ export type EvaluatedTask = {
 export async function computeMilestones(uuid: string, profileId: string) {
   const { data: player, error } = await supabase
     .from('player_data')
-    .select('skills, collections, fairy_souls, boss_kills, bank_tier, fast_travel_zones, essence, crafted_generators, bestiary_milestone, slayer_detail, jacob_medals, jacob_contests, festival_candy, catacombs_floors, master_catacombs_floors, chocolate_factory, auction_stats, fishing_stats')
+    .select('skills, collections, fairy_souls, boss_kills, bank_tier, fast_travel_zones, essence, crafted_generators, bestiary_milestone, slayer_detail, jacob_medals, jacob_contests, festival_candy, catacombs_floors, master_catacombs_floors, chocolate_factory, auction_stats, fishing_stats, equipped_armor, equipped_accessories, inventory_items, ender_chest_items, backpacks, personal_vault_items, wardrobe_slots, pets')
     .eq('hypixel_uuid', uuid)
     .eq('profile_id', profileId)
     .single()
@@ -137,6 +139,10 @@ export async function computeMilestones(uuid: string, profileId: string) {
   const chocolateFactory      = player.chocolate_factory || {}
   const auctionStats          = player.auction_stats || {}
   const fishingStats          = player.fishing_stats || {}
+  // Bloc 6 (audit 8 blocs) — possession d'item par nom, contre l'inventaire
+  // réel du joueur (voir lib/owned-items.ts pour le détail des sources et
+  // le bug pets trouvé en testant).
+  const ownedItems             = collectOwnedItemNames(player)
 
   function evaluateTask(row: TaskRow): EvaluatedTask {
     const r = row.requirement
@@ -236,6 +242,10 @@ export async function computeMilestones(uuid: string, profileId: string) {
         : (fishingStats.items_fished?.[r.metric] ?? 0)
       const target = r.target ?? null
       return { ...base, data_available: true, current, target, met: target !== null ? current >= target : null }
+    }
+    if (r.type === 'item_owned') {
+      const owned = isItemOwned(ownedItems, r.item_name, row.category)
+      return { ...base, data_available: true, current: owned ? 1 : 0, target: 1, met: owned }
     }
     // item / mobtype / uncollected : pas verifiable aujourd'hui
     return { ...base, data_available: false, current: null, target: null, met: null }
