@@ -14,13 +14,13 @@ export const TIER_CONFIG = {
   mid: {
     label: 'MID', networth: '50M-500M', target: 25,
     max_gear_cost: 100_000_000, capital: 10_000_000,
-    access: 'Zombie T3-T4, Spider T3-T4 (MAX), Wolf T3-T4 (MAX), Enderman T1-T2 | Dungeons F4-F6 | Kuudra T1-T2 | Crystal Hollows HotM 4-6 | Trophy Fishing basic | Garden basic',
+    access: 'Zombie T3-T4, Spider T3-T4, Wolf T3-T4 (MAX), Enderman T1-T2 | Dungeons F4-F6 | Kuudra T1-T2 | Crystal Hollows HotM 4-6 | Trophy Fishing basic | Garden basic',
     forbidden: 'M1-M7, Kuudra T3+, Enderman T3+, Blaze/Vampire Slayer, Thunder Fishing, Divan Drill (1B+), any gear >100M'
   },
   end: {
     label: 'END', networth: '500M-5B', target: 50,
     max_gear_cost: 1_000_000_000, capital: 200_000_000,
-    access: 'Zombie T5, Enderman T3-T4 (MAX T4 ONLY), Blaze T4-T5, Vampire T4-T5 | Dungeons M1-M4 | Kuudra T3-T5 | Crystal Hollows advanced | Thunder Fishing | Pest Farming',
+    access: 'Zombie T5, Spider T5 (MAX), Enderman T3-T4 (MAX T4 ONLY), Blaze T4 (MAX), Vampire T4-T5 | Dungeons M1-M4 | Kuudra T3-T5 | Crystal Hollows advanced | Thunder Fishing | Pest Farming',
     forbidden: 'M5-M7, Enderman T5 (DOES NOT EXIST), any single gear piece >1B'
   },
   late: {
@@ -42,7 +42,7 @@ Always write: "Via Maddox quest → kill [mob] in [zone] → boss summons there"
 Zones: Zombie=anywhere | Spider=Spider's Den | Wolf=The Park | Enderman=The End | Blaze=Crimson Isle | Vampire=The Rift
 
 === SLAYER MAX TIERS ===
-Zombie T5 ✅ | Spider T4 ✅ | Wolf T4 ✅ | Enderman T4 ✅ (T5 DOES NOT EXIST) | Blaze T5 ✅ | Vampire T5 ✅
+Zombie T5 ✅ | Spider T5 ✅ | Wolf T4 ✅ | Enderman T4 ✅ (T5 DOES NOT EXIST) | Blaze T4 ✅ (T5 DOES NOT EXIST) | Vampire T5 ✅
 
 === REALISTIC COINS/HOUR RANGES ===
 Early: Slayer 2-5M/h | Mining 3-8M/h | Fishing 2-4M/h

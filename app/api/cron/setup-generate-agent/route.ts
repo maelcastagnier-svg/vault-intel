@@ -230,7 +230,7 @@ ${method.key_drops ? 'DROPS: ' + method.key_drops : ''}
 ${method.the_edge  ? 'EDGE: '  + method.the_edge  : ''}
 ${method.why_best  ? 'WHY: '   + method.why_best  : ''}
 
-SLAYER MAX TIERS: Zombie T5 | Spider T4 | Wolf T4 | Enderman T4 (T5 DOES NOT EXIST) | Blaze T5 | Vampire T5
+SLAYER MAX TIERS: Zombie T5 | Spider T5 | Wolf T4 | Enderman T4 (T5 DOES NOT EXIST) | Blaze T4 (T5 DOES NOT EXIST) | Vampire T5
 
 You must pick a PRECISE, JUSTIFIED spec for the armor and the weapon — not just a name.
 armor_reforge/weapon_reforge MUST be copied verbatim (exact spelling) from the REFORGES list in the system context — never invent a reforge name.
