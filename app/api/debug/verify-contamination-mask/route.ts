@@ -26,6 +26,10 @@ export async function GET() {
 
     const parsed = JSON.parse(data?.content || '{}')
     const filtered = filterMoneyMaking(parsed, 'elite')
+    // Replicate the exact masking step from app/api/market-data/route.ts (not itself
+    // reusable here since that route also does auth/plan resolution).
+    filtered.active = filtered.active.filter((m: any) => !SLAYER_BUG_CONTAMINATED_METHOD_IDS.has(m?.id))
+    filtered.vault = filtered.vault.filter((m: any) => !SLAYER_BUG_CONTAMINATED_METHOD_IDS.has(m?.id))
     const beforeIds = [...(parsed?.active || []), ...(parsed?.vault || [])].map((m: any) => m?.id)
     const afterIds = [...filtered.active, ...filtered.vault].map((m: any) => m?.id)
     const filteredOut = beforeIds.filter((id: string) => !afterIds.includes(id))
