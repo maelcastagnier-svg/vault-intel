@@ -98,7 +98,19 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
     }
   }
 
-  const sellPrice = priceById.get(block.sell_item_id)?.price ?? 0
+  // Le drop d'un bloc miné se vend au Bazaar (MITHRIL_ORE, GLACITE, gemmes
+  // brutes...), jamais sur l'AH -- bug réel trouvé en testant : loadPricedItems()
+  // ne lit que price_history_ah (armure/outils), donnant un sellPrice de 0
+  // silencieux et un coins_per_hour toujours nul. Prix Bazaar réel requis séparément.
+  const { data: bazaarPriceRow } = await supabase
+    .from('price_history')
+    .select('sell_price, bucket_date')
+    .eq('item_id', block.sell_item_id)
+    .gt('sell_price', 0)
+    .order('bucket_date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const sellPrice = Number(bazaarPriceRow?.sell_price) || 0
 
   const scored = combos
     .filter(c => c.total_mining_speed > 0)
