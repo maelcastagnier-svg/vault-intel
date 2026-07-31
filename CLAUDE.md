@@ -52,13 +52,24 @@ branche preview.
   {ITEM_ID: {donated_time, items:{type,data}}}, special}` — chaque item donné est un blob NBT 
   décodable avec le décodeur déjà existant. Mappé cette passe : `museum_value` (109 188 742 
   chez Cucumber) + `museum_donated_item_ids` (40 vrais item_id réels, ex HYPERION/
-  ASPECT_OF_THE_VOID/CRIMSON). **Piste ouverte notée, pas traitée ici** : les 416 tâches 
-  Milestones "Museum Donations" (`item_owned`, Bloc 6) vérifient actuellement la présence en 
-  INVENTAIRE, alors que l'intention réelle du wiki est la présence en tant que DON MUSÉE — deux 
-  sources différentes qui se recoupent partiellement mais pas totalement. Correction possible 
-  maintenant que `museum_donated_item_ids` existe, mais nécessite de résoudre item_id → nom 
-  affiché (item_stats ne couvre que 22-33%, voir Bloc 6) — pas fait cette passe pour ne pas 
-  élargir un bloc déjà large.
+  ASPECT_OF_THE_VOID/CRIMSON).
+
+**✅ Piste ouverte fermée le même jour — Museum Donations vérifie maintenant le vrai don, 
+pas la possession en inventaire** : les 416 tâches Milestones "Museum Donations" 
+(`item_owned`, Bloc 6) comparaient le nom cible à l'inventaire réel du joueur — question 
+différente de l'intention réelle du wiki (a-t-il DONNÉ cet item au musée, pas "le 
+possède-t-il actuellement"). Corrigé en résolvant `requirement.item_name` → vrai `item_id` 
+via `item_stats`/`items_catalog` (mesuré avant d'implémenter : 265/416, 63,7%, résolvent), 
+puis vérifié contre `museum_donated_item_ids` (Bloc 7) au lieu du scan d'inventaire. Les 151 
+noms non résolus restent honnêtement `data_available:false` — jamais de repli sur l'ancien 
+scan inventaire, qui répond à une autre question, pas une version dégradée de celle-ci. 
+**Vérifié en conditions réelles** : sur Cucumber, `museum_met` passe de 71 (ancien, possession 
+inventaire) à **24** (nouveau, vrai don musée) — les 24 items confirmés recoupés un par un 
+avec sa vraie liste `museum_donated_item_ids` (Aspect of the End, Basic Fishing Net, Stonk 
+Pickaxe, etc., tous réellement donnés). Orange reste à 0 — aucune fabrication. Conséquence 
+honnête sur le taux global : `tasks_computable` recule de 60,8% à **51,8%** (873/1685) — 
+recul attendu et correct, la précision de la question posée prime sur le taux de couverture 
+brut.
 - **HOTM Forge (7.5)** — la vraie table de durées existait déjà dans le wiki caché 
   (`game_mechanics_misc.the_forge_table`, jamais exploitée). Parsée en 119 lignes réelles 
   (item, durée en secondes, palier HOTM requis) dans une nouvelle table 
