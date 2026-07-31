@@ -22,6 +22,74 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Bloc 6 (plan d'audit 8 blocs) — requirement_type item_owned, +40,8 points de tasks_computable (31 juillet)
+
+Suite directe du Bloc 5. Les 1302 tâches `item` (81% du total Milestones) restaient 
+uncomputable — le plan visait "potentiellement proche de 100%" si le matching item_id 
+fonctionnait bien. **Investigation avant tout code (6.1/6.2) a corrigé cette attente à la 
+baisse, avec des raisons réelles vérifiées**, avant qu'aucune ligne ne soit écrite.
+
+**6.1 — généralisable, sans réécriture** : chaque item NBT décodé dans `player_data` 
+(armure équipée, accessoires, inventaire, enderchest, backpacks, Personal Vault, wardrobe) 
+porte déjà un vrai champ `item_id`/`item_name` — confirmé directement en base sur Cucumber. 
+`collectOwnedButUnequipped()` (Evolve Skills) scanne déjà ces mêmes sources ; nouvelle 
+fonction `lib/owned-items.ts` réutilise les mêmes sources, sortie différente (Set de noms 
+normalisés au lieu de texte formaté pour un prompt).
+
+**6.2 — le vrai format a changé le plan** : `requirement.item_name` est un artefact brut du 
+scrape wiki, un vrai sac mélangé — vérifié sur 25 échantillons aléatoires : des items 
+réellement possédables ("Cat Talisman", "Skeleton Minion", "Bottle of Jyrre") à côté de 
+choses qui ne sont structurellement PAS des items sous le même template wiki (classes de 
+donjon "Obtain Mage", zones "Obtain Crimson Isle"/"Obtain Dwarven Mines", contacts Abiphone 
+"Obtain George"/"Obtain Shifty", features génériques "Obtain Personal Bank"). Mesuré 
+directement : seulement 283/1302 (21,7%) matchent exactement `item_stats.display_name`, 
+425/1302 (32,6%) `items_catalog.item_name` — les deux catalogues internes ne couvrent que 
+les items actifs sur le marché AH/Bazaar, pas un registre complet (pets, pièces de musée 
+jamais tradées en sont absents). **Décidé avec l'utilisateur** : matcher directement contre 
+l'inventaire RÉEL du joueur plutôt que contre ces catalogues incomplets — plus robuste, et 
+honnête sur ce qui n'est structurellement pas un item (reste non-résolu plutôt que forcé).
+
+**Bug réel trouvé en testant sur échantillon avant généralisation** (exactement la 
+précaution demandée avant d'appliquer à l'ensemble) : `player_data.pets` est un champ 
+SÉPARÉ (roster complet actif+inactifs, `{type,tier,level,active,heldItem}`), absent de 
+tous les tableaux NBT scannés au premier passage — Cucumber possède réellement un pet 
+`BEE` et un `GRANDMA_WOLF` (confirmés dans son vrai roster), tous deux remontaient pourtant 
+"non possédé" avant l'ajout de ce scan. Corrigé, revalidé : 19 pets réels de Cucumber 
+matchent correctement après le fix (dont Bee et Grandma Wolf).
+
+**6.3 — `item_owned` implémenté, scope volontairement restreint** : sur les 1302 tâches 
+`item`, seules les 687 dont la vraie catégorie wiki (Museum Donations 416, Accessories 196, 
+Pets 75) correspond à un vrai objet possédable individuellement ont été retaggées 
+`item_owned` (migration `retag_item_owned_museum_accessories_pets`). Les 615 restantes 
+gardent `type='item'`, toujours honnêtement uncomputable : beaucoup sont structurellement 
+pas des items (classes/zones/NPCs), d'autres sont déjà couvertes par leur vrai 
+requirement_type dédié du Bloc 4 (boss/slayer/essence/banque/bestiary/dungeon — redondant 
+et faux de les traiter comme un item), et `Minions` (254 tâches) a été délibérément exclue : 
+un minion crafté devient un générateur posé sur l'île, jamais un item NBT tenu en 
+inventaire — `minion_count` (Bloc 4) reste le bon outil pour cet axe, même limité en 
+données.
+
+**Vérifié en conditions réelles avant merge** (route de debug temporaire appelant 
+`computeMilestones()` directement) : les 687 tâches `item_owned` toutes `data_available: 
+true` sur les deux profils. **Cucumber** : 71 tâches réellement complétées, exactement le 
+même compte que l'échantillon de validation initial (talismans/rings réellement possédés, 
+pets réellement possédés incluant Bee/Grandma Wolf, dons de musée réellement en 
+inventaire). **Orange** (profil vide) : 687/687 computable mais 0 complétée — même 
+garde-fou early-game que partout ailleurs, aucune fabrication.
+
+**6.6 — nouveau taux réel de `tasks_computable`** : **60,8%** (1024/1685) au runtime, contre 
+20,0% (337/1685) après le Bloc 4 — un bond de +40,8 points, le plus gros gain du plan à 
+date. Honnête sur ce qui reste : les 615 tâches `item` non retaggées + les 5 `mobtype` 
+(table de référence mob→catégorie pas construite) représentent encore ~36,8% du total 
+hors de portée — loin des "potentiellement proche de 100%" espérés au départ du bloc, pour 
+des raisons réelles vérifiées avant codage, pas par manque d'effort d'implémentation.
+
+**Build prod confirmé `READY`** (`vault-intel-iota.vercel.app` dans les alias) après merge 
+sur master. Branche `feat/bloc6-item-tasks-investigation` supprimée après merge.
+
+**Suite du plan (8 blocs)** : Bloc 7 (zones joueur non couvertes) est la prochaine étape 
+prévue dans l'ordre.
+
 ## ✅ Bloc 5 (plan d'audit 8 blocs) — Radar multi-timeframe réel, jusqu'à 7+ ans (31 juillet)
 
 Suite directe du Bloc 4. Radar plafonnait à 3 ans côté frontend et à une fenêtre 30 jours 
