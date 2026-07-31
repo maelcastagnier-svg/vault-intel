@@ -22,6 +22,80 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## 🚧 Cartographie exhaustive Hypixel Skyblock — 2 vrais bugs fermés en cours de route (31 juillet)
+
+Chantier séparé du Bloc 8/Pluton, déclenché par la rigueur exigée sur les formules HOTM
+pendant ce bloc : "on avance trop au coup par coup" — décision de faire un audit
+systématique de toute la mécanique du jeu (jeu + joueur). Méthode inversée : cartographier
+le jeu depuis ses vraies sources en premier (wiki officiel, NEU-REPO, API Hypixel, projets
+communautaires), PUIS comparer notre base à cette cartographie — jamais l'inverse.
+**Chantier en cours, pas terminé** — voir état d'avancement en fin de section.
+
+**Source 1 (NEU-REPO) épuisée — 40/40 fichiers réellement inspectés**, reconfirmés
+exhaustifs en direct via l'API GitHub (pas depuis notre cache, qui aurait pu être
+périmé). Deux vrais bugs de production trouvés et corrigés en creusant, pas seulement
+des trous de collecte :
+
+### 🔴 Bug corrigé — Slayer max tiers Blaze/Spider inversés
+
+`leveling.json` (NEU-REPO, jamais exploité avant cette passe) a fait remonter
+`slayer_highest_tier`/`slayer_to_highest_tier` donnant Blaze=T4/Spider=T5 —
+l'inverse exact de `GAME_TRUTHS` (`lib/money-making-constants.ts`, utilisé par
+Money Making ET Evolve Skills) qui affirmait Blaze=T5/Spider=T4 depuis le début.
+**Vérifié contre le wiki officiel avant de corriger** (jamais tranché sur une seule
+source) : page Inferno Demonlord confirme littéralement "Tier IV" comme max, page
+Tarantula Broodfather confirme "Tier V" avec mécanique exclusive à ce palier
+("Till Death Do Us Part"). Les deux sources indépendantes (NEU-REPO + wiki)
+s'accordent — `GAME_TRUTHS` avait bien les deux inversés.
+
+**Corrigé** (`lib/money-making-constants.ts` + duplication en dur trouvée dans
+`app/api/cron/setup-generate-agent/route.ts`, qui ne lisait pas `GAME_TRUTHS` mais
+avait la même erreur recopiée à la main) — branche `fix/slayer-tier-blaze-spider-swap`,
+mergée sur master, prod confirmée `READY`.
+
+**Contamination réelle trouvée avant de corriger, PAS nettoyée (coût API réel, pas
+lancé sans accord)** : `claude_analysis.money_making_end`/`money_making_late`
+contiennent 2 méthodes entièrement fabriquées autour d'un "Blaze Slayer T5" qui
+n'existe pas (`blaze_t5_slayer_grind`, `blaze_t5_slayer_scorched_books_arbitrage`) ;
+`method_setups` a les mêmes 2 + `spider_t4_slayer` (mid, étiqueté "MAX" à tort) ; les
+2 générations `player_skill_cards` de Cucumber (seul profil de test réel) mentionnent
+aussi ces erreurs. Le fix de code empêche toute nouvelle génération fausse, mais ce
+contenu déjà servi reste faux jusqu'à régénération (prochain cron programmé, ou
+déclenchement manuel à décider).
+
+### ✅ weight_formulas reconstruite — Senither weight (Lily documentée, pas chargée)
+
+`weight.json` (NEU-REPO) a révélé l'existence de 2 formules de weight concurrentes
+(Lily et Senither) — aucune des deux en base depuis la suppression du 16 juillet.
+**Recherche de popularité faite avant de trancher** (consensus communautaire sur les
+forums Hypixel + confirmation directe que SkyCrypt, déjà notre référence de
+comparaison cette semaine, utilise Senither) → Senither validé comme référence
+principale par l'utilisateur.
+
+Table `weight_formulas` reconstruite (20 lignes) avec la vraie formule Senither,
+sourcée du code Python réel et littéral de `timnoot/senitherweight` (port actif de
+l'algorithme original) : skills (`(niveau×10)^(0.5+exponent+niveau/100)/1250` + overflow),
+slayers (`min(XP,1M)/divider` + overflow par palier), donjons
+(`niveau^4.5×percentage_modifier` + overflow). Lily documentée en commentaire de
+migration comme alternative connue, non implémentée.
+
+**Trou réel trouvé en chargeant, pas deviné** : cette source ne contient les
+constantes slayer que pour zombie/spider/wolf/enderman — Blaze et Vampire absents
+(mentionnés dans une docstring d'exemple du même fichier mais jamais définis).
+Chargé tel quel, documenté comme manquant plutôt que complété par une valeur inventée.
+
+### État d'avancement de la cartographie
+
+**Terminé** : Source 1 (NEU-REPO), 40/40 fichiers, reconfirmés exhaustifs en direct.
+**Pas commencé** : Source 2 (table des matières du wiki officiel), Source 3 (autres
+projets communautaires : SkyHanni, Firmament, hypixel-api-reborn au-delà de ce qui a
+déjà servi). Fiche Mining indépendante (étape 1, avant comparaison à notre base)
+partiellement construite (formules HOTM, blocs cibles réels) mais pas finalisée pour
+les autres 14 systèmes (Combat/Slayer, Farming, Foraging, Fishing, Dungeons, Rift,
+Crimson/Kuudra, Enchanting, Alchemy, Carpentry, Taming, Social). Le Bloc 8 (Pluton)
+reste explicitement en pause tant que cette cartographie n'est pas jugée suffisante
+pour reprendre le calcul sans redécouvrir de trous en cours de route.
+
 ## ✅ Bloc 7 (plan d'audit 8 blocs) — zones joueur restantes, structure vérifiée avant mapping (31 juillet)
 
 Suite directe du Bloc 6, même méthode que toute la Phase 2 (chantier collecte totale) : 
