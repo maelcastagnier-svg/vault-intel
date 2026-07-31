@@ -48,8 +48,24 @@ const JADED_MINING_FORTUNE_BY_RARITY: Record<string, number> = {
 const ARMOR_PIECES = ['DIVAN_HELMET', 'DIVAN_CHESTPLATE', 'DIVAN_LEGGINGS', 'DIVAN_BOOTS']
 const DRILL = 'DIVAN_DRILL'
 
+// Pets Mining -- pet_stat_progression était déjà peuplée (620 lignes,
+// jamais exploitée par Pluton avant cette passe). Deux candidats réels
+// comparés (pas supposé) : Scatha (Legendary, niveau 100) donne Speed ET
+// Fortune ; Mole (Legendary, niveau 100) donne plus de Speed seule mais
+// zéro Fortune. Le meilleur des deux dépend du calcul réel, pas d'un a
+// priori -- les deux scorés ci-dessous, le gagnant retenu.
+// Bug de pricing réel trouvé en vérifiant : le pipeline AH ne capture les
+// pets que sous un base_item_id générique 'PET' (9 lignes au total, jamais
+// nommément Mole/Scatha) -- aucun prix marché réel disponible. Documenté
+// honnêtement plutôt que d'utiliser le prix plancher NPC (george_pet_prices)
+// comme s'il s'agissait d'un vrai prix AH.
+const PET_CANDIDATES = [
+  { pet_id: 'SCATHA', rarity: 'LEGENDARY' },
+  { pet_id: 'MOLE', rarity: 'LEGENDARY' },
+]
+
 export async function GET() {
-  const [{ data: itemRarities }, { data: slots }, { data: gems }, { data: block }, { data: armorStats }, { data: toolStats }, { data: bazaarPrice }] = await Promise.all([
+  const [{ data: itemRarities }, { data: slots }, { data: gems }, { data: block }, { data: armorStats }, { data: toolStats }, { data: bazaarPrice }, { data: petRows }] = await Promise.all([
     supabase.from('item_stats').select('item_id, rarity').in('item_id', [...ARMOR_PIECES, DRILL]),
     supabase.from('gemstone_slot_costs').select('item_id, slot_id').in('item_id', [...ARMOR_PIECES, DRILL]),
     supabase.from('gemstones').select('gem_type, stat_name, gear_rarity, bonus_value').eq('quality', 'PERFECT'),
@@ -57,6 +73,7 @@ export async function GET() {
     supabase.from('pluton_mining_armor_stats').select('*').eq('set_prefix', 'DIVAN'),
     supabase.from('pluton_mining_tool_stats').select('*').eq('item_id', DRILL).single(),
     supabase.from('price_history').select('sell_price').eq('item_id', 'TITANIUM_ORE').gt('sell_price', 0).order('bucket_date', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('pet_stat_progression').select('pet_id, rarity, stat_nums').eq('level', 100).in('pet_id', PET_CANDIDATES.map(p => p.pet_id)),
   ])
 
   const rarityByItem = new Map((itemRarities || []).map(r => [r.item_id, r.rarity]))
@@ -116,8 +133,8 @@ export async function GET() {
   const gemsCompactSpeed = baseMiningSpeed + gemMiningSpeedBonus + COMPACT_X_MINING_SPEED
   const gemsCompactFortune = baseMiningFortune + gemMiningFortuneBonus
 
-  const newMiningSpeed = gemsCompactSpeed + EFFICIENCY_X_MINING_SPEED + jadedMiningSpeedBonus
-  const newMiningFortune = gemsCompactFortune + jadedMiningFortuneBonus
+  const gemsCompactEfficiencyJadedSpeed = gemsCompactSpeed + EFFICIENCY_X_MINING_SPEED + jadedMiningSpeedBonus
+  const gemsCompactEfficiencyJadedFortune = gemsCompactFortune + jadedMiningFortuneBonus
 
   function scoreSetup(miningSpeed: number, miningFortune: number) {
     const miningTimeTicks = Math.round((block!.block_strength * 30) / miningSpeed)
@@ -130,11 +147,27 @@ export async function GET() {
     return { miningTimeSeconds, actionsPerHour, yieldPerHour, sellPrice, coinsPerHourRawBlockOnly }
   }
 
+  // Compare les candidats pets réels (pas supposé) -- garde celui qui score
+  // le plus haut coins/h sur ce cas précis.
+  const petComparison = (petRows || [])
+    .filter(p => PET_CANDIDATES.some(c => c.pet_id === p.pet_id && c.rarity === p.rarity))
+    .map(p => {
+      const stats = p.stat_nums as Record<string, number>
+      const petSpeed = stats.MINING_SPEED || 0
+      const petFortune = stats.MINING_FORTUNE || 0
+      const withPetSpeed = gemsCompactEfficiencyJadedSpeed + petSpeed
+      const withPetFortune = gemsCompactEfficiencyJadedFortune + petFortune
+      return { pet_id: p.pet_id, rarity: p.rarity, pet_mining_speed: petSpeed, pet_mining_fortune: petFortune, total_mining_speed: withPetSpeed, total_mining_fortune: withPetFortune, ...scoreSetup(withPetSpeed, withPetFortune) }
+    })
+    .sort((a, b) => b.coinsPerHourRawBlockOnly - a.coinsPerHourRawBlockOnly)
+
   return NextResponse.json({
     target_block: block?.block_name,
     before: { total_mining_speed: baseMiningSpeed, total_mining_fortune: baseMiningFortune, ...scoreSetup(baseMiningSpeed, baseMiningFortune) },
     after_gems_and_compact: { total_mining_speed: gemsCompactSpeed, total_mining_fortune: gemsCompactFortune, gem_mining_speed_bonus: gemMiningSpeedBonus, gem_mining_fortune_bonus: gemMiningFortuneBonus, compact_bonus: COMPACT_X_MINING_SPEED, ...scoreSetup(gemsCompactSpeed, gemsCompactFortune) },
-    after_gems_compact_efficiency_jaded: { total_mining_speed: newMiningSpeed, total_mining_fortune: newMiningFortune, efficiency_bonus: EFFICIENCY_X_MINING_SPEED, jaded_speed_bonus: jadedMiningSpeedBonus, jaded_fortune_bonus: jadedMiningFortuneBonus, ...scoreSetup(newMiningSpeed, newMiningFortune) },
+    after_gems_compact_efficiency_jaded: { total_mining_speed: gemsCompactEfficiencyJadedSpeed, total_mining_fortune: gemsCompactEfficiencyJadedFortune, efficiency_bonus: EFFICIENCY_X_MINING_SPEED, jaded_speed_bonus: jadedMiningSpeedBonus, jaded_fortune_bonus: jadedMiningFortuneBonus, ...scoreSetup(gemsCompactEfficiencyJadedSpeed, gemsCompactEfficiencyJadedFortune) },
+    pet_comparison_all_candidates: petComparison,
+    after_best_pet: { ...petComparison[0], note: 'Prix marché réel indisponible (pipeline AH ne capture les pets que sous un base_item_id générique, jamais nommément) -- pet ajouté sans gate budget cette passe, comme gemmes/enchants/reforge.' },
     slot_breakdown: breakdown,
   })
 }
