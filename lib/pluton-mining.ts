@@ -31,6 +31,26 @@
 //   nécessaires pour valider le mécanisme sur un premier cas concret.
 // - Armure ne contribue jamais de Breaking Power (confirmé par la page
 //   wiki "Breaking Power" -- seuls les outils en donnent).
+//
+// coins_per_hour_raw_block_only (PAS coins_per_hour) -- champ nommé
+// explicitement ainsi (31 juillet) après un vrai caveat soulevé par
+// l'utilisateur : ce chiffre ne compte QUE la vente du bloc brut lui-même
+// au Bazaar, jamais les vrais à-côtés de valeur du minage réel (coffres au
+// trésor Crystal Hollows, Mithril/Gemstone/Glacite Powder, Mining Fiesta).
+// Recherché avant d'écarter (pas juste supposé hors scope) : le vrai
+// contenu des tables de loot des coffres existe déjà en cache
+// (game_mechanics_misc.crystal_hollows_mithril_deposits_loot -- table
+// pondérée réelle) mais le TAUX d'obtention d'un coffre par bloc miné
+// n'est sourcé nulle part dans le cache -- vérifié explicitement contre
+// 'treasure_chance', qui s'avère être un stat Fishing sans rapport avec
+// le minage. Sans ce taux, inclure la table de loot reviendrait à deviner
+// un nombre (interdit par la règle 7). Mining Fiesta (Refined Mineral/
+// Glossy Gemstone) est en plus un bonus d'event borné dans le temps
+// (~11h40 réelles par mandat de maire), pas un taux permanent -- l'inclure
+// dans un coins/h "à l'instant T" le représenterait à tort comme toujours
+// actif. Mithril Powder est une monnaie HotM non tradeable (plafond 2Md),
+// aucune valeur marché directe. Les trois écartés explicitement plutôt que
+// forcés -- vraie extension future (8.x), pas un chantier "rapide".
 import { createClient } from '@supabase/supabase-js'
 import { loadPricedItems, type PricedItem } from './gear-pricing'
 import { TIER_CONFIG, type TierKey } from './money-making-constants'
@@ -53,7 +73,7 @@ export type MiningRankingResult = {
     mining_time_seconds: number
     actions_per_hour: number
     yield_per_hour: number
-    coins_per_hour: number
+    coins_per_hour_raw_block_only: number
   } | null
   eligible_combos_count: number
   total_combos_checked: number
@@ -132,10 +152,10 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
       const miningTimeSeconds = effectiveTicks / 20
       const actionsPerHour = 3600 / miningTimeSeconds
       const yieldPerHour = actionsPerHour * (1 + c.total_mining_fortune / 100)
-      const coinsPerHour = yieldPerHour * sellPrice
-      return { ...c, mining_time_seconds: miningTimeSeconds, actions_per_hour: actionsPerHour, yield_per_hour: yieldPerHour, coins_per_hour: coinsPerHour }
+      const coinsPerHourRawBlockOnly = yieldPerHour * sellPrice
+      return { ...c, mining_time_seconds: miningTimeSeconds, actions_per_hour: actionsPerHour, yield_per_hour: yieldPerHour, coins_per_hour_raw_block_only: coinsPerHourRawBlockOnly }
     })
-    .sort((a, b) => b.coins_per_hour - a.coins_per_hour)
+    .sort((a, b) => b.coins_per_hour_raw_block_only - a.coins_per_hour_raw_block_only)
 
   return {
     target_block: block.block_name,
