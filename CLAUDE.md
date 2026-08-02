@@ -31,6 +31,66 @@ le jeu depuis ses vraies sources en premier (wiki officiel, NEU-REPO, API Hypixe
 communautaires), PUIS comparer notre base à cette cartographie — jamais l'inverse.
 **Chantier en cours, pas terminé** — voir état d'avancement en fin de section.
 
+### 🚨 PROCHAINE SESSION — commencer ici, bloqué sur reconnexion Supabase MCP
+
+**Correction méthodologique majeure le 1er août, même session que le reste ci-dessous**
+(voir `WIKI-MAPPING.md` section "🔴 CORRECTION MÉTHODOLOGIQUE" pour le détail complet) :
+après une passe système-par-système sur les 15 systèmes présupposés au départ,
+l'utilisateur a posé une question de contrôle qui a révélé un vrai biais — je vérifiais
+la liste présupposée au lieu de laisser les sources découvrir leur propre structure.
+**Méthode corrigée et imposée pour la suite, en 5 étapes strictes : A (découverte brute,
+zéro filtre) → B (regroupement basé sur l'organisation des sources elles-mêmes) → C
+(comparaison Supabase) → D (plan de tables) → E (automatisation récurrente).**
+
+**Étapes A et B terminées et validées par l'utilisateur** (voir WIKI-MAPPING.md pour le
+détail complet des sources et de la liste de systèmes) — synthèse :
+- Découverte brute exhaustive : 15 159 pages wiki + 2 381 templates (dont 112 vrais
+  `Nav/*` = organisation par le wiki lui-même) + 32 endpoints API Hypixel réels + 3
+  projets communautaires (SkyHanni 29 dossiers features, Firmament, hypixel-api-reborn
+  364 fichiers Skyblock typés).
+- **Estimation honnête de couverture (demandée explicitement, pas un chiffre rond)** :
+  localisation des sources ~80-90%, identification des systèmes ~70-75% (basée sur des
+  NOMS de template, pas leur contenu réel), contenu réellement lu ~3-5%, validation
+  contre de la vraie donnée live ~0% pour les découvertes du jour. **Chiffre unique
+  honnête pour "prêt à construire le schéma final" : 15-25%, pas plus.**
+- **Plus gros trou trouvé** : bloc Économie/Événements réseau quasiment à 0% —
+  Mayor/Minister Election, Fire Sales, News officiel Hypixel, Bingo — 4 endpoints
+  `/v2/*` réels jamais appelés une seule fois dans ce projet (vérifié par grep code,
+  pas juste supposé).
+- **Rift confirmé plus profond que documenté** : les 11 sous-systèmes déjà connus
+  cachent des sous-minigames (Barry/Cowboy/Murder dans Village Plaza,
+  CrazyKloon/Glyphs/KatHouse/Mirrorverse dans West Village) — trouvé seulement en
+  ouvrant hypixel-api-reborn, jamais visible au niveau wiki/titre. **Preuve directe
+  que la liste B n'est pas figée.**
+
+**Boucle de découverte explicite validée** (remplace une liste B figée) : un système
+n'est "couvert" que quand son propre fetch en profondeur ne fait plus apparaître de
+nouvelle sous-référence — toute sous-page/champ/mécanique inconnue croisée en cours de
+fetch va dans une `discovery_queue` (schéma prêt, pas encore créée) et est traitée dans
+la foulée, jamais reportée.
+
+**Vérification Tier 1 déjà faite (zéro coût, zéro écriture, avant tout mapping)** — les
+4 endpoints prioritaires confirmés réels et fonctionnels en direct le 1er août :
+`/v2/resources/skyblock/election` (mayor actif Scorpius, perk "Darker Auctions" +3
+rounds Dark Auction — vraie interaction inter-systèmes), `/v2/skyblock/news` (annonces
+officielles, dates cohérentes avec le scraping wiki existant — recoupement possible
+pour `patch-analysis-agent`), `/v2/skyblock/firesales` (structure confirmée, vide au
+moment du test), `/v2/resources/skyblock/bingo` (event réel août 2026, contient un
+goal `KILL_TRAPPER_MOB` qui **cross-valide la découverte "Trapper" du jour sans
+l'avoir cherché exprès**). Seul `/v2/skyblock/bingo` (endpoint live, pas `resources/`)
+a échoué — nécessite `HYPIXEL_API_KEY`, absente de cet environnement local.
+
+**Prochaine action concrète, dans l'ordre, dès que Supabase MCP est reconnecté** :
+1. Créer `discovery_queue` (`source`, `reference_name`, `discovered_via`, `status`).
+2. Commencer le fetch en profondeur du Tier 1 (Election → News → Fire Sales → Bingo,
+   dans cet ordre de priorité déjà validé par l'utilisateur) avec la boucle de
+   découverte active dès le premier système.
+3. Récupérer `HYPIXEL_API_KEY` (probablement expirée à nouveau, pattern récurrent déjà
+   documenté) pour débloquer `/v2/skyblock/bingo`.
+
+**Pluton (Bloc 8) reste en pause jusqu'à ce que cette base de données complète soit
+construite** — pas avant, décision explicite de l'utilisateur.
+
 **Source 1 (NEU-REPO) épuisée — 40/40 fichiers réellement inspectés**, reconfirmés
 exhaustifs en direct via l'API GitHub (pas depuis notre cache, qui aurait pu être
 périmé). Deux vrais bugs de production trouvés et corrigés en creusant, pas seulement
@@ -195,16 +255,20 @@ money-making voit le jour.
 
 ### État d'avancement de la cartographie
 
-**Terminé** : Source 1 (NEU-REPO), 40/40 fichiers, reconfirmés exhaustifs en direct.
-Source 2 (wiki officiel) — taxonomie complète des catégories confirmée (681 réelles,
-432 gameplay) + Combat/Slayer entièrement couvert (voir ci-dessus), ordre de passage
-validé avec l'utilisateur : Farming → Foraging → Fishing → Dungeons → Crimson/Kuudra →
-Enchanting/Alchemy → Rift → Carpentry/Taming/Social → finir Mining, avant Source 3
-(autres projets communautaires : SkyHanni, Firmament, hypixel-api-reborn au-delà de ce
-qui a déjà servi). Fiche Mining indépendante (étape 1, avant comparaison à notre base)
-partiellement construite (formules HOTM, blocs cibles réels) mais pas finalisée. Le
-Bloc 8 (Pluton) reste explicitement en pause tant que cette cartographie n'est pas
-jugée suffisante pour reprendre le calcul sans redécouvrir de trous en cours de route.
+**Statut réel, post-correction méthodologique (voir encadré 🚨 en haut de section)** :
+la passe système-par-système (Combat/Slayer → Farming → Foraging → Fishing → Dungeons →
+Crimson/Kuudra → Enchanting/Alchemy → Rift → Carpentry/Taming/Social, résumés courts
+plus haut, détail complet dans `WIKI-MAPPING.md`) reste valable comme contenu, mais
+n'était pas la bonne méthode — elle vérifiait une liste présupposée plutôt que de
+laisser les sources révéler leur propre structure. **Étapes A (découverte brute) et B
+(regroupement par les sources) refaites correctement et validées par l'utilisateur** :
+voir l'encadré 🚨 en haut de cette section pour la synthèse, `WIKI-MAPPING.md` pour le
+détail complet (15 159 pages/2 381 templates/112 Nav réels, 32 endpoints API, 3 projets
+communautaires). **Couverture honnête actuelle : 15-25%, pas plus** — on sait où
+chercher, on n'a pas encore fetché le contenu réel en profondeur. Étapes C/D/E
+(comparaison Supabase → tables → automatisation) bloquées sur la reconnexion Supabase
+MCP. Le Bloc 8 (Pluton) reste explicitement en pause jusqu'à ce que cette base
+complète soit construite — pas avant.
 
 ## ✅ Bloc 7 (plan d'audit 8 blocs) — zones joueur restantes, structure vérifiée avant mapping (31 juillet)
 

@@ -359,3 +359,214 @@ cohérent avec l'exclusion déjà actée.
 **Pas encore fait** : détail complet des récompenses de palier des 3 skills, `Furniture`
 (système Carpentry lui-même). Comparaison Étape 3 en attente de Supabase MCP — mais
 faible priorité vu l'exclusion déjà actée pour ces 3 systèmes.
+
+---
+
+# 🔴 CORRECTION MÉTHODOLOGIQUE (1er août, même session) — lire avant de continuer
+
+Après les 9 passes système ci-dessus, l'utilisateur a posé une question de contrôle
+essentielle : est-ce que la Source 2 a vraiment découvert sa propre structure depuis
+le wiki, ou a-t-elle juste vérifié la liste des "15 systèmes" qu'on avait supposée au
+départ ? **Réponse honnête : la 2e.** J'avais bien récupéré la taxonomie brute (681
+catégories) au tout début, mais je m'étais ensuite remis à traiter dans l'ordre la
+liste des 15 systèmes présupposés sans jamais reboucler sur ce que la taxonomie brute
+avait révélé en plus (Dark Auction, Bits Shop, Mayor, Museum, Power Orbs, etc., nommés
+une fois puis abandonnés). Exactement le biais que la cartographie était censée éviter.
+
+**Méthode corrigée, en 5 étapes strictes, imposée par l'utilisateur pour la suite** :
+- **Étape A** — découverte brute, zéro regroupement, zéro filtre par rapport à ce qu'on
+  a déjà supposé. Épuiser chaque source indépendamment.
+- **Étape B** — regroupement en systèmes, mais seulement une fois A terminée, et basé
+  sur la structure que LES SOURCES elles-mêmes suggèrent (Nav templates du wiki,
+  dossiers de features des mods, structure typée des libs), jamais sur notre mémoire.
+- **Étape C** — comparaison à notre Supabase, système par système.
+- **Étape D** — plan de tables à créer/compléter.
+- **Étape E** — automatisation (cron récurrent, pas un chargement ponctuel).
+
+**Règle de contrôle imposée** : avant de rapporter quoi que ce soit comme "terminé",
+se demander explicitement "est-ce que ça vient de ma découverte brute des sources, ou
+ai-je halluciné une liste que j'avais déjà en tête ?" — recommencer si doute.
+
+## Étape A — résultats de la découverte brute (1er août)
+
+**Wiki officiel** :
+- `list=allpages` (namespace principal), paginé jusqu'à épuisement réel (`continue`
+  vide confirmé, 31 pages de résultats) : **15 159 pages**, brut, sans filtre.
+- `list=allpages&apnamespace=10` (Template), même pagination exhaustive : **2 381
+  templates**.
+- Parmi eux, **112 templates `Nav/*`** (hors sous-navs `/Collection/`, qui sont des
+  déclinaisons par item de collection, pas de nouveaux systèmes) — la vraie
+  organisation par les éditeurs du wiki eux-mêmes. Liste complète : Accessories,
+  Aging Items, Arachnal Items, Armors, Backwater Bayou, Bags, Bits Shop, Bows,
+  Brewing Ingredients, Catacombs, Characters, Collections, Cosmetic Item Categories,
+  Crimson Isle, Critters, Crystal Hollows, Currencies, Dark Auction, Dungeons,
+  Dwarven Mines (+7 sous-navs : Accessories/Armor/Events/Locations/Mining/Mobs/NPCs/
+  The Forge), Dyes, Enchantments, Equipment (+5 sous-navs : Belts/Bracelets/Cloaks/
+  Gloves/Necklaces), Events (+9 sous-navs : Bingo/Fishing Festival/Mayor Election/
+  Mining Fiesta/Mythological Ritual/New Year Celebration/Season of Jerry/Spooky
+  Festival/Traveling Zoo), Fishing, Galatea, Great Spook, Harvest Feast, Islands,
+  Kuudra, Locations, Lore, Lotus Atoll, Mayors, Minion Modifiers, Minions, Minister
+  Election, Mixins, Mobs (+6 sous-navs : Bosses/Events/Mini-Bosses/Sea Creatures/
+  Slayer/Standard), Music Discs, Mutations, Mythological Ritual, NPCs, Pet Items,
+  Pets, Policies, Potions, Power Stones, Races, Raffle of the Century, Reforge
+  Stones, Rod Parts, Sacks, Sea Creatures, Shen's Auction, Skills, Slayer (+6
+  sous-navs par boss), Social, Special Items, Stats, Swords, The End, The Garden,
+  The Uprising, Tools (+7 sous-navs : Axes/Farming/Fishing/Foraging/Hunting/Mining/
+  Other), Tutorials, Undead Armors, Undead Items, Wands, Yearly Events System.
+
+**API Hypixel officielle** : spec OpenAPI/Redoc extraite en direct de la page HTML de
+`api.hypixel.net` (embarquée en `__redoc_state`, pas un fichier séparé). **32
+endpoints réels `/v2/*`** : boosters, counts, guild, housing/active, housing/house,
+housing/houses, leaderboards, player, punishmentstats, recentgames,
+resources/achievements, resources/challenges, resources/games,
+resources/guilds/achievements, resources/packs, resources/quests,
+resources/skyblock/bingo, resources/skyblock/collections,
+resources/skyblock/election, resources/skyblock/items, resources/skyblock/skills,
+resources/vanity/companions, resources/vanity/pets, skyblock/auction,
+skyblock/auctions, skyblock/auctions_ended, skyblock/bazaar, skyblock/bingo,
+skyblock/firesales, skyblock/garden, skyblock/museum, skyblock/news,
+skyblock/profile, skyblock/profiles, status.
+
+**Projets communautaires** (arbres de fichiers GitHub complets, non tronqués) :
+- **SkyHanni** (`hannibal002/SkyHanni`, branche `beta`) : 3195 fichiers, **29
+  dossiers de features de premier niveau** : achievements, anvil, bingo, chat,
+  chroma, combat, commands, cosmetics, dungeon, event, fame, fishing, foraging,
+  garden, gifting, gui, hunting, inventory, itemabilities, mining, minion, misc,
+  nether, pets, rift, skillprogress, slayer, stranded, summonings.
+- **Firmament** (`FirmamentMC/Firmament`, branche `mc-26.1`) : 1056 fichiers,
+  dossiers de features : chat, debug/itemeditor, diana, events/anniversity,
+  events/carnival, fixes, garden, inventory/buttons+storageoverlay, items/recipes,
+  macros, mining, misc, world.
+- **hypixel-api-reborn** (`Hypixel-API-Reborn/hypixel-api-reborn`, branche
+  `master`) : 1183 fichiers, **364 liés à Skyblock**. Structure typée complète du
+  vrai objet `SkyBlockMember` — la source la plus fine trouvée sur tout le
+  chantier, révèle en particulier le détail complet des 11 sous-systèmes Rift avec
+  leurs propres sous-minigames (voir Étape B).
+
+**NEU-REPO** : déjà exhaustée lors d'une passe antérieure (Source 1, 40/40 fichiers,
+reconfirmée en direct via l'API GitHub) — reportée telle quelle, pas refaite.
+
+**Limite honnête reconnue** : cette découverte est exhaustive au niveau
+*titre/structure*, pas au niveau *contenu*. Sur 15 159 pages wiki, le contenu réel n'a
+été lu que pour ~35-40 pages "hub" par système dans les 9 passes ci-dessus. Aucun des
+112 templates Nav n'a été ouvert pour lire ce qu'il référence réellement — leur
+existence a servi de signal de regroupement (Étape B), pas de contenu vérifié.
+
+## Étape B — systèmes identifiés, avec source précise (validée par l'utilisateur)
+
+Légende : ✅ en base et exploité · 🟡 partiel · 🔴 jamais mappé (vrai trou) · ⛔ non-fetchable (mécanique jeu confirmée mais sans donnée API)
+
+- **Skills de base (10)** — Combat🟡, Mining✅, Farming✅, Foraging✅, Fishing✅,
+  Enchanting🟡, Alchemy🟡, Carpentry✅(exclu), Taming🟡, Social✅(exclu). Source : wiki
+  `Nav/Skills` ; api-reborn `SkyBlockMemberLeveling`.
+- **Combat/Slayer** — Slayer 6 bosses✅, Dungeon Score🔴(formule trouvée, pas stockée),
+  Damage Calculation🔴. Source : wiki `Nav/Slayer`+6 sous-navs, `Nav/Catacombs`,
+  `Nav/Dungeons` ; api-reborn `Member/Slayers/*`, `Member/Dungeons/*`.
+- **Mining mega-système** — HOTM✅, HOTM Forge✅(Bloc7), Heart of the Forest✅
+  (aujourd'hui), Crystal Hollows🟡, Glacite🟡. Source : wiki `Nav/Dwarven Mines`
+  (7 sous-navs), `Nav/Crystal Hollows` ; api-reborn `Member/Mining/*`.
+- **Crimson Isle/Kuudra** — Kuudra tiers/phases✅, Dojo⛔(confirmé non-exposé API),
+  Abiphone✅(Bloc8), **The Matriarch🔴** (boss réel jamais mentionné avant, trouvé via
+  api-reborn), Trophy Fish✅. Source : wiki `Nav/Crimson Isle`, `Nav/Kuudra`,
+  `Nav/Galatea`, `Nav/The Uprising` ; api-reborn `Member/CrimsonIsle/*`.
+- **Rift — bien plus granulaire que documenté** : les 11 sous-systèmes déjà notés
+  au Bloc 7 révèlent, une fois api-reborn ouvert, des sous-minigames internes jamais
+  vus : VillagePlaza contient Barry/Cowboy/Murder ; WestVillage contient
+  CrazyKloon/Glyphs/KatHouse/Mirrorverse ; Gallery contient SecuredTrophy. Source :
+  api-reborn `Member/Rift/**` — le breakdown le plus fin trouvé sur tout le
+  chantier, preuve directe que la boucle de découverte (voir plus bas) est
+  nécessaire.
+- **Économie/Événements réseau — le vrai trou du jour, quasiment 0% couvert** :
+  Mayor/Minister Election🔴 (`/v2/resources/skyblock/election`), Fire Sales🔴
+  (`/v2/skyblock/firesales`), News officiel🔴 (`/v2/skyblock/news`), Bingo🔴
+  (`/v2/skyblock/bingo` + `/v2/resources/skyblock/bingo`), Dark Auction🔴⛔ (pas
+  d'endpoint dédié trouvé), Bits Shop (contenu du magasin)🔴.
+- **Items/objets transverses jamais mappés comme systèmes** : Sacks🔴, Bags🔴,
+  Power Stones/Orbs🔴, Reforge Stones✅(chargé aujourd'hui), Minion Modifiers🟡,
+  Races🔴 (Woods Race/Rift Race/Dark Pebble), Critters🔴, Mutations🔴 (Garden),
+  Mixins🔴 (Bartender).
+- **Quests/Objectives** — Harp⛔(vide confirmé), **Trapper🔴** (jamais mentionné
+  avant, structure typée existe dans api-reborn — **confirmé réel et vivant** via
+  le goal Bingo `KILL_TRAPPER_MOB` vérifié en direct le même jour, voir plus bas).
+- **Événements saisonniers (10)** — Spooky Festival🟡, Mythological Ritual⛔(vide
+  confirmé), Mining Fiesta🔴, Fishing Festival🔴, New Year Celebration🔴, Season of
+  Jerry🔴, Traveling Zoo🔴, Great Spook🔴, Harvest Feast🔴, Raffle of the Century🔴,
+  Shen's Auction🔴.
+- **Déjà solides, confirmés sans nouveau trou** : Museum✅, Community Upgrades✅,
+  Chocolate Factory✅, Fairy Souls✅, Bestiary✅, Jacob's Contest✅, AccessoryBag✅
+  (Bloc7).
+- **Hors scope Vault, confirmé avec l'utilisateur** : `/v2/guild`, `/v2/player`,
+  `/v2/housing/*`, `/v2/boosters`, `/v2/leaderboards`, achievements/challenges/
+  games, SkyHanni `stranded` — réseau Hypixel général ou autre gamemode, sans
+  rapport avec l'économie/progression Skyblock.
+
+## Estimation honnête de couverture (avant tout fetch réel)
+
+Demandée explicitement par l'utilisateur, pas un chiffre rond arbitraire :
+- **Localisation des sources** (où chercher) : ~80-90%, pagination réellement
+  exhaustive à son propre niveau.
+- **Identification des systèmes** (Étape B) : ~70-75%, optimiste — construite sur
+  les NOMS des 112 templates Nav, pas leur contenu réel (aucun ouvert).
+- **Contenu réel lu** (formules, valeurs) : ~3-5%, ~35-40 pages hub lues sur 15 159.
+- **Validation contre de la vraie donnée live** : ~0% pour toutes les découvertes du
+  jour (aucune confrontée à un vrai appel API avant la vérification Tier 1
+  ci-dessous) — seules les anciennes structures (HOTM, boss_kills...) avaient été
+  vérifiées lors de blocs précédents.
+- **Chiffre unique honnête pour "prêt à construire le schéma Supabase final"** :
+  **15-25%**, pas plus.
+
+## Boucle de découverte explicite — validée, remplace la liste B figée
+
+Preuve directe dans cette session : Rift (niveau structure, Bloc 7) → sous-minigames
+(niveau contenu api-reborn, aujourd'hui) — la liste B n'était pas complète au niveau
+où on la croyait. **Règle validée pour la suite (Étapes C/D)** :
+1. Un système n'est jamais "clos" tant que sa source n'a pas été lue en entier
+   (contenu, pas juste titre).
+2. Toute sous-référence (sous-page, sous-champ, mécanique nommée) rencontrée en
+   fetchant qui n'est pas déjà dans la liste B est ajoutée à une `discovery_queue`
+   plutôt qu'ignorée, traitée dans le même passage.
+3. Un système = "couvert" seulement quand son propre fetch ne fait plus apparaître
+   de nouvelle sous-référence (condition de sortie, pas un compteur de systèmes
+   cochés).
+
+## Vérification Tier 1 — 4 endpoints, formes JSON réelles confirmées (1er août)
+
+Zéro coût, zéro écriture, juste confirmer la vraie forme avant tout mapping (règle 7).
+Aucune clé API nécessaire pour 3 des 4 (les endpoints `resources/` et `skyblock/news`/
+`skyblock/firesales` sont publics, confirmé en direct) :
+
+- **`/v2/resources/skyblock/election`** — ✅ 200, public. Vraie donnée live (1er août
+  2026) : mayor actif `Scorpius` (candidat "shady"), perks réels `Bribe` et
+  `Darker Auctions` (**ce dernier augmente réellement le nombre de rounds du Dark
+  Auction à 7** — confirme une vraie interaction mécanique entre 2 systèmes qu'on
+  avait notés séparément). Candidats réels avec votes en direct : `Cole` (mining,
+  15147 votes, perk "+60 Mining Wisdom sur îles publiques"), `Foxy` (events, perk
+  "Sweet Benevolence" +30% Candy/Gifts/Chocolate).
+- **`/v2/skyblock/news`** — ✅ 200, public. Vraie liste d'annonces officielles :
+  "SkyBlock v0.26.1" (22 juillet 2026), "SkyBlock v0.26" (8 juillet 2026),
+  "SkyBlock Year 500 Raffle" (1er juillet 2026) — dates cohérentes avec les patches
+  déjà connus via le scraping wiki, confirme que cette source peut servir de
+  recoupement/accélérateur pour `patch-analysis-agent`, pas juste une redite.
+- **`/v2/skyblock/firesales`** — ✅ 200, public. `{"success":true,"sales":[]}` —
+  structure confirmée réelle, aucune Fire Sale active au moment du test (résultat
+  honnête, pas un échec).
+- **`/v2/skyblock/bingo`** (endpoint live, PAS `resources/`) — ❌ 
+  `{"success":false,"cause":"Missing API-Key header"}` — nécessite `HYPIXEL_API_KEY`
+  (probablement une progression bingo par joueur, uuid+clé requis) — clé non
+  disponible dans cet environnement local, à refaire une fois la clé accessible.
+- **`/v2/resources/skyblock/bingo`** — ✅ 200, public. Vraie donnée live : event
+  "August 2026" (id 56), goals réels avec vrais seuils (`break_block_crops` : 5
+  paliers 30M/60M/90M/120M/150M) — et **confirme "Trapper" comme mécanique réelle
+  et vivante** : un goal littéral `KILL_TRAPPER_MOB` ("Setting a Trap... Kill a
+  T[rapper mob]") apparaît dans les objectifs du mois en cours, cross-validant la
+  découverte du jour via hypixel-api-reborn sans l'avoir cherché exprès.
+
+## Prochaine étape (bloquée sur reconnexion Supabase MCP)
+
+1. Créer `discovery_queue` (colonnes : `source`, `reference_name`,
+   `discovered_via`, `status`) — migration prête, pas encore appliquée.
+2. Fetch en profondeur Tier 1 (News/Fire Sales/Election/Bingo) avec la boucle de
+   découverte active dès le premier système traité — pas la liste B comme fin en
+   soi, comme point de départ vivant.
+3. `HYPIXEL_API_KEY` nécessaire pour `/v2/skyblock/bingo` (endpoint live) — à
+   vérifier/récupérer depuis Vercel, pas trouvée en local cette session.
