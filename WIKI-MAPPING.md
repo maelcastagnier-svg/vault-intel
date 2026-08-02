@@ -17,6 +17,7 @@ Systèmes couverts, dans l'ordre où ils ont été traités :
 - Crimson Isle/Kuudra (1er août)
 - Enchanting/Alchemy (1er août)
 - Rift (1er août) — mapping mécanique seul, reste bloqué en données réelles (voir Bloc 7)
+- Carpentry/Taming/Social (1er août) — systèmes déjà exclus de Money Making, passe légère
 
 ---
 
@@ -326,3 +327,35 @@ Timecharms (progression système réel — SkyBlock Citizen/Living/Globulate/Vam
 jamais mappé), les boss Rift (Leech Supreme, Bacte...). Comparaison Étape 3 impossible
 tant qu'aucun profil réel n'a de contenu Rift à vérifier (limite déjà actée au Bloc 7,
 pas une limite de cette passe wiki).
+
+## Carpentry/Taming/Social (1er août)
+
+Pages réelles récupérées : `Carpentry`, `Taming`, `Social`. Les 3 déjà explicitement
+exclus d'Evolve Skills (section "Section Skills" du 22 juillet, archivée) avec
+justification ("Carpentry : aucun produit revendable" / "Taming : ne génère pas de
+coins directement" / "Social : aucun lien avec le rendement économique") — cette passe
+confirme ces exclusions plutôt que de les remettre en question, profondeur volontairement
+plus légère.
+
+**Confirmé : Carpentry est un mécanisme purement cosmétique** — littéralement
+commenté ainsi dans le wikitext source (`<!-- Carpentry is a cosmetic-only mechanic -->`).
+XP = 3% du prix de vente NPC combiné des ingrédients. **🟡 Carpentry plafonne aussi à
+50, pas 60** — 2e skill après Alchemy confirmé sur un cap non-uniforme cette passe.
+
+**Taming — mécanique de cap réelle jamais mappée, même famille que Farming/Jacob's** :
+cap de base non précisé explicitement mais extensible à 60 en donnant des pets
+spécifiques (même rareté ou plus) à George (Rift Ferret/Slug/Spirit/Giraffe/Jellyfish/
+Bal/Baby Yeti Epic, Black Cat Legendary, Frost Wisp Rare, Enderman Mythic — items non
+récupérables). Confirme un vrai pattern de design récurrent (cap extensible via un
+sacrifice d'item, pas juste Farming). Paliers réels de Taming pour l'upgrade de rareté
+de pet via Kat : niveau 10 (Rare→Epic), 20 (Epic→Legendary), 25 (Legendary→Mythic) —
+pertinent si un futur "pet flip" money-making (déjà noté comme piste possible dans la
+section Skills archivée) voit le jour.
+
+**Social confirmé comme skill à part entière**, système de leveling/récompenses lié
+aux activités d'île (parkour, egg hunt, rangs d'île) — aucun lien économique trouvé,
+cohérent avec l'exclusion déjà actée.
+
+**Pas encore fait** : détail complet des récompenses de palier des 3 skills, `Furniture`
+(système Carpentry lui-même). Comparaison Étape 3 en attente de Supabase MCP — mais
+faible priorité vu l'exclusion déjà actée pour ces 3 systèmes.

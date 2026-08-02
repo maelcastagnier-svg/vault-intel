@@ -185,6 +185,14 @@ confirmées, légèrement différentes des 11 clés API déjà documentées (deu
 distincts, pas réconciliés faute de profil réel). Rift Time et le vrai système de
 Timecharms (progression jamais mappée) confirmés réels et riches.
 
+**Carpentry/Taming/Social** (voir WIKI-MAPPING.md) : passe légère, confirme les
+exclusions déjà actées pour Evolve Skills plutôt que de les remettre en cause.
+Carpentry confirmé cosmétique-only (commentaire littéral dans le wikitext) et
+**plafonne aussi à 50** (2e skill après Alchemy sur un cap non-uniforme). Taming a le
+même pattern "cap extensible par sacrifice d'item" que Farming/Jacob's (pets donnés à
+George), plus des paliers Kat réels (10/20/25) utiles si un futur "pet flip"
+money-making voit le jour.
+
 ### État d'avancement de la cartographie
 
 **Terminé** : Source 1 (NEU-REPO), 40/40 fichiers, reconfirmés exhaustifs en direct.
