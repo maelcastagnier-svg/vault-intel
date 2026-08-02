@@ -161,8 +161,14 @@ export async function runRadarAgent() {
     // Top items Bazaar avec tendances 30j
     supabase.from('bazaar_1h').select('item_id, sell_price, buy_price, volume').order('volume', { ascending: false }).limit(50),
 
-    // Mayors (si disponible)
-    supabase.from('mayors').select('*').limit(5),
+    // Mayor/élection actifs -- skyblock_mayor_election (réel, chargé le 1er août via
+    // /v2/resources/skyblock/election), remplace l'ancien `mayors` qui n'a jamais eu
+    // de ligne depuis sa création (radar-agent recevait mayors:[] à chaque run,
+    // trouvé en creusant discovery_queue #6)
+    supabase.from('skyblock_mayor_election')
+      .select('current_mayor_name, current_mayor_perks, next_election_year, next_election_candidates')
+      .order('fetched_at', { ascending: false })
+      .limit(1),
 
     // Bloc 5.3 -- pure SQL/JS, calculé en parallèle du reste, zéro coût Claude
     computeLongTermMovers(),
@@ -221,7 +227,17 @@ export async function runRadarAgent() {
       sell_price: Number(i.sell_price),
       volume:     Number(i.volume),
     })),
-    mayors: mayors || [],
+    mayor: (() => {
+      const m = mayors?.[0]
+      if (!m) return null
+      return {
+        current_mayor: m.current_mayor_name,
+        current_perks: (m.current_mayor_perks || []).map((p: any) => p.name),
+        next_election_year: m.next_election_year,
+        next_election_leader: (m.next_election_candidates || [])
+          .slice().sort((a: any, b: any) => (b.votes || 0) - (a.votes || 0))[0]?.name ?? null,
+      }
+    })(),
   })
 
   // Appel Claude Sonnet
