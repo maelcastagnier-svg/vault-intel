@@ -138,11 +138,7 @@ async function syncBingo(): Promise<number> {
   return 1 + goals.length
 }
 
-export async function GET(request: Request) {
-  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+export async function runNetworkEventsSync() {
   const logId = await startSync('network-events-sync')
   const results: Record<string, any> = {}
   let totalRows = 0
@@ -161,5 +157,14 @@ export async function GET(request: Request) {
 
   await finishSync(logId, hadError ? 'partial' : 'success', totalRows, { results })
 
-  return NextResponse.json({ success: !hadError, total_rows: totalRows, results })
+  return { success: !hadError, total_rows: totalRows, results }
+}
+
+export async function GET(request: Request) {
+  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const result = await runNetworkEventsSync()
+  return NextResponse.json(result)
 }
