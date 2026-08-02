@@ -137,6 +137,13 @@ vérifier que l'accès zone, pas cette vraie chaîne boss-à-boss (pas corrigé,
 cartographie). Formule de dégâts réelle et bonus Warrior de Combat jamais sourcés dans
 ce projet, capturés pour un futur calculateur type Pluton.
 
+**Farming** (voir WIKI-MAPPING.md) : formule réelle Farming/Crop Fortune jamais
+sourcée (1 point = 1% chance de +100% drops, garanti tous les 100 points). Crops
+Garden récents (Sunflower/Moonflower/Wild Rose Fortune, ajoutés fin 2025) confirmés
+réels — probable gap `collections`/`items_catalog`, pas encore vérifié (Étape 3).
+Mécanique jamais mappée : le cap Farming peut dépasser 60 via médailles Gold à
+Jacob's Contest (+1 par crop doré), contrairement au cap fixe de Combat.
+
 ### État d'avancement de la cartographie
 
 **Terminé** : Source 1 (NEU-REPO), 40/40 fichiers, reconfirmés exhaustifs en direct.

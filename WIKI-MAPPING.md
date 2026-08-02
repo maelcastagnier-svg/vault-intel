@@ -10,6 +10,7 @@
 
 Systèmes couverts, dans l'ordre où ils ont été traités :
 - Combat/Slayer (1er août)
+- Farming (1er août)
 
 ---
 
@@ -83,3 +84,47 @@ Chance/vitesse d'attaque détaillées, pages `Minibosses`/`Mixins`/`RNG Meter` d
 ouvertes. Jugé suffisant pour cette passe (profondeur "table des matières + mécaniques
 clés", même niveau que Source 1) — pas encore la comparaison Étape 3 contre notre base
 (en attente de la reconnexion Supabase MCP).
+
+## Farming (1er août)
+
+Pages réelles récupérées : `Farming` (skill), `Farming_Fortune`, `Crop_Fortune`,
+`Jacob's_Farming_Contest`, plus les catégories `Farming`/`Farming_Minions`/
+`Farming_tools`/`Farming_pets` pour l'inventaire de pages.
+
+**Formule réelle Farming Fortune / Crop Fortune** (`Crop_Fortune`, `Farming_Fortune`
+section "Scaling") : chaque point de Farming Fortune OU du Crop Fortune spécifique au
+crop cassé = 1% de chance d'obtenir 100% de drops en plus ; tous les 100 points,
++100% de drops garantis. Farming Fortune et Crop Fortune du crop concerné s'additionnent
+avant application. Jamais sourcé dans ce projet — utile pour tout futur calculateur
+Farming (yield par crop, type Pluton).
+
+**Crops Garden récents jamais capturés, confirmés réels** : `Crop_Fortune` liste des
+stats par crop incluant Sunflower/Moonflower/Wild Rose Fortune, ajoutées selon
+l'historique de la page le **2025-12-05** (Sunflower/Moonflower/Wild Rose Fortune) et
+icône mise à jour le 2026-06-24 — des crops Garden relativement récents. Cohérent avec
+la présence de `Wild Rose Collection`/`Wilted Berberis Collection`/`Moonflower
+Collection`/`Lotus Collection`/`Vinesap Collection` dans la taxonomie de catégories
+confirmée plus haut — à vérifier en Étape 3 si ces crops existent dans `collections`/
+`items_catalog` (probable gap, jamais vérifié explicitement).
+
+**Mécanique réelle jamais mappée — extension du cap Farming au-delà de 60 via Jacob's
+Contest** (`Jacob's_Farming_Contest`, section Rewards) : contrairement à Combat
+(cap fixe à 60), obtenir une médaille GOLD à un concours Jacob's augmente le cap de
+niveau Farming de +1 **par crop où l'or a été obtenu**, jusqu'à 60 (LX) — un mécanisme
+d'extension de cap, pas juste un XP boost. 5 paliers de récompense réels : Bronze
+(top 60%/70% avec Finnegan GOATed)/Silver (30%/40%)/Gold (10%/20%)/Platinum (5%/10%,
+donne Gold+Bronze)/Diamond (2%/5%, donne Gold+Silver) — Platinum/Diamond n'ont pas leur
+propre médaille, ils donnent des médailles inférieures en plus. Cohérent avec
+`jacob_medals` (Bloc collecte totale, Phase Audit hypixel-api-reborn) qui n'avait
+trouvé que bronze/silver chez Cucumber — pas un trou de collecte, juste un joueur qui
+n'a jamais atteint Gold/Platinum/Diamond.
+
+**Turbo-Crop enchant réel** : Enchanted Book, +5 Crop Fortune du crop concerné par
+niveau (max 5), mais niveaux 4-5 nécessitent d'avoir déjà obtenu Bronze/Silver sur ce
+crop spécifique respectivement — sinon inertes. Jamais sourcé dans ce projet.
+
+**Pas encore fait pour Farming** : détail des 9 Farming pets (bonus par rareté/niveau),
+détail des outils spécialisés (Hoe of Greatest Tilling, Melon/Pumpkin Dicer, etc.),
+Garden lui-même (cultures/niveau/barn — explicitement hors scope de ce chantier
+depuis le Bloc 7, endpoint séparé `/v2/skyblock/garden` jamais mappé). Comparaison
+Étape 3 contre notre base toujours en attente de la reconnexion Supabase MCP.
