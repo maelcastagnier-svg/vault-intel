@@ -1633,133 +1633,14 @@ moyenne, cohérent avec l'intention de la spec.
 par lots fourni, à exécuter par l'utilisateur quand il le souhaite — cosmétique, ne bloque 
 rien).
 
-## ✅ Landing page — hero verrouillé pour le lancement de cette semaine (27 juillet)
+## Landing page + Gating par tier — archivées (27/23 juillet, voir CLAUDE-archive.md)
 
-Après plusieurs semaines d'itération sur l'identité visuelle Vault (coffre-fort + clé, 
-esthétique mi-Wakfu/Dofus mi-Minecraft) explorée à travers de nombreux prototypes en 
-Claude Artifacts (rendu code pur WebGL, génération d'image via Pollinations.ai, tentative 
-Hugging Face Inference API, géométrie 3D réelle via Three.js) — la direction artistique 
-retenue et **intégrée dans le vrai code de production** (`app/page.tsx`, pas un mockup) 
-est une image générée de type Minecraft Dungeons/Story Mode : coffre-fort doré au centre, 
-clé flottante éclairée par un faisceau de lumière descendant du plafond, salle des coffres 
-dans la pénombre en arrière-plan, texte "VAULT" en blocs dorés au sol (sert de signature 
-visuelle de la scène, pas de logo dupliqué par-dessus).
-
-**Ce qui a été fait, dans l'ordre** :
-- Image source fournie par l'utilisateur (`Desktop/Image Vault/HeroBackground.png.png`), 
-  netteté renforcée via `sharp().sharpen({ sigma: 1.1, m1: 1.0, m2: 0.6, ... })` (unsharp 
-  mask) pour corriger le flou sur les détails fins (coffres empilés en arrière-plan, 
-  bijoux au sol, bords du texte "VAULT") — validé par comparaison avant/après zoomée sur 
-  la zone la plus critique avant d'appliquer au fichier final.
-- Convertie en JPEG qualité 90 (2,4 Mo en PNG → 293 Ko), déplacée vers 
-  `public/images/hero-background.jpg`.
-- `.hero` dans `app/page.tsx` restructuré : `.hero-bg` (image de fond, `background-size: 
-  cover`, `background-position: center 22%`) + `.hero-copy` (panneau de texte superposé — 
-  fond semi-transparent sombre en dégradé, fine bordure dorée, 4 coins ornementaux en 
-  coin-bracket, `backdrop-filter: blur`) — même traitement de panneau déjà validé sur les 
-  prototypes Artifact précédents.
-- Panneau positionné en haut de la section (dans la zone du faisceau lumineux/arche, 
-  au-dessus du coffre et de la clé) pour ne jamais cacher les deux éléments visuels 
-  centraux de la composition.
-- Titre/sous-titre/CTA du hero remplacés : "Unlock the vault of your Skyblock economy" 
-  + sous-titre intelligence de marché + boutons "Sign in" (`/login`) / "View pricing" 
-  (`#pricing`) — remplace l'ancien texte générique "The edge YouTube will never give you" 
-  qui n'avait aucun lien avec l'identité visuelle travaillée.
-- Testé en local (`npm run dev`) avant validation : page 200, image servie correctement 
-  à `/images/hero-background.jpg` (293 Ko confirmés), texte du hero présent dans le HTML 
-  rendu.
-
-**Verrouillé pour le lancement** : on arrête d'itérer sur la composition/le contenu de 
-cette image hero — elle ne doit plus être régénérée ni recomposée sans demande explicite. 
-Ce verrouillage concerne uniquement l'image (le fond visuel) — le TEXTE de la page hero 
-et des pages `/features`/`/about` reste vivant et doit suivre le dashboard réel à chaque 
-évolution, voir la règle 8 de la Philosophie de développement plus bas.
-
-**Suite du même jour — retouche image + site complet + corrections de fidélité** :
-- Image : logo/watermark en bas à droite supprimé (flou local + composite feathered plutôt 
-  que clone-stamp, évite toute couture visible), vignette horizontale ajoutée pour plonger 
-  les piles de coffres flous en arrière-plan dans la pénombre sans toucher la colonne 
-  centrale nette (clé/coffre/texte VAULT), passe de netteté renforcée une fois les zones 
-  bruitées assombries.
-- `background-position` corrigé de `22%` à `85%` : le texte "VAULT" intégré à l'image se 
-  trouve à ~78-91% de la hauteur de la source, et une position à 22% (biaisée vers le haut) 
-  pouvait le faire sortir du cadre sur les viewports larges/courts. Le panneau de texte 
-  opaque avec bordure/coins dorés a aussi été retiré (demande explicite : "enlever le gros 
-  cadre") — la lisibilité vient maintenant uniquement de `text-shadow` par élément.
-- `app/globals.css` (jusque-là vide, reste du template Next.js par défaut, `<title>` encore 
-  "Create Next App") peuplé avec le système de design partagé (polices, tokens couleur, 
-  `.vault-card` coin-bracket, nav, boutons, typographie de page) — toutes les pages 
-  héritent maintenant de la DA du hero au lieu de dupliquer leurs propres styles. Nouveaux 
-  `components/SiteNav.tsx`/`SiteFooter.tsx`, nouvelles pages `/about` et `/features`, 
-  `/privacy` et `/terms` restylées (contenu légal inchangé, juste l'habillage).
-- Stats du bandeau (`/api/homepage-stats`) vérifiées réellement live sur la prod (pas 
-  juste testées localement) : `priceDataPoints` a incrémenté entre deux appels à quelques 
-  minutes d'écart (5 074 872 → 5 074 880), confirmant une vraie lecture DB à chaque requête, 
-  pas une valeur mise en cache ou statique.
-- Places premium plafonnées par palier plutôt qu'un chiffre global : 1000 Alert / 500 Pro / 
-  250 Elite (1750 places premium au total), reflété sur la page pricing et dans les Terms.
-- Legal : ajout du droit de rétractation UE/UK à 14 jours (avec la clause standard de 
-  renonciation pour accès immédiat au contenu numérique), base légale RGPD, cookies, 
-  transferts internationaux, sécurité des données, confidentialité des mineurs, propriété 
-  intellectuelle, limitation de responsabilité, force majeure — juridiction de gouvernance 
-  laissée en placeholder explicite (pas d'entité juridique enregistrée connue, mieux vaut 
-  un vide visible qu'une fausse info).
-- **Deux erreurs de fidélité trouvées et corrigées après audit demandé par l'utilisateur** 
-  (voir règle 8 de la Philosophie de développement) : "#ah-sniper" n'a jamais existé comme 
-  onglet réel (`app/dashboard/page.tsx` n'a que 5 tabs, AH Sniper a été absorbé par Radar), 
-  et Money Making décrit comme "flips Bazaar/AH" alors que le vrai composant n'a que deux 
-  catégories (Active Grind / Vault Exclusive), aucun rapport avec du flip. Corrigé partout 
-  (hero, `/features`, bullets de pricing) après vérification directe du code des composants 
-  réels, pas de mémoire.
-
-**Amélioration possible en V2, pas bloquant pour ce lancement** : décliner d'autres 
-visuels de la même famille (même moteur de génération, même traitement de netteté) pour 
-les autres sections du site (dashboard, About/How it works, pages de fonctionnalités) — 
-pas commencé, aucune demande actuelle en ce sens.
-
-## ✅ Gating par tier d'abonnement (Free/Alert/Pro/Elite) — implémenté et corrigé une faille réelle (23 juillet)
-
-Plans validés : **Free** (0$, Flash Alerts dégradé top-5 + Patch Analysis Live résumé 
-seulement, aucune liaison Hypixel possible) → **Alert** (4,99$, Flash Alerts + Patch 
-Analysis complets) → **Pro** (19,99$, +Radar +Money Making Active +Evolve Skills/
-Milestones complets) → **Elite** (39,99$, +Money Making Vault Exclusive +Evolve Daily 
-Missions +accès anticipé).
-
-**🔴 Trouvé en auditant l'architecture avant de coder — faille réelle, pas juste une 
-lacune** : `/api/market-data` n'avait **aucune vérification d'auth**, servait déjà tout 
-le contenu payant (Money Making 4 tiers + Vault Exclusive, Patch Analysis complet, Radar) 
-à n'importe quelle requête anonyme. `ah_live`, `bazaar_1h`, `price_history`, 
-`price_history_ah`, `price_history_ah_variants` avaient des policies RLS `USING(true)` — 
-lisibles par n'importe qui avec la clé anon, interrogées **directement depuis le 
-navigateur** (`FlashAlertsPage.tsx`/`LiveRankedFeed.tsx`/`RadarSection.tsx`), donc aucune 
-route Next.js ne pouvait jamais les protéger. Les 4 routes `player/*` vérifiaient l'auth 
-et la liaison Hypixel mais jamais le plan — un compte Free qui liait un Hypixel avait déjà 
-accès complet à Evolve.
-
-**Deux couches, un seul point de vérité chacune** :
-- `lib/get-plan.ts` (`getUserPlan`/`requirePlan`) — lit `subscriptions` par l'email de la 
-  session authentifiée réelle, jamais un paramètre client. Vérifié à **chaque appel**, 
-  pas seulement à la liaison du compte Hypixel (un downgrade après coup ne laisse pas 
-  l'accès ouvert).
-- `has_plan(min_plan)` fonction SQL + nouvelles policies RLS sur les 5 tables interrogées 
-  directement par le navigateur — même principe côté DB, là où aucune route Next.js ne 
-  peut intervenir.
-- `lib/gate-content.ts` — filtrage de contenu partagé (`filterMoneyMaking` retire Vault 
-  Exclusive sauf Elite, `filterPatchInsight`/`filterPatchAnalysisContent` réduit à 
-  titre+`direct_impact` pour Free, Live uniquement — vérifié contre le vrai schéma 
-  `insight_patch` avant de coder).
-
-**Aperçu Free sans nouvelle infra de délai** : vues `ah_live_free_preview`/
-`bazaar_1h_free_preview` (top 5, jamais `best_auction_uuid`) — possédées par `postgres`, 
-contournent volontairement le RLS désormais restreint de `ah_live`/`bazaar_1h` pour cet 
-aperçu précis et rien d'autre. Même mécanisme que les vues `SECURITY DEFINER` déjà notées 
-comme risque sur `method_feedback_summary`/`distinct_items` (toujours pas corrigées, 
-tables vides), mais cette fois scopé et documenté sciemment plutôt que subi.
-
-**Pas encore fait** : les tabs Flash/Patches du dashboard restent `['alert','pro','elite']` 
-— le frontend ne sait pas encore afficher l'aperçu Free dégradé (backend prêt : vues + 
-`/api/market-data` filtré). Tab Evolve corrigé `['elite']` → `['pro','elite']` (Skills/
-Milestones sont Pro, pas Elite).
+Déplacées le 1er août dans le même lot d'archivage que les sessions 21-23 juillet
+(CLAUDE.md retouchait de nouveau sa limite de 150k pendant la cartographie Source 2).
+Landing page : hero verrouillé, retouches image, refonte `/features`/`/about`/légal.
+Gating : faille `/api/market-data` sans auth trouvée et corrigée, architecture
+plan/RLS à 2 couches. Aucun TODO vivant dans les deux — celui de Gating (câbler le
+frontend Free) est déjà l'item 8 de "Prochaines étapes" ci-dessous.
 
 ## ✅ Sécurité compte/facturation — audit complet + failles corrigées (22 juillet)
 
