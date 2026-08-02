@@ -144,6 +144,15 @@ réels — probable gap `collections`/`items_catalog`, pas encore vérifié (Ét
 Mécanique jamais mappée : le cap Farming peut dépasser 60 via médailles Gold à
 Jacob's Contest (+1 par crop doré), contrairement au cap fixe de Combat.
 
+**Foraging** (voir WIKI-MAPPING.md) : **Heart of the Forest cartographié en entier**
+— le 2e arbre HOTM-like demandé explicitement, 8 tiers / 36 perks réels, 0% couvert
+avant cette passe. **Root cause identifiée pour le bug de formule HOTM du Bloc 8** :
+le perk Sweep de HotF utilise `floor((NextLevel+1)^3)` et reproduit exactement le
+même total (1 758 267) que celui déjà noté "correct mais non expliqué" pour le nœud
+Mining Speed de HOTM — confirme que Pluton utilisait la mauvaise formule/indexation,
+correction triviale prête pour la reprise de Pluton. Starlyn Contest (équivalent
+Foraging de Jacob's) confirmé réel, jamais mappé.
+
 ### État d'avancement de la cartographie
 
 **Terminé** : Source 1 (NEU-REPO), 40/40 fichiers, reconfirmés exhaustifs en direct.

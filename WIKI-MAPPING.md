@@ -11,6 +11,7 @@
 Systèmes couverts, dans l'ordre où ils ont été traités :
 - Combat/Slayer (1er août)
 - Farming (1er août)
+- Foraging (1er août) — inclut Heart of the Forest (2e arbre HOTM-like demandé)
 
 ---
 
@@ -128,3 +129,52 @@ détail des outils spécialisés (Hoe of Greatest Tilling, Melon/Pumpkin Dicer, 
 Garden lui-même (cultures/niveau/barn — explicitement hors scope de ce chantier
 depuis le Bloc 7, endpoint séparé `/v2/skyblock/garden` jamais mappé). Comparaison
 Étape 3 contre notre base toujours en attente de la reconnexion Supabase MCP.
+
+## Foraging (1er août)
+
+Pages réelles récupérées : `Foraging` (skill), `Foraging_Fortune`, `Heart_of_the_Forest`
++ sa sous-page `Heart_of_the_Forest/List` (le vrai contenu, transclu), `Starlyn_Contest`,
+`Treecapitator`.
+
+**Heart of the Forest (HotF) — 2e arbre "HOTM-like" jamais mappé, demandé explicitement
+par l'utilisateur, entièrement cartographié cette passe.** Confirmé réel : ajouté le
+2025-06-05 (reset gratuit depuis le 2025-07-08). Accessible via `/hotf` ou le menu
+Foraging, XP gagnée via Tree Gifts (Galatea) ou Agatha's Contests, dépensée en "Forest
+Whispers" (équivalent Powder de HOTM). **8 tiers réels, 36 perks réels** (Tier 1 :
+Sweep ; Tier 2 : Damage Boost/Strength Boost/Foraging Fortune/Speed Boost/Axe Toss ;
+Tier 3 : Luck of the Forest/Daily Wishes/250 Gifts ; Tier 4 : Lottery/Foraging Madness/
+Deep Waters/Efficient Forager/Collector/Early Bird/Precision Cutting ; Tier 5 : Monster
+Hunter/Center of the Forest (seul perk non-reset-able, permanent une fois acheté)/Tree
+Whisperer ; Tier 6 : Homing Axe/Forest Strength/Hunter's Luck/Galatea's Might/Essence
+Fortune/Forest Speed/Maniac Slicer ; Tier 7 : Half Empty/Ricochet/Half Full ; Tier 8 :
+Beekeeper/Iron Lungs/Forest Fisher/Timber/Starlyn Supreme/Two-for-one/Free Trial).
+Aucune trace dans le code ou en base — zone 0% couverte avant cette passe.
+
+**🔴 Root cause du bug de formule HOTM trouvé pendant le Bloc 8 (Pluton), maintenant
+identifié précisément.** Le perk "Sweep" (Tier 1 HotF) utilise
+`LevelCost = floor((NextLevel+1)^3)`, et son propre tableau de coût cumulé listé sur
+le wiki (niveaux 2-10: 4 347 ; 11-20: 49 005 ; 21-30: 192 655 ; 31-40: 495 305 ;
+41-50: 1 016 955 ; total 1 758 267) est **exactement** le même total que celui déjà
+noté comme correct pour le nœud Mining Speed de HOTM lors du Bloc 8 (`CLAUDE-archive.md`
+n'a pas cette note, elle reste dans le debug Pluton non mergé) — confirmé en recalculant
+à la main : `sum(floor((L+1)^3), L=2..10) = 3^3+4^3+...+11^3 = 4347`, exact. La formule
+Pluton utilisée à l'époque (`(level+2)^3` sommée différemment) était donc décalée d'un
+indice — cause précise maintenant connue, correction triviale à appliquer quand Pluton
+reprendra (`lib/pluton-mining.ts` / route de debug HOTM), pas faite ici (hors scope
+cartographie, Pluton reste en pause).
+
+**Formule Foraging Fortune** (`Foraging_Fortune`) : même famille que Farming/Crop
+Fortune — 100 points = 1 log garanti en plus, au-delà c'est une chance additionnelle
+(150 = doublé garanti + 50% de chance triplé). S'applique à 8 types de logs réels (Oak/
+Birch/Spruce/Dark Oak/Acacia/Jungle/Fig/Mangrove).
+
+**Starlyn Contest — équivalent Foraging de Jacob's Farming Contest, jamais mappé,
+jamais dans notre base.** Système de concours réel distinct, jamais référencé dans
+aucune table interne (`jacob_medals`/`jacob_perks`/etc. sont spécifiques Farming). Pas
+de détail de structure de récompense extrait cette passe (hors scope temps) — juste
+confirmé comme un vrai système parallèle à creuser si Foraging money-making en a besoin.
+
+**Pas encore fait pour Foraging** : détail complet des perks HotF au-delà de Tier 1
+(coûts/formules par perk non tous extraits), structure exacte des récompenses Starlyn
+Contest, les 4 pets Foraging (Giraffe/Lion/Monkey/Ocelot), `Treecapitator` (enchant
+réel, contenu vu mais pas creusé). Comparaison Étape 3 en attente de Supabase MCP.
