@@ -18,6 +18,9 @@ Sections couvertes, dans l'ordre où elles apparaissaient dans CLAUDE.md :
   version narrative détaillée phase par phase est ici
 - Evolve — état réel (22 juillet, première version du backend)
 - Sécurité Evolve — TODO résolu
+- price_history_ah_variant_base — 3e palier d'agrégation AH, reconstruit après perte
+  accidentelle (28 juillet, archivé le 2 août) — le TODO différé (renommage
+  historique des lignes) est migré dans "Prochaines étapes" de CLAUDE.md, item 10
 - Evolve — nouvelle architecture à 3 sections + Section Skills (22 juillet)
 - Chantier NBT joueur + networth réel (22 juillet)
 - Evolve — Milestones REFONTE COMPLÈTE (23 juillet)
@@ -831,3 +834,72 @@ tables vides), mais cette fois scopé et documenté sciemment plutôt que subi.
 `/api/market-data` filtré). Tab Evolve corrigé `['elite']` → `['pro','elite']` (Skills/
 Milestones sont Pro, pas Elite).
 
+
+## ✅ price_history_ah_variant_base — 3e palier d'agrégation AH, reconstruit après perte accidentelle, testé en prod (28 juillet)
+
+**Contexte de la perte** : une modification non commitée de `ah-aggregate/route.ts` 
+existait déjà en local avant cette session (visible dès le premier `git status`). En 
+corrigeant une erreur de branche (un lot de commits parti par erreur directement sur 
+`master` au lieu d'une branche preview), un `git reset --hard origin/master` a 
+accidentellement écrasé cette modification jamais commitée. Recherche de récupération 
+exhaustive avant d'abandonner : historique local VS Code (`%APPDATA%\Code\User\History`) 
+— le fichier y était bien suivi, mais le dernier snapshot datait du 21 juillet et était 
+identique au commit déjà en base, donc rien de plus récent capturé (probablement parce que 
+la modification perdue avait été faite par Claude Code directement, pas par une sauvegarde 
+dans l'éditeur VS Code, seul déclencheur de cet historique) ; aucun fichier `.swp`/`~`/`.bak` 
+nulle part dans le repo ; le projet n'est pas dans le dossier synchronisé OneDrive donc pas 
+d'historique de versions de ce côté non plus. Confirmé irrécupérable par ces moyens — 
+**l'utilisateur a retrouvé la spec exacte dans une conversation précédente** (table SQL + 
+méthode de calcul + seuil de fiabilité) et l'a recollée intégralement pour reconstruction 
+verbatim. Leçon opérationnelle retenue : toujours vérifier l'état du repo (`git status`) 
+avant un `reset --hard`, y compris quand l'opération vise à corriger une erreur sans rapport 
+avec les fichiers concernés.
+
+**Ce qui a été reconstruit** — 3e palier d'agrégation dans `ah-aggregate/route.ts`, entre 
+l'exact (`price_history_ah_variants`, 1 ligne par `variant_key_full`) et le blended toutes-
+variantes (`price_history_ah`, 1 ligne par item) :
+- Nouvelle table `price_history_ah_variant_base` — 1 ligne par 
+  `(base_item_id, variant_key_base, bucket_date)`, regroupe les mêmes lignes fiables du 
+  buffer (`scan_count >= 3`) que la table exacte. `avg_price` pondéré par `scan_count` 
+  (fiabilité), `min_price`/`max_price` = extrêmes du groupe, `volume`/`data_points` sommés, 
+  `contributing_variants` = nombre de `variant_key_full` distincts dans le groupe. Écrite 
+  uniquement si `data_points >= 10` OU `contributing_variants >= 2`.
+- **Renommage du placeholder blended** sur `price_history_ah` (table 2) : 
+  `nostar_norecomb_noreforge` → `__all_variants_blended__`. L'ancien nom collidait avec le 
+  VRAI `variant_key` du plain item (0 star/no recomb/no reforge) utilisé ailleurs 
+  (`RadarSection`, `SetupOverlay`) pour dire "Base item" — un flip pouvait silencieusement 
+  se faire comparer à la moyenne blended en croyant comparer contre le plain item réel. 
+  Deux consommateurs actifs corrigés en même temps pour rester cohérents avec le nouveau nom 
+  (`item-history/route.ts` ligne ~105, `RadarSection.tsx` × 4 occurrences — toutes confirmées 
+  lire exclusivement `price_history_ah`, jamais `price_history_ah_variants` où la même chaîne 
+  signifie autre chose et n'a jamais été touchée). Renommage historique des lignes déjà en 
+  base **volontairement différé** (SQL par lots fourni à l'utilisateur, timeout sur un 
+  `UPDATE` direct vu les 3,3M lignes de la table) — sans dépendance fonctionnelle sur le 3e 
+  palier, qui ne lit jamais `price_history_ah`.
+
+**Validé en conditions réelles sur preview Vercel** : `vercel crons run` ne fonctionne que 
+sur la prod (confirmé via la doc Vercel), et un self-fetch HTTP vers `/api/cron/ah-aggregate` 
+depuis une autre route du même déploiement se heurte au mur SSO de Vercel Deployment 
+Protection (confirmé : 200 avec un corps non-JSON au lieu du vrai JSON de la route — le 
+`CRON_SECRET` n'atteignait jamais le handler). Contournement définitif : logique extraite en 
+fonction exportée `runAhAggregate()`, appelée par import direct depuis une route de debug 
+temporaire (server-side sur le déploiement, lit `CRON_SECRET`/`SUPABASE_SERVICE_ROLE_KEY` 
+depuis l'env Vercel — aucun secret n'a besoin de transiter par la conversation). Route de 
+debug supprimée après validation (`app/api/debug/test-variant-base/`), au passage un autre 
+résidu de debug oublié depuis le 18 juillet (`app/api/debug/nbt-test/`, test de décodage NBT, 
+zéro référence ailleurs dans le repo) a aussi été nettoyé.
+
+**Preuve concrète** — run réel sur données de production (buffer de 10 000 lignes) : 
+`base_inserted: 5402` sur `5529` groupes vus (127 exclus à raison, sous le seuil de 
+fiabilité). Exemple `POWER_WITHER_CHESTPLATE` (Necron's Chestplate — confirme au passage que 
+le préfixe `POWER_WITHER_*` couvre tout le set, pas juste les boots déjà notées) : 
+`variant_key_base` = `5star_recomb_fuming`, `contributing_variants: 5`, `data_points: 6413`, 
+`avg_price: 80 986 268`, `min_price: 25 000 000`, `max_price: 1 300 000 000`. La moyenne 
+pondérée reste proche du bas de la fourchette malgré un `max_price` clairement aberrant 
+(enchère isolée à un prix absurde, bruit habituel de l'AH) — preuve que la pondération par 
+`scan_count` dilue bien les groupes à faible fiabilité plutôt que de les laisser fausser la 
+moyenne, cohérent avec l'intention de la spec.
+
+**Pas encore fait, migré dans "Prochaines étapes" de CLAUDE.md (item 10)** : renommage 
+historique des lignes `price_history_ah` déjà en base (SQL par lots fourni, à exécuter par 
+l'utilisateur quand il le souhaite — cosmétique, ne bloque rien).

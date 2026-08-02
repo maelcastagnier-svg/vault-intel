@@ -780,3 +780,113 @@ l'économie de marché suivie par Vault (Flash Alerts/Radar/Money Making).
 (sur 12 entrées au total). Rien silencieusement perdu — chaque sous-référence
 rencontrée a été soit fermée avec une vraie table, soit explicitement loggée avec la
 raison de ne pas avoir été construite cette passe.
+
+## Source 3 (SkyHanni/Firmament/hypixel-api-reborn, approfondi) + queue vidée (2 août)
+
+Approfondissement demandé explicitement au-delà de ce qui avait déjà servi de
+référence croisée (Étape A/B, puis Trapper/Power Stones en Tier 2). Méthode : arbre
+de fichiers complet des 3 repos via l'API GitHub (`git/trees/{branch}?recursive=1` —
+`hannibal002/SkyHanni` branche `beta`, `FirmamentMC/Firmament` branche `mc-26.1`,
+`Hypixel-API-Reborn/hypixel-api-reborn` branche `master`), dossiers Garden/Dungeon/
+Mining lus en détail (les zones les moins creusées jusqu'ici), recoupé à chaque fois
+contre le wiki et `game_mechanics_misc` déjà caché avant de conclure.
+
+**Découverte majeure — Garden Pests, 0% → réel, trouvé par triangulation des 3
+sources.** SkyHanni a un module dédié (`features/garden/pests`) avec les 15 types de
+pest en constantes typées ; Firmament référence la même liste côté rendu d'icônes ;
+hypixel-api-reborn expose déjà `member.garden.pest_count`/`bonus_pest_chance`
+typés. Recoupé ensuite contre `game_mechanics_misc` : le wiki était déjà caché
+(`category='farming_wiki'`, pages `Pest`, `Bonus Pest Chance`, `Pesthunter
+Phillip`/`Pesthunter Pamela`) mais jamais structuré en table — même situation que
+HOTM Forge en son temps. 2 nouvelles tables réelles : `garden_pests` (15 types +
+Field Mouse, crop associé, niveau Garden requis, item/vinyl d'attraction) et
+`garden_pest_fortune_penalty` (15 lignes, vraie courbe de perte de Farming Fortune
+par nombre de pests × palier de Bonus Pest Chance) — la première fois que la
+pénalité réelle de laisser les pests s'accumuler est capturée dans ce projet.
+
+**3 systèmes plus petits fermés dans la foulée, tous sourcés avant codage** :
+- `minion_upgrade_items` (19 lignes) — les 5 vraies sections tabber de la page wiki
+  `Minion_Upgrades/Table` (Replacement/Spreading/Cooldown/Compacting/Other) utilisées
+  comme catégorisation, jamais devinée depuis le nom de l'item seul (règle 7).
+- `time_pocket_aging_items` (6 paires réelles d'items base→évolué) + 
+  `time_pocket_upgrades` (3 paliers de slots réels : 6/None, 9/1x Discrite, 12/1x
+  Spotlite) — durées d'évolution laissées `NULL` quand non sourcées individuellement
+  plutôt qu'inventées.
+- `sack_tiers` confirmé complet (4 tiers réels, déjà chargé en Tier 2).
+
+**Rien d'autre de significatif trouvé** en creusant Firmament (essentiellement un
+mod de rendu/QoL, pas une source de données de jeu indépendante — confirme son
+usage de référence croisée déjà établi, pas une 4e source de vérité) ni le reste de
+hypixel-api-reborn (`member.*` déjà largement exploité en Phase 2/Bloc 7).
+
+### Traitement de `discovery_queue` jusqu'à épuisement (12 → 1 pending)
+
+Les 8 entrées encore `pending`/`in_progress` après Tier 2/3 ont été traitées une par
+une, pas juste listées — chacune a soit produit un vrai résultat (table, correction
+de code, mécanique documentée), soit reste honnêtement bloquée avec la raison
+vérifiée :
+
+- **#6 (mayors, schéma orphelin) — le résultat le plus important de cette passe.**
+  En creusant pourquoi la table `mayors` existait encore malgré `skyblock_mayor_
+  election` déjà chargée en Tier 1, trouvé que `radar-agent` (le cron qui construit
+  le contexte envoyé à Claude Sonnet pour l'analyse Radar) interroge encore
+  littéralement `mayors` à chaque run et injecte son résultat (toujours vide, 0 ligne
+  depuis la création de la table) directement dans le prompt — **bug de production
+  réel, pas juste un stub orphelin** : le contexte mayor de Radar est silencieusement
+  vide depuis le lancement de la feature, jamais détecté faute d'un profil de test
+  qui aurait remarqué l'absence. Corrigé (`app/api/cron/radar-agent/route.ts`,
+  branche `fix/radar-agent-real-mayor-data`, commit `6bd9738a`) : lit maintenant
+  `skyblock_mayor_election`, construit `mayor: {current_mayor, current_perks,
+  next_election_year, next_election_leader}` (leader = plus haut nombre de votes).
+  Vérifié par traçage direct de la vraie ligne contre la logique de transformation
+  (Diaz mène l'élection année 505 avec 772 663 votes, confirmé en SQL) plutôt qu'un
+  run réel — `radar-agent` fait un vrai appel payant Sonnet, cohérent avec la
+  pratique déjà établie du projet de ne pas dépenser d'API juste pour vérifier un
+  changement de fetch de données. Build Vercel confirmé READY, mergé sur master,
+  déploiement production reconfirmé READY après merge (`dpl_68W1PFfNd9y84fNAWF7ZVNop2fDb`).
+- **#1-#5, #8-#12 (9 entrées)** — Matriarch, 3 groupes de sous-minigames Rift,
+  Trapper, Minion Modifiers, Time Pocket/Aging Items, + les 3 trouvailles Source 3
+  ci-dessus — toutes fermées avec un vrai contenu construit (table ou mécanique
+  documentée), déjà détaillées dans leurs sections respectives (Tier 2/3 et Source 3
+  ci-dessus).
+- **#13 (`member.garden.larva_consumed`, trouvé en Source 3) — résolu par lecture du
+  cache déjà existant.** La recherche wiki en direct a d'abord buté sur un vrai piège
+  d'environnement (domaine `wiki.hypixel.net` — l'ancien wiki officiel Hypixel,
+  fermé le 21 juillet 2026 par annonce officielle, redirige maintenant vers un thread
+  forum ; confirmé sans rapport avec le vrai domaine utilisé par ce projet
+  `hypixelskyblock.minecraft.wiki`, un wiki communautaire distinct hébergé sur
+  l'infra Weird Gloop, toujours actif — `wiki-auto-sync` a continué à tourner et
+  scraper du contenu réel toutes les 30 min pendant cette même session, confirmé en
+  SQL). Les requêtes brutes directes vers le bon domaine depuis cet environnement
+  local ont ensuite été bloquées par une page de challenge anti-bot (Weird Gloop),
+  sans rapport avec la disponibilité réelle du site — contourné en interrogeant
+  `game_mechanics_misc`, qui avait déjà cette page en cache. Mécanique réelle
+  trouvée : **Locust Larva** (`LOCUST_LARVA`, Uncommon, drop 4% du mob Locust — un
+  des 15 pests déjà chargés dans `garden_pests`) — consommé sur The Garden, ajoute
+  directement +1 Pest au Vacuum bag du joueur sans avoir à le tuer en jeu (message
+  in-game "LARVA! A Pest was added to your vacuum bag"). `larva_consumed` est donc
+  un compteur d'activité joueur, pas un référentiel de jeu — documenté ici plutôt
+  que construit en table séparée (même distinction que pour les autres champs
+  `player_data` mineurs déjà rencontrée dans ce chantier).
+- **#7 (`/v2/skyblock/bingo` endpoint live per-joueur) — reste honnêtement bloqué,
+  seule entrée non résolue.** Reconfirmé : `HYPIXEL_API_KEY` toujours absente de cet
+  environnement local, `Missing API-Key header` en retour direct. Distinct de
+  `/v2/resources/skyblock/bingo` (public, déjà chargé en Tier 1 —
+  `skyblock_bingo_events`/`skyblock_bingo_goals` restent valides et suffisants pour
+  ce que Vault utilise aujourd'hui). Zéro action possible sans que l'utilisateur
+  recharge la clé côté Vercel puis la transmette — pas un blocage de méthode, un
+  vrai blocage d'accès.
+
+**État final de `discovery_queue`** : 12 `resolved`, 1 `pending` (#7, bloqué sur la
+clé API) — file traitée jusqu'à épuisement au sens où chaque entrée a reçu un
+vrai traitement, pas juste une relecture.
+
+**⚠️ Point opérationnel trouvé en marge, sans impact sur ce chantier** : le vrai
+wiki officiel Hypixel (`wiki.hypixel.net`, différent du wiki communautaire utilisé
+par ce projet) a fermé le 21 juillet 2026 (annonce officielle Hypixel, thread
+`hypixel.net/threads/end-of-the-official-hypixel-wiki-july-2026.6112020`) — liens
+in-game retirés, pages en cours de retrait. Sans conséquence pour Vault : la
+migration vers `hypixelskyblock.minecraft.wiki` (wiki communautaire, infra Weird
+Gloop) était déjà faite le 22 juillet, avant même cette fermeture, et ce wiki reste
+actif et scrapé normalement (confirmé en direct ce jour). Noté uniquement pour ne
+pas confondre les deux domaines dans une future session.

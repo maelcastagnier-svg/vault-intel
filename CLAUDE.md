@@ -91,16 +91,33 @@ Shen's Auction : mécanique d'enchère à gagnants multiples par slot (ex: 80 ga
 normal/40 Ironman sur un même item), une fois par SkyBlock Year, jamais vue ailleurs
 dans le projet — documentée, pas de table (fréquence trop faible pour un cron).
 
-`discovery_queue` après Tier 2/3 : 8 pending, 3 resolved, 1 in_progress — rien
-silencieusement perdu.
+### ✅ Source 3 approfondie + discovery_queue vidée à 1 entrée près (2 août)
 
-**Prochaine étape** : pas de Tier 4 planifié — les 15 systèmes + le bloc Économie/
-Événements identifiés en Étape B sont maintenant tous soit couverts, soit
-explicitement loggés comme gap connu. Reste : Source 3 (SkyHanni/Firmament/
-hypixel-api-reborn au-delà de ce qui a déjà servi de référence croisée), puis
-décision avec l'utilisateur sur la suite (reprendre Pluton ? approfondir un système
-précis ? traiter `discovery_queue` en attente ?). Pluton (Bloc 8) reste en pause
-jusqu'à ce que l'utilisateur juge la base suffisante — pas de nouveau seuil fixé.
+Détail complet dans WIKI-MAPPING.md, section "Source 3 + queue vidée". Résumé :
+Garden Pests trouvé et chargé (0%→réel, triangulé SkyHanni/Firmament/hypixel-api-
+reborn puis recroisé contre le wiki, `garden_pests` 15 lignes + `garden_pest_
+fortune_penalty` 15 lignes), plus `minion_upgrade_items`/`time_pocket_aging_items`/
+`time_pocket_upgrades` fermés. Les 8 entrées `discovery_queue` restantes traitées
+une par une jusqu'à épuisement — **résultat le plus important : #6 a fait remonter
+un vrai bug de production**, `radar-agent` interrogeait encore l'ancienne table
+`mayors` (0 ligne depuis toujours) et injectait un contexte mayor silencieusement
+vide dans le prompt Claude à chaque run depuis le lancement de Radar — corrigé pour
+lire `skyblock_mayor_election`, mergé sur master, prod confirmée READY. Seule entrée
+non résolue : `/v2/skyblock/bingo` (endpoint live per-joueur), bloqué sur
+`HYPIXEL_API_KEY` absente de l'environnement local — rien d'autre à débloquer sans
+la clé. `discovery_queue` finale : 12 resolved / 1 pending.
+
+**Point opérationnel noté en marge** : le vrai wiki officiel Hypixel
+(`wiki.hypixel.net`) a fermé le 21 juillet 2026 (annonce Hypixel) — sans impact,
+ce projet utilise déjà `hypixelskyblock.minecraft.wiki` (wiki communautaire) depuis
+le 22 juillet, confirmé toujours actif.
+
+**Décision suivante à prendre avec l'utilisateur** : les 15 systèmes + le bloc
+Économie/Événements de l'Étape B sont maintenant tous soit couverts, soit
+explicitement loggés comme gap connu (le seul restant, #7, est bloqué sur une clé
+API). Pluton (Bloc 8) reste en pause jusqu'à ce que l'utilisateur juge la base
+suffisante — pas de nouveau seuil fixé, décision à prendre : reprendre Pluton,
+approfondir un système précis, ou autre chantier.
 
 ### Contexte — correction méthodologique du 1er août
 
@@ -1689,76 +1706,7 @@ match exact avec la somme réelle des 6 items dans le catalogue affiché au mod�
 explicitement dans `GROUNDING_RULES` pour que Claude reste qualitatif dessus plutôt que 
 d'inventer un nom d'item précis non vérifié.
 
-## ✅ price_history_ah_variant_base — 3e palier d'agrégation AH, reconstruit après perte accidentelle, testé en prod (28 juillet)
-
-**Contexte de la perte** : une modification non commitée de `ah-aggregate/route.ts` 
-existait déjà en local avant cette session (visible dès le premier `git status`). En 
-corrigeant une erreur de branche (un lot de commits parti par erreur directement sur 
-`master` au lieu d'une branche preview), un `git reset --hard origin/master` a 
-accidentellement écrasé cette modification jamais commitée. Recherche de récupération 
-exhaustive avant d'abandonner : historique local VS Code (`%APPDATA%\Code\User\History`) 
-— le fichier y était bien suivi, mais le dernier snapshot datait du 21 juillet et était 
-identique au commit déjà en base, donc rien de plus récent capturé (probablement parce que 
-la modification perdue avait été faite par Claude Code directement, pas par une sauvegarde 
-dans l'éditeur VS Code, seul déclencheur de cet historique) ; aucun fichier `.swp`/`~`/`.bak` 
-nulle part dans le repo ; le projet n'est pas dans le dossier synchronisé OneDrive donc pas 
-d'historique de versions de ce côté non plus. Confirmé irrécupérable par ces moyens — 
-**l'utilisateur a retrouvé la spec exacte dans une conversation précédente** (table SQL + 
-méthode de calcul + seuil de fiabilité) et l'a recollée intégralement pour reconstruction 
-verbatim. Leçon opérationnelle retenue : toujours vérifier l'état du repo (`git status`) 
-avant un `reset --hard`, y compris quand l'opération vise à corriger une erreur sans rapport 
-avec les fichiers concernés.
-
-**Ce qui a été reconstruit** — 3e palier d'agrégation dans `ah-aggregate/route.ts`, entre 
-l'exact (`price_history_ah_variants`, 1 ligne par `variant_key_full`) et le blended toutes-
-variantes (`price_history_ah`, 1 ligne par item) :
-- Nouvelle table `price_history_ah_variant_base` — 1 ligne par 
-  `(base_item_id, variant_key_base, bucket_date)`, regroupe les mêmes lignes fiables du 
-  buffer (`scan_count >= 3`) que la table exacte. `avg_price` pondéré par `scan_count` 
-  (fiabilité), `min_price`/`max_price` = extrêmes du groupe, `volume`/`data_points` sommés, 
-  `contributing_variants` = nombre de `variant_key_full` distincts dans le groupe. Écrite 
-  uniquement si `data_points >= 10` OU `contributing_variants >= 2`.
-- **Renommage du placeholder blended** sur `price_history_ah` (table 2) : 
-  `nostar_norecomb_noreforge` → `__all_variants_blended__`. L'ancien nom collidait avec le 
-  VRAI `variant_key` du plain item (0 star/no recomb/no reforge) utilisé ailleurs 
-  (`RadarSection`, `SetupOverlay`) pour dire "Base item" — un flip pouvait silencieusement 
-  se faire comparer à la moyenne blended en croyant comparer contre le plain item réel. 
-  Deux consommateurs actifs corrigés en même temps pour rester cohérents avec le nouveau nom 
-  (`item-history/route.ts` ligne ~105, `RadarSection.tsx` × 4 occurrences — toutes confirmées 
-  lire exclusivement `price_history_ah`, jamais `price_history_ah_variants` où la même chaîne 
-  signifie autre chose et n'a jamais été touchée). Renommage historique des lignes déjà en 
-  base **volontairement différé** (SQL par lots fourni à l'utilisateur, timeout sur un 
-  `UPDATE` direct vu les 3,3M lignes de la table) — sans dépendance fonctionnelle sur le 3e 
-  palier, qui ne lit jamais `price_history_ah`.
-
-**Validé en conditions réelles sur preview Vercel** : `vercel crons run` ne fonctionne que 
-sur la prod (confirmé via la doc Vercel), et un self-fetch HTTP vers `/api/cron/ah-aggregate` 
-depuis une autre route du même déploiement se heurte au mur SSO de Vercel Deployment 
-Protection (confirmé : 200 avec un corps non-JSON au lieu du vrai JSON de la route — le 
-`CRON_SECRET` n'atteignait jamais le handler). Contournement définitif : logique extraite en 
-fonction exportée `runAhAggregate()`, appelée par import direct depuis une route de debug 
-temporaire (server-side sur le déploiement, lit `CRON_SECRET`/`SUPABASE_SERVICE_ROLE_KEY` 
-depuis l'env Vercel — aucun secret n'a besoin de transiter par la conversation). Route de 
-debug supprimée après validation (`app/api/debug/test-variant-base/`), au passage un autre 
-résidu de debug oublié depuis le 18 juillet (`app/api/debug/nbt-test/`, test de décodage NBT, 
-zéro référence ailleurs dans le repo) a aussi été nettoyé.
-
-**Preuve concrète** — run réel sur données de production (buffer de 10 000 lignes) : 
-`base_inserted: 5402` sur `5529` groupes vus (127 exclus à raison, sous le seuil de 
-fiabilité). Exemple `POWER_WITHER_CHESTPLATE` (Necron's Chestplate — confirme au passage que 
-le préfixe `POWER_WITHER_*` couvre tout le set, pas juste les boots déjà notées) : 
-`variant_key_base` = `5star_recomb_fuming`, `contributing_variants: 5`, `data_points: 6413`, 
-`avg_price: 80 986 268`, `min_price: 25 000 000`, `max_price: 1 300 000 000`. La moyenne 
-pondérée reste proche du bas de la fourchette malgré un `max_price` clairement aberrant 
-(enchère isolée à un prix absurde, bruit habituel de l'AH) — preuve que la pondération par 
-`scan_count` dilue bien les groupes à faible fiabilité plutôt que de les laisser fausser la 
-moyenne, cohérent avec l'intention de la spec.
-
-**Pas encore fait** : renommage historique des lignes `price_history_ah` déjà en base (SQL 
-par lots fourni, à exécuter par l'utilisateur quand il le souhaite — cosmétique, ne bloque 
-rien).
-
-## Landing page + Gating par tier — archivées (27/23 juillet, voir CLAUDE-archive.md)
+## price_history_ah_variant_base + Landing page + Gating par tier — archivées (28/27/23 juillet, voir CLAUDE-archive.md)
 
 Déplacées le 1er août dans le même lot d'archivage que les sessions 21-23 juillet
 (CLAUDE.md retouchait de nouveau sa limite de 150k pendant la cartographie Source 2).
@@ -1962,6 +1910,9 @@ en actualisant ce document en conséquence.
 9. Skyblock Level + XP Guide comme référentiel de tiers/milestones, en remplacement ou 
    complément du découpage EARLY/MID/END/LATE actuel (basé networth + avg skill) — piste 
    notée dès le chantier NBT/networth (22 juillet), jamais reprise depuis
+10. Renommage historique des lignes `price_history_ah` (`nostar_norecomb_noreforge` → 
+    `__all_variants_blended__`, 28 juillet, section archivée) — SQL par lots déjà fourni à 
+    l'utilisateur, cosmétique, ne bloque rien, à exécuter quand souhaité
 
 ## Ce que je ne veux PAS
 
