@@ -22,6 +22,50 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## 🚧 CHANTIER FINAL — extraction complète + automatisation résiliente (2 août, en cours)
+
+Nouveau chantier demandé explicitement par l'utilisateur, distinct de la cartographie
+ci-dessous : Volet 1 (compléter les données encore partielles) + Volet 2 (automatiser
+les tables déjà chargées en one-shot), Volet 2 priorisé en premier ("on ne construit pas
+plus de contenu tant que ce qu'on a déjà n'est pas sécurisé"). 6 règles strictes
+(zéro donnée inventée, extraction 100% avec sous-catégories, discovery_queue active,
+zéro doublon, cron résilient sur chaque table externe avec sync_log, zéro appel Claude).
+Détail complet dans WIKI-MAPPING.md, section "CHANTIER FINAL — Volet 2".
+
+**État des lieux initial** : audit de tous les crons vs `list_tables` a trouvé 48 tables
+référentielles (NEU-REPO/wiki) chargées une seule fois par migration SQL, jamais reliées
+à un cron — `neu-sync` ne couvre en réalité que 4 tables (`reforges`/
+`trophy_fish_thresholds`/`essence_shop_upgrades`/`neu_constants_raw`), tout le reste
+(gemstones, garden_*, museum_*, accessory_powers, etc.) était un chargement isolé.
+
+**✅ Volet 2 — 9 tables du chantier cartographie de cette semaine automatisées (2 août)** :
+4 nouveaux crons hebdomadaires (`wiki-mining-forge-sync`, `wiki-garden-sync`,
+`wiki-slot-upgrades-sync`, `wiki-economy-npc-sync`, tous lundi, décalés de 5 min) qui
+reparsent les pages déjà cachées par `wiki-auto-sync` — `hotm_forge_durations`,
+`garden_pests`/`garden_pest_fortune_penalty`, `time_pocket_upgrades`/`time_pocket_
+aging_items`/`minion_upgrade_items`, `sack_tiers`/`trapper_pelt_rarities`/`trapper_pelt_
+modifiers`. Plus **`discovery-scan`** (quotidien) : ferme le point explicite de
+l'utilisateur ("la boucle de résilience s'arrête dès qu'on arrête d'y travailler
+manuellement") — nouvelle colonne `game_mechanics_misc.created_at` détecte les pages
+vraiment nouvelles et les logue automatiquement dans `discovery_queue`, zéro Claude.
+
+**Obstacle réel rencontré et contourné** : le pattern habituel de test (route de debug +
+requête HTTP directe sur preview) s'est heurté à un mur SSO Vercel jamais vu sur les
+branches précédentes (`ssoProtection.enabled: true`) — contourné en rejouant les
+parseurs en local (`npx tsx`) contre le vrai contenu déjà en base, comparé ligne à ligne
+à l'état actuel des tables. **2 vrais bugs de parsing trouvés et corrigés grâce à cette
+méthode avant tout déploiement** (fuite de lignes entre deux wikitables adjacentes,
+et une table sautée par erreur d'ancrage) — détail complet dans WIKI-MAPPING.md.
+
+Les 38 tables restantes (sur les 48 de l'audit initial) sont loguées individuellement
+dans `discovery_queue` avec leur vraie page source déjà identifiée (recherche dédiée
+menée avant de coder, jamais deviné) — prêtes pour une passe future. `weight_formulas`
+reste aussi one-shot (source GitHub, pas wiki — nécessite un fetch distinct, pas
+construit cette passe par prudence).
+
+**Prochaine étape** : Volet 1 (compléter les données encore partielles/en gap) une fois
+Volet 2 jugé suffisamment avancé par l'utilisateur.
+
 ## 🚧 Cartographie exhaustive Hypixel Skyblock — 2 vrais bugs fermés en cours de route (31 juillet)
 
 Chantier séparé du Bloc 8/Pluton, déclenché par la rigueur exigée sur les formules HOTM

@@ -890,3 +890,86 @@ migration vers `hypixelskyblock.minecraft.wiki` (wiki communautaire, infra Weird
 Gloop) était déjà faite le 22 juillet, avant même cette fermeture, et ce wiki reste
 actif et scrapé normalement (confirmé en direct ce jour). Noté uniquement pour ne
 pas confondre les deux domaines dans une future session.
+
+## CHANTIER FINAL — Volet 2 : automatisation des tables one-shot (2 août)
+
+Suite directe de l'état des lieux qui a trouvé 48 tables référentielles (NEU-REPO/wiki)
+chargées ponctuellement mais jamais reliées à un cron — exactement le "chargement
+ponctuel isolé" interdit par la Règle 5 du chantier final. Volet 2 (sécuriser l'existant)
+priorisé avant Volet 1 (compléter les gaps), décision explicite de l'utilisateur.
+
+**Scope traité cette passe** : les 9 tables sorties du chantier cartographie de cette
+semaine (Tier 2/Source 3/Bloc 7) — le sous-ensemble que je maîtrisais déjà en détail
+(page source connue, structure déjà comprise en construisant les tables une première
+fois). Groupées en **4 crons hebdomadaires** (lundi, décalés de 5 min chacun) +
+**1 cron quotidien** (`discovery-scan`, la boucle de résilience demandée en point 2) :
+
+- **`wiki-mining-forge-sync`** (lundi 5h45) — `hotm_forge_durations` (119 lignes),
+  reparse `The Forge/Table` (9 sous-sections, rowspan imbriqué réel sur Duration ET
+  HotM Requirement indépendamment).
+- **`wiki-garden-sync`** (lundi 5h50) — `garden_pests` (15) + `garden_pest_fortune_
+  penalty` (15), les deux depuis la MÊME page wiki "Pest" (table Pests + table Farming
+  Fortune loss de la section Behavior, elle-même à en-tête irrégulier sur 3 blocs `|-`).
+- **`wiki-slot-upgrades-sync`** (lundi 5h55) — `time_pocket_upgrades` (3) + `time_pocket_
+  aging_items` (6, prose regex, pas une wikitable) + `minion_upgrade_items` (19, 5
+  onglets tabber réels comme catégorisation).
+- **`wiki-economy-npc-sync`** (lundi 5h58) — `sack_tiers` (4) + `trapper_pelt_rarities`
+  (5) + `trapper_pelt_modifiers` (3).
+- **`discovery-scan`** (quotidien 4h) — nouveau mécanisme : `game_mechanics_misc` a reçu
+  une colonne `created_at` (migration additive, jamais réécrite par l'upsert de
+  `wiki-auto-sync`) pour distinguer une page vraiment nouvelle d'un simple refresh. Ce
+  cron liste les pages dont `created_at` dépasse le dernier run réussi et les logue dans
+  `discovery_queue` (status `pending`, zéro appel Claude — Règle 6) pour triage dans une
+  future session. Ferme le point 2 explicitement demandé : la boucle de découverte ne
+  s'arrête plus dès qu'on arrête d'y travailler manuellement.
+
+**Infra partagée créée** : `lib/wiki-cache.ts` (lecture d'une page déjà cachée par
+`wiki-auto-sync`, filtrée sur `source='hypixelskyblock_wiki'` pour ignorer les résidus
+`fandom_wiki` périmés) et `lib/wiki-table-parse.ts` (parseur générique de wikitable avec
+vrai suivi de rowspan actif par colonne — la même logique sert les 4 crons, jamais
+réimplémentée par table).
+
+**Méthode de test — obstacle réel rencontré et contourné** : le pattern habituel de ce
+chantier (route de debug temporaire, testée en direct sur preview) s'est heurté à un
+mur SSO/Vercel Deployment Protection jamais vu sur les branches précédentes de cette
+semaine (`ssoProtection.enabled: true, deploymentType: "all_except_custom_domains"` —
+confirmé via `get_project_deployment_protection`), qui bloque toute requête HTTP externe
+vers un déploiement preview, y compris avec un token de partage généré à la volée.
+Contourné en **rejouant la logique exacte des parseurs en local** (`npx tsx`, sans
+serveur Next.js) contre le vrai wikitext déjà extrait de `game_mechanics_misc` via
+Supabase MCP, en comparant la sortie ligne à ligne contre l'état actuel des 9 tables en
+base. **2 vrais bugs trouvés et corrigés grâce à cette méthode, avant tout déploiement** :
+1. `extractFirstWikitableBody()` utilisait `lastIndexOf('|}')` sur le texte reçu —
+   correct seulement si l'appelant passe un texte strictement borné à une seule table.
+   La recherche de la table "Pests" dans `wiki-garden-sync` passait tout le reste de la
+   page depuis son en-tête de section jusqu'à la fin — `lastIndexOf` attrapait le `|}`
+   d'une AUTRE wikitable bien plus loin (celle de Farming Fortune loss), faisant fuiter
+   ~10 lignes de bruit. Corrigé en `indexOf` depuis l'ouverture de la table elle-même.
+2. La recherche de la table "Modifiers" (Pelts) dans `wiki-economy-npc-sync` ancrait sur
+   `|+Modifiers` (la légende, qui est À L'INTÉRIEUR de la table, après son `{|`
+   d'ouverture) au lieu de l'accolade d'ouverture elle-même — l'extraction sautait
+   directement à la table SUIVANTE (Rarity) et retournait 0 ligne pour
+   `trapper_pelt_modifiers`. Corrigé en recherchant le `{|` précédent.
+
+Revalidé après les deux fixs : les 9 tables reproduisent exactement l'état actuel de la
+base quand on rejoue les parseurs contre le vrai contenu caché — `hotm_forge_durations`
+confirmé 119/119 lignes avec les 8 spot-checks déjà documentés au Bloc 7 (Refined
+Diamond 8h/II, Drill Motor 1j6h/II, Perfect Plate 30min/X, etc.) tous exacts ; les 8
+autres tables match ligne à ligne. Amélioration constatée au passage sur
+`trapper_pelt_modifiers.effect` : la nouvelle valeur ("+1", "1.1×–1.5×") est une
+transcription littérale de la source plutôt que la paraphrase française hand-written
+d'origine ("+1 pelt flat") — plus fidèle à la Règle 1, changement cosmétique assumé.
+
+**Limite honnête** : cette méthode valide la logique des parseurs avec un haut niveau de
+confiance (2 bugs réels trouvés et fermés), mais ne constitue pas un vrai test HTTP de
+bout en bout du code déployé (le mur SSO empêche ça). Risque résiduel jugé faible — code
+identique entre local et déployé, aucune dépendance d'environnement dans la logique de
+parsing elle-même (pas de fetch réseau, juste des regex sur une string déjà en base).
+
+**48 tables → 10 traitées cette passe (les 9 ci-dessus + `weight_formulas` documentée
+comme nécessitant un fetch GitHub distinct, pas construit cette passe par prudence),
+38 restantes** loguées individuellement dans `discovery_queue` avec la vraie page
+source déjà identifiée pour chacune (recherche dédiée menée avant de coder, jamais
+deviné) — prêtes à être automatisées dans une passe future sans avoir à refaire cette
+recherche. `discovery_queue` finale : 39 pending (38 nouvelles + #7 bingo déjà connue),
+12 resolved.
