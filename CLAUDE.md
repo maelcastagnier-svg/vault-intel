@@ -69,11 +69,38 @@ de conflit).
 à débloquer une fois la clé récupérée (même pattern d'expiration récurrent déjà
 documenté ailleurs dans ce fichier).
 
-**Prochaine étape** : Tier 2 (Sacks/Bags/Power Stones/Minion Modifiers/The
-Matriarch/Trapper/Races) et Tier 3 (10 événements saisonniers), voir plan complet et
-priorisation dans WIKI-MAPPING.md. Pluton (Bloc 8) reste en pause jusqu'à ce que cette
-base soit jugée suffisante — pas de nouveau seuil fixé, décision au fil de l'eau avec
-l'utilisateur.
+### ✅ Tier 2 + Tier 3 fermés le même jour (2 août) — détail dans WIKI-MAPPING.md
+
+**Tier 2** (Sacks/Bags/Power Stones/Minion Modifiers/Matriarch/Trapper/Races) :
+2 vraies découvertes structurées chargées — `sack_tiers` (capacités réelles par
+taille, trou trouvé même si `sack_contents` existait déjà) et **Trapper** (système
+entièrement nouveau : Trevor le NPC, monnaie Pelts, `trapper_pelt_rarities`/
+`trapper_pelt_modifiers`, 0%→réel, confirmé vivant via le goal Bingo
+`KILL_TRAPPER_MOB` du Tier 1). **2 corrections d'Étape B** : Power Stones était déjà
+100% couvert par `accessory_powers` (23 lignes) — marquage 🔴 corrigé en ✅. Minion
+Modifiers (58 items réels confirmés) et Time Pocket/Aging Items (Bags) restent
+loggés dans `discovery_queue`, pas construits (risque de deviner une catégorisation
+non sourcée). The Matriarch et Races confirmés réels, documentés sans table
+(pas de structure tabulaire pour l'un, faible enjeu économique pour l'autre — même
+profil que Carpentry/Taming/Social).
+
+**Tier 3** (10 événements saisonniers) : passe légère, tous confirmés réels.
+Trouvaille notable : Mining Fiesta est programmée par le Mayor Cole (+bonus Foxy/
+Jerry) — connexion directe avec `skyblock_mayor_election` déjà chargé au Tier 1.
+Shen's Auction : mécanique d'enchère à gagnants multiples par slot (ex: 80 gagnants
+normal/40 Ironman sur un même item), une fois par SkyBlock Year, jamais vue ailleurs
+dans le projet — documentée, pas de table (fréquence trop faible pour un cron).
+
+`discovery_queue` après Tier 2/3 : 8 pending, 3 resolved, 1 in_progress — rien
+silencieusement perdu.
+
+**Prochaine étape** : pas de Tier 4 planifié — les 15 systèmes + le bloc Économie/
+Événements identifiés en Étape B sont maintenant tous soit couverts, soit
+explicitement loggés comme gap connu. Reste : Source 3 (SkyHanni/Firmament/
+hypixel-api-reborn au-delà de ce qui a déjà servi de référence croisée), puis
+décision avec l'utilisateur sur la suite (reprendre Pluton ? approfondir un système
+précis ? traiter `discovery_queue` en attente ?). Pluton (Bloc 8) reste en pause
+jusqu'à ce que l'utilisateur juge la base suffisante — pas de nouveau seuil fixé.
 
 ### Contexte — correction méthodologique du 1er août
 

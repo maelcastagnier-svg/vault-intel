@@ -682,3 +682,101 @@ Tier 2 : Sacks (compléter, pas recréer) → Bags → Power Stones → Minion M
 The Matriarch → Trapper → Races. Tier 3 : les 10 événements saisonniers. Tous des
 référentiels wiki statiques (même méthode que `wiki-auto-sync`/`neu-sync`), pas de
 nouveau cron API dédié nécessaire contrairement au Tier 1.
+
+## Tier 2 fermé — Sacks/Bags/Power Stones/Minion Modifiers/Matriarch/Trapper/Races (2 août)
+
+Même discipline que le Tier 1 : chaque système vérifié contre Supabase avant de créer
+quoi que ce soit, boucle de découverte active tout du long (4 nouvelles entrées
+`discovery_queue` : Time Pocket/Aging Items, Minion Modifiers 58 items non
+catégorisés, + 2 corrections resolved ci-dessous).
+
+**Sacks — complété, pas recréé.** `sack_contents` (677 lignes) couvrait déjà le
+mapping item→sac, mais **les vraies capacités par taille manquaient entièrement** —
+trou réel trouvé en ouvrant la page wiki `Sacks`. Nouvelle table `sack_tiers` (4
+lignes : Beginner 640/10, Small 2240/35, Medium 6720/105, Large 20160/315 — items
+par taille / items en stacks). Note réelle capturée : les sacs Beginner ne contiennent
+que des items vanilla ; certains sacs (Large Gemstone Sack, Bronze Trophy Fishing
+Sack) ont un nombre de slots différent de ce standard.
+
+**Bags — déjà largement couvert ailleurs.** Le `Nav/Bags` du wiki liste 8 systèmes :
+Accessory Bag (✅ `accessory_bag_storage`, Bloc7), Potion Bag, Personal Bank (✅
+`bank_tier`, Bloc3), Ender Chest (✅ NBT chantier), Fishing Bag, Quiver, Sack of Sacks
+(= Sacks ci-dessus), **Time Pocket** (🔴 réel, jamais mappé — débloqué à Timite 2,
+stocke 6 vrais "Aging Items" qui évoluent 2x plus vite, loggé dans `discovery_queue`
+plutôt que construit cette passe, hors scope immédiat).
+
+**🔴→✅ Power Stones — déjà couvert, marquage Étape B corrigé.** `accessory_powers`
+(23 lignes, compte exact de la vraie catégorie wiki) mappe déjà chaque Power Stone
+vers la Power débloquée chez Maxwell (9x la même pierre), avec les vrais seuils de
+stats par Magical Power et le niveau de Combat requis. Aucune nouvelle table
+nécessaire — juste une vérification qui aurait dû être faite avant le marquage 🔴
+initial (limite de l'Étape B déjà assumée).
+
+**Minion Modifiers — 58 items réels confirmés, pas de table créée.** Catégorie wiki
+exhaustive (fuels, crystals d'upgrade slot, storage) mais catégoriser chaque item par
+type/effet réel aurait nécessité d'ouvrir 58 pages individuelles — risque réel de
+deviner la catégorisation depuis les noms plutôt que de la sourcer (règle 7). Loggé
+dans `discovery_queue` comme trouvaille confirmée mais non exploitée, `minion_tier_xp`
+(12 lignes) reste la seule vraie couverture "Minions" actuelle.
+
+**The Matriarch — mécanique réelle documentée, pas de table (pas de structure
+tabulaire).** Boss Crimson Isle géré par ingestion : génère 3 Heavy Pearls/24h,
+mange le joueur au-delà de 1 pearl disponible, mini-jeu de collecte dans "Belly of
+the Beast" avec acide stomacal. Reset quotidien à **20h ET** (pas minuit comme la
+majorité des autres systèmes — piège potentiel si jamais automatisé). Matriarch's
+Perfume : +3 pearls instantanés, jusqu'à 4x/jour. Attribut Matriarch Cubs max :
++20% chance de pearl bonus (jusqu'à 6 pearls, moyenne 3.8).
+
+**Trapper — système entièrement nouveau, cartographié et chargé.** "Trapper"
+redirige vers **Trevor** (NPC du Trapper's Den), confirmé réel et vivant via le goal
+Bingo `KILL_TRAPPER_MOB` (Tier 1). Nouvelle monnaie **Pelts**, dépensée chez Tony
+(minions Farming T12) et Talbot (items farming). 2 nouvelles tables réelles :
+`trapper_pelt_rarities` (5 paliers réels : Trackable 2-6, Untrackable 4-9, Undetected
+6-12, Endangered 8-15, Elusive 16-27) et `trapper_pelt_modifiers` (Pelt Belt +1,
+Jake's Plushie +1, Trapper Crest ×1.1-1.5). Zone 0% couverte avant cette passe.
+
+**Races — confirmé réel, 5 pas 3.** `Nav/Races` liste End Race, Woods Race, Chicken
+Race, Dungeon Hub Race, Rift Race (l'Étape B n'en avait que 3 identifiées via les
+catégories). Mécanique confirmée (Woods Race) : minigame de vitesse chronométré,
+récompenses = quelques items uniques de craft par palier de temps (ex: Silky Lichen
+à 18s). Même profil que Carpentry/Taming/Social — réel mais sans enjeu économique
+direct, pas de table dédiée, cohérent avec l'exclusion déjà actée pour ce type de
+contenu.
+
+## Tier 3 fermé — les 10 événements saisonniers (2 août)
+
+Passe légère (même profondeur que Carpentry/Taming/Social) — tous confirmés réels
+via le contenu de leur page wiki, capture des connexions/mécaniques les plus
+pertinentes plutôt qu'une extraction exhaustive de chaque table de loot.
+
+**Mining Fiesta — connexion réelle avec l'Election déjà chargée (Tier 1).**
+Programmée par Cole (mayor mining) : 4 fois par mandat + bonus si Foxy (perk Extra
+Event) ou Jerry (Perkpocalypse) actifs — exactement la structure de mayor/perks déjà
+dans `skyblock_mayor_election`. Mécanique : +75 Mining Wisdom, drops doublés, vraie
+table de taux de drop Refined Mineral/Glossy Gemstone par bloc (non chargée,
+granularité trop fine pour cette passe).
+
+**Fishing Festival** — même famille (Mining Fiesta pour Fishing), structure Overview/
+Timing/Mechanics similaire, pas creusé plus en détail cette passe.
+
+**Shen's Auction — système économique réel, distinct de l'AH classique.** Une fois
+par SkyBlock Year, gated par Museum Milestones 10 (Shen's Auction) et 20 (Shen's
+Special). Items TOUJOURS les mêmes, **plusieurs gagnants par slot** (ex: Artifact of
+Control = 20 gagnants normal / 10 Ironman, Shen's Regalia = 80/40) — mécanique
+d'enchère à winners multiples jamais vue ailleurs dans le projet. Stock Ironman à
+50% avec bids séparés. Pas de table créée (fréquence trop faible pour justifier un
+cron), mais structure documentée pour référence future.
+
+**New Year Celebration, Season of Jerry, Traveling Zoo, Harvest Feast, Raffle of the
+Century** — tous confirmés réels avec du vrai contenu structuré (Traveling Zoo a un
+vrai tableau de stock/coûts de pets ; Raffle of the Century a un vrai système de
+tickets/récompenses, page la plus longue du lot à 30k caractères) mais pas creusés
+en détail cette passe — narratifs/événementiels, pas de lien direct trouvé avec
+l'économie de marché suivie par Vault (Flash Alerts/Radar/Money Making).
+
+**Great Spook** — redirige vers **The Great Spook**, pas ouvert cette passe.
+
+**État de `discovery_queue` après Tier 2/3** : 8 pending, 3 resolved, 1 in_progress
+(sur 12 entrées au total). Rien silencieusement perdu — chaque sous-référence
+rencontrée a été soit fermée avec une vraie table, soit explicitement loggée avec la
+raison de ne pas avoir été construite cette passe.
