@@ -12,6 +12,7 @@ Systèmes couverts, dans l'ordre où ils ont été traités :
 - Combat/Slayer (1er août)
 - Farming (1er août)
 - Foraging (1er août) — inclut Heart of the Forest (2e arbre HOTM-like demandé)
+- Fishing (1er août)
 
 ---
 
@@ -178,3 +179,29 @@ confirmé comme un vrai système parallèle à creuser si Foraging money-making 
 (coûts/formules par perk non tous extraits), structure exacte des récompenses Starlyn
 Contest, les 4 pets Foraging (Giraffe/Lion/Monkey/Ocelot), `Treecapitator` (enchant
 réel, contenu vu mais pas creusé). Comparaison Étape 3 en attente de Supabase MCP.
+
+## Fishing (1er août)
+
+Pages réelles récupérées : `Fishing` (skill), `Sea_Creature_Chance`, `Fishing_Speed`,
+`Treasure_Chance`.
+
+**Formule réelle Sea Creature Chance (SCC), jamais sourcée dans ce projet** : base
+20%, cap 100% (capture garantie), **divisée par 4** sur Private Island et The Garden
+(sauf mode Stranded). `dhc` (Double Hook Chance) détermine séparément la chance
+d'attraper 2 Sea Creatures d'un coup. Directement pertinent pour tout futur calcul
+Fishing money-making (rendement dépend fortement de la zone à cause du ÷4).
+
+**Trophy Fishing confirmé comme système à part, distinct de `trophy_fish_thresholds`**
+(déjà chargé depuis NEU-REPO en Source 1) : 4 tiers réels par Trophy Fish
+(Bronze/Silver/Gold/Diamond), pêchables sur Lotus Atoll ET Crimson Isle. Atteindre les
+paliers Novice/Adept Trophy Fisher débloque 2 Sea Creatures spéciales (Thunder, Lord
+Jawbus) — mécanique de déblocage jamais documentée dans ce projet.
+
+**Treasure Fishing — vraies probabilités de base jamais sourcées** : 89% good catch /
+10% great / 1% outstanding, quand aucune Sea Creature n'est attrapée. Augmentable via
+Blessed Bait, l'enchant Blessing, ou un Hermit Crab Pet Rare+.
+
+**Pas encore fait pour Fishing** : détail des Rod Parts (Hooks/Lines/Sinkers) et
+Fishing Baits, les 9 pets Fishing (Ammonite/Baby Yeti/Blue Whale/Dolphin/Flying Fish/
+Megalodon/Penguin/Seal/Spinosaurus), Fishing Hotspots, table complète des Sea Creatures
+par zone/niveau. Comparaison Étape 3 en attente de Supabase MCP.

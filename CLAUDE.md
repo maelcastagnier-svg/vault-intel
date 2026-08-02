@@ -153,6 +153,13 @@ Mining Speed de HOTM — confirme que Pluton utilisait la mauvaise formule/index
 correction triviale prête pour la reprise de Pluton. Starlyn Contest (équivalent
 Foraging de Jacob's) confirmé réel, jamais mappé.
 
+**Fishing** (voir WIKI-MAPPING.md) : formule réelle Sea Creature Chance jamais
+sourcée (base 20%, cap 100%, **÷4 sur Private Island/Garden**) — directement
+pertinent pour tout futur calcul de rendement Fishing par zone. Trophy Fishing
+confirmé comme système à part (4 tiers Bronze→Diamond, Lotus Atoll + Crimson Isle),
+distinct de `trophy_fish_thresholds` déjà chargé. Probabilités Treasure Fishing
+jamais sourcées (89% good/10% great/1% outstanding).
+
 ### État d'avancement de la cartographie
 
 **Terminé** : Source 1 (NEU-REPO), 40/40 fichiers, reconfirmés exhaustifs en direct.
