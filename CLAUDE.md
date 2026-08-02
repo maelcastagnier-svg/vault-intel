@@ -39,12 +39,17 @@ référentielles (NEU-REPO/wiki) chargées une seule fois par migration SQL, jam
 (gemstones, garden_*, museum_*, accessory_powers, etc.) était un chargement isolé.
 
 **✅ Volet 2 — 9 tables du chantier cartographie de cette semaine automatisées (2 août)** :
-4 nouveaux crons hebdomadaires (`wiki-mining-forge-sync`, `wiki-garden-sync`,
-`wiki-slot-upgrades-sync`, `wiki-economy-npc-sync`, tous lundi, décalés de 5 min) qui
-reparsent les pages déjà cachées par `wiki-auto-sync` — `hotm_forge_durations`,
-`garden_pests`/`garden_pest_fortune_penalty`, `time_pocket_upgrades`/`time_pocket_
-aging_items`/`minion_upgrade_items`, `sack_tiers`/`trapper_pelt_rarities`/`trapper_pelt_
-modifiers`. Plus **`discovery-scan`** (quotidien) : ferme le point explicite de
+1 cron hebdomadaire **`wiki-referential-sync`** (lundi 5h45) qui reparse les pages déjà
+cachées par `wiki-auto-sync` — `hotm_forge_durations`, `garden_pests`/`garden_pest_
+fortune_penalty`, `time_pocket_upgrades`/`time_pocket_aging_items`/`minion_upgrade_
+items`, `sack_tiers`/`trapper_pelt_rarities`/`trapper_pelt_modifiers`. *(Construit
+d'abord en 4 crons séparés, fusionnés le même jour sur demande d'optimisation de
+l'utilisateur — chaque table ne coûtait qu'une poignée de lectures Supabase déjà en
+cache + un petit upsert, aucune raison de garder 4 fonctions Vercel séparées pour un
+travail de quelques secondes au total. 7 sous-fonctions toujours isolées par
+try/catch individuel sous une seule entrée `sync_log`, même pattern que
+`network-events-sync` — une table qui échoue son parsing n'empêche ni ne masque les
+autres.)* Plus **`discovery-scan`** (quotidien) : ferme le point explicite de
 l'utilisateur ("la boucle de résilience s'arrête dès qu'on arrête d'y travailler
 manuellement") — nouvelle colonne `game_mechanics_misc.created_at` détecte les pages
 vraiment nouvelles et les logue automatiquement dans `discovery_queue`, zéro Claude.

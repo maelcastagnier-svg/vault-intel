@@ -901,20 +901,33 @@ priorisé avant Volet 1 (compléter les gaps), décision explicite de l'utilisat
 **Scope traité cette passe** : les 9 tables sorties du chantier cartographie de cette
 semaine (Tier 2/Source 3/Bloc 7) — le sous-ensemble que je maîtrisais déjà en détail
 (page source connue, structure déjà comprise en construisant les tables une première
-fois). Groupées en **4 crons hebdomadaires** (lundi, décalés de 5 min chacun) +
-**1 cron quotidien** (`discovery-scan`, la boucle de résilience demandée en point 2) :
+fois). Groupées initialement en **4 crons hebdomadaires** (lundi, décalés de 5 min
+chacun) + **1 cron quotidien** (`discovery-scan`, la boucle de résilience demandée en
+point 2) — voir le détail de chaque groupe ci-dessous, tel que construit et validé.
 
-- **`wiki-mining-forge-sync`** (lundi 5h45) — `hotm_forge_durations` (119 lignes),
+**✅ Fusionnés le même jour en 1 seul cron `wiki-referential-sync`** (question
+d'optimisation légitime de l'utilisateur : chaque groupe ne coûtait qu'une poignée de
+lectures Supabase déjà en cache + un petit upsert, combiné bien sous la limite de
+timeout Vercel — 4 fonctions Vercel séparées n'apportaient rien). Les 7 sous-fonctions
+ci-dessous vivent maintenant dans un seul fichier, chacune toujours isolée par son
+propre try/catch sous une seule entrée `sync_log` (même pattern que
+`network-events-sync`) — le détail par table reste dans `sync_log.details.results`,
+aucune perte de granularité de diagnostic malgré la fusion. Détail de composition
+d'origine, toujours exact fonctionnellement :
+
+- ~~`wiki-mining-forge-sync`~~ (lundi 5h45) — `hotm_forge_durations` (119 lignes),
   reparse `The Forge/Table` (9 sous-sections, rowspan imbriqué réel sur Duration ET
   HotM Requirement indépendamment).
-- **`wiki-garden-sync`** (lundi 5h50) — `garden_pests` (15) + `garden_pest_fortune_
+- ~~`wiki-garden-sync`~~ (lundi 5h50) — `garden_pests` (15) + `garden_pest_fortune_
   penalty` (15), les deux depuis la MÊME page wiki "Pest" (table Pests + table Farming
   Fortune loss de la section Behavior, elle-même à en-tête irrégulier sur 3 blocs `|-`).
-- **`wiki-slot-upgrades-sync`** (lundi 5h55) — `time_pocket_upgrades` (3) + `time_pocket_
+- ~~`wiki-slot-upgrades-sync`~~ (lundi 5h55) — `time_pocket_upgrades` (3) + `time_pocket_
   aging_items` (6, prose regex, pas une wikitable) + `minion_upgrade_items` (19, 5
   onglets tabber réels comme catégorisation).
-- **`wiki-economy-npc-sync`** (lundi 5h58) — `sack_tiers` (4) + `trapper_pelt_rarities`
+- ~~`wiki-economy-npc-sync`~~ (lundi 5h58) — `sack_tiers` (4) + `trapper_pelt_rarities`
   (5) + `trapper_pelt_modifiers` (3).
+
+Cron restant séparé (cadence différente) :
 - **`discovery-scan`** (quotidien 4h) — nouveau mécanisme : `game_mechanics_misc` a reçu
   une colonne `created_at` (migration additive, jamais réécrite par l'upsert de
   `wiki-auto-sync`) pour distinguer une page vraiment nouvelle d'un simple refresh. Ce
@@ -973,3 +986,77 @@ source déjà identifiée pour chacune (recherche dédiée menée avant de coder
 deviné) — prêtes à être automatisées dans une passe future sans avoir à refaire cette
 recherche. `discovery_queue` finale : 39 pending (38 nouvelles + #7 bingo déjà connue),
 12 resolved.
+
+### Plan de consolidation — les 38 tables du backlog (proposé, pas construit)
+
+Suite à la question d'optimisation de l'utilisateur sur la fusion des crons Volet 2,
+même exercice appliqué en amont aux 38 tables encore en `discovery_queue` (pending) —
+avant de commencer à les construire, grouper par cadence (toutes hebdomadaires,
+référentiel statique) ET par poids réel (nombre de pages/sous-pages à fetcher par
+run), pour ne pas répéter le pattern "1 cron par petit groupe" qui aurait fait
+grimper le total sans raison.
+
+**Groupe A — pages uniques, légères (15 tables, 1 cron)** : `magical_power_by_rarity`,
+`gemstone_slot_costs`, `sblevel_tasks`, `skymart_shop`, `hoppity_prestige`,
+`island_warps`, `game_zones`, `rift_guide`, `dungeon_rng_scores`, `accessory_powers`,
+`garden_composter_upgrades`, `garden_plot_costs`, `garden_plots` (même page que
+`garden_plot_costs`, `The Desk/UI` — zéro fetch supplémentaire), `garden_xp_levels`,
+`garden_visitors`. ~14 fetches Supabase réels pour 15 tables (2 partagent une page).
+Runtime attendu : quelques secondes, aucun risque de timeout.
+
+**Groupe B — multi-sous-pages, poids moyen (12 tables, 2 crons)** : `hotm_perks`
+(le plus lourd, ~15-30 sous-pages imbriquées par tier+ability), `hotf_perks`,
+`dungeon_classes` (7 pages), `garden_crop_milestones` (14 pages), `museum_item_xp`
+(8 pages), `reforge_stones` (12 pages), `gemstones` (3-4 pages), `enchantments`
+(11 pages), `slayer_rng_scores` (8 pages), `fairy_soul_locations` (20 pages, déjà
+255 lignes probablement déjà correctes — revalidation plutôt que reconstruction),
+`player_base_stats` (3 pages), `hotm_hotf_powders` (3 pages). Total combiné estimé
+~100-120 fetches Supabase (lecture d'une seule ligne déjà en cache à chaque fois,
+pas d'appel réseau externe) — même à 100 fetches, largement sous n'importe quel
+timeout raisonnable, mais séparé en 2 crons thématiques (Mining/Combat vs
+Garden/Museum/Divers) pour garder un diagnostic lisible si une page change de
+structure et casse un parseur — un cron de 12 tables mêlées rendrait plus dur de
+localiser la régression dans `sync_log.details.results`.
+
+**Groupe C — source incertaine, à investiguer avant de grouper (5 tables)** :
+`george_pet_prices`, `pet_stat_progression`, `minion_tier_xp`, `npc_locations`,
+`garden_crop_upgrade_costs`. Pas de nouveau cron a priori — une fois la vraie page
+confirmée (recherche dédiée nécessaire, notes actuelles marquées "incertain"), chacune
+rejoindra très probablement le Groupe A (toutes légères par nature une fois la source
+connue).
+
+**Groupe D — mécanisme différent, isolé volontairement (2-3 tables, 1 cron)** :
+`item_upgrade_chains` + `accessory_upgrade_paths` (pas de page unique — scraping par
+item contre `items_catalog`/infobox, potentiellement des centaines à quelques milliers
+de lectures selon la couverture réelle, poids et risque de timeout réellement
+différents des groupes A/B) + `museum_sets` (logique de cross-référence par catégorie,
+pas un parseur de page). Isolé pour ne pas faire courir de risque timeout/complexité
+aux tables simples du Groupe A/B, et parce que c'est un mécanisme de construction
+différent (pas juste un autre parseur wikitext).
+
+**Restent explicitement hors de ce plan de consolidation** :
+- `sack_contents` — déjà signalé "risque de régression trop élevé sans revue dédiée"
+  (677 lignes, table plus complexe que `sack_tiers`), décision de ne pas l'automatiser
+  dans un lot générique, reste one-shot en attendant une passe dédiée.
+- `weight_formulas` — source GitHub (Python), mécanisme de fetch totalement différent
+  (pas Supabase-only) — 1 cron séparé si construit, jamais mélangé avec les crons wiki.
+- `forge_recipes` — même page que `hotm_forge_durations` (déjà dans
+  `wiki-referential-sync`) : à construire comme extension de la fonction
+  `syncHotmForgeDurations` existante plutôt qu'un nouveau cron, zéro fetch
+  supplémentaire.
+
+**Total réaliste si ce plan est exécuté tel quel** : Groupe A (1) + Groupe B (2) +
+Groupe D (1) = **4 nouveaux crons** pour couvrir 32 des 38 tables du backlog (les 5 du
+Groupe C rejoignent le Groupe A une fois sourcées, sans cron supplémentaire ;
+`sack_contents`/`weight_formulas`/`forge_recipes` traités hors plan comme documenté
+ci-dessus — `weight_formulas` ajouterait un 5e cron si construit).
+
+**Total de crons du projet une fois tout consolidé (estimation)** :
+16 crons pré-chantier + `network-events-sync` (1) + `discovery-scan` (1) +
+`wiki-referential-sync` (1, déjà fusionné) + 4 nouveaux crons de backlog (Groupes
+A/B/D) = **23 crons**, +1 (`weight_formulas`, GitHub) si construit = **24**. À comparer
+aux ~59 qu'un cron par table aurait produit (48 legacy + 4 Tier 1 + 7 Volet 2), ou aux
+21 déjà atteints avant cette consolidation.
+
+**Pas construit cette passe** — plan proposé pour validation avant de continuer le
+chantier, conformément à la demande explicite de l'utilisateur.
