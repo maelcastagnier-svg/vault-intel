@@ -31,62 +31,75 @@ le jeu depuis ses vraies sources en premier (wiki officiel, NEU-REPO, API Hypixe
 communautaires), PUIS comparer notre base à cette cartographie — jamais l'inverse.
 **Chantier en cours, pas terminé** — voir état d'avancement en fin de section.
 
-### 🚨 PROCHAINE SESSION — commencer ici, bloqué sur reconnexion Supabase MCP
+### ✅ Étapes C/D/E Tier 1 terminées — Économie/Événements réseau, 0% → réel (1er août)
 
-**Correction méthodologique majeure le 1er août, même session que le reste ci-dessous**
-(voir `WIKI-MAPPING.md` section "🔴 CORRECTION MÉTHODOLOGIQUE" pour le détail complet) :
-après une passe système-par-système sur les 15 systèmes présupposés au départ,
+Supabase MCP reconnecté le même jour, Tier 1 traité en entier dans la foulée (Election →
+News → Fire Sales → Bingo, ordre déjà validé). Détail complet dans WIKI-MAPPING.md,
+synthèse ici :
+
+**5 nouvelles tables réelles créées et peuplées** : `discovery_queue` (boucle de
+découverte, 6 entrées loguées ce jour), `skyblock_mayor_election`, `skyblock_news`
+(9 lignes), `skyblock_fire_sales` (0 ligne — vide en vrai, pas de fabrication),
+`skyblock_bingo_events` + `skyblock_bingo_goals` (event août 2026, 25 goals réels dont
+`KILL_TRAPPER_MOB`). Toutes avec RLS + policy lecture publique, cohérent avec le reste
+du projet.
+
+**Cron réel câblé** : `network-events-sync` (`vercel.json`, `*/15 * * * *`), 4 fonctions
+groupées dans un seul cron (même pattern que `skyblock-resources-sync`), zéro clé API
+requise pour les 4. Vérifié en conditions réelles avant merge (route de debug temporaire
+appelant `runNetworkEventsSync()` directement, supprimée après validation) : les 4
+fonctions réussissent via le vrai chemin de code, comptes exacts confirmés contre
+Supabase (élection 1, news 9, fire sales 0, bingo 26 = 1 event + 25 goals), aucun doublon
+malgré les inserts manuels faits pendant le mapping initial (upserts sur les bonnes clés
+de conflit).
+
+**2 corrections trouvées en creusant, pas juste supposées** :
+- Table `mayors` (stub pré-existant, 0 ligne) avait des colonnes inventées
+  (`economic_impact`/`active_items`/`duration_days`) qui ne correspondent à rien dans la
+  vraie réponse API — nouvelle table `skyblock_mayor_election` créée à la place plutôt
+  que de réutiliser un schéma non sourcé, `mayors` non touchée, loguée dans
+  `discovery_queue` pour décision future (fusionner/supprimer).
+- Les marquages 🔴 de l'Étape B pour Sacks et Rift guide étaient trop pessimistes —
+  `sack_contents` (677 lignes) et `rift_guide` (73 lignes) existent déjà réellement en
+  base avec des colonnes plausibles, pas des stubs. Corrigé en 🟡. Limite honnête de
+  l'Étape B assumée dès le départ (pas de vérification Supabase avant reconnexion).
+
+**Reste bloqué** : `/v2/skyblock/bingo` (endpoint live, progression par joueur) exige
+`HYPIXEL_API_KEY`, absente de cet environnement local — loguée dans `discovery_queue`,
+à débloquer une fois la clé récupérée (même pattern d'expiration récurrent déjà
+documenté ailleurs dans ce fichier).
+
+**Prochaine étape** : Tier 2 (Sacks/Bags/Power Stones/Minion Modifiers/The
+Matriarch/Trapper/Races) et Tier 3 (10 événements saisonniers), voir plan complet et
+priorisation dans WIKI-MAPPING.md. Pluton (Bloc 8) reste en pause jusqu'à ce que cette
+base soit jugée suffisante — pas de nouveau seuil fixé, décision au fil de l'eau avec
+l'utilisateur.
+
+### Contexte — correction méthodologique du 1er août
+
+Après une passe système-par-système sur les 15 systèmes présupposés au départ,
 l'utilisateur a posé une question de contrôle qui a révélé un vrai biais — je vérifiais
 la liste présupposée au lieu de laisser les sources découvrir leur propre structure.
 **Méthode corrigée et imposée pour la suite, en 5 étapes strictes : A (découverte brute,
 zéro filtre) → B (regroupement basé sur l'organisation des sources elles-mêmes) → C
-(comparaison Supabase) → D (plan de tables) → E (automatisation récurrente).**
+(comparaison Supabase) → D (plan de tables) → E (automatisation récurrente).** Détail
+complet des étapes A/B (15 159 pages wiki, 112 Nav réels, 32 endpoints API, 3 projets
+communautaires) dans `WIKI-MAPPING.md`, section "🔴 CORRECTION MÉTHODOLOGIQUE".
 
-**Étapes A et B terminées et validées par l'utilisateur** (voir WIKI-MAPPING.md pour le
-détail complet des sources et de la liste de systèmes) — synthèse :
-- Découverte brute exhaustive : 15 159 pages wiki + 2 381 templates (dont 112 vrais
-  `Nav/*` = organisation par le wiki lui-même) + 32 endpoints API Hypixel réels + 3
-  projets communautaires (SkyHanni 29 dossiers features, Firmament, hypixel-api-reborn
-  364 fichiers Skyblock typés).
-- **Estimation honnête de couverture (demandée explicitement, pas un chiffre rond)** :
-  localisation des sources ~80-90%, identification des systèmes ~70-75% (basée sur des
-  NOMS de template, pas leur contenu réel), contenu réellement lu ~3-5%, validation
-  contre de la vraie donnée live ~0% pour les découvertes du jour. **Chiffre unique
-  honnête pour "prêt à construire le schéma final" : 15-25%, pas plus.**
-- **Plus gros trou trouvé** : bloc Économie/Événements réseau quasiment à 0% —
-  Mayor/Minister Election, Fire Sales, News officiel Hypixel, Bingo — 4 endpoints
-  `/v2/*` réels jamais appelés une seule fois dans ce projet (vérifié par grep code,
-  pas juste supposé).
-- **Rift confirmé plus profond que documenté** : les 11 sous-systèmes déjà connus
-  cachent des sous-minigames (Barry/Cowboy/Murder dans Village Plaza,
-  CrazyKloon/Glyphs/KatHouse/Mirrorverse dans West Village) — trouvé seulement en
-  ouvrant hypixel-api-reborn, jamais visible au niveau wiki/titre. **Preuve directe
-  que la liste B n'est pas figée.**
+**Boucle de découverte explicite** (remplace une liste B figée) : un système n'est
+"couvert" que quand son propre fetch en profondeur ne fait plus apparaître de nouvelle
+sous-référence — toute sous-page/champ/mécanique inconnue croisée en cours de fetch va
+dans `discovery_queue` et est traitée dans la foulée, jamais reportée. Preuve directe de
+la nécessité de cette règle : les 11 sous-systèmes Rift déjà connus cachaient des
+sous-minigames (Barry/Cowboy/Murder, CrazyKloon/Glyphs/KatHouse/Mirrorverse) invisibles
+au niveau wiki/titre, trouvés seulement en ouvrant hypixel-api-reborn.
 
-**Boucle de découverte explicite validée** (remplace une liste B figée) : un système
-n'est "couvert" que quand son propre fetch en profondeur ne fait plus apparaître de
-nouvelle sous-référence — toute sous-page/champ/mécanique inconnue croisée en cours de
-fetch va dans une `discovery_queue` (schéma prêt, pas encore créée) et est traitée dans
-la foulée, jamais reportée.
-
-**Vérification Tier 1 déjà faite (zéro coût, zéro écriture, avant tout mapping)** — les
-4 endpoints prioritaires confirmés réels et fonctionnels en direct le 1er août :
-`/v2/resources/skyblock/election` (mayor actif Scorpius, perk "Darker Auctions" +3
-rounds Dark Auction — vraie interaction inter-systèmes), `/v2/skyblock/news` (annonces
-officielles, dates cohérentes avec le scraping wiki existant — recoupement possible
-pour `patch-analysis-agent`), `/v2/skyblock/firesales` (structure confirmée, vide au
-moment du test), `/v2/resources/skyblock/bingo` (event réel août 2026, contient un
-goal `KILL_TRAPPER_MOB` qui **cross-valide la découverte "Trapper" du jour sans
-l'avoir cherché exprès**). Seul `/v2/skyblock/bingo` (endpoint live, pas `resources/`)
-a échoué — nécessite `HYPIXEL_API_KEY`, absente de cet environnement local.
-
-**Prochaine action concrète, dans l'ordre, dès que Supabase MCP est reconnecté** :
-1. Créer `discovery_queue` (`source`, `reference_name`, `discovered_via`, `status`).
-2. Commencer le fetch en profondeur du Tier 1 (Election → News → Fire Sales → Bingo,
-   dans cet ordre de priorité déjà validé par l'utilisateur) avec la boucle de
-   découverte active dès le premier système.
-3. Récupérer `HYPIXEL_API_KEY` (probablement expirée à nouveau, pattern récurrent déjà
-   documenté) pour débloquer `/v2/skyblock/bingo`.
+**Estimation honnête de couverture au moment de la correction** (demandée
+explicitement, pas un chiffre rond) : localisation des sources ~80-90%, identification
+des systèmes ~70-75% (basée sur des noms de template, pas leur contenu réel), contenu
+réellement lu ~3-5%, validation live ~0%. Chiffre unique honnête à ce moment-là :
+15-25%, pas plus — le Tier 1 ci-dessus fait progresser ce chiffre sur un bloc précis,
+pas sur l'ensemble.
 
 **Pluton (Bloc 8) reste en pause jusqu'à ce que cette base de données complète soit
 construite** — pas avant, décision explicite de l'utilisateur.

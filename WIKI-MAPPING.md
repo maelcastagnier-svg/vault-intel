@@ -570,3 +570,115 @@ Aucune clé API nécessaire pour 3 des 4 (les endpoints `resources/` et `skybloc
    soi, comme point de départ vivant.
 3. `HYPIXEL_API_KEY` nécessaire pour `/v2/skyblock/bingo` (endpoint live) — à
    vérifier/récupérer depuis Vercel, pas trouvée en local cette session.
+
+## Étapes C/D/E — Tier 1 exécuté en entier (1er août, Supabase reconnecté même session)
+
+Ordre suivi : Election → News → Fire Sales → Bingo (déjà validé). Méthode systématique
+par source : re-fetch complet non tronqué → design de table basé UNIQUEMENT sur les
+champs réellement observés (ou cross-vérifiés via une lib tierce sourcée quand
+l'endpoint est vide) → migration → insertion manuelle de la donnée réelle pour
+valider le schéma → écriture du cron réel → vérification en conditions réelles via
+route de debug temporaire (bypass `CRON_SECRET`) → suppression de la route de debug →
+merge.
+
+### `discovery_queue` créée en premier
+
+Schéma : `source, reference_name, discovered_via, status
+(pending|in_progress|resolved|not_applicable), notes, created_at, resolved_at`.
+6 entrées loguées le jour même : The Matriarch, Rift Village Plaza sous-minigames,
+Rift West Village sous-minigames, Rift Gallery SecuredTrophy, Trapper (+ cross-
+validation via le goal Bingo réel), et la correction du schéma `mayors`.
+
+### Election → `skyblock_mayor_election`
+
+Vraie forme complète (`/v2/resources/skyblock/election`, public) : `mayor.key/name/
+perks[]` (perk = `{name, description, minister}`) + `mayor.election.year/candidates[]`
+(candidat = `{key, name, perks[], votes}`) pour l'élection passée qui a mis ce mayor en
+place, PLUS un bloc `current.year/candidates[]` séparé = l'élection EN COURS (votes
+live pour le prochain mandat). Table conçue avec ces deux axes distincts
+(`current_mayor_*` vs `next_election_*`), `UNIQUE(current_mayor_key,
+current_mayor_election_year)`, `raw jsonb` en filet de sécurité.
+
+Donnée réelle chargée (1er août 2026) : mayor actif **Scorpius** (élu année 504,
+perks Bribe + Darker Auctions), élection en cours année 505 avec 5 candidats réels
+(Diana/pets, Marina/fishing, Diaz/economist, Foxy/events, Paul/dungeons) et leurs vrais
+votes. **Interactions économiques réelles trouvées, jamais documentées** :
+- Darker Auctions (Scorpius) : +3 rounds Dark Auction.
+- Shopping Spree (Diaz, economist) : NPC buy limits ×10 si minister.
+- Volume Trading (Diaz) : double la quantité disponible par Shen's Auction +2 auctions
+  spéciales si Diaz mayor.
+- Luck of the Sea 2.0 (Marina, fishing) : +15 Sea Creature Chance si minister — se
+  superpose directement à la formule SCC déjà sourcée (base 20%, ÷4 zones agricoles).
+
+**`mayors` (stub pré-existant, 0 ligne) NON réutilisée** : colonnes
+`economic_impact`/`active_items`/`duration_days` ne correspondent à rien dans la vraie
+réponse API — probable schéma deviné avant que la règle 7 soit strictement appliquée.
+Nouvelle table créée à la place, `mayors` laissée intacte, décision de fusion/
+suppression future loguée dans `discovery_queue`, pas tranchée seule.
+
+### News → `skyblock_news`
+
+Vraie forme (`/v2/skyblock/news`, public) : `items[]` = `{item:{material}, link, text,
+title}`. Piège trouvé : `text` est une date lisible ("22nd July 2026"), pas un
+timestamp — parsée côté cron (`published_at`, nullable si le parsing échoue plutôt que
+de planter). `link` = clé naturelle (vraie URL de thread Hypixel). Seulement 9 items
+retournés (~6 mois d'historique, 27 janvier → 22 juillet 2026) — pas d'archive
+complète, confirmé en re-fetchant sans troncature.
+
+### Fire Sales → `skyblock_fire_sales`
+
+Réponse vide au moment du mapping (`{"success":true,"sales":[]}`) — **champs jamais
+devinés** : cross-vérifiés en lisant le code source réel de
+`hypixel-api-reborn/src/Structures/SkyBlock/FireSale/SkyBlockFireSale.ts`, qui parse
+`data.item_id/start/end/amount/price` depuis la réponse brute. Table créée avec ces
+champs exacts, 0 ligne chargée (honnête, pas de fabrication). `start`/`end` en ms
+epoch confirmés par la lib (`new Date(data.start)`).
+
+### Bingo → `skyblock_bingo_events` + `skyblock_bingo_goals`
+
+`/v2/resources/skyblock/bingo` (public) — event réel août 2026 (id 56 = vrai id
+Hypixel, pas généré), 25 goals réels avec des formes hétérogènes (certains ont
+`tiers[]`+`progress`, la majorité ont juste `requiredAmount`, quelques-uns n'ont
+aucun seuil du tout — juste un `id`/`name`/`lore`). `progress` sur les goals à tiers
+ressemble à une progression communautaire globale (ex: `break_block_crops` à
+133 994 731 / seuil max 150 000 000) — stocké tel quel, pas interprété (règle 7,
+signification exacte pas confirmée).
+
+**`/v2/skyblock/bingo` (endpoint live, distinct) reste bloqué** — `{"success":false,
+"cause":"Missing API-Key header"}`, `HYPIXEL_API_KEY` absente en local, loguée dans
+`discovery_queue`.
+
+### Cron réel — `network-events-sync`
+
+`app/api/cron/network-events-sync/route.ts`, `vercel.json` `*/15 * * * *` (cadence
+unique pour les 4, dominée par le besoin de fraîcheur des Fire Sales — le reste est
+bon marché à sur-fetcher). Même pattern multi-fonctions que `skyblock-resources-sync`
+(1 cron, `sync_log` startSync/finishSync, upserts par lots). `runNetworkEventsSync()`
+exportée séparément du handler `GET` pour permettre la vérification directe sans
+`CRON_SECRET` (même pattern que `runAhCollect()`/`runAhAggregate()`).
+
+**Vérifié en conditions réelles avant merge** (route de debug temporaire, supprimée
+après validation) : les 4 fonctions réussissent via le vrai chemin de code — election
+1 ligne, news 9, fire_sales 0, bingo 26 (1 event + 25 goals). Recompté directement en
+base après coup : comptes identiques, aucun doublon malgré le chevauchement avec les
+inserts manuels faits pendant le mapping (upserts sur les bonnes clés de conflit dans
+les deux cas).
+
+### Corrections trouvées en creusant l'état réel de Supabase
+
+`list_tables` au tout début de ce passage a révélé que deux marquages 🔴 de l'Étape B
+étaient trop pessimistes (limite honnête déjà annoncée : l'Étape B n'avait pas vérifié
+Supabase avant la reconnexion) :
+- **Sacks** : `sack_contents(sack_item_id, sack_category, accepted_item)`, 677 lignes
+  réelles, colonnes plausibles — pas un stub. Corrigé 🔴→🟡.
+- **Rift guide** : `rift_guide(task_id, task_name, zone, description, sub_tasks,
+  wiki_link)`, 73 lignes réelles — plus avancé que ce que l'archive du 23 juillet
+  ("reste en cache brut seulement") laissait supposer. Reste un référentiel de tâches,
+  ne débloque pas le vrai blocage Rift (données joueur, Bloc 7).
+
+### Prochaine étape (Tier 2/3, pas commencé)
+
+Tier 2 : Sacks (compléter, pas recréer) → Bags → Power Stones → Minion Modifiers →
+The Matriarch → Trapper → Races. Tier 3 : les 10 événements saisonniers. Tous des
+référentiels wiki statiques (même méthode que `wiki-auto-sync`/`neu-sync`), pas de
+nouveau cron API dédié nécessaire contrairement au Tier 1.
