@@ -13,6 +13,7 @@ Systèmes couverts, dans l'ordre où ils ont été traités :
 - Farming (1er août)
 - Foraging (1er août) — inclut Heart of the Forest (2e arbre HOTM-like demandé)
 - Fishing (1er août)
+- Dungeons (1er août)
 
 ---
 
@@ -205,3 +206,37 @@ Blessed Bait, l'enchant Blessing, ou un Hermit Crab Pet Rare+.
 Fishing Baits, les 9 pets Fishing (Ammonite/Baby Yeti/Blue Whale/Dolphin/Flying Fish/
 Megalodon/Penguin/Seal/Spinosaurus), Fishing Hotspots, table complète des Sea Creatures
 par zone/niveau. Comparaison Étape 3 en attente de Supabase MCP.
+
+## Dungeons (1er août)
+
+Pages réelles récupérées : `Dungeoneering` (skill), `Catacombs` (système), `Dungeon_Score`,
+`Gear_Score`, `Class_Milestones`.
+
+**🔴 Formule réelle de Dungeon Score trouvée — répond directement au trou d'origine de
+l'audit du 22 juillet** (`dungeon_rng_scores`, une des 30 tables "sans provenance
+traçable" listées à l'époque). Formule complète sourcée (`Dungeon_Score`) :
+`Score = Skill + Explore + Speed + Bonus`, où `Skill = floor(100 - Deaths×2 -
+FailedPuzzles×14)` (ne s'applique qu'aux runs complétés), `Explore` combine
+`floor(60×RoomsCleared/TotalRooms)` + jusqu'à 40 points de secrets (seuil de %
+Secrets requis variable par étage : 30% F1 → 100% F7/Master), `Speed` décroît après un
+temps limite variable par étage (10-14min normal, 8-14min Master), `Bonus` = jusqu'à 5
+pour Crypts nettoyées + 2 pour tuer un Mimic (F6+) + 10 si Paul est maire avec le perk
+EZPZ actif. **6 rangs réels et leurs seuils** : D (0-99) / C (100-159) / B (160-229) /
+A (230-269.4) / S (269.5-299) / S+ (≥300). Boss non tué = score réduit de 30%. La page
+elle-même note que les formules Explore/Speed restent partiellement non confirmées par
+la communauté (`{{Confirm}}` sur le wiki) — à garder en tête si une future feature
+recalcule un score prédictif plutôt que de lire le score réel renvoyé par Hypixel.
+
+**Dungeoneering (Catacombs) — mécanique de "Dungeonizing" jamais sourcée** : le niveau
+de la skill Catacombs donne un multiplicateur multiplicatif sur les stats des items de
+donjon (dungeonisés), jusqu'à **+485%** au niveau max — jamais documenté dans ce
+projet. Les 5 premières complétions de la journée donnent un bonus de +40% XP Catacombs
+(les runs échouées ne comptent pas pour ce bonus).
+
+**Pas encore fait pour Dungeons** : détail complet des 10 étages (mobs, loot par
+étage au-delà de ce qui est déjà dans `dungeon_classes`/collecte totale), Class
+Milestones (perks par classe/niveau — page récupérée mais pas dépouillée), Dungeon
+Puzzle Rooms, Essence Shops (page catégorisée Dungeons mais recoupe potentiellement
+`essence_shop_upgrades` déjà chargé — pas vérifié). Comparaison Étape 3 (dont le vrai
+contenu de `dungeon_rng_scores`/`slayer_rng_scores` contre ces formules) en attente de
+Supabase MCP.

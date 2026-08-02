@@ -160,6 +160,12 @@ confirmé comme système à part (4 tiers Bronze→Diamond, Lotus Atoll + Crimso
 distinct de `trophy_fish_thresholds` déjà chargé. Probabilités Treasure Fishing
 jamais sourcées (89% good/10% great/1% outstanding).
 
+**Dungeons** (voir WIKI-MAPPING.md) : **formule complète de Dungeon Score trouvée** —
+répond directement au trou d'origine identifié le 22 juillet (`dungeon_rng_scores`,
+provenance jamais tracée). Score = Skill+Explore+Speed+Bonus, 6 rangs réels D→S+
+(seuils 0/100/160/230/269.5/300). Mécanique "Dungeonizing" jamais sourcée : le niveau
+Catacombs donne jusqu'à +485% de stats multiplicatif sur les items dungeonisés.
+
 ### État d'avancement de la cartographie
 
 **Terminé** : Source 1 (NEU-REPO), 40/40 fichiers, reconfirmés exhaustifs en direct.
