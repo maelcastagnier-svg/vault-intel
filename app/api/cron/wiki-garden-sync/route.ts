@@ -75,7 +75,10 @@ async function syncGardenPestFortunePenalty(): Promise<number> {
   if (sectionIdx === -1) throw new Error('pest: section "== Behavior ==" introuvable')
   const sectionBody = content.slice(sectionIdx, sectionIdx + 4000)
   const tableStart = sectionBody.indexOf('{|')
-  const tableEnd = sectionBody.lastIndexOf('|}')
+  // indexOf depuis tableStart, pas lastIndexOf sur toute la fenêtre -- même bug que
+  // extractFirstWikitableBody corrigé le même jour (lib/wiki-table-parse.ts), la fenêtre
+  // de 4000 caractères peut contenir le début d'une autre wikitable plus loin sur la page.
+  const tableEnd = sectionBody.indexOf('|}', tableStart)
   if (tableStart === -1 || tableEnd === -1) throw new Error('pest: wikitable "Farming Fortune loss" introuvable')
   const table = sectionBody.slice(tableStart, tableEnd)
 

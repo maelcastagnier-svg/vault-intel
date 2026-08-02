@@ -15,6 +15,11 @@
     { "path": "/api/cron/armor-color-sync",     "schedule": "30 5 * * 1"  },
     { "path": "/api/cron/skyblock-resources-sync", "schedule": "0 1 * * *" },
     { "path": "/api/cron/milestones-sync",       "schedule": "0 6 1 * *"  },
-    { "path": "/api/cron/network-events-sync",   "schedule": "*/15 * * * *" }
+    { "path": "/api/cron/network-events-sync",   "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/discovery-scan",        "schedule": "0 4 * * *"   },
+    { "path": "/api/cron/wiki-mining-forge-sync",  "schedule": "45 5 * * 1" },
+    { "path": "/api/cron/wiki-garden-sync",        "schedule": "50 5 * * 1" },
+    { "path": "/api/cron/wiki-slot-upgrades-sync", "schedule": "55 5 * * 1" },
+    { "path": "/api/cron/wiki-economy-npc-sync",   "schedule": "58 5 * * 1" }
   ]
 }

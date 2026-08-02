@@ -43,10 +43,15 @@ async function syncSackTiers(): Promise<number> {
 async function syncTrapperPelts(): Promise<number> {
   const content = await getWikiContent(supabase, 'pelts')
 
-  // Table Modifiers (2 colonnes : Modifier, Increase)
+  // Table Modifiers (2 colonnes : Modifier, Increase) -- "|+Modifiers" est la légende,
+  // À L'INTÉRIEUR de la table ; le "{|" d'ouverture est sur la ligne D'AVANT. Chercher
+  // depuis modIdx directement (sans revenir au "{|" précédent) fait sauter cette table
+  // et tombe sur la SUIVANTE (Rarity) -- bug réel trouvé en testant en local avant
+  // déploiement (2 août).
   const modIdx = content.indexOf('|+Modifiers')
   if (modIdx === -1) throw new Error('pelts: table "Modifiers" introuvable')
-  const modBody = extractFirstWikitableBody(content.slice(modIdx, modIdx + 600))
+  const modTableStart = content.lastIndexOf('{|', modIdx)
+  const modBody = extractFirstWikitableBody(content.slice(modTableStart, modIdx + 600))
   if (!modBody) throw new Error('pelts: wikitable "Modifiers" introuvable')
   const modRows = parseRowspanTable(modBody, 2)
     .map(r => {

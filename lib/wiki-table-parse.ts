@@ -62,7 +62,14 @@ export function parseRowspanTable(tableBody: string, numCols: number): string[][
 // donnée réelle commence toujours par "|") -- ne suppose jamais un seul bloc d'en-tête.
 export function extractFirstWikitableBody(text: string): string | null {
   const tableStart = text.indexOf('{|')
-  const tableEnd = text.lastIndexOf('|}')
+  // indexOf (pas lastIndexOf) à partir du début de la table : si le texte passé n'est
+  // pas strictement borné à cette seule table (ex: reste de la page après elle), un
+  // lastIndexOf() sur tout le texte capturerait le "|}" d'une AUTRE wikitable plus loin
+  // et ferait fuiter des lignes non pertinentes -- bug réel trouvé en testant
+  // wiki-garden-sync en local avant déploiement (2 août). Aucune des tables ciblées par
+  // ce chantier n'a de wikitable imbriquée, donc le premier "|}" après "{|" est toujours
+  // le bon.
+  const tableEnd = text.indexOf('|}', tableStart)
   if (tableStart === -1 || tableEnd === -1) return null
   const table = text.slice(tableStart, tableEnd)
   const blocks = table.split(/\n\|-\n?/)
