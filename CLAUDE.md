@@ -179,6 +179,12 @@ plafonne à 50, pas 60** contrairement à Combat/Farming/Enchanting (tous confir
 cette passe) — risque réel si un calcul de progression suppose un cap uniforme, à
 vérifier en Étape 3.
 
+**Rift** (voir WIKI-MAPPING.md) : reste bloqué en données réelles (aucun profil de
+test engagé, voir Bloc 7) — mapping mécanique seul cette passe. 9 zones réelles
+confirmées, légèrement différentes des 11 clés API déjà documentées (deux découpages
+distincts, pas réconciliés faute de profil réel). Rift Time et le vrai système de
+Timecharms (progression jamais mappée) confirmés réels et riches.
+
 ### État d'avancement de la cartographie
 
 **Terminé** : Source 1 (NEU-REPO), 40/40 fichiers, reconfirmés exhaustifs en direct.

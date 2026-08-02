@@ -16,6 +16,7 @@ Systèmes couverts, dans l'ordre où ils ont été traités :
 - Dungeons (1er août)
 - Crimson Isle/Kuudra (1er août)
 - Enchanting/Alchemy (1er août)
+- Rift (1er août) — mapping mécanique seul, reste bloqué en données réelles (voir Bloc 7)
 
 ---
 
@@ -296,3 +297,32 @@ cap uniforme de 60 pour tous les skills, c'est un vrai risque d'erreur pour Alch
 (Enchantments/List, ~100 enchants réels recensés dans la taxonomie de catégories),
 Runecrafting (page récupérée mais pas dépouillée), tableau XP complet Alchemy par
 potion. Comparaison Étape 3 en attente de Supabase MCP.
+
+## Rift (1er août)
+
+Pages réelles récupérées : `Rift_Dimension` (système), `Motes` (monnaie), `Rift_Damage`.
+Rift reste fondamentalement bloqué côté données réelles (aucun profil de test engagé,
+voir Bloc 7) — cette passe cartographie la mécanique de jeu elle-même, pas une
+vérification de structure API contre un vrai joueur.
+
+**9 zones réelles confirmées** (`Rift_Dimension`, section Locations) : Wyld Woods,
+Black Lagoon, West Village, Dreadfarm, Village Plaza, Living Cave, Colosseum, Stillgore
+Château, The Mountaintop. Légèrement différent des 11 clés API déjà documentées dans
+`member.rift` (Bloc collecte totale Phase 7 : village_plaza/wither_cage/black_lagoon/
+dead_cats/wizard_tower/enigma/gallery/west_village/wyld_woods/castle/dreadfarm) — pas
+une contradiction, juste deux découpages différents (zones visitables vs sous-systèmes
+de progression API), pas réconcilié cette passe faute de profil réel pour vérifier.
+
+**Rift Time — mécanique jamais documentée** : stat qui détermine le temps restant avant
+téléportation forcée au Hub (480s/8min de base), ne se déplète pas dans certaines zones
+sûres (Wizard Tower sauf étage du bas, Rift Gallery, Mirrorverse). Motes (monnaie) :
++25 par orbe (+2 Rift Time), +10 dans Enigma's Crib (sans bonus de temps) — confirme
+l'existence d'un vrai currency system riche, sans rapport avec le bug `rift_motes`
+déjà documenté (lit `currencies.motes.current` au lieu du vrai `currencies.motes_purse`
+— toujours pas corrigé, cette page ne renseigne pas sur le nom du champ API).
+
+**Pas encore fait pour Rift** : Rift Transferables/Exportables (liste d'items),
+Timecharms (progression système réel — SkyBlock Citizen/Living/Globulate/Vampiric —
+jamais mappé), les boss Rift (Leech Supreme, Bacte...). Comparaison Étape 3 impossible
+tant qu'aucun profil réel n'a de contenu Rift à vérifier (limite déjà actée au Bloc 7,
+pas une limite de cette passe wiki).
