@@ -172,6 +172,13 @@ quelle faction). Boss fight à 5 phases réelles jamais documentées (Crates→B
 Fuel→Stomach→Lair). Dojo : vraie structure à 7 mini-jeux confirmée côté jeu, mais ne
 contredit pas le blocage API déjà documenté au Bloc 7 (verified-absent).
 
+**Enchanting/Alchemy** (voir WIKI-MAPPING.md) : formule XP Enchanting jamais sourcée
+(`3.5×X^1.5`, plafond 500k XP/jour). Conjurer (passif Enchanting) donne +5% XP/niveau,
+contre +4%/niveau pour les autres skills — structurellement différent. **🟡 Alchemy
+plafonne à 50, pas 60** contrairement à Combat/Farming/Enchanting (tous confirmés 60
+cette passe) — risque réel si un calcul de progression suppose un cap uniforme, à
+vérifier en Étape 3.
+
 ### État d'avancement de la cartographie
 
 **Terminé** : Source 1 (NEU-REPO), 40/40 fichiers, reconfirmés exhaustifs en direct.

@@ -15,6 +15,7 @@ Systèmes couverts, dans l'ordre où ils ont été traités :
 - Fishing (1er août)
 - Dungeons (1er août)
 - Crimson Isle/Kuudra (1er août)
+- Enchanting/Alchemy (1er août)
 
 ---
 
@@ -271,3 +272,27 @@ contexte si jamais un accès alternatif à cette donnée est trouvé plus tard.
 dépouillée), la centaine de mobs/NPCs de zone (Aranya/Ashfang/Barbarian Duke X etc.),
 Factions/Faction Quests (système de réputation lui-même, cité mais pas creusé — voir
 aussi Dojo qui en dépend indirectement). Comparaison Étape 3 en attente de Supabase MCP.
+
+## Enchanting/Alchemy (1er août)
+
+Pages réelles récupérées : `Enchanting` (skill), `Alchemy` (skill), `Runecrafting`.
+
+**Formule XP Enchanting réelle, jamais sourcée** : `XP = 3.5 × X^1.5`, où X = niveaux
+d'enchant dépensés sur une Table d'Enchantement/Enclume. Plafond réel de 500 000 XP
+Enchanting/jour par cette voie (l'Experimentation Table contourne ce plafond mais a son
+propre cooldown journalier et une limite non documentée par le wiki lui-même).
+**Conjurer** — habileté passive unique à Enchanting, +5% XP de toute source par niveau
+(les autres skills donnent généralement +4%/niveau, ex: Warrior Bonus de Combat) —
+Enchanting est donc structurellement différent des autres skills, jamais noté dans ce
+projet.
+
+**🟡 Alchemy plafonne à 50, pas 60** — vérifié explicitement sur l'infobox de la page
+(`max_level = 50`), alors que Combat/Farming/Enchanting confirmés à 60 lors de cette
+même passe Source 2. Si `skills`/tout calcul de progression dans ce projet suppose un
+cap uniforme de 60 pour tous les skills, c'est un vrai risque d'erreur pour Alchemy —
+à vérifier explicitement en Étape 3 (pas fait, Supabase indisponible).
+
+**Pas encore fait pour Enchanting/Alchemy** : détail des enchantements individuels
+(Enchantments/List, ~100 enchants réels recensés dans la taxonomie de catégories),
+Runecrafting (page récupérée mais pas dépouillée), tableau XP complet Alchemy par
+potion. Comparaison Étape 3 en attente de Supabase MCP.
