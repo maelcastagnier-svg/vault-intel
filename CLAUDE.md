@@ -166,6 +166,12 @@ provenance jamais tracée). Score = Skill+Explore+Speed+Bonus, 6 rangs réels D�
 (seuils 0/100/160/230/269.5/300). Mécanique "Dungeonizing" jamais sourcée : le niveau
 Catacombs donne jusqu'à +485% de stats multiplicatif sur les items dungeonisés.
 
+**Crimson Isle/Kuudra** (voir WIKI-MAPPING.md) : 5 tiers Kuudra confirmés avec leurs
+vrais seuils de réputation faction jamais sourcés (1000/3000/7000/12000, n'importe
+quelle faction). Boss fight à 5 phases réelles jamais documentées (Crates→Ballista→
+Fuel→Stomach→Lair). Dojo : vraie structure à 7 mini-jeux confirmée côté jeu, mais ne
+contredit pas le blocage API déjà documenté au Bloc 7 (verified-absent).
+
 ### État d'avancement de la cartographie
 
 **Terminé** : Source 1 (NEU-REPO), 40/40 fichiers, reconfirmés exhaustifs en direct.

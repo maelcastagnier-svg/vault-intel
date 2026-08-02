@@ -14,6 +14,7 @@ Systèmes couverts, dans l'ordre où ils ont été traités :
 - Foraging (1er août) — inclut Heart of the Forest (2e arbre HOTM-like demandé)
 - Fishing (1er août)
 - Dungeons (1er août)
+- Crimson Isle/Kuudra (1er août)
 
 ---
 
@@ -240,3 +241,33 @@ Puzzle Rooms, Essence Shops (page catégorisée Dungeons mais recoupe potentiell
 `essence_shop_upgrades` déjà chargé — pas vérifié). Comparaison Étape 3 (dont le vrai
 contenu de `dungeon_rng_scores`/`slayer_rng_scores` contre ces formules) en attente de
 Supabase MCP.
+
+## Crimson Isle/Kuudra (1er août)
+
+Pages réelles récupérées : `Kuudra`, `Crimson_Isle`, `Dojo`, `Kuudra_Teeth`.
+
+**5 tiers Kuudra réels, gates de réputation jamais sourcés** (`Kuudra`, section
+"Tiers") : Basic (accès via Elle, gratuit) → Hot (quête principale + 1000 réputation
+faction) → Burning (3000) → Fiery (7000) → Infernal (12000), réputation dans
+**n'importe quelle faction** (pas une faction spécifique). Chaque tier a son propre
+timing de vague (35s→15s) et récompense SkyBlock XP (20→100). Confirme/complète
+`kuudra_teeth`/le wiki caché `game_mechanics_misc` déjà utilisés au Bloc 4 pour les
+5 tiers réels (none/hot/burning/fiery/infernal) — première fois que les seuils de
+réputation eux-mêmes sont sourcés.
+
+**Boss fight à 5 phases réelles, jamais documentées** : Phase 1 Crates (pêcher des
+caisses à la canne à lave) → Phase 2 Ballista (construction) → Phase 3 Fuel (pêcher 4
+Fuel Cells, obligatoire d'étourdir Kuudra avant de tirer dès le tier Burning+) →
+Phase 4 Stomach → Phase 5 Lair. Zéro trace de cette mécanique dans le projet.
+
+**Dojo — confirme (ne contredit pas) le blocage déjà documenté en Bloc 7** : la page
+wiki révèle une vraie structure de jeu à 7 mini-jeux (Test of Force/Stamina/Mastery/
+Discipline/Swiftness/Control/Tenacity) + un système de Milestones — mais c'est du
+contenu de gameplay, pas une preuve que l'API l'expose. Cohérent avec le Bloc 7
+("seul le statut de quête d'unlock existe côté API, verified-absent"). Utile comme
+contexte si jamais un accès alternatif à cette donnée est trouvé plus tard.
+
+**Pas encore fait pour Crimson Isle/Kuudra** : détail du Perk Shop (page vue mais pas
+dépouillée), la centaine de mobs/NPCs de zone (Aranya/Ashfang/Barbarian Duke X etc.),
+Factions/Faction Quests (système de réputation lui-même, cité mais pas creusé — voir
+aussi Dojo qui en dépend indirectement). Comparaison Étape 3 en attente de Supabase MCP.
