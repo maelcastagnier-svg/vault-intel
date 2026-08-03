@@ -1593,6 +1593,90 @@ async function syncSeaCreaturePools(): Promise<number> {
 }
 
 // ============================================================
+// skyblock_level_rewards -- SkyBlock Levels (page racine, distincte de "SkyBlock Levels/
+// Tasks" déjà mappée dans skyblock_level_xp_tasks). Cette page couvre les RÉCOMPENSES par
+// palier (Features/Prefix Color/Prefix Emblem/Stat/Bonus) -- complète directement les
+// XP SOURCES déjà mappées, jamais capturé avant. Section "Stat" n'a pas de wikitable
+// (juste 2 lignes de prose, un bonus récurrent "par niveau" et non un palier unique) --
+// capturée telle quelle en 2 lignes texte plutôt que forcée dans le même moule que les
+// autres sections. Vérifié en local (parse_sblevel_rewards.js) : 52 lignes (5 catégories),
+// 0 reward vide, 0 markup wiki résiduel.
+// ============================================================
+function cleanLevelRewardCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\[\[File:[^\]]*\]\]/g, '')
+  s = s.replace(/\{\{SBL\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{DG\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{stat\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/'''/g, '')
+  s = s.replace(/<br\s*\/?>/gi, '; ')
+  s = s.replace(/\s+/g, ' ')
+  return s.trim()
+}
+async function syncSkyblockLevelRewards(): Promise<number> {
+  const content = await getWikiContent(supabase, 'skyblock_levels')
+  const sectionRe = /=== ([^=]+) ===\n/g
+  const matches = [...content.matchAll(sectionRe)]
+  if (matches.length === 0) throw new Error('skyblock_level_rewards: aucune section trouvée')
+  const bounds = matches.map((m, i) => ({
+    name: m[1].trim(),
+    start: m.index! + m[0].length,
+    end: i + 1 < matches.length ? matches[i + 1].index! : content.length,
+  }))
+
+  const rows: any[] = []
+  for (const b of bounds) {
+    const chunk = content.slice(b.start, b.end)
+    if (b.name === 'Stat') {
+      const lines = chunk.split('\n').map(l => l.trim()).filter(l => l.startsWith('For every'))
+      for (const l of lines) rows.push({ category: 'Stat', reward: cleanLevelRewardCell(l), preview: null, description: null, level: null })
+      continue
+    }
+    const tableStart = chunk.indexOf('{|')
+    const tableEnd = chunk.indexOf('|}', tableStart)
+    if (tableStart === -1 || tableEnd === -1) continue
+    const table = chunk.slice(tableStart, tableEnd)
+    const allBlocks = table.split(/\n\|-\n?/)
+    const dataStart = allBlocks.findIndex(bl => bl.trim().startsWith('|') && !bl.trim().startsWith('!'))
+    if (dataStart === -1) continue
+    const headerBlocks = allBlocks.slice(0, dataStart)
+    const headers = headerBlocks.join('\n').split('\n').filter(l => l.trim().startsWith('!')).map(l => l.replace(/^!/, '').replace(/^colspan=\d+\|/, '').trim())
+    const rowBlocks = allBlocks.slice(dataStart).filter(bl => bl.trim().length > 0)
+
+    const previewIdx = headers.findIndex(h => /Preview/i.test(h))
+    const descIdx = headers.findIndex(h => /Description/i.test(h))
+
+    for (const block of rowBlocks) {
+      const lines = block.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('|}'))
+      const cells = lines.map(l => l.replace(/^\|/, '').replace(/^colspan=\d+\|/, '').trim())
+      const nonImageCells = cells.filter(cell => !cell.startsWith('[[File:'))
+      const reward = cleanLevelRewardCell(nonImageCells[0])
+      if (!reward) continue
+      const rest = nonImageCells.slice(1)
+      const levelText = cleanLevelRewardCell(rest[rest.length - 1])
+      rows.push({
+        category: b.name,
+        reward,
+        preview: previewIdx >= 0 && rest[0] ? cleanLevelRewardCell(rest[0]) : null,
+        description: descIdx >= 0 && rest[0] ? cleanLevelRewardCell(rest[0]) : null,
+        level: levelText ? parseInt(levelText, 10) || null : null,
+      })
+    }
+  }
+
+  if (rows.length === 0) throw new Error('skyblock_level_rewards: 0 lignes extraites, parsing probablement cassé')
+  const { error: delErr } = await supabase.from('skyblock_level_rewards').delete().gte('id', 0)
+  if (delErr) throw new Error('skyblock_level_rewards delete: ' + delErr.message)
+  const { error } = await supabase.from('skyblock_level_rewards').insert(rows)
+  if (error) throw new Error('skyblock_level_rewards insert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -1621,6 +1705,7 @@ export async function runWikiReferentialSync() {
     location_details: syncLocationDetails,
     chocolate_rabbits: syncChocolateRabbits,
     sea_creature_pools: syncSeaCreaturePools,
+    skyblock_level_rewards: syncSkyblockLevelRewards,
   })) {
     try {
       const rows = await fn()
