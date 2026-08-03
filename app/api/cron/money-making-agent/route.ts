@@ -172,12 +172,8 @@ async function saveToLibrary(methods: any[], tier: string, bazaarSnapshot: any[]
   }
 }
 
-// ─── Handler ─────────────────────────────────────────────────
-export async function GET(req: NextRequest) {
-  if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+// ─── Logique principale (exportée pour test direct hors HTTP) ──
+export async function runMoneyMakingAgent() {
   const logId = await startSync('money-making-agent')
   try {
     // Charge contexte + bibliothèque + feedback
@@ -205,7 +201,7 @@ export async function GET(req: NextRequest) {
             },
             body: JSON.stringify({
               model:      'claude-sonnet-4-6',
-              max_tokens: 4000,
+              max_tokens: 16000,
               system: [{ type: 'text', text: buildPrompt(tier, config), cache_control: { type: 'ephemeral' } }],
               messages: [{ role: 'user', content: context }],
             }),
@@ -243,9 +239,17 @@ export async function GET(req: NextRequest) {
     }
     const okCount = results.filter(r => !('error' in r)).length
     await finishSync(logId, okCount === results.length ? 'success' : 'partial', okCount, result)
-    return NextResponse.json(result)
+    return result
   } catch (e: any) {
     await finishSync(logId, 'error', 0, undefined, e.message)
-    return NextResponse.json({ error: e.message }, { status: 500 })
+    return { error: e.message }
   }
+}
+
+export async function GET(req: NextRequest) {
+  if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const result = await runMoneyMakingAgent()
+  return NextResponse.json(result)
 }

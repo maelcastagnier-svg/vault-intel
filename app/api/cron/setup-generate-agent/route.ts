@@ -14,7 +14,7 @@ import {
 import { loadActivityGearCategories, type ActivityGearCategories } from '../../../../lib/activity-gear'
 import { startSync, finishSync } from '../../../../lib/sync-log'
 
-export const maxDuration = 120
+export const maxDuration = 300
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -328,12 +328,8 @@ export async function generateOne(
   }
 }
 
-// ── Handler ──────────────────────────────────────────────────
-export async function GET(req: NextRequest) {
-  if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+// ── Logique principale (exportée pour test direct hors HTTP) ──
+export async function runSetupGenerateAgent() {
   const logId = await startSync('setup-generate-agent')
   try {
     const { data: analyses } = await supabase
@@ -344,7 +340,7 @@ export async function GET(req: NextRequest) {
     if (!analyses?.length) {
       const msg = 'No methods in DB — run money-making-agent first'
       await finishSync(logId, 'error', 0, undefined, msg)
-      return NextResponse.json({ error: msg }, { status: 400 })
+      return { error: msg }
     }
 
     const [{ data: ctx }, pricedItems, activityGear] = await Promise.all([
@@ -354,12 +350,20 @@ export async function GET(req: NextRequest) {
     ])
     const baseWikiContext = buildWikiContext(ctx) + '\n' + GROUNDING_RULES
 
-    let ok = 0, fail = 0
-
-    for (const analysis of analyses) {
+    // Tiers traités en parallèle (comme money-making-agent) -- l'ancienne boucle
+    // séquentielle (4 tiers x ~8 batches de 3 méthodes chacun, avec plusieurs
+    // aller-retours DB sériels par setup dans applyPreciseCost) dépassait
+    // régulièrement les 120s de maxDuration, tuée par un timeout Vercel dur
+    // AVANT d'atteindre son propre finishSync() -- confirmé via les logs runtime
+    // réels ("Vercel Runtime Timeout Error: Task timed out after 120 seconds"),
+    // laissant la ligne sync_log bloquée en "running" indéfiniment. Chaque tier
+    // écrit dans des lignes method_setups distinctes (aucun état partagé), donc
+    // sûr à paralléliser -- même pattern que money-making-agent. maxDuration
+    // relevé à 300 (plafond Vercel Pro) en filet de sécurité supplémentaire.
+    const tierResults = await Promise.all(analyses.map(async (analysis) => {
       const tier = analysis.section.replace('money_making_', '') as keyof typeof TIER_CONFIG
       let tierData: any
-      try { tierData = JSON.parse(analysis.content) } catch { continue }
+      try { tierData = JSON.parse(analysis.content) } catch { return { ok: 0, fail: 0 } }
 
       const methods: any[] = [...(tierData.active || []), ...(tierData.vault || [])]
 
@@ -373,19 +377,32 @@ export async function GET(req: NextRequest) {
           '\n\n' + buildActivityGearCatalogSection(pricedItems, tierConfig.max_gear_cost, MONEY_MAKING_ACTIVITIES, activityGear)
         : baseWikiContext
 
-      // Batch de 3 parallèles — même wikiContext → cache actif dès le 2e appel
+      let ok = 0, fail = 0
+      // Batch de 3 parallèles au sein d'un même tier — même wikiContext → cache actif dès le 2e appel
       for (let i = 0; i < methods.length; i += 3) {
         const batch   = methods.slice(i, i + 3)
         const results = await Promise.all(batch.map(m => generateOne(m, tier, wikiContext, pricedItems, activityGear)))
         results.forEach(r => r ? ok++ : fail++)
       }
-    }
+      return { ok, fail }
+    }))
+
+    const ok   = tierResults.reduce((s, r) => s + r.ok, 0)
+    const fail = tierResults.reduce((s, r) => s + r.fail, 0)
 
     const result = { success: true, generated: ok, failed: fail, model: 'haiku-4-5', cached_context: 'per-tier' }
     await finishSync(logId, fail > 0 && ok === 0 ? 'error' : fail > 0 ? 'partial' : 'success', ok, result)
-    return NextResponse.json(result)
+    return result
   } catch (e: any) {
     await finishSync(logId, 'error', 0, undefined, e.message)
-    return NextResponse.json({ error: e.message }, { status: 500 })
+    return { error: e.message }
   }
+}
+
+export async function GET(req: NextRequest) {
+  if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const result = await runSetupGenerateAgent()
+  return NextResponse.json(result)
 }
