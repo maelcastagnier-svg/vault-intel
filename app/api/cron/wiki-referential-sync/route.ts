@@ -1486,6 +1486,47 @@ async function syncLocationDetails(): Promise<number> {
 }
 
 // ============================================================
+// chocolate_rabbits -- Chocolate Rabbits/List (517 lapins réels, roster complet jamais
+// capturé -- `hoppity_prestige` couvre déjà les paliers de prestige mais pas le roster
+// des lapins eux-mêmes). Wikitable standard sans rowspan/colspan (vérifié avant de coder)
+// -- réutilise directement les helpers partagés `extractFirstWikitableBody`/
+// `parseRowspanTable` déjà importés en haut de ce fichier, aucun parseur dédié
+// nécessaire. Vérifié en local : 517/517 lignes, 0 nom vide, distribution de rareté
+// cohérente (224 Common → 5 Divine), 0 markup résiduel.
+// ============================================================
+function cleanRabbitCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/g, '')
+  s = s.replace(/\{\{bc\}\}/gi, '')
+  s = s.replace(/\{\{[Zz]one\|([^{}|]*)\}\}/g, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/'''/g, '')
+  return s.trim()
+}
+async function syncChocolateRabbits(): Promise<number> {
+  const content = await getWikiContent(supabase, 'chocolate_rabbits_list')
+  const body = extractFirstWikitableBody(content)
+  if (!body) throw new Error('chocolate_rabbits: wikitable introuvable')
+  const parsedRows = parseRowspanTable(body, 5)
+  const rows = parsedRows
+    .map(r => ({
+      name: cleanRabbitCell(r[1]),
+      rarity: cleanRabbitCell(r[2]) || null,
+      resident_island: cleanRabbitCell(r[3]) || null,
+      requirement: cleanRabbitCell(r[4]) || null,
+    }))
+    .filter(r => r.name)
+
+  if (rows.length === 0) throw new Error('chocolate_rabbits: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('chocolate_rabbits').upsert(rows, { onConflict: 'name' })
+  if (error) throw new Error('chocolate_rabbits upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -1512,6 +1553,7 @@ export async function runWikiReferentialSync() {
     garden_mutations: syncGardenMutations,
     skyblock_quests: syncSkyblockQuests,
     location_details: syncLocationDetails,
+    chocolate_rabbits: syncChocolateRabbits,
   })) {
     try {
       const rows = await fn()
