@@ -34,13 +34,29 @@ passe s'étend sur plusieurs sessions) :
 - ✅ **Lot 0** (avant la correction de méthode, mais résultat valable) — page pivot du
   bucket générique repérée par sa taille : les 16 pages "Stats" (`{{Infobox/Stat}}`)
   → table `player_stats`. Voir CLAUDE.md pour le détail des 2 bugs de parsing trouvés.
-- ⏳ **Lot 1** — en cours. Titres déjà repérés comme candidats forts lors du premier
-  passage par taille (top 80 par nombre de caractères), pas encore lus en entier :
-  Necromancy/List of Souls, Traveling Zoo/Events, Chocolate Rabbits/List, Museum/
-  Milestones UI, David Hunterborough/UI/Attribute * Milestone (x2), Abiphones/
-  ContactsTable, SkyBlock Levels/Tasks, Crop Fortune/Tabber, Mutations, Quests,
-  Bestiary/List, Locations, Reward Bundles/List, Sea Creatures/UI/Guide, Achievements,
-  Essence Guide/UI, Crystal Hollows/Special Locations.
+- ✅ **Lot 1** — `attribute_milestones` (60 lignes : 2 pistes de 30 paliers, David
+  Hunterborough). Format réel = dump UI brut (menu en jeu, pas du wikitext standard),
+  5 blocs `{{UI|...}}` par piste avec fenêtres de défilement qui se chevauchent (même
+  palier visible 2-3 fois) — dédupliqué par numéro de palier (chiffre romain → entier).
+  2 formats de récompense trouvés en testant ("Reward:" singulier vs "Rewards:" pluriel
+  selon le nombre de lignes). Vérifié en conditions réelles : 60/60 lignes, tiers
+  séquentiels I-XXX sans trou sur les deux pistes, 0 récompense vide, 0 seuil invalide.
+  Complète directement `attribute_shards` (NEU-REPO, chantier précédent).
+  **Screenés dans le même lot, classés sans construire** :
+  - `Abiphones/ContactsTable` et `Bestiary/List` : réels mais enrichissements de tables
+    déjà construites (`npc_locations`/`bestiary_mobs`, NEU-REPO) — Abiphone ajoute
+    description/usage/commandes `/call` réelles (plusieurs alias par NPC), Bestiary/List
+    ajoute `Max Tier` et texte de lore par mob. Mis en queue basse priorité (même
+    traitement que `accessory_powers` plus tôt), pas construits maintenant.
+  - `Necromancy/List of Souls` : confirmé réel et substantiel (104423 caractères) —
+    mécanique de donjon "Souls" invoquées (Name/Level/HP/Damage/Mana Cost/Drop
+    Chance/Notes), au moins un onglet "Normal" vu, probablement "Master Mode" aussi
+    vu la taille. Pas encore construit — prochain candidat prioritaire du lot 2.
+  - Encore non lus en entier ce lot (candidats restants du top 80 par taille) :
+    Traveling Zoo/Events, Chocolate Rabbits/List, Museum/Milestones UI, SkyBlock
+    Levels/Tasks, Crop Fortune/Tabber, Mutations, Quests, Locations, Reward Bundles/
+    List, Sea Creatures/UI/Guide, Achievements, Essence Guide/UI, Crystal Hollows/
+    Special Locations.
 - ⏳ **Reste du bucket générique** (~6200 titres non encore screenés au-delà du top 80
   par taille) — pas commencé.
 
