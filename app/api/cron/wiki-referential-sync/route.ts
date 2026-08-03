@@ -578,6 +578,74 @@ async function syncTrapperPelts(): Promise<number> {
 }
 
 // ============================================================
+// player_stats -- 16 pages wiki "Stats" jamais capturées (Health/Strength/Speed/
+// Defense/True Defense/Intelligence/Crit Chance/Crit Damage/Attack Speed/Ferocity/
+// Ability Damage/Mining Speed/Sea Creature Chance/Magic Find/Pet Luck/Mending),
+// chacune un {{Infobox/Stat}} uniforme. Trouvé en lisant le contenu brut du wiki
+// (3 août, correction méthodologique -- extraction par contenu réel, jamais par
+// correspondance de nom/catégorie).
+// ============================================================
+const PLAYER_STAT_PAGES: { key: string; display_name: string }[] = [
+  { key: 'health', display_name: 'Health' },
+  { key: 'strength', display_name: 'Strength' },
+  { key: 'speed', display_name: 'Speed' },
+  { key: 'defense', display_name: 'Defense' },
+  { key: 'true_defense', display_name: 'True Defense' },
+  { key: 'intelligence', display_name: 'Intelligence' },
+  { key: 'crit_chance', display_name: 'Crit Chance' },
+  { key: 'crit_damage', display_name: 'Crit Damage' },
+  { key: 'attack_speed', display_name: 'Attack Speed' },
+  { key: 'ferocity', display_name: 'Ferocity' },
+  { key: 'ability_damage', display_name: 'Ability Damage' },
+  { key: 'mining_speed', display_name: 'Mining Speed' },
+  { key: 'sea_creature_chance', display_name: 'Sea Creature Chance' },
+  { key: 'magic_find', display_name: 'Magic Find' },
+  { key: 'pet_luck', display_name: 'Pet Luck' },
+  { key: 'mending', display_name: 'Mending' },
+]
+
+// Capture jusqu'à fin de ligne (pas jusqu'au prochain "|") -- les valeurs réelles
+// contiennent souvent un template {{Skill|Enchanting}} avec un "|" interne, qui
+// tronquait le match à tort avec une version antérieure de cette regex (bug trouvé
+// en testant : ways_to_increase revenait null sur 7/16 pages où ce cas se produit).
+function extractInfoboxField(infobox: string, field: string): string | null {
+  const re = new RegExp(`\\|\\s*${field}\\s*=\\s*([^\\n]*)`, 'i')
+  const m = infobox.match(re)
+  if (!m) return null
+  const v = m[1].trim()
+  return v.length > 0 ? v : null
+}
+
+async function syncPlayerStats(): Promise<number> {
+  const rows: any[] = []
+  for (const page of PLAYER_STAT_PAGES) {
+    const content = await getWikiContent(supabase, page.key)
+    const start = content.indexOf('{{Infobox/Stat')
+    if (start === -1) throw new Error(`${page.key}: {{Infobox/Stat}} introuvable`)
+    const end = content.indexOf('}}', start)
+    if (end === -1) throw new Error(`${page.key}: fin de {{Infobox/Stat}} introuvable`)
+    const infobox = content.slice(start, end + 2)
+
+    // Attack Speed a un vrai typo côté wiki dans le wikitext source : "atke_value"
+    // au lieu de "base_value" (confirmé en lisant le contenu brut, pas une supposition).
+    const baseValue = extractInfoboxField(infobox, 'base_value') ?? extractInfoboxField(infobox, 'atke_value')
+
+    rows.push({
+      stat_key: page.key,
+      display_name: page.display_name,
+      base_value: baseValue,
+      max_value: extractInfoboxField(infobox, 'max_value'),
+      uses: extractInfoboxField(infobox, 'uses'),
+      ways_to_increase: extractInfoboxField(infobox, 'ways_to_increase'),
+    })
+  }
+  if (rows.length === 0) throw new Error('player_stats: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('player_stats').upsert(rows, { onConflict: 'stat_key' })
+  if (error) throw new Error('player_stats upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -594,6 +662,7 @@ export async function runWikiReferentialSync() {
     trapper_pelts: syncTrapperPelts,
     magical_power_by_rarity: syncMagicalPowerByRarity,
     hotm_hotf_powders: syncHotmHotfPowders,
+    player_stats: syncPlayerStats,
   })) {
     try {
       const rows = await fn()
