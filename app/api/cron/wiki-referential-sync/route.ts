@@ -715,6 +715,104 @@ async function syncAttributeMilestones(): Promise<number> {
 }
 
 // ============================================================
+// necromancy_souls -- Necromancy/List of Souls (mécanique de résurrection de mob
+// en Dungeon "Soul"). 3 tabs wiki standards (Normal/Catacombs/Kuudra), colonnes
+// différentes par tab (Catacombs a une colonne Floor en plus, Kuudra une colonne
+// Tier en plus) -- table unique avec floor_label/tier_label nullable selon le tab
+// plutôt que 3 tables séparées, même contenu logique (un mob invocable). Des lignes
+// entières sont commentées en HTML dans le wikitext source (contenu retiré du jeu,
+// ex: "Watchful Eye") -- stripComments() les exclut avant le split par ligne, pas
+// traitées comme donnée réelle. Vérifié en local (parse_necromancy.js) : 750 lignes
+// totales (211 normal + 513 catacombs + 26 kuudra), 0 valeur manquante/mal alignée,
+// 0 markup wiki résiduel dans les champs texte.
+// ============================================================
+function stripHtmlComments(s: string): string {
+  return s.replace(/<!--[\s\S]*?-->/g, '')
+}
+function cleanSoulCell(s: string): string {
+  s = s.trim()
+  s = s.replace(/^data-sort-value="[^"]*"\s*\|\s*/, '')
+  s = s.replace(/\{\{Green\|([^}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{Red\|'''([^}]*)'''\}\}/g, '$1')
+  s = s.replace(/\{\{Lv\|(\d+)\}\}/g, '$1')
+  s = s.replace(/'''/g, '')
+  s = s.replace(/<br\s*\/?>/gi, '; ')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  return s.trim()
+}
+function extractSoulSortValue(rawCell: string): string | null {
+  const m = rawCell.trim().match(/^data-sort-value="([^"]*)"/)
+  return m ? m[1] : null
+}
+function parseSoulTab(tabText: string, numCols: number): string[][] {
+  const tableStart = tabText.indexOf('{|')
+  const tableEnd = tabText.lastIndexOf('|}')
+  let body = tabText.slice(tableStart, tableEnd)
+  body = stripHtmlComments(body)
+  const firstRowSep = body.indexOf('\n|-\n')
+  body = body.slice(firstRowSep + 4)
+  const rowChunks = body.split(/\n\|-\n?/).map(c => c.trim()).filter(c => c.length > 0)
+  const rows: string[][] = []
+  for (const chunk of rowChunks) {
+    const cellLines = chunk.split('\n').filter(l => l.startsWith('|'))
+    const rawCells = cellLines.map(l => l.replace(/^\|/, ''))
+    while (rawCells.length < numCols) rawCells.push('')
+    rows.push(rawCells)
+  }
+  return rows
+}
+async function syncNecromancySouls(): Promise<number> {
+  const content = await getWikiContent(supabase, 'necromancy_list_of_souls')
+  const normStart = content.indexOf('|-|Normal')
+  const cataStart = content.indexOf('|-|Catacombs')
+  const kuudraStart = content.indexOf('|-|Kuudra')
+  if (normStart === -1 || cataStart === -1 || kuudraStart === -1) {
+    throw new Error('necromancy_souls: un ou plusieurs tabs (Normal/Catacombs/Kuudra) introuvables')
+  }
+
+  const rows: any[] = []
+  for (const r of parseSoulTab(content.slice(normStart, cataStart), 7)) {
+    rows.push({
+      tab: 'normal', mob_name: cleanSoulCell(r[0]), level: parseInt(cleanSoulCell(r[1]), 10),
+      floor_label: null, floor_sort: null, tier_label: null, tier_sort: null,
+      hp: cleanSoulCell(r[2]).replace(/,/g, ''), damage: cleanSoulCell(r[3]).replace(/,/g, ''),
+      mana_cost: cleanSoulCell(r[4]).replace(/,/g, ''), drop_chance: cleanSoulCell(r[5]),
+      notes: cleanSoulCell(r[6]) || null,
+    })
+  }
+  for (const r of parseSoulTab(content.slice(cataStart, kuudraStart), 8)) {
+    rows.push({
+      tab: 'catacombs', mob_name: cleanSoulCell(r[0]), level: parseInt(cleanSoulCell(r[1]), 10),
+      floor_label: cleanSoulCell(r[2]), floor_sort: extractSoulSortValue(r[2]), tier_label: null, tier_sort: null,
+      hp: cleanSoulCell(r[3]).replace(/,/g, ''), damage: cleanSoulCell(r[4]).replace(/,/g, ''),
+      mana_cost: cleanSoulCell(r[5]).replace(/,/g, ''), drop_chance: cleanSoulCell(r[6]),
+      notes: cleanSoulCell(r[7]) || null,
+    })
+  }
+  for (const r of parseSoulTab(content.slice(kuudraStart), 8)) {
+    rows.push({
+      tab: 'kuudra', mob_name: cleanSoulCell(r[0]), level: parseInt(cleanSoulCell(r[1]), 10),
+      floor_label: null, floor_sort: null, tier_label: cleanSoulCell(r[2]), tier_sort: extractSoulSortValue(r[2]),
+      hp: cleanSoulCell(r[3]).replace(/,/g, ''), damage: cleanSoulCell(r[4]).replace(/,/g, ''),
+      mana_cost: cleanSoulCell(r[5]).replace(/,/g, ''), drop_chance: cleanSoulCell(r[6]),
+      notes: cleanSoulCell(r[7]) || null,
+    })
+  }
+
+  if (rows.length === 0) throw new Error('necromancy_souls: 0 lignes extraites, parsing probablement cassé')
+  // Pas de clé unique naturelle (un mob peut apparaître plusieurs fois par tab à des
+  // niveaux/étages différents) -- replaceAll (delete+insert complet) plutôt qu'un
+  // upsert, même pattern que glacite_tunnel_waypoints après le bug d'indexation trouvé
+  // plus tôt cette semaine.
+  const { error: delErr } = await supabase.from('necromancy_souls').delete().gte('id', 0)
+  if (delErr) throw new Error('necromancy_souls delete: ' + delErr.message)
+  const { error } = await supabase.from('necromancy_souls').insert(rows)
+  if (error) throw new Error('necromancy_souls insert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -733,6 +831,7 @@ export async function runWikiReferentialSync() {
     hotm_hotf_powders: syncHotmHotfPowders,
     player_stats: syncPlayerStats,
     attribute_milestones: syncAttributeMilestones,
+    necromancy_souls: syncNecromancySouls,
   })) {
     try {
       const rows = await fn()
