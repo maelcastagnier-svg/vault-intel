@@ -184,15 +184,59 @@ passe s'étend sur plusieurs sessions) :
     `patch_notes`/patch-analysis-agent), soit des pages boss de donjon individuelles
     (`necron`/`the_watcher`/`thorn`/`sadan`/`the_professor`, prose narrative probable,
     à vérifier si intérêt pour `dungeon_data` actuellement vide).
+- ✅ **Lot 2 (suite, checkpoint 6)** — 3 nouveaux systèmes réels + 4 candidats classés
+  sans construire (tous vérifiés contre le vrai contenu, pas devinés) :
+  - `bingo_goals_archive` (1192 lignes, 6 années 2021-2026) — voir détail ci-dessus.
+  - `chocolate_factory_levels` (6 lignes) — voir détail ci-dessus.
+  - `dungeon_chest_combo_chances` (266 lignes, 5 items : Hot Potato Book/Combo/No Pain No
+    Gain/Ultimate Wise/Ultimate Jerry) — chance moyenne dérivée d'obtenir chaque item par
+    Floor × type de Coffre de Récompense de Donjon, avec/sans bonus qualité max. Distinct
+    de `dungeon_rng_scores` (NEU-REPO, poids RNG brut) : ces pages donnent la probabilité
+    déjà calculée, non reconstructible facilement depuis le poids seul.
+  - `essence_list_undead`/`_wither`/`_gold`/`_diamond`/`_dragon`/`_ice`/`_spider`/`_forest`
+    — **confirmé doublon exact** de `essence_upgrade_costs` (vérifié ligne pour ligne :
+    ROGUE_SWORD/SUPER_CLEAVER en essence Gold correspondent exactement) — `Essence Guide/
+    UI` (Lot 1) est bien un shell de menu vers ces pages, elles-mêmes doublons du NEU-REPO
+    déjà chargé. Fermé, pas construit.
+  - `collections_list` — page de navigation (nom + description courte par item), pas les
+    données de palier — `collections` (87 lignes, déjà réel via NEU-REPO/API) est
+    strictement plus riche (amountRequired + unlocks par palier). Fermé, pas construit.
+  - `museum_items_special`/`museum_items_combat`/`museum_ui` — pages de checklist de
+    donation (`{{MuseumItemRow|Nom|category=X}}`), les valeurs XP réelles sont injectées
+    par un module Lua au rendu, absentes du wikitext brut lui-même — rien d'extractible
+    directement, `museum_item_xp` (627 lignes, déjà réel) reste la seule vraie source.
+    Fermé, pas construit.
+  - `attributes_list_common`/`_uncommon`/`_rare`/`_epic`/`_legendary` — **vérifié contre
+    `attribute_shards`** (189 lignes déjà réelles) : R1="Sylvan"/"Forest Elemental"/
+    alignment Forest/family Elemental correspond exactement à la ligne `attribute_shards`
+    shard_id=R1. Pas un doublon pur cependant : la page wiki a en plus `effect` (formule
+    de bonus par niveau, ex "+2–20 Health") et `hunting` (méthode d'obtention) que
+    `attribute_shards` n'a pas — **enrichissement réel, pas un gap**, même statut que
+    `Abiphones/ContactsTable`/`Bestiary/List` (Lot 1), mis en queue basse priorité.
+  - **🔴 Piste forte identifiée, pas construite — directement liée à Pluton** :
+    `heart_of_the_forest_list` contient les vraies formules LaTeX de coût/stat par perk
+    (ex confirmé : `LevelCost = floor((NextLevel+1)^3)` pour Sweep, dont le total cumulé
+    1 758 267 correspond EXACTEMENT à la valeur déjà citée dans CLAUDE.md comme "correction
+    triviale prête pour la reprise de Pluton" — la même formule que le nœud Mining Speed de
+    HOTM). `hotf_perks` (29 lignes) a `cost_formula`/`stat_formula` **vides sur 100% des
+    lignes** (29/29 cost_formula null-ou-vide, 13/29 stat_formula null) — un vrai gap
+    confirmé, pas juste soupçonné. Nécessiterait un parseur dédié (tabs Tier > sous-titres
+    perk `====` > formule LaTeX + table de coût par palier de niveau) + l'équivalent côté
+    Heart of the Mountain pour `hotm_perks`. Différé à une session dédiée (portée
+    suffisamment différente du criblage en cours pour mériter son propre focus), mais
+    **priorité haute** vu le lien direct avec la reprise de Pluton — ne pas re-découvrir
+    depuis zéro, ce diagnostic est déjà complet.
 - ⏳ **Reste du bucket générique** (~5900 titres au-delà des ~380 premiers par taille) —
-  pas commencé. Prochaine étape : lire les candidats forts ci-dessus, puis continuer le
-  criblage par lots de taille décroissante.
+  pas commencé. Prochaine étape : continuer le criblage par lots de taille décroissante
+  (positions 381+), et envisager la piste `hotf_perks`/`hotm_perks` (formules Pluton) en
+  session séparée si l'utilisateur le juge prioritaire.
 
-**Bilan de cette session (3-4 août, méthode corrigée)** : 13 nouveaux systèmes réels
+**Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
 `skyblock_level_xp_tasks`, `museum_milestones`, `crop_fortune_sources`,
 `skyblock_achievements`, `garden_mutations`, `skyblock_quests`, `location_details`,
-`chocolate_rabbits`, `sea_creature_pools`, `skyblock_level_rewards`.
+`chocolate_rabbits`, `sea_creature_pools`, `skyblock_level_rewards`, `bingo_goals_archive`,
+`chocolate_factory_levels`, `dungeon_chest_combo_chances`.
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
 dans l'ordre où ils ont été traités :
