@@ -100,31 +100,58 @@ correctif préventif, pas un bug live corrigé en prod).
 existante plutôt qu'un nouveau cron, parsing des ingrédients depuis la colonne Material
 Cost du wiki Forge) ; `magical_power_by_rarity` (voir ci-dessus).
 
-**✅ Vraie liste finale de ce qui reste authentiquement wiki-sourcé** (le scope réel des
-futurs crons wiki, une fois tout le faux-positif NEU-REPO retiré) — `discovery_queue`
-fait foi, 7 entrées `pending` au 3 août :
-- **`hotm_hotf_powders`** — vrai gap (table actuelle : 4 lignes stub, juste le template
-  de lore §-codes, aucune mécanique réelle). Source déjà identifiée : 3 pages wiki
-  séparées (Mithril/Gemstone/Glacite Powder).
-- **`accessory_powers`** — pas un gap au sens strict (23 lignes déjà réelles, sourcées
-  d'un blob de lore brut chargé le 10 juillet), mais un enrichissement possible vers la
-  vraie table structurée wiki "Power Stones/List of Power Stones"
-  (Slot/Name/Power/Stats/Obtaining/Requirement). Priorité plus basse.
-- **`npc_locations`** — vraie source wiki trouvée, mais structure complexe
-  (colspan+rowspan+plusieurs NPCs par cellule) — parsing différé, pas deviné.
-- **`dungeon_classes`** — aucune source claire trouvée à ce jour (contenu actuel a l'air
-  écrit à la main) — pas classé tant qu'une vraie source n'est pas identifiée.
-- **`sack_contents`** — différé à une revue dédiée séparée, décision explicite de
-  l'utilisateur (risque de régression sur une table déjà réelle et peuplée, 677 lignes).
-- **`weight_formulas`** — reste one-shot, décision explicite de l'utilisateur (source
-  GitHub Python, pas wiki — mécanisme structurellement différent).
-- **`/v2/skyblock/bingo`** (endpoint live) — bloqué sur `HYPIXEL_API_KEY` absente de cet
-  environnement, sans rapport avec la source des données.
+**✅ `hotm_hotf_powders` fermé (3 août)** — vrai gap construit : la table n'avait que 4
+lignes stub (juste le `costLine` §-codes hérité d'un chargement antérieur, aucune
+mécanique réelle). Les 4 pages sources (Mithril/Gemstone/Glacite Powder + Forest
+Whispers — 4 devises, pas 3 comme supposé initialement, Forest Whispers découverte en
+vérifiant) ont une structure hétérogène confirmée en testant : Mithril Powder a 2
+vraies wikitables (Blocks/Mobs) ; Forest Whispers en a 2 aussi mais imbriquées
+différemment (sources de base + sources de boost, toutes deux sous le même H2
+Obtaining) ; Gemstone Powder et Glacite Powder n'ont AUCUNE wikitable, seulement des
+listes à puces en prose — capturées telles quelles (`obtaining_notes`/
+`gain_boost_notes`) plutôt que de forcer une structure non sourcée. Fait sans Supabase
+MCP (déconnecté en cours de session) : pages wiki fetchées en direct via l'API
+MediaWiki brute plutôt que depuis le cache `wiki-auto-sync`, 3 vrais bugs de parsing
+trouvés et corrigés en testant en local avant déploiement (table partagée
+`parseRowspanTable` ne gérait pas les cellules jointes en ligne `|A || B`, template
+`{{Slot|X}}` non nettoyé, lien `[[Cible|Alias]]` affichait la cible au lieu de l'alias).
 
-Sur les 38 tables initialement supposées wiki, il n'en reste donc réellement que **2-3**
-(`hotm_hotf_powders`, `npc_locations`, `dungeon_classes` si une source est trouvée) —
-bien plus petit que prévu, exactement la correction attendue une fois le faux-positif
-NEU-REPO retiré.
+**🟡 `npc_locations` — évalué, complexité confirmée pire que prévu, reste en
+discovery_queue** : investigation directe (API MediaWiki brute) a montré que ce n'est
+pas juste du colspan/rowspan — chaque page de zone (`NPC/List/<Zone>`, 21 zones) n'a
+**aucune wikitable dans son wikitext propre**, le contenu est entièrement généré
+côté serveur par `{{#invoke:NPC|npcsInLocationTable}}` (`Module:NPC`), qui interroge un
+store structuré propriétaire (`bucket('npcs')`, extension "Bucket" du wiki, pas Cargo —
+confirmé, `action=cargotables` renvoie une erreur sur ce wiki) puis génère lui-même le
+HTML avec rowspan calculé dynamiquement. Deux voies possibles pour une session dédiée
+future : parser le HTML rendu (`action=parse&prop=text`, ~400KB par zone rien que pour
+Hub, bruit important) ou scraper individuellement chaque page NPC (infobox par NPC,
+nombre inconnu, non exploré). Aucune des deux n'est un ajout rapide — reste
+volontairement non construit, `discovery_queue` #25 mis à jour avec ce diagnostic
+complet pour ne pas re-découvrir la même chose de zéro à la prochaine tentative.
+
+**🟡 `accessory_powers` — enrichissement possible, pas d'action requise** : pas un gap
+au sens strict (23 lignes déjà réelles, sourcées d'un blob de lore brut chargé le 10
+juillet, couvre déjà le compte réel de la catégorie). La vraie table structurée wiki
+"Power Stones/List of Power Stones" (Slot/Name/Power/Stats/Obtaining/Requirement)
+apporterait plus de structure que le `raw_lore` actuel, mais ce n'est qu'un
+enrichissement d'une table déjà fonctionnelle, pas une donnée manquante — laissé de
+côté sciemment, priorité basse.
+
+**🔴 `dungeon_classes` — aucune source trouvée, pas d'action requise** : contenu actuel
+a l'air écrit à la main, aucune correspondance NEU-REPO ni page wiki identifiée à ce
+jour malgré recherche. Ne pas classer tant qu'une vraie source n'est pas trouvée —
+prochaine étape serait d'inspecter le contenu réel en base (colonnes/valeurs) pour
+chercher une correspondance plutôt que de deviner depuis le nom de la table, même
+méthode que pour tout le reste de ce chantier.
+
+Sur les 38 tables initialement supposées wiki, il n'en reste donc réellement que
+**`npc_locations`** en vrai gap non fermé (complexité confirmée, différé à une session
+dédiée au parsing Bucket/HTML) et **`dungeon_classes`** sans source identifiée —
+`accessory_powers` est un enrichissement optionnel d'une table déjà réelle, pas un
+gap. `hotm_hotf_powders` est fermé. `sack_contents`/`weight_formulas` restent
+délibérément one-shot par décision explicite de l'utilisateur, `/v2/skyblock/bingo`
+reste bloqué sur `HYPIXEL_API_KEY`.
 
 **Prochaine étape** : Volet 1 (compléter les données encore partielles/en gap) une fois
 Volet 2 jugé suffisamment avancé par l'utilisateur — ou traiter les 2-3 vrais restes
