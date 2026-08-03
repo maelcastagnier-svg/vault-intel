@@ -813,6 +813,127 @@ async function syncNecromancySouls(): Promise<number> {
 }
 
 // ============================================================
+// skyblock_level_xp_tasks -- SkyBlock Levels/Tasks (répartition complète des sources de
+// SkyBlock XP par catégorie : Core/Event/Dungeon/Essence Shop/Slaying/Skill Related/
+// Miscellaneous/Story/Consumables). Table wiki réellement irrégulière : colspan variable
+// (2 ou 3) sur la colonne Name selon la section, ET profondeur d'imbrication variable (ex
+// "Complete Dungeons" a 3 niveaux de sous-libellés avant Description, alors qu'une entrée
+// simple comme "Skill Level Up" n'en a qu'un) -- parseRowspanTable/extractFirstWikitableBody
+// (numCols fixe, extraction positionnelle) ne suffisent pas ici : deux passes de test
+// locales ont montré un vrai décalage de colonnes sur ~260 lignes (Dungeon/Slaying/Skill
+// Related/Miscellaneous) avant que ce bug ne soit trouvé et corrigé. Parseur dédié
+// (parseWideRowspanColspanTable) avec numCols volontairement généreux (9, plus large que
+// la plus profonde imbrication réelle observée, 7) + extraction par les 3 DERNIÈRES
+// colonnes non-vides de chaque ligne (Description/XP/MaxXP sont toujours les 3 dernières,
+// quel que soit le nombre de sous-libellés Name qui précèdent) plutôt que des index fixes.
+// Vérifié en local (parse_sblevel3.js) contre le contenu réel complet : 775 lignes (9
+// catégories), 0 nom vide, 0 description vide, 0 markup wiki résiduel.
+// ============================================================
+function parseWideCell(line: string): { value: string; rowspan: number; colspan: number } {
+  let s = line.replace(/^\|/, '')
+  let rowspan = 1, colspan = 1
+  const firstPipe = s.indexOf('|')
+  if (firstPipe !== -1 && /rowspan\s*=|class\s*=|colspan\s*=|style\s*=|data-sort/.test(s.slice(0, firstPipe))) {
+    const attrs = s.slice(0, firstPipe)
+    s = s.slice(firstPipe + 1)
+    const rs = attrs.match(/rowspan\s*=\s*"?(\d+)"?/)
+    if (rs) rowspan = parseInt(rs[1], 10)
+    const cs = attrs.match(/colspan\s*=\s*"?(\d+)"?/)
+    if (cs) colspan = parseInt(cs[1], 10)
+  }
+  return { value: s.trim(), rowspan, colspan }
+}
+function parseWideRowspanColspanTable(tableBody: string, numCols: number): string[][] {
+  const rowBlocks = tableBody.split(/\n\|-\n?/).filter(b => b.trim().length > 0)
+  const rows: string[][] = []
+  const active: Array<{ value: string; remaining: number } | null> = new Array(numCols).fill(null)
+  for (const block of rowBlocks) {
+    const lines = block.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('|}'))
+    let cellIdx = 0
+    const resolved: string[] = new Array(numCols).fill('')
+    let col = 0
+    while (col < numCols) {
+      const a = active[col]
+      if (a && a.remaining > 0) {
+        resolved[col] = a.value
+        a.remaining -= 1
+        if (a.remaining === 0) active[col] = null
+        col += 1
+        continue
+      }
+      const raw = lines[cellIdx]
+      cellIdx += 1
+      if (raw === undefined) { col += 1; continue }
+      const { value, rowspan, colspan } = parseWideCell(raw)
+      for (let k = 0; k < colspan && col + k < numCols; k++) {
+        const v = k === 0 ? value : ''
+        resolved[col + k] = v
+        if (rowspan > 1) active[col + k] = { value: v, remaining: rowspan - 1 }
+      }
+      col += colspan
+    }
+    rows.push(resolved)
+  }
+  return rows
+}
+function cleanSbLevelCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\[\[File:[^\]]*\]\]/g, '')
+  s = s.replace(/\{\{SkyBlock XP\|([^|}]*)(\|short=y)?\}\}/g, '$1')
+  s = s.replace(/\{\{Stat\|(?:short=y\|)?([a-z]+)\}\}/gi, '$1')
+  s = s.replace(/class="unsortable"\s*\|?\s*/g, '')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/'''/g, '')
+  s = s.replace(/<br\s*\/?>/gi, '; ')
+  return s.trim()
+}
+async function syncSkyblockLevelXpTasks(): Promise<number> {
+  const content = await getWikiContent(supabase, 'skyblock_levels_tasks')
+  const tabRe = /\|-\|([A-Za-z0-9 ]+)\s*=/g
+  const tabMatches = [...content.matchAll(tabRe)]
+  if (tabMatches.length === 0) throw new Error('skyblock_level_xp_tasks: aucun tab trouvé')
+  const bounds = tabMatches.map((m, i) => ({
+    name: m[1].trim(),
+    start: m.index!,
+    end: i + 1 < tabMatches.length ? tabMatches[i + 1].index! : content.length,
+  }))
+
+  const NUMCOLS = 9
+  const rows: any[] = []
+  for (const b of bounds) {
+    const tabText = content.slice(b.start, b.end)
+    const body = extractFirstWikitableBody(tabText)
+    if (!body) continue
+    for (const r of parseWideRowspanColspanTable(body, NUMCOLS)) {
+      let lastIdx = -1
+      for (let i = r.length - 1; i >= 0; i--) { if (r[i] !== '') { lastIdx = i; break } }
+      if (lastIdx < 3) continue
+      const maxXp = cleanSbLevelCell(r[lastIdx])
+      const xpDetail = cleanSbLevelCell(r[lastIdx - 1])
+      const description = cleanSbLevelCell(r[lastIdx - 2])
+      const nameParts = r.slice(1, lastIdx - 2).map(cleanSbLevelCell).filter(Boolean)
+      rows.push({
+        category: b.name,
+        task_name: nameParts.join(' - '),
+        description: description || null,
+        xp_detail: xpDetail || null,
+        max_xp: maxXp || null,
+      })
+    }
+  }
+
+  if (rows.length === 0) throw new Error('skyblock_level_xp_tasks: 0 lignes extraites, parsing probablement cassé')
+  const { error: delErr } = await supabase.from('skyblock_level_xp_tasks').delete().gte('id', 0)
+  if (delErr) throw new Error('skyblock_level_xp_tasks delete: ' + delErr.message)
+  const { error } = await supabase.from('skyblock_level_xp_tasks').insert(rows)
+  if (error) throw new Error('skyblock_level_xp_tasks insert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -832,6 +953,7 @@ export async function runWikiReferentialSync() {
     player_stats: syncPlayerStats,
     attribute_milestones: syncAttributeMilestones,
     necromancy_souls: syncNecromancySouls,
+    skyblock_level_xp_tasks: syncSkyblockLevelXpTasks,
   })) {
     try {
       const rows = await fn()
