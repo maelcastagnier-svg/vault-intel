@@ -1265,6 +1265,109 @@ async function syncGardenMutations(): Promise<number> {
 }
 
 // ============================================================
+// skyblock_quests -- Quests (36 quêtes réelles, système entier jamais mappé). Chaque
+// quête a un {{Infobox/Quest}} (requirements/start_location/start_npc/reward/x/y/z) suivi
+// d'un texte de walkthrough en prose. Bug réel trouvé et corrigé en local avant tout
+// déploiement : la valeur du champ `reward` contient souvent un template imbriqué avec
+// ses propres pipes internes (ex `{{Coins|1000}}<br/>{{Skill XP|Fishing|10}}`) -- un split
+// naïf par "|" tronquait `reward` au premier pipe interne (même classe de bug que
+// player_stats/ways_to_increase, corrigé le même jour). `splitInfoboxFieldsAtDepth`
+// ne coupe un champ qu'aux "|" de profondeur 0 (hors template imbriqué), jamais à
+// l'intérieur d'un {{...}}. Vérifié en local (parse_quests.js) : 36/36 quêtes, 0 nom vide,
+// reward/requirements/start_npc correctement isolés même avec templates imbriqués.
+// ============================================================
+function findQuestTplEnd(content: string, start: number): number {
+  let depth = 0
+  for (let i = start; i < content.length - 1; i++) {
+    if (content[i] === '{' && content[i + 1] === '{') { depth++; i++; continue }
+    if (content[i] === '}' && content[i + 1] === '}') {
+      depth--
+      if (depth === 0) return i
+      i++
+    }
+  }
+  return -1
+}
+function splitInfoboxFieldsAtDepth(inner: string): Record<string, string> {
+  const fields: Record<string, string> = {}
+  let depth = 0, cur = ''
+  const parts: string[] = []
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i]
+    if (ch === '{' && inner[i + 1] === '{') { depth++; cur += ch; continue }
+    if (ch === '}' && inner[i + 1] === '}') { depth--; cur += ch; continue }
+    if (ch === '|' && depth === 0) { parts.push(cur); cur = ''; continue }
+    cur += ch
+  }
+  parts.push(cur)
+  for (const part of parts) {
+    const m = part.match(/^\s*(\w+)\s*=\s*([\s\S]*)$/)
+    if (m) fields[m[1]] = m[2].trim()
+  }
+  return fields
+}
+function cleanQuestText(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/={2,4}[^=\n]+={2,4}/g, ' ')
+  s = s.replace(/\{\{Item Display\|([^}|]*)[^}]*\}\}/g, '$1')
+  s = s.replace(/\{\{Coins\|([^}]*)\}\}/g, '$1 coins')
+  s = s.replace(/\{\{Skill ?XP\|([^|}]*)\|([^}]*)\}\}/g, '$2 $1 XP')
+  s = s.replace(/<br\s*\/?>/gi, '; ')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/''+/g, '')
+  s = s.replace(/\[\[File:[^\]]*\]\]/g, '')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/'''/g, '')
+  s = s.replace(/\s+/g, ' ')
+  return s.trim()
+}
+async function syncSkyblockQuests(): Promise<number> {
+  const content = await getWikiContent(supabase, 'quests')
+  const questRe = /={2,3} Quest: ([^=]+) ={2,3}\n/g
+  const matches = [...content.matchAll(questRe)]
+  if (matches.length === 0) throw new Error('skyblock_quests: aucune quête trouvée')
+  const bounds = matches.map((m, i) => ({
+    name: m[1].trim(),
+    start: m.index! + m[0].length,
+    end: i + 1 < matches.length ? matches[i + 1].index! : content.length,
+  }))
+
+  const rows: any[] = []
+  for (const b of bounds) {
+    const chunk = content.slice(b.start, b.end)
+    const infoboxStart = chunk.indexOf('{{Infobox/Quest')
+    let fields: Record<string, string> = {}, infoboxFull = ''
+    if (infoboxStart !== -1) {
+      const infoboxEnd = findQuestTplEnd(chunk, infoboxStart)
+      infoboxFull = chunk.slice(infoboxStart, infoboxEnd + 2)
+      const inner = infoboxFull.slice('{{Infobox/Quest'.length, -2)
+      fields = splitInfoboxFieldsAtDepth(inner)
+    }
+    const afterInfobox = infoboxStart !== -1 ? chunk.slice(infoboxStart + infoboxFull.length) : chunk
+    const walkthrough = cleanQuestText(afterInfobox)
+
+    rows.push({
+      name: cleanQuestText(b.name),
+      requirements: fields.requirements && fields.requirements !== 'None' ? cleanQuestText(fields.requirements) : null,
+      start_location: fields.start_location ? cleanQuestText(fields.start_location) : null,
+      start_npc: fields.start_npc ? cleanQuestText(fields.start_npc) : null,
+      reward: fields.reward && fields.reward !== 'None' ? cleanQuestText(fields.reward) : null,
+      x: fields.x ? parseFloat(fields.x) : null,
+      y: fields.y ? parseFloat(fields.y) : null,
+      z: fields.z ? parseFloat(fields.z) : null,
+      walkthrough: walkthrough || null,
+    })
+  }
+
+  if (rows.length === 0) throw new Error('skyblock_quests: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('skyblock_quests').upsert(rows, { onConflict: 'name' })
+  if (error) throw new Error('skyblock_quests upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -1289,6 +1392,7 @@ export async function runWikiReferentialSync() {
     crop_fortune_sources: syncCropFortuneSources,
     skyblock_achievements: syncSkyblockAchievements,
     garden_mutations: syncGardenMutations,
+    skyblock_quests: syncSkyblockQuests,
   })) {
     try {
       const rows = await fn()
