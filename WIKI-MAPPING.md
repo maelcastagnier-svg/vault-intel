@@ -123,19 +123,44 @@ passe s'étend sur plusieurs sessions) :
       confirmé "purely cosmetic" dans le texte source lui-même. Différé, faible priorité
       pour un projet d'intelligence de marché.
     - `Sea Creatures/UI/Guide` — confirmé être un SHELL de menu jeu (navigation), pas les
-      données elles-mêmes — les vraies listes existent sous des clés séparées déjà repérées
-      (`sea_creatures_list_basic`/`_crimson_isle`/`_hotspot`/`_lava`/`_moonglade_marsh`/
-      `_special`), pas encore lues individuellement — vrai candidat pour une prochaine passe,
-      pas un doublon.
+      données elles-mêmes — traité au checkpoint 4 (voir ci-dessous), pas un doublon.
     - `Essence Guide/UI` — probablement un shell de menu navigationnel vers les catégories
       déjà couvertes par `essence_shop_upgrades`/`essence_upgrade_costs` (NEU-REPO) — pas
       encore vérifié ligne à ligne, à confirmer avant de classer définitivement.
     - `Crystal Hollows/Special Locations` — contenu confirmé en PROSE narrative (structures
       spawnant aléatoirement, positions de coffres), pas une table propre — capturable en
       texte brut si besoin plus tard, pas structuré nativement.
+- ✅ **Lot 1 (suite, checkpoint 4)** — `sea_creature_pools` (56 lignes, 5 pools : Basic/
+  Crimson Isle/Hotspot/Moonglade Marsh/Special). `Sea Creatures/UI/Guide` confirmé être un
+  shell de menu jeu (navigation) — les vraies listes vivent sous 5 sous-pages séparées par
+  pool, lues individuellement avant de coder. `List/Lava` exclue : contenu caché en fragment
+  brut sans structure de wikitable propre (probablement transclus d'ailleurs), pas de
+  donnée inventée pour la compléter. Complète directement la formule Sea Creature Chance
+  déjà documentée avec la distribution réelle pondérée par pool.
+  **Bug réel trouvé et corrigé dans le helper PARTAGÉ `parseRowspanTable`
+  (`lib/wiki-table-parse.ts`)** en construisant cette table : une cellule multi-ligne
+  légitime (ex "Liquid: X\nIsland: Y" dans Categories, sans le marqueur `----` utilisé par
+  Mutations) perdait sa 2e ligne — le découpage d'origine ("chaque ligne '|' = une
+  cellule") ignorait silencieusement toute ligne de continuation sans "|". Jamais détecté
+  avant car aucune table précédente de ce chantier n'avait ce cas par coïncidence. Fix
+  additif (accumulation des lignes de continuation dans la cellule précédente) — aucun
+  changement de comportement pour les tables mono-ligne déjà en prod, mais **les tables
+  construites AVANT ce fix avec ce helper partagé (`hotm_forge_durations`/`garden_pests`/
+  `garden_pest_fortune_penalty`/`time_pocket`/`minion_upgrade_items`/`sack_tiers`/
+  `trapper_pelts`/`magical_power_by_rarity`/`hotm_hotf_powders`/`chocolate_rabbits`)
+  n'ont pas été ré-auditées pour ce cas précis** — risque jugé faible (comptes de lignes
+  déjà vérifiés corrects pour toutes, seul un contenu tronqué À L'INTÉRIEUR d'une cellule
+  existante pourrait avoir été manqué, pas une ligne entière perdue) mais noté ici pour ne
+  pas être oublié si un doute survient plus tard sur l'une de ces tables.
 - ⏳ **Reste du bucket générique** (~6200 titres non encore screenés au-delà du top 80
   par taille) — pas commencé. Prochaine étape de cette passe une fois le reste du Lot 1
   jugé suffisant par l'utilisateur.
+
+**Bilan de cette session (3-4 août, méthode corrigée)** : 11 nouveaux systèmes réels
+construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
+`skyblock_level_xp_tasks`, `museum_milestones`, `crop_fortune_sources`,
+`skyblock_achievements`, `garden_mutations`, `skyblock_quests`, `location_details`,
+`chocolate_rabbits`, `sea_creature_pools` (12 en comptant `player_stats` du Lot 0).
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
 dans l'ordre où ils ont été traités :
