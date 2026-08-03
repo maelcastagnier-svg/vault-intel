@@ -87,11 +87,55 @@ passe s'étend sur plusieurs sessions) :
     dédoublonnage) — capturé tel quel, pas complété par une supposition.
   - **Screenés ce lot, classés sans construire** : `Abiphones/ContactsTable` et
     `Bestiary/List` (déjà loggés lot 1 précédent, enrichissements de tables existantes).
-  - Encore non lus en entier (candidats restants du top 80 par taille) : Traveling Zoo/
-    Events, Chocolate Rabbits/List, Mutations, Quests, Locations, Reward Bundles/List,
-    Sea Creatures/UI/Guide, Essence Guide/UI, Crystal Hollows/Special Locations.
+- ✅ **Lot 1 (suite, checkpoint 3)** — 4 nouveaux systèmes réels construits et vérifiés :
+  - `garden_mutations` (40 lignes) — système Garden entier jamais mappé (crops mutés via
+    arrangement dans le Greenhouse). Table wiki à cellules MULTI-LIGNES réelles
+    (convention MediaWiki "----" = règle horizontale intra-cellule, pas un séparateur de
+    ligne) — parseur dédié qui accumule les lignes de continuation, différent de toutes
+    les autres tables de ce chantier (une valeur par ligne jusqu'ici).
+  - `skyblock_quests` (36 quêtes) — système entier jamais mappé. Bug réel trouvé et
+    corrigé avant déploiement : `reward` contient souvent un template imbriqué avec ses
+    propres pipes internes (ex `{{Coins|1000}}<br/>{{Skill XP|Fishing|10}}`), même classe
+    de bug que `player_stats`/`ways_to_increase` (split naïf par "|" tronquait au premier
+    pipe interne) — corrigé avec un split par profondeur de template.
+  - `location_details` (271 lignes, 19 zones, jusqu'à 3 niveaux d'imbrication) — enrichit
+    `game_zones` (NEU-REPO, liste plate) avec Resources Found/NPCs Found/Special
+    Requirements par sous-lieu. **2e bug de la même famille "extraction par dernière
+    colonne non-vide"** trouvé et corrigé : cette technique (qui avait fonctionné pour
+    `skyblock_level_xp_tasks`) décale tout dès qu'un des 3 champs traînants
+    (indépendamment souvent vides ici) est vide — corrigé par extraction à position FIXE
+    (numCols=6, le header groupe `colspan="3"` garantit que la portion chemin fait
+    toujours exactement 3 colonnes). **Leçon retenue pour la suite** : l'extraction "par
+    la droite" n'est fiable QUE quand un seul champ traînant peut être vide à la fois
+    (comme MaxXP, presque toujours hérité par rowspan) — dès que plusieurs champs
+    traînants indépendants peuvent chacun être vides séparément, il faut une largeur de
+    grille fixe déterminée depuis le header, pas une heuristique positionnelle.
+  - `chocolate_rabbits` (517 lapins) — roster complet jamais capturé (`hoppity_prestige`
+    couvre déjà les paliers de prestige mais pas les lapins eux-mêmes). Wikitable standard
+    sans rowspan/colspan, réutilise directement les helpers déjà partagés.
+  - **Screenés ce lot, classés/différés avec raison explicite (pas construits)** :
+    - `Traveling Zoo/Events` (76737 caractères) — calendrier de rotation des pets vendus
+      par date SkyBlock (Elephant/Giraffe/Blue Whale/Tiger/Lion/Monkey, rareté par date),
+      probablement des centaines de lignes historiques. Réel et construisible, mais valeur
+      directe pour Vault (marché/mécanique de jeu) plus faible qu'un système de progression
+      — différé, pas un vrai gap si le chantier doit prioriser par valeur.
+    - `Reward Bundles/List` — récompenses cosmétiques par rang de saison (Easter, etc.),
+      confirmé "purely cosmetic" dans le texte source lui-même. Différé, faible priorité
+      pour un projet d'intelligence de marché.
+    - `Sea Creatures/UI/Guide` — confirmé être un SHELL de menu jeu (navigation), pas les
+      données elles-mêmes — les vraies listes existent sous des clés séparées déjà repérées
+      (`sea_creatures_list_basic`/`_crimson_isle`/`_hotspot`/`_lava`/`_moonglade_marsh`/
+      `_special`), pas encore lues individuellement — vrai candidat pour une prochaine passe,
+      pas un doublon.
+    - `Essence Guide/UI` — probablement un shell de menu navigationnel vers les catégories
+      déjà couvertes par `essence_shop_upgrades`/`essence_upgrade_costs` (NEU-REPO) — pas
+      encore vérifié ligne à ligne, à confirmer avant de classer définitivement.
+    - `Crystal Hollows/Special Locations` — contenu confirmé en PROSE narrative (structures
+      spawnant aléatoirement, positions de coffres), pas une table propre — capturable en
+      texte brut si besoin plus tard, pas structuré nativement.
 - ⏳ **Reste du bucket générique** (~6200 titres non encore screenés au-delà du top 80
-  par taille) — pas commencé.
+  par taille) — pas commencé. Prochaine étape de cette passe une fois le reste du Lot 1
+  jugé suffisant par l'utilisateur.
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
 dans l'ordre où ils ont été traités :
