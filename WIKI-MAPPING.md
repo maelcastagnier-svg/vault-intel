@@ -48,15 +48,48 @@ passe s'étend sur plusieurs sessions) :
     description/usage/commandes `/call` réelles (plusieurs alias par NPC), Bestiary/List
     ajoute `Max Tier` et texte de lore par mob. Mis en queue basse priorité (même
     traitement que `accessory_powers` plus tôt), pas construits maintenant.
-  - `Necromancy/List of Souls` : confirmé réel et substantiel (104423 caractères) —
-    mécanique de donjon "Souls" invoquées (Name/Level/HP/Damage/Mana Cost/Drop
-    Chance/Notes), au moins un onglet "Normal" vu, probablement "Master Mode" aussi
-    vu la taille. Pas encore construit — prochain candidat prioritaire du lot 2.
-  - Encore non lus en entier ce lot (candidats restants du top 80 par taille) :
-    Traveling Zoo/Events, Chocolate Rabbits/List, Museum/Milestones UI, SkyBlock
-    Levels/Tasks, Crop Fortune/Tabber, Mutations, Quests, Locations, Reward Bundles/
-    List, Sea Creatures/UI/Guide, Achievements, Essence Guide/UI, Crystal Hollows/
-    Special Locations.
+- ✅ **Lot 1 (suite, checkpoint 2)** — 5 nouveaux systèmes réels construits et vérifiés en
+  prod (mode autonome, sans confirmation intermédiaire, sur instruction explicite de
+  l'utilisateur) :
+  - `necromancy_souls` (750 lignes : 211 normal + 513 catacombs + 26 kuudra) — mécanique
+    de donjon "Souls" invoquées (3 tabs Normal/Catacombs/Kuudra, colonnes différentes par
+    tab -- Catacombs a une colonne Floor en plus, Kuudra une colonne Tier en plus, unifiées
+    en une seule table avec colonnes nullable). Lignes HTML-commentées (contenu retiré du
+    jeu, ex "Watchful Eye") exclues avant parsing.
+  - `skyblock_level_xp_tasks` (775 lignes, 9 catégories : Core/Event/Dungeon/Essence
+    Shop/Slaying/Skill Related/Miscellaneous/Story/Consumables) — répartition complète des
+    sources de SkyBlock XP, jamais capturée. Table wiki à imbrication variable (colspan
+    Name 2 ou 3, profondeur 1 à 3 sous-libellés selon la section) — 2 passes de test
+    locales nécessaires : la 1ère (numCols fixe à 6, extraction positionnelle) laissait
+    ~260 lignes décalées (Dungeon/Slaying/Skill Related/Miscellaneous, colspan=3 non
+    prévu) ; corrigé avec extraction par les 3 DERNIÈRES colonnes non-vides de chaque
+    ligne plutôt que des index fixes.
+  - `museum_milestones` (40/40 paliers) — référencée directement par skyblock_level_xp_
+    tasks ("Museum Progression" → "See Museum/Milestones"). Même format menu-jeu
+    chevauchant que attribute_milestones. Bug trouvé et corrigé avant déploiement :
+    virgule des milliers échappée en backslash côté wiki ("1\,500"), regex initiale
+    ratait tout palier ≥ 10. Fait non-corrigé, capturé tel quel : palier 40 exige 4 000 XP
+    mais le max réellement obtenable est 3 571 (cf. skyblock_level_xp_tasks) — écart réel
+    du jeu, pas une erreur de parsing.
+  - `crop_fortune_sources` (149 lignes, 13 crops du Garden) — détail complet des sources
+    de Crop Fortune par crop (Tools/Accessories/Enchantments/Miscellaneous/Pets, 5 schémas
+    de colonnes différents selon le type de section, mappés par label d'en-tête réel
+    plutôt que par position). Complète la formule déjà documentée (1 point = 1% chance de
+    +100% drops) avec le détail par source, jamais capturé. Page confirmée 100%
+    wikitables simples (aucun rowspan/colspan).
+  - `skyblock_achievements` (216 lignes : 128 challenge + 8 seasonal + 80 tiered) — même
+    pattern menu-jeu chevauchant, 2 formats de ligne distincts selon la sous-catégorie
+    (Challenge/Seasonal ont "Unlocked by X% of players!", stat globale réelle jamais
+    mappée ; Tiered a "Progress: X/Y" + chiffre romain à séparer du nom). Écart honnête
+    noté : le menu annonce 222 Challenge Achievements au total mais seuls 128 noms
+    uniques apparaissent réellement dans le contenu wiki caché (vérifié : 140 lignes
+    brutes → 128 uniques, l'écart vient de la source elle-même, pas d'une perte de
+    dédoublonnage) — capturé tel quel, pas complété par une supposition.
+  - **Screenés ce lot, classés sans construire** : `Abiphones/ContactsTable` et
+    `Bestiary/List` (déjà loggés lot 1 précédent, enrichissements de tables existantes).
+  - Encore non lus en entier (candidats restants du top 80 par taille) : Traveling Zoo/
+    Events, Chocolate Rabbits/List, Mutations, Quests, Locations, Reward Bundles/List,
+    Sea Creatures/UI/Guide, Essence Guide/UI, Crystal Hollows/Special Locations.
 - ⏳ **Reste du bucket générique** (~6200 titres non encore screenés au-delà du top 80
   par taille) — pas commencé.
 
