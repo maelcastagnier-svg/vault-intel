@@ -22,6 +22,54 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Extraction brute wiki — premier lot, player_stats (16 pages Stats) (3 août)
+
+Premier lot de l'extraction brute du wiki (7724 pages cachées, 6280 dans un bucket
+générique "game_wiki" jamais inspecté). Trouvé en lisant les titres/tailles de ce
+bucket : un vrai système "Stats" jamais capturé — 16 pages individuelles (Health,
+Strength, Speed, Defense, True Defense, Intelligence, Crit Chance, Crit Damage, Attack
+Speed, Ferocity, Ability Damage, Mining Speed, Sea Creature Chance, Magic Find, Pet
+Luck, Mending), chacune un `{{Infobox/Stat}}` uniforme (base_value/max_value/uses/
+ways_to_increase) — fondamental pour tout futur calculateur de stats, jamais mappé
+nulle part. Nouvelle table `player_stats` (16 lignes).
+
+**2 vrais bugs de parsing trouvés en vérifiant le résultat réel en prod (pas seulement
+un test unitaire local), corrigés avant de considérer la table fiable** :
+1. `ways_to_increase` contient souvent un template avec un `|` interne (ex :
+   `{{Skill|Enchanting}}`) — la regex de capture s'arrêtait au premier `|` rencontré,
+   retournait `null` sur 7/16 pages. Corrigé (capture jusqu'à fin de ligne).
+2. Plus sérieux : `content.indexOf('}}', start)` pour trouver la fin de l'infobox
+   s'arrêtait au premier `}}` rencontré — presque toujours un template imbriqué DANS
+   l'infobox lui-même (`{{SkyBlock Level}}`, `{{Skill|Farming}}`, ou même
+   `{{Stat|atk}}` dans le champ `uses` d'Attack Speed), pas la vraie fin. Ça tronquait
+   l'infobox avant d'atteindre `base_value`/`max_value` sur 9/16 pages — trouvé
+   uniquement en interrogeant le vrai résultat après déploiement (le test unitaire
+   initial validait la regex de champ sur un infobox déjà pré-découpé à la main, sans
+   jamais exercer cette logique de délimitation). Corrigé avec un vrai suivi de
+   profondeur d'accolades (`findTemplateEnd`).
+3. Petit détail trouvé en lisant le contenu réel : Attack Speed a un vrai typo côté
+   wiki (`atke_value` au lieu de `base_value`) — géré comme fallback documenté pour
+   cette seule page, pas une supposition.
+
+**Vérifié en conditions réelles après chaque correction** (2 déploiements successifs,
+requête directe des 16 lignes à chaque fois) : 16/16 lignes, 0 valeur nulle sur
+base_value/max_value au final.
+
+**Volontairement pas fait dans cette passe** : les tables détaillées "Increasing Base
+X"/"Increasing Bonus X" présentes sur les mêmes pages (ex : "+2 HP par niveau Farming
+1-14, +3 par niveau 15-19...") — bien plus riches mais structurellement différentes
+par stat (certaines en wikitable simple, d'autres en `<tabber>` à plusieurs onglets) —
+chantier séparé, plus gros, pas tenté ici.
+
+**Autres candidats forts déjà repérés dans le même bucket, pas encore traités** :
+"Necromancy/List of Souls" (système entier jamais connu du projet), "Traveling Zoo/
+Events", "Chocolate Rabbits/List", "Museum/Milestones UI" (distinct de ce que NEU
+couvre déjà), "David Hunterborough/UI/Attribute * Milestone" (complète le système
+Attribute Shards tout juste construit), "Abiphones/ContactsTable" (wiki, à comparer à
+la version NEU-REPO déjà chargée), "SkyBlock Levels/Tasks" (pourrait compléter les ~28
+sous-tâches imbriquées jamais aplaties dans `sblevel_tasks`), "Crop Fortune/Tabber",
+"Mutations", "Quests".
+
 ## ✅ Correction méthodologique — extraction brute NEU-REPO, 7 nouvelles tables + 2 automatisées (3 août)
 
 Correction explicite demandée par l'utilisateur après un retour en arrière sur le biais
