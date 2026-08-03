@@ -8,7 +8,44 @@
 > — mêmes standards de rigueur que CLAUDE.md (jamais de constante devinée, toujours
 > sourcé), juste séparé physiquement. En cas de divergence, CLAUDE.md fait foi.
 
-Systèmes couverts, dans l'ordre où ils ont été traités :
+## 🚧 Extraction brute (méthode corrigée, 3 août) — état d'avancement, reprenable
+
+**Contexte** : correction méthodologique explicite de l'utilisateur le 3 août — la passe
+par système ci-dessous (Combat/Slayer, Farming, etc., 1er août) vérifiait une liste de
+systèmes présupposée plutôt que de laisser les sources révéler leur propre structure.
+Cette nouvelle passe lit le contenu réel de chaque page cachée, classe seulement après
+lecture, sans jamais partir d'une catégorie a priori. Cible : les 6280 pages du bucket
+générique `game_wiki` dans `game_mechanics_misc` (catégorie fourre-tout jamais inspectée
+faute de catégorisation par `wiki-auto-sync`). Confirmé le 3 août : le cache est déjà
+quasi-exhaustif (7724 pages `hypixelskyblock_wiki` en base vs 7328 "articles" réels
+rapportés par `action=query&meta=siteinfo` à l'instant — le chiffre de 15159 pages cité
+le 1er août était erroné/périmé). Zéro fetch MediaWiki nécessaire pour cette passe :
+lecture SQL directe du cache déjà entretenu par `wiki-auto-sync` (`*/30 min`).
+
+**Méthode de checkpoint** (validée par l'utilisateur) : criblage par lots de titres/tailles
+(SQL, ~300-500 titres/lot, coût négligeable) → lecture complète des candidats qui semblent
+substantiels → pour chaque vraie trouvaille, vérification qu'elle n'existe pas déjà
+ailleurs (contenu, pas nom) → construction (migration + parseur + test local + déploiement
++ re-vérification réelle en base après déploiement, même rigueur que NEU-REPO) → rapport
+groupé seulement quand 1-5 nouveaux systèmes sont prêts, jamais à chaque titre screené.
+
+**Suivi d'avancement** (mis à jour à chaque checkpoint, pour reprise sans perte si la
+passe s'étend sur plusieurs sessions) :
+- ✅ **Lot 0** (avant la correction de méthode, mais résultat valable) — page pivot du
+  bucket générique repérée par sa taille : les 16 pages "Stats" (`{{Infobox/Stat}}`)
+  → table `player_stats`. Voir CLAUDE.md pour le détail des 2 bugs de parsing trouvés.
+- ⏳ **Lot 1** — en cours. Titres déjà repérés comme candidats forts lors du premier
+  passage par taille (top 80 par nombre de caractères), pas encore lus en entier :
+  Necromancy/List of Souls, Traveling Zoo/Events, Chocolate Rabbits/List, Museum/
+  Milestones UI, David Hunterborough/UI/Attribute * Milestone (x2), Abiphones/
+  ContactsTable, SkyBlock Levels/Tasks, Crop Fortune/Tabber, Mutations, Quests,
+  Bestiary/List, Locations, Reward Bundles/List, Sea Creatures/UI/Guide, Achievements,
+  Essence Guide/UI, Crystal Hollows/Special Locations.
+- ⏳ **Reste du bucket générique** (~6200 titres non encore screenés au-delà du top 80
+  par taille) — pas commencé.
+
+Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
+dans l'ordre où ils ont été traités :
 - Combat/Slayer (1er août)
 - Farming (1er août)
 - Foraging (1er août) — inclut Heart of the Forest (2e arbre HOTM-like demandé)
