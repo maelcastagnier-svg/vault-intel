@@ -661,6 +661,60 @@ async function syncPlayerStats(): Promise<number> {
 }
 
 // ============================================================
+// attribute_milestones -- 2 pages "David Hunterborough/UI/Attirbute * Milestone"
+// (typo "Attirbute" présent dans le vrai titre de page wiki, pas une faute de frappe
+// de ma part). Format menu en jeu (raw {{UI|...}} tabber), pas du wikitext standard --
+// chaque bloc {{UI|...}} montre une fenêtre de défilement qui SE CHEVAUCHE avec les
+// blocs suivants (même palier visible 2-3 fois), dédupliqué par numéro de palier.
+// Trouvé en lisant le contenu réel du bucket générique du wiki (3 août, extraction
+// brute), complète directement le système attribute_shards (NEU-REPO).
+// ============================================================
+function parseThreshold(s: string): number {
+  s = s.trim()
+  if (s.endsWith('k')) return Math.round(parseFloat(s.slice(0, -1)) * 1000)
+  return parseInt(s, 10)
+}
+function romanToInt(roman: string): number {
+  const map: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 }
+  let total = 0
+  for (let i = 0; i < roman.length; i++) {
+    const cur = map[roman[i]], next = map[roman[i + 1]]
+    if (next && cur < next) total -= cur
+    else total += cur
+  }
+  return total
+}
+function parseAttributeMilestoneTrack(content: string, trackLabel: string, track: string) {
+  // "Reward:" (un item) vs "Rewards:" (plusieurs lignes) -- les deux formats
+  // apparaissent réellement dans le contenu, trouvé en testant. L'entrée "header"
+  // (palier 0, sans chiffre romain) ne matche jamais ce motif -- "Reward:" n'y suit
+  // pas directement le titre, donc naturellement exclue sans cas spécial.
+  const re = new RegExp(`&[a-z]Attribute ${trackLabel} ([IVXLCDM]+), &7Rewards?:\\n([\\s\\S]*?)\\n\\n&7Progress:[\\s\\S]*?/&e([\\d.]+k?)\\n`, 'g')
+  const byTier = new Map<number, any>()
+  let m
+  while ((m = re.exec(content)) !== null) {
+    const tierNum = romanToInt(m[1])
+    if (!byTier.has(tierNum)) {
+      byTier.set(tierNum, { track, tier_number: tierNum, tier_label: m[1], threshold: parseThreshold(m[3]), reward: m[2].trim() })
+    }
+  }
+  return [...byTier.values()]
+}
+
+async function syncAttributeMilestones(): Promise<number> {
+  const stacksContent = await getWikiContent(supabase, 'david_hunterborough_ui_attirbute_stacks_milestone')
+  const menuContent = await getWikiContent(supabase, 'david_hunterborough_ui_attirbute_menu_milestone')
+  const rows = [
+    ...parseAttributeMilestoneTrack(stacksContent, 'Stacks', 'stacks'),
+    ...parseAttributeMilestoneTrack(menuContent, 'Menu', 'menu'),
+  ]
+  if (rows.length === 0) throw new Error('attribute_milestones: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('attribute_milestones').upsert(rows, { onConflict: 'track, tier_number' })
+  if (error) throw new Error('attribute_milestones upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -678,6 +732,7 @@ export async function runWikiReferentialSync() {
     magical_power_by_rarity: syncMagicalPowerByRarity,
     hotm_hotf_powders: syncHotmHotfPowders,
     player_stats: syncPlayerStats,
+    attribute_milestones: syncAttributeMilestones,
   })) {
     try {
       const rows = await fn()
