@@ -226,10 +226,31 @@ passe s'étend sur plusieurs sessions) :
     suffisamment différente du criblage en cours pour mériter son propre focus), mais
     **priorité haute** vu le lien direct avec la reprise de Pluton — ne pas re-découvrir
     depuis zéro, ce diagnostic est déjà complet.
-- ⏳ **Reste du bucket générique** (~5900 titres au-delà des ~380 premiers par taille) —
-  pas commencé. Prochaine étape : continuer le criblage par lots de taille décroissante
-  (positions 381+), et envisager la piste `hotf_perks`/`hotm_perks` (formules Pluton) en
-  session séparée si l'utilisateur le juge prioritaire.
+- ✅ **Lot 3 (positions 381-680 par taille, checkpoint 7)** — 2 nouveaux systèmes réels :
+  - `dungeon_class_milestones` (630 lignes) — voir détail ci-dessus.
+  - `crystal_hollows_loot` (7 zones × 2 raretés, ~470 lignes attendues) — voir détail
+    ci-dessus.
+  - **Candidats forts repérés, pas encore lus en entier** (prochaine session) :
+    `treasure_loot_crimson_isle`/`_fairy_pond`/`_winter`/`_water` (série loot Treasure
+    Chest par zone, même famille que crystal_hollows_loot) ; `frozen_corpses`/`_lapis`/
+    `_vanguard`/`_umber_and_tungsten` (loot Glacite Mineshaft) ; `bits`/`bits_shop`/
+    `bits_shop_ui` (monnaie Bits, jamais mappée) ; `mob_list_crimson`/`mob_list_crystal`
+    (à vérifier contre `bestiary_mobs` avant construction) ; `power_scrolls` (Kuudra) ;
+    `trophy_fish`/`trophy_chance` (complète `trophy_fish_thresholds` existant, à
+    vérifier chevauchement) ; `ender_dragon_drop_tables` ; `reforging`/
+    `reforging_tool__advanced_` (à vérifier contre `reforge_stones`/`reforges`) ;
+    `ultimate_jerry_chances_2` (probable suite/doublon de `ultimate_jerry_chances` déjà
+    construit, à vérifier) ; `last_stand_chances` (probable 6e page de la famille
+    dungeon_chest_combo_chances déjà construite, à vérifier et ajouter si distinct).
+    Le reste de ce lot (~250 titres) est très majoritairement des pages boss/NPC
+    individuelles (prose lore : Zealot/Scorpius/Storm/Livid/Bonzo/Goldor/Necron/etc.,
+    déjà couverts mécaniquement par `dungeon_data`/le contenu narratif existant) et des
+    `changelog_*` (hors scope, déjà couverts par `patch_notes`).
+- ⏳ **Reste du bucket générique** (~5600 titres au-delà des ~680 premiers par taille) —
+  pas commencé. Prochaine étape : lire les candidats forts ci-dessus (loot tables +
+  bits + reforging), puis continuer le criblage par lots de taille décroissante
+  (positions 681+). Piste `hotf_perks`/`hotm_perks` (formules Pluton) toujours en attente
+  d'une session dédiée si l'utilisateur la priorise.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
