@@ -1807,6 +1807,69 @@ async function syncChocolateFactoryLevels(): Promise<number> {
 }
 
 // ============================================================
+// dungeon_chest_combo_chances -- 5 pages wiki structurellement identiques (Hot Potato
+// Book/Combo/No Pain No Gain/Ultimate Wise/Ultimate Jerry "chances"), chacune la vraie
+// chance moyenne d'obtenir cet item précis par Coffre de Récompense de Donjon (Floor ×
+// type de coffre), avec/sans bonus de qualité max -- jamais capturé. Distinct de
+// `dungeon_rng_scores` (NEU-REPO, poids RNG brut par item) déjà réel : celui-ci donne le
+// POIDS, ces pages donnent la PROBABILITÉ DÉRIVÉE déjà calculée par floor/coffre, pas
+// reconstructible facilement depuis le poids seul (dépend du poids total du pool, non
+// capturé ailleurs). Wikitable standard, 0 rowspan/colspan sur les 5 pages (vérifié avant
+// de coder). Vérifié en local (parse_dungeonchances.js) contre hot_potato_book_chances :
+// 58/58 lignes, 0 floor vide, 0 markup résiduel.
+// ============================================================
+function cleanDungeonChanceCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\[\[File:[^\]]*\]\]/g, '')
+  s = s.replace(/style="[^"]*"\s*\|\s*/g, '')
+  s = s.replace(/\{\{Coins\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/'''/g, '')
+  s = s.replace(/<br\s*\/?>/gi, ' ')
+  s = s.replace(/\s+/g, ' ')
+  return s.trim()
+}
+const DUNGEON_COMBO_CHANCE_KEYS: Record<string, string> = {
+  hot_potato_book: 'hot_potato_book_chances',
+  combo: 'combo_chances',
+  no_pain_no_gain: 'no_pain_no_gain_chances',
+  ultimate_wise: 'ultimate_wise_chances',
+  ultimate_jerry: 'ultimate_jerry_chances',
+}
+async function syncDungeonChestComboChances(): Promise<number> {
+  const rows: any[] = []
+  for (const [comboType, key] of Object.entries(DUNGEON_COMBO_CHANCE_KEYS)) {
+    const content = await getWikiContent(supabase, key)
+    const body = extractFirstWikitableBody(content)
+    if (!body) throw new Error(`dungeon_chest_combo_chances: wikitable introuvable pour ${comboType}`)
+    for (const r of parseRowspanTable(body, 7)) {
+      const floor = cleanDungeonChanceCell(r[0])
+      if (!floor) continue
+      rows.push({
+        combo_type: comboType,
+        floor,
+        chest: cleanDungeonChanceCell(r[1]),
+        cost: cleanDungeonChanceCell(r[2]) || null,
+        chance_no_bonus: cleanDungeonChanceCell(r[3]) || null,
+        chance_max_bonus: cleanDungeonChanceCell(r[4]) || null,
+        quality: cleanDungeonChanceCell(r[5]) || null,
+        weight: cleanDungeonChanceCell(r[6]) || null,
+      })
+    }
+  }
+
+  if (rows.length === 0) throw new Error('dungeon_chest_combo_chances: 0 lignes extraites, parsing probablement cassé')
+  const { error: delErr } = await supabase.from('dungeon_chest_combo_chances').delete().gte('id', 0)
+  if (delErr) throw new Error('dungeon_chest_combo_chances delete: ' + delErr.message)
+  const { error } = await supabase.from('dungeon_chest_combo_chances').insert(rows)
+  if (error) throw new Error('dungeon_chest_combo_chances insert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -1838,6 +1901,7 @@ export async function runWikiReferentialSync() {
     skyblock_level_rewards: syncSkyblockLevelRewards,
     bingo_goals_archive: syncBingoGoalsArchive,
     chocolate_factory_levels: syncChocolateFactoryLevels,
+    dungeon_chest_combo_chances: syncDungeonChestComboChances,
   })) {
     try {
       const rows = await fn()
