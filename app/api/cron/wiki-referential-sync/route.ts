@@ -1870,6 +1870,75 @@ async function syncDungeonChestComboChances(): Promise<number> {
 }
 
 // ============================================================
+// dungeon_class_milestones -- Class Milestones (630 lignes : 2 modes Normal/Master ×
+// 5 classes Berserk/Mage/Archer/Tank/Healer × 7 étages × 9 paliers). Système entier
+// jamais mappé -- distinct de `dungeon_classes` (contenu par NIVEAU de classe, sans
+// source connue) : celui-ci couvre les SEUILS de dégâts/heal par ÉTAGE pour ouvrir le
+// Post-Boss Chest et éviter la pénalité d'XP dungeon, vérifié sans recouvrement avant de
+// construire. Table wide (Floor + 9 colonnes de palier) "fondue" en format long.
+// Bug réel trouvé et corrigé en local avant tout déploiement : le premier tab de chaque
+// mode (`Berserk`) a un double marqueur de ligne `|-\n|-\n` consécutif dans le wikitext
+// source (probablement une erreur d'édition wiki jamais corrigée) -- le split par regex
+// `/\n\|-\n?/` ne peut pas matcher 2 séparateurs adjacents (non-chevauchant, la 2e
+// occurrence perd son `\n` de tête consommé par la 1ère) et laissait un fragment `|-`
+// résiduel traité à tort comme une cellule réelle (décalait Floor I entièrement) --
+// corrigé en excluant explicitement toute ligne valant exactement `|-` du filtre de
+// cellules. Vérifié en local (parse_classmilestones.js) : 630/630 lignes (63 par
+// mode/classe, cohérent), 0 seuil vide.
+// ============================================================
+function cleanClassMilestoneCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  return s.trim()
+}
+async function syncDungeonClassMilestones(): Promise<number> {
+  const content = await getWikiContent(supabase, 'class_milestones')
+  const modeRe = /== The Catacombs(?: - Master Mode)? ==\n/g
+  const modeMatches = [...content.matchAll(modeRe)]
+  if (modeMatches.length === 0) throw new Error('dungeon_class_milestones: aucun mode trouvé')
+  const modeBounds = modeMatches.map((m, i) => ({
+    mode: /Master Mode/.test(m[0]) ? 'master' : 'normal',
+    start: m.index! + m[0].length,
+    end: i + 1 < modeMatches.length ? modeMatches[i + 1].index! : content.length,
+  }))
+
+  const rows: any[] = []
+  for (const mb of modeBounds) {
+    const modeChunk = content.slice(mb.start, mb.end)
+    const tabRe = /\n\s*(?:\|-\|\s*)?([A-Za-z]+)\s*=\s*\n/g
+    const tabMatches = [...modeChunk.matchAll(tabRe)]
+    const tabBounds = tabMatches.map((m, i) => ({
+      className: m[1],
+      start: m.index! + m[0].length,
+      end: i + 1 < tabMatches.length ? tabMatches[i + 1].index! : modeChunk.length,
+    }))
+    for (const tb of tabBounds) {
+      const chunk = modeChunk.slice(tb.start, tb.end)
+      const body = extractFirstWikitableBody(chunk)
+      if (!body) continue
+      const rowBlocks = body.split(/\n\|-\n?/).filter(b => b.trim().length > 0)
+      for (const block of rowBlocks) {
+        const lines = block.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('|}') && l.trim() !== '|-')
+        if (lines.length === 0) continue
+        const cells: string[] = []
+        for (let i = 0; i < 10; i++) cells.push(lines[i] ? lines[i].replace(/^\|/, '').trim() : '')
+        const floor = cleanClassMilestoneCell(cells[0])
+        if (!floor) continue
+        for (let m = 1; m <= 9; m++) {
+          rows.push({ mode: mb.mode, class: tb.className, floor, milestone: m, threshold: cleanClassMilestoneCell(cells[m]) || null })
+        }
+      }
+    }
+  }
+
+  if (rows.length === 0) throw new Error('dungeon_class_milestones: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('dungeon_class_milestones').upsert(rows, { onConflict: 'mode,class,floor,milestone' })
+  if (error) throw new Error('dungeon_class_milestones upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -1902,6 +1971,7 @@ export async function runWikiReferentialSync() {
     bingo_goals_archive: syncBingoGoalsArchive,
     chocolate_factory_levels: syncChocolateFactoryLevels,
     dungeon_chest_combo_chances: syncDungeonChestComboChances,
+    dungeon_class_milestones: syncDungeonClassMilestones,
   })) {
     try {
       const rows = await fn()
