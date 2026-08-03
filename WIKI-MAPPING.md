@@ -152,15 +152,47 @@ passe s'étend sur plusieurs sessions) :
   déjà vérifiés corrects pour toutes, seul un contenu tronqué À L'INTÉRIEUR d'une cellule
   existante pourrait avoir été manqué, pas une ligne entière perdue) mais noté ici pour ne
   pas être oublié si un doute survient plus tard sur l'une de ces tables.
-- ⏳ **Reste du bucket générique** (~6200 titres non encore screenés au-delà du top 80
-  par taille) — pas commencé. Prochaine étape de cette passe une fois le reste du Lot 1
-  jugé suffisant par l'utilisateur.
+- ✅ **Lot 2 (titres 81-380 par taille, checkpoint 5)** — première tranche du bucket
+  générique au-delà du top-80 screenée. `skyblock_level_rewards` (52 lignes, 5
+  catégories : Features/Prefix Color/Prefix Emblem/Stat/Bonus) — page "SkyBlock Levels"
+  racine, distincte de "SkyBlock Levels/Tasks" déjà mappée (`skyblock_level_xp_tasks`
+  couvre les SOURCES d'XP, celle-ci couvre les RÉCOMPENSES par palier) — jamais capturé.
+  **Candidats forts repérés dans ce lot, pas encore lus en entier** (prochaine session) :
+  - `bingo_events_2021`/`_2022`/`_2023`/`_2024`/`_2025`/`_2026` — archive historique des
+    goals Bingo par année, `skyblock_bingo_goals` ne couvre que l'événement courant (25
+    lignes) — potentiel enrichissement historique réel, taille substantielle (76K-168K
+    caractères chacun), pas encore lu.
+  - `essence_list_undead`/`essence_list_wither` — confirme que `Essence Guide/UI` (Lot 1,
+    différé comme probable doublon) est bien un shell de menu — les vraies listes vivent
+    ici, par type d'essence, même pattern que Sea Creatures. Candidat fort, pas encore lu.
+  - `chocolate_factory`/`chocolate_factory_ui`/`chocolate_eggs_list` — système Chocolate
+    Factory (Hoppity's Hunt), jamais mappé structurellement dans ce projet.
+  - `museum_ui`/`museum_items_special`/`museum_items_combat` — enrichissement possible de
+    `museum_sets`/`museum_item_xp` déjà réels, à vérifier doublon avant de construire.
+  - `attributes_list_common`/`_uncommon`/`_rare`/`_epic`/`_legendary` — à vérifier contre
+    `attribute_shards` (189 déjà réels) avant de construire, risque de doublon élevé.
+  - `heart_of_the_forest_list`/`heart_of_the_mountain` — à vérifier contre `hotf_perks`/
+    `hotm_perks` déjà réels avant de construire.
+  - `collections_list` — à vérifier contre `collections` (87 lignes déjà réelles).
+  - `hot_potato_book`/`hot_potato_book_chances`/`combo_chances`/`no_pain_no_gain_chances`/
+    `ultimate_wise_chances`/`ultimate_jerry_chances`/`magic_find_table` — formules
+    d'enchantement/reforge jamais sourcées dans ce projet, candidats forts.
+  - `kat_costs` — à vérifier contre `pet_level_xp_curve`/`custom_pet_leveling`.
+  - Le reste des ~300 titres de ce lot sont soit des pages NPC individuelles (dialogue/
+    lore, faible valeur mécanique : `elizabeth_ui`, `christopher_ui`, `maxwell_ui`, etc.),
+    soit des `changelog_*` (patch notes historiques, hors scope — déjà couverts par
+    `patch_notes`/patch-analysis-agent), soit des pages boss de donjon individuelles
+    (`necron`/`the_watcher`/`thorn`/`sadan`/`the_professor`, prose narrative probable,
+    à vérifier si intérêt pour `dungeon_data` actuellement vide).
+- ⏳ **Reste du bucket générique** (~5900 titres au-delà des ~380 premiers par taille) —
+  pas commencé. Prochaine étape : lire les candidats forts ci-dessus, puis continuer le
+  criblage par lots de taille décroissante.
 
-**Bilan de cette session (3-4 août, méthode corrigée)** : 11 nouveaux systèmes réels
+**Bilan de cette session (3-4 août, méthode corrigée)** : 13 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
 `skyblock_level_xp_tasks`, `museum_milestones`, `crop_fortune_sources`,
 `skyblock_achievements`, `garden_mutations`, `skyblock_quests`, `location_details`,
-`chocolate_rabbits`, `sea_creature_pools` (12 en comptant `player_stats` du Lot 0).
+`chocolate_rabbits`, `sea_creature_pools`, `skyblock_level_rewards`.
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
 dans l'ordre où ils ont été traités :
