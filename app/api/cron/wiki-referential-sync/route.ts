@@ -38,7 +38,35 @@ function parseDurationSeconds(text: string): number {
   return total
 }
 
-interface ForgeRow { item_name: string; duration_seconds: number; duration_text: string; hotm_requirement: string | null }
+interface ForgeRow {
+  item_name: string; duration_seconds: number; duration_text: string; hotm_requirement: string | null
+  ingredients: { item: string; amount: number }[]
+}
+
+// "{{BZC|*2 Enchanted Diamond Block *1 Foo}}" ou "... + {{ID|Prereq Item}}" -- convertit
+// chaque nom lisible en ID brut (majuscules, espaces->underscore), convention Hypixel
+// standard, cohérente avec les item_id déjà en base (ex: REFINED_DIAMOND, ENCHANTED_
+// DIAMOND_BLOCK).
+function toItemId(name: string): string {
+  return name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+}
+
+function parseIngredients(materialCostRaw: string): { item: string; amount: number }[] {
+  const ingredients: { item: string; amount: number }[] = []
+  const seen = new Set<string>()
+  const starRe = /\*(\d+)\s+([^*{}]+?)(?=\s*\*|\s*}}|$)/g
+  let m: RegExpExecArray | null
+  while ((m = starRe.exec(materialCostRaw))) {
+    const item = toItemId(m[2])
+    if (item && !seen.has(item)) { seen.add(item); ingredients.push({ item, amount: parseInt(m[1], 10) }) }
+  }
+  const idRe = /\{\{ID\|([^}|]+)\}\}/g
+  while ((m = idRe.exec(materialCostRaw))) {
+    const item = toItemId(m[1])
+    if (item && !seen.has(item)) { seen.add(item); ingredients.push({ item, amount: 1 }) }
+  }
+  return ingredients
+}
 
 function parseForgeWikitable(tableBody: string): ForgeRow[] {
   const resolvedRows = parseRowspanTable(tableBody, 6)
@@ -53,6 +81,7 @@ function parseForgeWikitable(tableBody: string): ForgeRow[] {
       duration_seconds: parseDurationSeconds(durationText),
       duration_text: durationText,
       hotm_requirement: reqRaw || null,
+      ingredients: parseIngredients(resolved[5] || ''),
     })
   }
   return rows
@@ -94,7 +123,52 @@ async function syncHotmForgeDurations(): Promise<number> {
     const { error } = await supabase.from('hotm_forge_durations').insert(insertRows.slice(i, i + 100))
     if (error) throw new Error('hotm_forge_durations insert: ' + error.message)
   }
-  return insertRows.length
+
+  // forge_recipes -- même page, mêmes lignes déjà parsées ici (item_id/item_name/
+  // forge_time_hours/ingredients), demandé explicitement à s'ajouter à cette fonction
+  // plutôt qu'un nouveau cron (règle 4, même source déjà fetchée).
+  const recipeRows = allRows
+    .filter(r => r.ingredients.length > 0)
+    .map(r => ({
+      item_id: toItemId(r.item_name),
+      item_name: r.item_name,
+      forge_time_hours: Math.round((r.duration_seconds / 3600) * 100) / 100,
+      ingredients: r.ingredients,
+    }))
+  const { error: delRecErr } = await supabase.from('forge_recipes').delete().gte('id', 0)
+  if (delRecErr) throw new Error('forge_recipes delete: ' + delRecErr.message)
+  for (let i = 0; i < recipeRows.length; i += 100) {
+    const { error } = await supabase.from('forge_recipes').insert(recipeRows.slice(i, i + 100))
+    if (error) throw new Error('forge_recipes insert: ' + error.message)
+  }
+
+  return insertRows.length + recipeRows.length
+}
+
+// ============================================================
+// magical_power_by_rarity (wiki "Accessory Power/Mechanics")
+// Vérifié le 3 août : Mythic était à tort 20 en base (vraie valeur 22), Divine/
+// Special/Very Special/Ultimate manquaient entièrement -- corrigé manuellement par
+// SQL ce jour-là, cette fonction automatise le refresh pour que ça ne redivergue
+// plus jamais silencieusement.
+// ============================================================
+async function syncMagicalPowerByRarity(): Promise<number> {
+  const content = await getWikiContent(supabase, 'accessory_power_mechanics')
+  const tableBody = extractFirstWikitableBody(content)
+  if (!tableBody) throw new Error('accessory_power_mechanics: wikitable Rarity/MP introuvable')
+  const resolved = parseRowspanTable(tableBody, 2)
+  const rows = resolved
+    .map(r => {
+      const rarityMatch = r[0].match(/\{\{([A-Za-z ]+)\}\}/)
+      const rarity = rarityMatch ? rarityMatch[1].trim().toUpperCase().replace(/\s+/g, '_') : ''
+      const mp = parseInt(r[1].trim(), 10)
+      return { rarity, magical_power: mp }
+    })
+    .filter(r => r.rarity && !isNaN(r.magical_power))
+  if (rows.length === 0) throw new Error('accessory_power_mechanics: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('magical_power_by_rarity').upsert(rows, { onConflict: 'rarity' })
+  if (error) throw new Error('magical_power_by_rarity upsert: ' + error.message)
+  return rows.length
 }
 
 // ============================================================
@@ -362,6 +436,7 @@ export async function runWikiReferentialSync() {
     minion_upgrade_items: syncMinionUpgradeItems,
     sack_tiers: syncSackTiers,
     trapper_pelts: syncTrapperPelts,
+    magical_power_by_rarity: syncMagicalPowerByRarity,
   })) {
     try {
       const rows = await fn()

@@ -239,6 +239,17 @@ async function syncHoppityPrestige(data: any): Promise<number> {
 }
 
 // ============================================================
+// misc.json (.base_stats) → player_base_stats (stat_name, base_value)
+// Vérifié : speed=100, damage=0, health=100, defence=0, ferocity=0 exact.
+// ============================================================
+async function syncPlayerBaseStats(miscData: any): Promise<number> {
+  const rows = Object.entries<any>(miscData.base_stats || {}).map(([stat_name, base_value]) => ({
+    stat_name, base_value,
+  }))
+  return upsertBatched('player_base_stats', rows, 'stat_name')
+}
+
+// ============================================================
 // parents.json → item_upgrade_chains (from_item, to_item) -- 726 clés, flatten.
 // Vérifié : AATROX_MAYOR_MONSTER -> [COLE_MAYOR_MONSTER, ...] exact.
 // misc.json .talisman_upgrades → accessory_upgrade_paths (même format).
@@ -511,7 +522,8 @@ const DERIVED_TARGETS: Record<string, (data: any) => Promise<number>> = {
   'enchants.json':        syncEnchantments,
   'gemstones.json':       syncGemstones,
   'reforgestones.json':   syncReforgeStones,
-  'misc.json': async (data: any) => (await syncAccessoryUpgradePaths(data)) + (await syncMinionTierXp(data)),
+  'misc.json': async (data: any) =>
+    (await syncAccessoryUpgradePaths(data)) + (await syncMinionTierXp(data)) + (await syncPlayerBaseStats(data)),
   'garden.json': async (data: any) =>
     (await syncGardenXpLevels(data)) +
     (await syncGardenCropMilestones(data)) +
