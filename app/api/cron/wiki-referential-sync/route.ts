@@ -973,6 +973,114 @@ async function syncMuseumMilestones(): Promise<number> {
 }
 
 // ============================================================
+// crop_fortune_sources -- Crop Fortune/Tabber (13 tabs, un par crop du Garden : Wheat/
+// Carrot/Potato/Pumpkin/Melon Slice/Mushroom/Cactus/Sugar Cane/Nether Wart/Cocoa Beans/
+// Sunflower/Moonflower/Wild Rose). Complète la formule déjà documentée (1 point de Crop
+// Fortune = 1% chance de +100% drops, garanti tous les 100 points) avec le détail réel de
+// CHAQUE source de Crop Fortune par crop -- jamais capturé avant. 5 types de sous-section
+// par crop (Tools/Accessories/Enchantments/Miscellaneous/Pets), chacun avec un schéma de
+// colonnes différent (3 à 5 colonnes selon le type, confirmé en lisant les 57 occurrences
+// réelles de section sur les 13 crops) -- colonnes mappées par LABEL d'en-tête réel
+// (Name/Source/Bonus/Notes/Rarity), pas par position fixe, pour rester correct même si un
+// crop a un sous-ensemble différent de sections. Page confirmée 100% wikitables simples
+// (aucun rowspan/colspan sur toute la page, vérifié avant de coder) -- pas besoin du
+// parseur rowspan générique ici. Vérifié en local (parse_cropfortune.js) : 149 lignes,
+// 0 nom/bonus vide, 0 markup wiki résiduel.
+// ============================================================
+function cleanCropFortuneCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/g, '')
+  s = s.replace(/\[\[File:[^\]]*\]\]/g, '')
+  s = s.replace(/\{\{[Ss]tat\|([^|}]*)\|([^{}|]*)\}\}/g, '$1 $2')
+  s = s.replace(/\{\{[Ss]tat\|([^{}|]*)\}\}/g, '$1')
+  s = s.replace(/\{\{[Ii][Dd]\|([^{}|]*)\}\}/g, '$1')
+  s = s.replace(/\{\{[Ee]nch\|([^{}|]*)\}\}/g, '$1')
+  s = s.replace(/\{\{NPCSprite\|([^{}|;]*)[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{[Zz]one\|([^{}|]*)\}\}/g, '$1')
+  s = s.replace(/\{\{[Rr][Dd]\|([^{}|]*)\}\}/g, '$1')
+  s = s.replace(/\{\{bc\}\}/gi, '')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/'''/g, '')
+  s = s.replace(/<br\s*\/?>/gi, '; ')
+  s = s.replace(/\s+/g, ' ')
+  return s.trim()
+}
+function parseCropFortuneCell(line: string): string {
+  let s = line.replace(/^\|/, '')
+  const firstPipe = s.indexOf('|')
+  if (firstPipe !== -1 && /rowspan\s*=|class\s*=|colspan\s*=|style\s*=|data-sort/.test(s.slice(0, firstPipe))) {
+    s = s.slice(firstPipe + 1)
+  }
+  return s.trim()
+}
+async function syncCropFortuneSources(): Promise<number> {
+  const content = await getWikiContent(supabase, 'crop_fortune_tabber')
+  const tabRe = /\|-\|([^=]+)=/g
+  const tabMatches = [...content.matchAll(tabRe)]
+  if (tabMatches.length === 0) throw new Error('crop_fortune_sources: aucun tab (crop) trouvé')
+  const bounds = tabMatches.map((m, i) => ({
+    name: m[1].trim(),
+    start: m.index!,
+    end: i + 1 < tabMatches.length ? tabMatches[i + 1].index! : content.length,
+  }))
+
+  const rows: any[] = []
+  for (const b of bounds) {
+    const tabText = content.slice(b.start, b.end)
+    const sectionRe = /=== ([^=]+) ===\n/g
+    const secMatches = [...tabText.matchAll(sectionRe)]
+    const secBounds = secMatches.map((m, i) => ({
+      name: m[1].trim(),
+      start: m.index! + m[0].length,
+      end: i + 1 < secMatches.length ? secMatches[i + 1].index! : tabText.length,
+    }))
+    for (const sec of secBounds) {
+      const secText = tabText.slice(sec.start, sec.end)
+      const tableStart = secText.indexOf('{|')
+      if (tableStart === -1) continue
+      const tableEnd = secText.indexOf('|}', tableStart)
+      const table = secText.slice(tableStart, tableEnd)
+      const headerEnd = table.indexOf('\n|-\n')
+      if (headerEnd === -1) continue
+      const headerBlock = table.slice(0, headerEnd)
+      const headers = headerBlock.split('\n').filter(l => l.trim().startsWith('!')).map(l => l.replace(/^!/, '').trim())
+      const body = table.slice(headerEnd + 4)
+      const rowBlocks = body.split(/\n\|-\n?/).filter(bl => bl.trim().length > 0)
+
+      const nameIdx = headers.findIndex(h => /^Name$/i.test(h) || /^Source$/i.test(h))
+      const bonusIdx = headers.findIndex(h => /Bonus/i.test(h) || /crop fortune/i.test(h))
+      const notesIdx = headers.findIndex(h => /Notes/i.test(h))
+      const rarityIdx = headers.findIndex(h => /Rarity/i.test(h))
+
+      for (const block of rowBlocks) {
+        const lines = block.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('|}'))
+        const cells = headers.map((_, i) => lines[i] !== undefined ? parseCropFortuneCell(lines[i]) : '')
+        const name = nameIdx >= 0 ? cleanCropFortuneCell(cells[nameIdx]) : ''
+        if (!name) continue
+        rows.push({
+          crop: b.name,
+          section: sec.name,
+          name,
+          bonus: bonusIdx >= 0 ? cleanCropFortuneCell(cells[bonusIdx]) || null : null,
+          notes: notesIdx >= 0 ? cleanCropFortuneCell(cells[notesIdx]) || null : null,
+          rarity: rarityIdx >= 0 ? cleanCropFortuneCell(cells[rarityIdx]) || null : null,
+        })
+      }
+    }
+  }
+
+  if (rows.length === 0) throw new Error('crop_fortune_sources: 0 lignes extraites, parsing probablement cassé')
+  const { error: delErr } = await supabase.from('crop_fortune_sources').delete().gte('id', 0)
+  if (delErr) throw new Error('crop_fortune_sources delete: ' + delErr.message)
+  const { error } = await supabase.from('crop_fortune_sources').insert(rows)
+  if (error) throw new Error('crop_fortune_sources insert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -994,6 +1102,7 @@ export async function runWikiReferentialSync() {
     necromancy_souls: syncNecromancySouls,
     skyblock_level_xp_tasks: syncSkyblockLevelXpTasks,
     museum_milestones: syncMuseumMilestones,
+    crop_fortune_sources: syncCropFortuneSources,
   })) {
     try {
       const rows = await fn()
