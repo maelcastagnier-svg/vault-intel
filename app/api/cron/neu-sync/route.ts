@@ -500,7 +500,229 @@ async function syncReforgeStones(data: any): Promise<number> {
   return replaceAll('reforge_stones', rows)
 }
 
+// ============================================================
+// EXTRACTION BRUTE NEU-REPO du 3 août -- lecture du contenu réel de chaque fichier,
+// jamais deviné par nom de fichier ni forcé dans une catégorie présupposée (correction
+// méthodologique explicite demandée par l'utilisateur). 17 fichiers NEU-REPO fetchés
+// mais jamais inspectés jusqu'ici -- la plupart cosmétiques (dyes/animatedskulls/
+// legacyrainbownames, skins/couleurs, aucune valeur mécanique) ou vides (resource_pack,
+// calendar -- annonces de maintenance périmées 2024) donc volontairement laissés de
+// côté. Le reste ci-dessous est du vrai contenu jamais capturé nulle part.
+// ============================================================
+
+// abiphone.json → npc_locations -- source réelle confirmée identique aux 84 lignes déjà
+// en base (chargées one-shot le 10 juillet sans jamais tracer leur vraie provenance) --
+// callNames (21/84 NPCs) jamais capturé, ajouté ici.
+async function syncNpcLocations(data: any): Promise<number> {
+  const rows = Object.entries<any>(data).map(([npc_name, e]) => ({
+    npc_name,
+    island: e.island ?? null,
+    x: e.x ?? null,
+    y: e.y ?? null,
+    z: e.z ?? null,
+    requirement: Array.isArray(e.requirement) ? e.requirement.join(' ') : (e.requirement ?? null),
+    call_names: e.callNames ?? null,
+  }))
+  return upsertBatched('npc_locations', rows, 'npc_name')
+}
+
+// glacite_tunnel_waypoints.json → glacite_tunnel_waypoints -- table déjà réelle (20
+// lignes, chargée one-shot), source confirmée exacte, jamais reliée à un cron.
+async function syncGlaciteTunnelWaypoints(data: any): Promise<number> {
+  const rows: any[] = []
+  for (const [collector_name, e] of Object.entries<any>(data)) {
+    ;(e.waypoints || []).forEach((w: string, i: number) => {
+      const [x, y, z] = w.split(':').map(Number)
+      rows.push({ collector_name, title: e.title ?? null, waypoint_order: i, x, y, z })
+    })
+  }
+  return upsertBatched('glacite_tunnel_waypoints', rows, 'collector_name, waypoint_order')
+}
+
+// attribute_shards.json → attribute_shards (189 shards) + attribute_shard_leveling_costs
+// (5 raretés x 10 niveaux). Système Rift/Kuudra jamais mappé nulle part -- la table
+// attribute_shards existait déjà mais vide (0 ligne, schema Phase-0 incompatible),
+// reconstruite pour matcher le vrai contenu (voir migration).
+async function syncAttributeShards(data: any): Promise<number> {
+  const unconsumable = new Set<string>(data.unconsumable_attributes || [])
+  const shardRows = (data.attributes || []).map((a: any) => ({
+    shard_id: a.shardId,
+    bazaar_name: a.bazaarName,
+    display_name: a.displayName,
+    rarity: a.rarity,
+    internal_name: a.internalName,
+    ability_name: a.abilityName,
+    alignment: a.alignment ?? null,
+    family: a.family && a.family.length > 0 ? a.family : null,
+    unconsumable: unconsumable.has(a.bazaarName),
+  }))
+  const n1 = await upsertBatched('attribute_shards', shardRows, 'internal_name')
+
+  const levelRows: any[] = []
+  for (const [rarity, costs] of Object.entries<any>(data.attribute_levelling || {})) {
+    ;(costs as number[]).forEach((xp_cost, i) => levelRows.push({ rarity, level: i + 1, xp_cost }))
+  }
+  const n2 = await upsertBatched('attribute_shard_leveling_costs', levelRows, 'rarity, level')
+  return n1 + n2
+}
+
+// bazaarstocks.json → bazaar_stock_id_map (954 lignes, portée générale -- pas seulement
+// attribute shards, ex: enchant tiers ENCHANTMENT_CORRUPTION_5). Backfill en plus
+// bazaar_stock_id sur attribute_shards pour les 189 shards concernés (attribute_shards.json
+// est traité avant dans NEU_FILES, donc les lignes existent déjà à ce stade).
+async function syncBazaarStockMap(data: any): Promise<number> {
+  const rows = (data as { stock: string; id: string }[]).map(s => ({
+    internal_name: s.id,
+    stock_id: s.stock,
+  }))
+  const n = await upsertBatched('bazaar_stock_id_map', rows, 'internal_name')
+
+  for (const s of data as { stock: string; id: string }[]) {
+    if (!s.id.startsWith('ATTRIBUTE_SHARD')) continue
+    const { error } = await supabase.from('attribute_shards').update({ bazaar_stock_id: s.stock }).eq('internal_name', s.id)
+    if (error) throw new Error('attribute_shards bazaar_stock_id backfill: ' + error.message)
+  }
+  return n
+}
+
+// bestiary.json → bestiary_mobs (mobs réels par zone, 19 zones incl. "dynamic") +
+// bestiary_brackets (seuils de kills par palier, 8 brackets). skullOwner/texture
+// (têtes de joueur cosmétiques pour l'icône du mob) volontairement pas capturés, même
+// convention que le reste du projet.
+function cleanMobName(s: string): string {
+  return s.replace(/§./g, '').trim()
+}
+async function syncBestiary(data: any): Promise<number> {
+  const mobRows: any[] = []
+  for (const [zoneKey, zone] of Object.entries<any>(data)) {
+    if (zoneKey === 'brackets' || zoneKey === 'dynamic' && !zone?.mobs) continue
+    if (!Array.isArray(zone?.mobs)) continue
+    for (const m of zone.mobs) {
+      mobRows.push({
+        zone_key: zoneKey,
+        display_name: cleanMobName(m.name),
+        cap: m.cap ?? null,
+        bracket: m.bracket ?? null,
+        mob_type_ids: m.mobs && m.mobs.length > 0 ? m.mobs : null,
+      })
+    }
+  }
+  const n1 = await upsertBatched('bestiary_mobs', mobRows, 'zone_key, display_name')
+
+  const bracketRows: any[] = []
+  for (const [bracketNumber, levels] of Object.entries<any>(data.brackets || {})) {
+    ;(levels as number[]).forEach((kills_required, i) =>
+      bracketRows.push({ bracket_number: parseInt(bracketNumber, 10), level_index: i + 1, kills_required })
+    )
+  }
+  const n2 = await upsertBatched('bestiary_brackets', bracketRows, 'bracket_number, level_index')
+  return n1 + n2
+}
+
+// bonuses.json → level_bonus_stats (bonus_stats: skill_X + slayer_X → niveau → stat) +
+// pet_score_magic_find (pet_rewards) + pet_rarity_value (pet_value). Mécanique jamais
+// mappée : chaque niveau de skill/slayer donne un petit bonus de stat passif.
+async function syncBonuses(data: any): Promise<number> {
+  const statRows: any[] = []
+  for (const [sourceKey, levels] of Object.entries<any>(data.bonus_stats || {})) {
+    const [sourceType, ...rest] = sourceKey.split('_')
+    const key = rest.join('_')
+    for (const [level, stats] of Object.entries<any>(levels)) {
+      for (const [statName, statValue] of Object.entries<any>(stats)) {
+        statRows.push({ source_type: sourceType, source_key: key, level: parseInt(level, 10), stat_name: statName, stat_value: statValue })
+      }
+    }
+  }
+  const n1 = await upsertBatched('level_bonus_stats', statRows, 'source_type, source_key, level, stat_name')
+
+  const magicFindRows = Object.entries<any>(data.pet_rewards || {}).map(([score, r]) => ({
+    score_threshold: parseInt(score, 10),
+    magic_find: r.magic_find,
+  }))
+  const n2 = await upsertBatched('pet_score_magic_find', magicFindRows, 'score_threshold')
+
+  const rarityValueRows = Object.entries<any>(data.pet_value || {}).map(([rarity, value]) => ({ rarity, value }))
+  const n3 = await upsertBatched('pet_rarity_value', rarityValueRows, 'rarity')
+
+  return n1 + n2 + n3
+}
+
+// essencecosts.json → essence_upgrade_costs (coût essence par star, 528 items) +
+// essence_upgrade_extra_items (items additionnels à certains paliers). Distinct de
+// essence_shop_upgrades déjà mappée (l'arbre de la boutique d'essence, pas les coûts
+// d'upgrade par item).
+async function syncEssenceCosts(data: any): Promise<number> {
+  const costRows: any[] = []
+  const extraRows: any[] = []
+  for (const [itemId, e] of Object.entries<any>(data)) {
+    const essenceType = e.type
+    for (const [k, v] of Object.entries<any>(e)) {
+      if (k === 'type' || k === 'items') continue
+      const star = parseInt(k, 10)
+      if (isNaN(star)) continue
+      costRows.push({ item_id: itemId, essence_type: essenceType, star, essence_cost: v })
+    }
+    for (const [star, items] of Object.entries<any>(e.items || {})) {
+      for (const entry of items as string[]) {
+        const [extra_item_id, amount] = entry.split(':')
+        extraRows.push({ item_id: itemId, star: parseInt(star, 10), extra_item_id, extra_item_amount: parseInt(amount, 10) })
+      }
+    }
+  }
+  const n1 = await upsertBatched('essence_upgrade_costs', costRows, 'item_id, star')
+  const n2 = await replaceAll('essence_upgrade_extra_items', extraRows)
+  return n1 + n2
+}
+
+// carnivalshops.json → carnival_shop_items (boutiques à jetons carnaval, 6 événements
+// saisonniers : Spooky Festival, Season of Jerry, Fishing Festival, Mining Fiesta,
+// Mythological Ritual, Harvest Feast).
+async function syncCarnivalShops(data: any): Promise<number> {
+  const rows: any[] = []
+  for (const [eventKey, shop] of Object.entries<any>(data.carnivalTokenShops || {})) {
+    for (const [itemKey, item] of Object.entries<any>(shop)) {
+      rows.push({ event_key: eventKey, item_key: itemKey, display_name: item.name, costs: item.costs })
+    }
+  }
+  return upsertBatched('carnival_shop_items', rows, 'event_key, item_key')
+}
+
+// pets.json → pet_level_xp_curve (courbe standard, 119 niveaux) + pet_rarity_level_offset
+// (décalage d'index par rareté) + custom_pet_leveling (5 pets à courbe custom : Golden/
+// Jade/Rose Dragon, Bingo, Reindeer). pet_types/id_to_display_name/
+// pet_item_display_name_to_id volontairement pas capturés -- dictionnaires de noms, pas
+// une mécanique de jeu.
+async function syncPets(data: any): Promise<number> {
+  const curveRows = (data.pet_levels || []).map((xp_required: number, i: number) => ({
+    level_index: i + 1,
+    xp_required,
+  }))
+  const n1 = await upsertBatched('pet_level_xp_curve', curveRows, 'level_index')
+
+  const offsetRows = Object.entries<any>(data.pet_rarity_offset || {}).map(([rarity, level_offset]) => ({ rarity, level_offset }))
+  const n2 = await upsertBatched('pet_rarity_level_offset', offsetRows, 'rarity')
+
+  const customRows: any[] = []
+  for (const [petId, c] of Object.entries<any>(data.custom_pet_leveling || {})) {
+    ;(c.pet_levels || []).forEach((xp_required: number, i: number) =>
+      customRows.push({ pet_id: petId, pet_type: c.type ?? null, level_index: i + 1, xp_required })
+    )
+  }
+  const n3 = await upsertBatched('custom_pet_leveling', customRows, 'pet_id, level_index')
+
+  return n1 + n2 + n3
+}
+
 const DERIVED_TARGETS: Record<string, (data: any) => Promise<number>> = {
+  'abiphone.json':                  syncNpcLocations,
+  'glacite_tunnel_waypoints.json':  syncGlaciteTunnelWaypoints,
+  'attribute_shards.json':          syncAttributeShards,
+  'bazaarstocks.json':              syncBazaarStockMap,
+  'bestiary.json':                  syncBestiary,
+  'bonuses.json':                   syncBonuses,
+  'essencecosts.json':              syncEssenceCosts,
+  'carnivalshops.json':             syncCarnivalShops,
+  'pets.json':                      syncPets,
   'reforges.json':        syncReforges,
   'trophyfish.json':      syncTrophyFish,
   'essenceshops.json':    syncEssenceShops,
@@ -534,11 +756,9 @@ const DERIVED_TARGETS: Record<string, (data: any) => Promise<number>> = {
     (await syncGardenComposterUpgrades(data)),
 }
 
-export async function GET(request: Request) {
-  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+// Logique principale (exportée pour test direct hors HTTP, même pattern que
+// runMoneyMakingAgent()/runSetupGenerateAgent()/runRadarAgent()).
+export async function runNeuSync() {
   const logId = await startSync('neu-sync')
   const results: Record<string, any> = {}
   let totalRows = 0
@@ -577,11 +797,19 @@ export async function GET(request: Request) {
     { files_ok: NEU_FILES.length - failedFiles.length, files_failed: failedFiles.length, results }
   )
 
-  return NextResponse.json({
+  return {
     success:      !hadError,
     files_synced: NEU_FILES.length - failedFiles.length,
     files_failed: failedFiles.length,
     derived_rows: totalRows,
     results,
-  })
+  }
+}
+
+export async function GET(request: Request) {
+  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const result = await runNeuSync()
+  return NextResponse.json(result)
 }
