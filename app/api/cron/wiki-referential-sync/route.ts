@@ -1757,6 +1757,56 @@ async function syncBingoGoalsArchive(): Promise<number> {
 }
 
 // ============================================================
+// chocolate_factory_levels -- Chocolate Factory (page prose+tables, 23 sections réelles
+// confirmées : Level/Employees/Employee Upgrade Cost/Discount/6 Upgrades nommés/Chocolate
+// Shop/2 jeux de Milestones/Max CpS). Seule la table "Chocolate Factory Level" (6 lignes,
+// seuils de prestige + multiplicateur de production + rareté max de lapin + cap de
+// chocolat + niveau d'employé max) est construite dans cette passe -- wikitable simple,
+// 0 rowspan/colspan, haute confiance. Le reste de la page (coûts d'employés avec formules
+// mathématiques réelles, 6 upgrades nommés avec coûts par niveau, 2 systèmes de
+// Milestones) est confirmé réel et substantiel mais nécessiterait une session dédiée
+// (tables larges à "fondre" en format long, formules à capturer séparément) -- même
+// diagnostic que npc_locations en son temps, différé plutôt que bâclé. Vérifié en local :
+// 6/6 lignes, 0 markup résiduel.
+// ============================================================
+function cleanChocFactoryCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{Blank cell\}\}/gi, '')
+  s = s.replace(/\{\{choc\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{rmt\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/&[0-9a-fk-or]/gi, '')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  return s.trim()
+}
+async function syncChocolateFactoryLevels(): Promise<number> {
+  const content = await getWikiContent(supabase, 'chocolate_factory')
+  const start = content.indexOf('== Chocolate Factory Level ==')
+  const end = content.indexOf('== Employees ==')
+  if (start === -1 || end === -1) throw new Error('chocolate_factory_levels: section introuvable')
+  const chunk = content.slice(start, end)
+  const body = extractFirstWikitableBody(chunk)
+  if (!body) throw new Error('chocolate_factory_levels: wikitable introuvable')
+  const rows = parseRowspanTable(body, 6)
+    .map(r => ({
+      level: parseInt(cleanChocFactoryCell(r[0]), 10),
+      required_prestige_chocolate: cleanChocFactoryCell(r[1]) || null,
+      production_multiplier: cleanChocFactoryCell(r[2]) || null,
+      max_rabbit_rarity: cleanChocFactoryCell(r[3]) || null,
+      max_chocolate: cleanChocFactoryCell(r[4]) || null,
+      max_employee_level: cleanChocFactoryCell(r[5]) || null,
+    }))
+    .filter(r => !isNaN(r.level))
+
+  if (rows.length === 0) throw new Error('chocolate_factory_levels: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('chocolate_factory_levels').upsert(rows, { onConflict: 'level' })
+  if (error) throw new Error('chocolate_factory_levels upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -1787,6 +1837,7 @@ export async function runWikiReferentialSync() {
     sea_creature_pools: syncSeaCreaturePools,
     skyblock_level_rewards: syncSkyblockLevelRewards,
     bingo_goals_archive: syncBingoGoalsArchive,
+    chocolate_factory_levels: syncChocolateFactoryLevels,
   })) {
     try {
       const rows = await fn()
