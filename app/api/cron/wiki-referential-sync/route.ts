@@ -616,13 +616,28 @@ function extractInfoboxField(infobox: string, field: string): string | null {
   return v.length > 0 ? v : null
 }
 
+// content.indexOf('}}', start) s'arrête au premier "}}" rencontré -- qui est presque
+// toujours un template imbriqué à l'intérieur de l'infobox lui-même (ex: {{SkyBlock
+// Level}} ou {{Skill|Farming}} dans ways_to_increase), pas la vraie fin de
+// {{Infobox/Stat}}. Bug réel trouvé en vérifiant le résultat en prod (9/16 pages
+// avaient base_value/max_value null) -- corrigé avec un vrai suivi de profondeur
+// d'accolades plutôt qu'un indexOf naïf.
+function findTemplateEnd(content: string, start: number): number {
+  let depth = 0
+  for (let i = start; i < content.length - 1; i++) {
+    if (content[i] === '{' && content[i + 1] === '{') { depth++; i++; continue }
+    if (content[i] === '}' && content[i + 1] === '}') { depth--; i++; if (depth === 0) return i }
+  }
+  return -1
+}
+
 async function syncPlayerStats(): Promise<number> {
   const rows: any[] = []
   for (const page of PLAYER_STAT_PAGES) {
     const content = await getWikiContent(supabase, page.key)
     const start = content.indexOf('{{Infobox/Stat')
     if (start === -1) throw new Error(`${page.key}: {{Infobox/Stat}} introuvable`)
-    const end = content.indexOf('}}', start)
+    const end = findTemplateEnd(content, start)
     if (end === -1) throw new Error(`${page.key}: fin de {{Infobox/Stat}} introuvable`)
     const infobox = content.slice(start, end + 2)
 
