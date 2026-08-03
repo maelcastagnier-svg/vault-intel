@@ -528,6 +528,12 @@ async function syncNpcLocations(data: any): Promise<number> {
 
 // glacite_tunnel_waypoints.json → glacite_tunnel_waypoints -- table déjà réelle (20
 // lignes, chargée one-shot), source confirmée exacte, jamais reliée à un cron.
+// replaceAll (pas upsert) : le chargement one-shot d'origine indexait waypoint_order
+// à partir de 1, ce nouveau parseur à partir de 0 -- un upsert sur (collector_name,
+// waypoint_order) laissait une ligne orpheline par collecteur (le dernier index de
+// l'ancien schéma, jamais réécrit), trouvé en vérifiant le vrai résultat après un
+// premier déploiement (24 lignes au lieu de 20 attendues). Table non lue par aucun
+// code applicatif (vérifié), donc aucun impact utilisateur, mais corrigé proprement.
 async function syncGlaciteTunnelWaypoints(data: any): Promise<number> {
   const rows: any[] = []
   for (const [collector_name, e] of Object.entries<any>(data)) {
@@ -536,7 +542,7 @@ async function syncGlaciteTunnelWaypoints(data: any): Promise<number> {
       rows.push({ collector_name, title: e.title ?? null, waypoint_order: i, x, y, z })
     })
   }
-  return upsertBatched('glacite_tunnel_waypoints', rows, 'collector_name, waypoint_order')
+  return replaceAll('glacite_tunnel_waypoints', rows)
 }
 
 // attribute_shards.json → attribute_shards (189 shards) + attribute_shard_leveling_costs
