@@ -22,6 +22,31 @@ function parseCell(line: string): { value: string; span: number } {
   return { value: s.trim(), span }
 }
 
+// Une cellule wikitext peut légitimement s'étendre sur plusieurs lignes (ex "Liquid: X\n
+// Island: Y" dans une même cellule Categories) -- une ligne de continuation (qui ne
+// commence pas par "|") appartient à la cellule "|"-préfixée précédente, pas une nouvelle
+// cellule. Bug réel trouvé en construisant sea_creature_pools (4 août) : le découpage
+// par ligne d'origine ("chaque ligne '|' = une cellule") ignorait silencieusement toute
+// ligne de continuation sans "|" -- perdait la 2e moitié du contenu de la cellule
+// (ex "Island: Basic" disparaissait de Categories), jamais détecté avant car les tables
+// précédentes de ce chantier n'avaient par coïncidence aucune cellule multi-ligne réelle.
+function splitCellLines(block: string): string[] {
+  const lines = block.split('\n')
+  const cells: string[] = []
+  let current: string | null = null
+  for (const line of lines) {
+    if (/^\|\}/.test(line)) continue
+    if (/^\|(?!-)/.test(line)) {
+      if (current !== null) cells.push(current)
+      current = line
+    } else if (current !== null) {
+      current += '\n' + line
+    }
+  }
+  if (current !== null) cells.push(current)
+  return cells
+}
+
 // tableBody = le texte entre le premier "|-" (fin d'en-tête) et le "|}" final exclus.
 // numCols = nombre de colonnes logiques de la table (Icon/Name/... par ex).
 // Retourne un tableau de lignes résolues (chaque colonne a toujours une valeur, héritée
@@ -32,7 +57,7 @@ export function parseRowspanTable(tableBody: string, numCols: number): string[][
   const active: Array<{ value: string; remaining: number } | null> = new Array(numCols).fill(null)
 
   for (const block of rowBlocks) {
-    const lines = block.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('|}'))
+    const lines = splitCellLines(block)
     let cellIdx = 0
     const resolved: string[] = new Array(numCols).fill('')
     for (let col = 0; col < numCols; col++) {

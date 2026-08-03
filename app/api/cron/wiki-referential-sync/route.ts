@@ -1527,6 +1527,72 @@ async function syncChocolateRabbits(): Promise<number> {
 }
 
 // ============================================================
+// sea_creature_pools -- Sea Creatures/UI/Guide est un shell de menu jeu (navigation),
+// les vraies listes vivent sous des sous-pages séparées par pool (List/Basic, List/
+// Crimson Isle, List/Hotspot, List/Moonglade Marsh, List/Special) -- confirmé en lisant
+// le contenu réel de chacune avant de coder, pas deviné par nom. `List/Lava` exclue :
+// son contenu caché est un fragment brut sans structure de wikitable propre (contenu
+// probablement transclus d'ailleurs), pas une vraie page indépendante -- pas de donnée
+// inventée pour la compléter (règle 7). Complète directement la formule Sea Creature
+// Chance déjà documentée (WIKI-MAPPING.md) avec la distribution réelle pondérée par pool.
+// Bug de cellule multi-ligne trouvé et corrigé dans le helper PARTAGÉ `parseRowspanTable`
+// (lib/wiki-table-parse.ts) en construisant cette table -- voir son commentaire pour le
+// détail. Vérifié en local : 56 lignes (5 pools), 0 nom vide, 0 markup résiduel.
+// ============================================================
+function cleanSeaCreatureCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{bc\}\}/gi, '')
+  s = s.replace(/\{\{mt\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{ID\|([^{}|]*)\}\}/g, '$1')
+  s = s.replace(/\{\{[Zz]one\|([^{}|]*)\}\}/g, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/^\*/gm, '')
+  s = s.replace(/\n/g, '; ')
+  s = s.replace(/\s+/g, ' ')
+  return s.trim()
+}
+const SEA_CREATURE_POOL_KEYS: Record<string, string> = {
+  basic: 'sea_creatures_list_basic',
+  crimson_isle: 'sea_creatures_list_crimson_isle',
+  hotspot: 'sea_creatures_list_hotspot',
+  moonglade_marsh: 'sea_creatures_list_moonglade_marsh',
+  special: 'sea_creatures_list_special',
+}
+async function syncSeaCreaturePools(): Promise<number> {
+  const rows: any[] = []
+  for (const [pool, key] of Object.entries(SEA_CREATURE_POOL_KEYS)) {
+    const content = await getWikiContent(supabase, key)
+    const body = extractFirstWikitableBody(content)
+    if (!body) throw new Error(`sea_creature_pools: wikitable introuvable pour ${pool}`)
+    for (const r of parseRowspanTable(body, 8)) {
+      const nameRaw = cleanSeaCreatureCell(r[1])
+      if (!nameRaw) continue
+      const m = nameRaw.match(/^(.+?)\s*\(([^)]+)\)$/)
+      const baseWeightText = cleanSeaCreatureCell(r[4])
+      rows.push({
+        pool,
+        name: m ? m[1].trim() : nameRaw,
+        rarity: m ? m[2].trim() : null,
+        mob_type: cleanSeaCreatureCell(r[2]) || null,
+        fishing_skill: r[3] ? parseInt(cleanSeaCreatureCell(r[3]), 10) || null : null,
+        base_weight: baseWeightText ? parseFloat(baseWeightText) || null : null,
+        base_chance: cleanSeaCreatureCell(r[5]) || null,
+        categories: cleanSeaCreatureCell(r[6]) || null,
+        special_requirements: cleanSeaCreatureCell(r[7]) || null,
+      })
+    }
+  }
+
+  if (rows.length === 0) throw new Error('sea_creature_pools: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('sea_creature_pools').upsert(rows, { onConflict: 'pool,name' })
+  if (error) throw new Error('sea_creature_pools upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -1554,6 +1620,7 @@ export async function runWikiReferentialSync() {
     skyblock_quests: syncSkyblockQuests,
     location_details: syncLocationDetails,
     chocolate_rabbits: syncChocolateRabbits,
+    sea_creature_pools: syncSeaCreaturePools,
   })) {
     try {
       const rows = await fn()
