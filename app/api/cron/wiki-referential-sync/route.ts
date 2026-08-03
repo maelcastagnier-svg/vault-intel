@@ -172,6 +172,162 @@ async function syncMagicalPowerByRarity(): Promise<number> {
 }
 
 // ============================================================
+// hotm_hotf_powders (wiki : Mithril Powder / Gemstone Powder / Glacite Powder /
+// Forest Whispers) -- vrai gap identifié dans discovery_queue (#16) : la table
+// n'avait que 4 lignes stub (juste le costLine §-codes hérité d'un chargement
+// antérieur, aucune mécanique réelle de gain).
+//
+// Structure hétérogène confirmée en testant contre le vrai contenu des 4 pages :
+// Mithril Powder a 2 vraies wikitables (Blocks/Mobs) sous Obtaining ; Forest Whispers
+// a 2 tables mais imbriquées différemment (sources de base + sources de boost, toutes
+// deux SOUS le même H2 Obtaining) ; Gemstone Powder et Glacite Powder n'ont AUCUNE
+// wikitable, seulement des listes à puces en prose -- capturé tel quel (obtaining_notes
+// / gain_boost_notes) plutôt que de forcer une structure tabulaire non sourcée sur ces
+// deux pages. Section "Increasing X Gain" trouvée APRES "Usage" pour les 3 pages Powder
+// (pas avant, hypothèse initiale fausse corrigée en testant).
+// ============================================================
+const POWDER_COST_LINES: Record<string, string> = {
+  GLACITE: '§7Cost: §b{cost} Glacite Powder',
+  MITHRIL: '§7Cost: §2{cost} Mithril Powder',
+  GEMSTONE: '§7Cost: §d{cost} Gemstone Powder',
+  FOREST_WHISPERS: '§7Cost: §b{cost} Forest Whispers',
+}
+
+const POWDER_PAGES: { tree: string; powder_key: string; wikiKey: string; currency: string }[] = [
+  { tree: 'hotm', powder_key: 'MITHRIL', wikiKey: 'mithril_powder', currency: 'Mithril Powder' },
+  { tree: 'hotm', powder_key: 'GEMSTONE', wikiKey: 'gemstone_powder', currency: 'Gemstone Powder' },
+  { tree: 'hotm', powder_key: 'GLACITE', wikiKey: 'glacite_powder', currency: 'Glacite Powder' },
+  { tree: 'hotf', powder_key: 'FOREST_WHISPERS', wikiKey: 'forest_whispers', currency: 'Forest Whispers' },
+]
+
+// Ces 4 tables n'ont ni rowspan ni colspan mais mélangent cellules une-par-ligne
+// ("|A\n|B") et cellules jointes en ligne ("|A || B") -- parseRowspanTable (partagé,
+// conçu pour le cas rowspan des tables garden/pest) ne gère que le 1er style : bug
+// trouvé en testant, 4/5 lignes de la table Forest Whispers disparaissaient. Parseur
+// local dédié, plus simple que le partagé puisqu'aucun span à suivre ici.
+function parseFlatTable(sectionBody: string, numCols: number): string[][] {
+  const tableBody = extractFirstWikitableBody(sectionBody)
+  if (!tableBody) return []
+  const rowBlocks = tableBody.split(/\n\|-\n?/).filter(b => b.trim().length > 0)
+  const rows: string[][] = []
+  for (const block of rowBlocks) {
+    const cells: string[] = []
+    for (const line of block.split('\n')) {
+      const t = line.trim()
+      if (!t.startsWith('|') || t.startsWith('|}')) continue
+      for (const part of t.slice(1).split('||')) cells.push(part.trim())
+    }
+    if (cells.length > 0) rows.push(cells.slice(0, numCols))
+  }
+  return rows
+}
+
+// {{Slot|X}}{{Slot|Y}} (blocs Mithril), {{Forest Whispers|+10}} (la page se
+// cite elle-même pour afficher un montant coloré) et [[Cible|Alias]] (l'alias, pas la
+// cible -- cleanWikiText partagé renvoie la cible, backwards pour ce cas) ne sont pas
+// gérés par cleanWikiText : 3 bugs trouvés en testant (templates de bloc bruts, lien
+// affichant la page cible au lieu du texte lisible, <br> littéral dans une cellule à
+// 2 sources).
+function cleanPowderCell(s: string, currencyName: string): string {
+  const slots = [...s.matchAll(/\{\{Slot\|([^}|]+)\}\}/g)].map(m => m[1].trim())
+  if (slots.length > 0) return slots.join(', ')
+  const escaped = currencyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return s
+    .replace(new RegExp(`\\{\\{${escaped}\\|([^}]+)\\}\\}`, 'g'), '$1')
+    .replace(/<br\s*\/?>/gi, '; ')
+    .replace(/\[\[File:[^\]]*\]\]/g, '')
+    .replace(/\[\[[^\]|]+\|([^\]]+)\]\]/g, '$1')
+    .replace(/\{\{(?:ID|MobSprite|Zone|Green|Skill)\|([^};|]+)(?:;[^}|]*)?\}\}/gi, '$1')
+    .replace(/\[\[([^\]]+)\]\]/g, '$1')
+    .trim()
+}
+
+function parsePowderTable(sectionBody: string, currencyName: string): { label: string; detail: string }[] {
+  return parseFlatTable(sectionBody, 2)
+    .map(r => ({ label: cleanPowderCell(r[0] || '', currencyName), detail: cleanPowderCell(r[1] || '', currencyName) }))
+    .filter(r => r.label && r.detail)
+}
+
+function extractPowderBullets(sectionBody: string, currencyName: string): string[] {
+  return sectionBody
+    .split('\n')
+    .filter(l => l.trim().startsWith('*') && !l.trim().startsWith('**'))
+    .map(l => cleanPowderCell(l.trim().replace(/^\*+\s*/, ''), currencyName))
+    .filter(Boolean)
+}
+
+async function syncHotmHotfPowders(): Promise<number> {
+  const rows: any[] = []
+  for (const page of POWDER_PAGES) {
+    const content = await getWikiContent(supabase, page.wikiKey)
+    const obtainIdx = content.indexOf('== Obtaining ==')
+    const usageIdx = content.indexOf('== Usage ==')
+    if (obtainIdx === -1 || usageIdx === -1) {
+      throw new Error(`${page.wikiKey}: sections Obtaining/Usage introuvables`)
+    }
+    const obtainSection = content.slice(obtainIdx, usageIdx)
+
+    let obtainTables: { label: string; detail: string }[] = []
+    let boostTables: { label: string; detail: string }[] = []
+
+    if (page.wikiKey === 'mithril_powder') {
+      const blocksIdx = content.indexOf('=== Blocks ===')
+      const mobsIdx = content.indexOf('=== Mobs ===')
+      if (blocksIdx !== -1 && mobsIdx !== -1) {
+        obtainTables = [
+          ...parsePowderTable(content.slice(blocksIdx, mobsIdx), page.currency),
+          ...parsePowderTable(content.slice(mobsIdx, usageIdx), page.currency),
+        ]
+      }
+    } else if (page.wikiKey === 'forest_whispers') {
+      const increaseIdx = content.indexOf('can be increased')
+      if (increaseIdx !== -1) {
+        obtainTables = parsePowderTable(content.slice(obtainIdx, increaseIdx), page.currency)
+        boostTables = parsePowderTable(content.slice(increaseIdx, usageIdx), page.currency)
+      }
+    }
+
+    const obtainingNotes = extractPowderBullets(obtainSection, page.currency)
+
+    // "== Increasing X Gain ==" vient APRES "== Usage ==" pour les 3 pages Powder --
+    // Forest Whispers n'a pas cette section séparée (déjà capturée dans boostTables
+    // ci-dessus, imbriquée sous Obtaining elle-même).
+    let gainBoostNotes: string[] = []
+    const increaseHeaderMatch = content.match(/== Increasing [^=]*Gain ==/)
+    if (increaseHeaderMatch) {
+      const startIdx = content.indexOf(increaseHeaderMatch[0])
+      const nextH2 = content.indexOf('\n== ', startIdx + increaseHeaderMatch[0].length)
+      const section = nextH2 === -1 ? content.slice(startIdx) : content.slice(startIdx, nextH2)
+      gainBoostNotes = extractPowderBullets(section, page.currency)
+    }
+
+    const maxMatch = content.match(/maximum amount of.*?is\s*\{\{Green\|([^}]+)\}\}/i)
+    const maxAmount = maxMatch ? stripColorTemplate(`{{Green|${maxMatch[1]}}}`) : null
+
+    rows.push({
+      tree: page.tree,
+      powder_key: page.powder_key,
+      data: {
+        costLine: POWDER_COST_LINES[page.powder_key] ?? null,
+        obtaining_sources: obtainTables,   // [] pour Gemstone/Glacite -- aucune wikitable sur ces pages
+        gain_boost_sources: boostTables,   // idem, rempli seulement pour Forest Whispers
+        obtaining_notes: obtainingNotes,
+        gain_boost_notes: gainBoostNotes,
+        max_amount: maxAmount,
+      },
+    })
+  }
+
+  if (rows.length === 0) throw new Error('hotm_hotf_powders: 0 lignes construites')
+
+  const { error: delErr } = await supabase.from('hotm_hotf_powders').delete().gte('id', 0)
+  if (delErr) throw new Error('hotm_hotf_powders delete: ' + delErr.message)
+  const { error } = await supabase.from('hotm_hotf_powders').insert(rows)
+  if (error) throw new Error('hotm_hotf_powders insert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 // garden_pests + garden_pest_fortune_penalty (ex wiki-garden-sync)
 // ============================================================
 function extractPureId(raw: string): string | null {
@@ -437,6 +593,7 @@ export async function runWikiReferentialSync() {
     sack_tiers: syncSackTiers,
     trapper_pelts: syncTrapperPelts,
     magical_power_by_rarity: syncMagicalPowerByRarity,
+    hotm_hotf_powders: syncHotmHotfPowders,
   })) {
     try {
       const rows = await fn()
