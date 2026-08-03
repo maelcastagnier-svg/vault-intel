@@ -1169,6 +1169,102 @@ async function syncSkyblockAchievements(): Promise<number> {
 }
 
 // ============================================================
+// garden_mutations -- Mutations (crops spéciaux créés en arrangeant des crops autour
+// d'une case vide dans le Greenhouse, système entier jamais mappé). Table wiki à cellules
+// MULTI-LIGNES réelles (convention MediaWiki `----` = règle horizontale À L'INTÉRIEUR
+// d'une même cellule, pas un séparateur de ligne -- contrairement à toutes les autres
+// tables de ce chantier qui n'avaient qu'une valeur par ligne). extractFirstWikitableBody/
+// parseRowspanTable (une valeur = une ligne) auraient tronqué le Weight/Chance et les
+// Drops à leur première sous-ligne seulement -- parseur dédié qui accumule les lignes de
+// continuation (ne commençant pas par "|") dans la cellule précédente jusqu'au prochain
+// marqueur "|". Vérifié en local (parse_mutations.js) : 40 mutations réelles, 0 nom vide,
+// 0 markup wiki résiduel (dont Plainlist -> liste "; "-jointe, {{Chance|X|1|Y}} -> X).
+// ============================================================
+function cleanMutationCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/<ref[^>]*\/>/g, '')
+  s = s.replace(/<ref[^>]*>[\s\S]*?<\/ref>/g, '')
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/g, '')
+  s = s.replace(/class="ct"\s*\|?\s*/g, '')
+  s = s.replace(/\{\{Chance\|([^|}]*)\|[^}]*\}\}/g, '$1')
+  s = s.replace(/\{\{RL\|([^}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{RD\|([^}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{ID\|([^}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{Skill XP\|([^}]*)\}\}/g, '$1 XP')
+  s = s.replace(/\{\{Title\|([^|}]*)\|[^}]*\}\}/g, '$1')
+  s = s.replace(/\{\{Plainlist\|/g, '')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/'''/g, '')
+  s = s.replace(/----/g, ' | ')
+  s = s.replace(/<!--[\s\S]*?-->/g, '')
+  s = s.replace(/\n\*/g, '; ')
+  s = s.replace(/\s+/g, ' ')
+  s = s.replace(/\}\}\s*$/, '')
+  s = s.replace(/^;\s*/, '')
+  return s.trim()
+}
+async function syncGardenMutations(): Promise<number> {
+  const content = await getWikiContent(supabase, 'mutations')
+  const tableStart = content.indexOf('{|')
+  const tableEnd = content.indexOf('|}', tableStart)
+  if (tableStart === -1 || tableEnd === -1) throw new Error('garden_mutations: wikitable introuvable')
+  const table = content.slice(tableStart, tableEnd)
+  const allBlocks = table.split(/\n\|-\n?/)
+  const dataStart = allBlocks.findIndex(b => b.trim().startsWith('|') && !b.trim().startsWith('!'))
+  if (dataStart === -1) throw new Error('garden_mutations: aucune ligne de donnée trouvée')
+  const headerBlocks = allBlocks.slice(0, dataStart)
+  const headers = headerBlocks.join('\n').split('\n').filter(l => l.trim().startsWith('!')).map(l => l.replace(/^!/, '').trim())
+  const rowBlocks = allBlocks.slice(dataStart).filter(b => b.trim().length > 0)
+
+  const nameIdx = headers.findIndex(h => /^Name$/i.test(h))
+  const rarityIdx = headers.findIndex(h => /Rarity/i.test(h))
+  const weightIdx = headers.findIndex(h => /Weight/i.test(h))
+  const growthIdx = headers.findIndex(h => /Growth Stages/i.test(h))
+  const descIdx = headers.findIndex(h => /Description/i.test(h))
+  const analysisIdx = headers.findIndex(h => /Analysis/i.test(h))
+  const dropsIdx = headers.findIndex(h => /Drops/i.test(h))
+
+  const rows: any[] = []
+  for (const block of rowBlocks) {
+    const lines = block.split('\n')
+    const cells: string[] = []
+    let current: string | null = null
+    for (const line of lines) {
+      if (/^\|\}/.test(line)) continue
+      if (/^\|(?!-)/.test(line)) {
+        if (current !== null) cells.push(current)
+        current = line.replace(/^\|/, '')
+      } else if (current !== null) {
+        current += '\n' + line
+      }
+    }
+    if (current !== null) cells.push(current)
+
+    const name = nameIdx >= 0 ? cleanMutationCell(cells[nameIdx]) : ''
+    if (!name) continue
+    rows.push({
+      name,
+      rarity: rarityIdx >= 0 ? cleanMutationCell(cells[rarityIdx]) || null : null,
+      weight_chance: weightIdx >= 0 ? cleanMutationCell(cells[weightIdx]) || null : null,
+      growth_stages: growthIdx >= 0 ? cleanMutationCell(cells[growthIdx]) || null : null,
+      description: descIdx >= 0 ? cleanMutationCell(cells[descIdx]) || null : null,
+      analysis: analysisIdx >= 0 ? cleanMutationCell(cells[analysisIdx]) || null : null,
+      drops: dropsIdx >= 0 ? cleanMutationCell(cells[dropsIdx]) || null : null,
+    })
+  }
+
+  if (rows.length === 0) throw new Error('garden_mutations: 0 lignes extraites, parsing probablement cassé')
+  const { error: delErr } = await supabase.from('garden_mutations').delete().gte('id', 0)
+  if (delErr) throw new Error('garden_mutations delete: ' + delErr.message)
+  const { error } = await supabase.from('garden_mutations').insert(rows)
+  if (error) throw new Error('garden_mutations insert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -1192,6 +1288,7 @@ export async function runWikiReferentialSync() {
     museum_milestones: syncMuseumMilestones,
     crop_fortune_sources: syncCropFortuneSources,
     skyblock_achievements: syncSkyblockAchievements,
+    garden_mutations: syncGardenMutations,
   })) {
     try {
       const rows = await fn()
