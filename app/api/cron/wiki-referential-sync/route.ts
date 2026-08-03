@@ -1939,6 +1939,78 @@ async function syncDungeonClassMilestones(): Promise<number> {
 }
 
 // ============================================================
+// crystal_hollows_loot -- 7 pages Crystal Hollows/<Zone>/Loot (Crystal Hollows général/
+// Fairy Grotto/Goblin Holdout/Jungle/Magma Fields/Mithril Deposits/Precursor Remnants),
+// chacune 2 tables de rareté (Common ~95%/Rare ~5%) avec poids/chance par roll/chance par
+// coffre -- jamais capturé, économiquement significatif (gemmes, Electron Transmitter,
+// items Precursor). Format wikitext single-ligne `cell1 || cell2 || ...` (MediaWiki
+// shorthand "cellules multiples sur une ligne"), différent de tous les formats déjà
+// rencontrés dans ce chantier (une cellule par ligne `|`) -- parseur dédié par regex de
+// bloc de table (capture légende `|+ ... Rarity Loot X%` + corps) plutôt que les helpers
+// partagés `parseRowspanTable`/`extractFirstWikitableBody`, qui supposent le format
+// une-cellule-par-ligne. Vérifié en local (parse_chloot.js) contre Precursor Remnants :
+// 67/67 lignes, 0 item vide, 0 markup résiduel.
+// ============================================================
+function cleanCrystalLootCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/^\|/, '').trim()
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/g, '')
+  s = s.replace(/\{\{RD\|([^{}|]*)\|?[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{aqua\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Chance\|([^|}]*)\|[^}]*\}\}/g, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  return s.trim()
+}
+const CRYSTAL_HOLLOWS_LOOT_KEYS: Record<string, string> = {
+  'Crystal Hollows': 'crystal_hollows_crystal_hollows_loot',
+  'Fairy Grotto': 'crystal_hollows_fairy_grotto_loot',
+  'Goblin Holdout': 'crystal_hollows_goblin_holdout_loot',
+  'Jungle': 'crystal_hollows_jungle_loot',
+  'Magma Fields': 'crystal_hollows_magma_fields_loot',
+  'Mithril Deposits': 'crystal_hollows_mithril_deposits_loot',
+  'Precursor Remnants': 'crystal_hollows_precursor_remnants_loot',
+}
+async function syncCrystalHollowsLoot(): Promise<number> {
+  const rows: any[] = []
+  const tableRe = /\{\|[^\n]*\n\|\+ ?\[\[File:[^\]]*\]\] ?([A-Za-z ]+) \{\{[A-Za-z]+\|([\d.]+%)\}\}([\s\S]*?)\n\|\}/g
+
+  for (const [zone, key] of Object.entries(CRYSTAL_HOLLOWS_LOOT_KEYS)) {
+    const content = await getWikiContent(supabase, key)
+    let m
+    tableRe.lastIndex = 0
+    while ((m = tableRe.exec(content)) !== null) {
+      const rarity = m[1].trim()
+      const rarityPoolChance = m[2]
+      const body = m[3]
+      const rowLines = body.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('!') && l.trim() !== '|-')
+      for (const line of rowLines) {
+        const cells = line.split('||').map(cleanCrystalLootCell)
+        if (cells.length < 5) continue
+        const item = cells[1]
+        if (!item) continue
+        rows.push({
+          zone, rarity, rarity_pool_chance: rarityPoolChance,
+          item,
+          weight: cells[2] || null,
+          chance_per_roll: cells[3] || null,
+          chance_per_chest: cells[4] || null,
+        })
+      }
+    }
+  }
+
+  if (rows.length === 0) throw new Error('crystal_hollows_loot: 0 lignes extraites, parsing probablement cassé')
+  const { error: delErr } = await supabase.from('crystal_hollows_loot').delete().gte('id', 0)
+  if (delErr) throw new Error('crystal_hollows_loot delete: ' + delErr.message)
+  const { error } = await supabase.from('crystal_hollows_loot').insert(rows)
+  if (error) throw new Error('crystal_hollows_loot insert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -1972,6 +2044,7 @@ export async function runWikiReferentialSync() {
     chocolate_factory_levels: syncChocolateFactoryLevels,
     dungeon_chest_combo_chances: syncDungeonChestComboChances,
     dungeon_class_milestones: syncDungeonClassMilestones,
+    crystal_hollows_loot: syncCrystalHollowsLoot,
   })) {
     try {
       const rows = await fn()
