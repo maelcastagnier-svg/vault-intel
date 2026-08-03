@@ -22,6 +22,69 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ 3 anomalies cron réelles corrigées — trouvées par l'audit de clôture (3 août)
+
+Suite directe du rapport d'audit de clôture du chantier NEU-REPO (voir section
+suivante) : 3 crons en prod montraient un statut anormal (`money-making-agent`
+partial, `setup-generate-agent` bloqué en `running`, `radar-agent` en erreur
+3 des 4 derniers runs). Diagnostiquées via logs Vercel réels + inspection directe
+du schéma Supabase (jamais deviné), corrigées, puis **vérifiées par un vrai
+déclenchement en prod** (route de debug temporaire appelant les fonctions
+exportées directement, supprimée après validation — même pattern que les autres
+vérifications de ce projet).
+
+**🔴 `money-making-agent` (priorité absolue, risque utilisateur réel)** —
+2 bugs empilés, tous les deux réels et distincts :
+1. `money_making_methods` était une table Phase-0 (`category`/`min_networth`/
+   `coins_per_hour_min`/`requirements`/`setup`/`verified`) qui n'a jamais
+   correspondu à ce que `saveToLibrary()` écrit (`tier`/`skill`/`coins_min`/
+   `calculation`/`confidence`/`status`/`price_snapshot`) — chaque upsert
+   échouait silencieusement depuis le premier jour, confirmé via les vrais
+   logs Vercel : `"Could not find the 'calculation' column of 'money_making_
+   methods' in the schema cache"`. Table reconstruite avec le schéma que le
+   code a toujours voulu écrire (0 ligne, aucun risque de perte), contrainte
+   unique corrigée en `(method_id, tier)` pour matcher le `onConflict` du
+   code, RPC `increment_validation_count()` manquante créée (appelée mais
+   jamais définie, avalée par un `try/catch` silencieux).
+2. `get_full_context()` (utilisée par money-making-agent, setup-generate-agent
+   ET evolve-skills) filtrait encore sur `source='fandom_wiki'` — la source
+   abandonnée le 22 juillet. Confirmé : ~320 lignes fandom_wiki périmées
+   restantes seulement (`kuudra_wiki` : 0), contre 9859+ vraies pages
+   `hypixelskyblock_wiki` actuelles silencieusement ignorées par les 3
+   appelants depuis la migration. Corrigé — `wiki_kuudra` passe de 0 à 33
+   pages réelles, `wiki_slayers` de 7 à 37, vérifié en direct après le fix.
+3. `max_tokens` 4000→16000 : 2 tiers sur 4 (mid/end) tronquaient en plein JSON
+   (`"Unterminated string in JSON"`), laissant `money_making_mid` périmé
+   depuis 7 jours et `money_making_end` depuis **17 jours** dans
+   `claude_analysis` (la vraie table lue par le frontend — confirmée non
+   vide, early/late se rafraîchissaient normalement, mais mid/end
+   restaient silencieusement obsolètes à chaque échec).
+   **Vérifié en prod réel** : les 4 tiers réussissent maintenant, les 4
+   sections `claude_analysis` se rafraîchissent, `money_making_methods`
+   passe de 0 à 24 lignes réelles avec `validation_count` qui s'incrémente
+   correctement via la nouvelle RPC.
+
+**🔴 `setup-generate-agent` bloqué en `running`** — log Vercel réel confirmé :
+`"Vercel Runtime Timeout Error: Task timed out after 120 seconds"` — un vrai
+timeout plateforme qui tue la fonction avant qu'elle n'atteigne son propre
+`finishSync()`, pas un blocage applicatif. Cause : 4 tiers traités
+séquentiellement, ~8 batches séquentiels de 3 méthodes chacun, plusieurs
+aller-retours DB sériels par setup dans `applyPreciseCost()`. Parallélisé
+par tier (même pattern que money-making-agent, écritures indépendantes par
+tier) + `maxDuration` 120→300 en filet de sécurité. La ligne `sync_log`
+bloquée depuis ce matin (jamais résolvable seule) marquée `error` avec une
+note explicite. **Vérifié en prod réel** : run complet en ~35s (au lieu de
+timeout à 120s), 23/24 setups générés, `sync_log` termine correctement.
+
+**🟡 `radar-agent` en erreur JSON (3 des 4 derniers runs quotidiens)** —
+`max_tokens: 2000`, insuffisant pour une réponse `positive[]`/`negative[]`
+avec jusqu'à ~10 entrées détaillées chacune — même classe de bug que
+money-making-agent. Relevé à 8000. **Vérifié en prod réel** : JSON valide,
+6 signaux positifs + 7 négatifs, `claude_analysis.radar` rafraîchi.
+*(Noté au passage, hors scope : `long_term_pool_size` reste à 0 — confirmé
+préexistant et non lié à ce fix, même valeur sur le seul run réussi
+précédent du 2 août — pas creusé plus loin.)*
+
 ## 🚧 CHANTIER FINAL — extraction complète + automatisation résiliente (2 août, en cours)
 
 Nouveau chantier demandé explicitement par l'utilisateur, distinct de la cartographie
