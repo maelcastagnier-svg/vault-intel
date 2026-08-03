@@ -903,3 +903,476 @@ moyenne, cohérent avec l'intention de la spec.
 **Pas encore fait, migré dans "Prochaines étapes" de CLAUDE.md (item 10)** : renommage 
 historique des lignes `price_history_ah` déjà en base (SQL par lots fourni, à exécuter par 
 l'utilisateur quand il le souhaite — cosmétique, ne bloque rien).
+
+## Blocs 1-7 (plan d'audit 8 blocs, 30-31 juillet) — archivés (1er août)
+
+Déplacés le 3 août pour repasser sous la limite de 150k de CLAUDE.md (chantier NEU-REPO
+de ce jour a besoin de place). Chantier "plan d'audit 8 blocs" complet et fermé --
+pipeline prix de vente AH (Bloc 1), observability sync_log (Bloc 2), scoring AH (Bloc 3),
+Milestones 69 tâches (Bloc 4), Radar multi-timeframe (Bloc 5), item_owned Milestones
+(Bloc 6), zones joueur Bloc 7. Bloc 8 (Pluton) est resté explicitement en pause --
+voir CLAUDE.md pour ce statut, toujours a jour. Contenu integral ci-dessous.
+
+## ✅ Bloc 7 (plan d'audit 8 blocs) — zones joueur restantes, structure vérifiée avant mapping (31 juillet)
+
+Suite directe du Bloc 6, même méthode que toute la Phase 2 (chantier collecte totale) : 
+structure brute vérifiée sur Cucumber avant tout mapping, jamais devinée. La clé 
+`HYPIXEL_API_KEY` était de nouveau expirée en entamant ce bloc (même pattern récurrent déjà 
+documenté) — rechargée par l'utilisateur, nouveau build déclenché pour la propager à la 
+branche preview.
+
+**Réellement débloquées cette passe** :
+- **Garden** — `garden_player_data` (`copper`, `discovered_greenhouse_crops`) et 
+  `player_data.garden_chips` (inventaire réel de chips, 8 types possédés chez Cucumber) 
+  confirmés réels et non-vides. La grosse partie de la progression Garden (cultures/niveau/
+  barn) vit sur un endpoint séparé (`/v2/skyblock/garden`), pas mappée cette passe — hors 
+  scope du plan (qui ne demandait l'endpoint séparé que pour Museum).
+- **AccessoryBag tuning** — `accessory_bag_storage` confirmé riche et non-vide : tuning par 
+  slot (stats réparties), `highest_magical_power`, `selected_power`, `unlocked_powers`.
+- **AutoPets** — `pets_data.autopet.rules` confirmé comme vraie structure (array de règles, 
+  vide chez Cucumber — même limite que `harp_songs` en son temps : forme connue, contenu 
+  non-vide jamais vérifié).
+- **"Gifts/Winter" — la vraie donnée trouvée n'est pas celle supposée par l'audit d'origine** : 
+  aucun champ "Winter gifting" n'existe côté API (recherché explicitement : gift/santa/winter, 
+  seul hit hors-sujet `attributes.stacks.winter_serendipity`, un stack d'attribut sans rapport). 
+  En revanche, les vrais gifts de Hina (Foraging) — `foraging.tree_gifts`, 
+  `foraging_core.daily_gifts` — sont réels, non-vides, et jamais mappés jusqu'ici : capturés à 
+  la place, avec la correction documentée plutôt que de forcer le mapping "Winter" deviné.
+- **Museum (7.3)** — nouvel appel réseau séparé `/v2/skyblock/museum?profile=X` (absent de 
+  `/v2/skyblock/profiles`, confirmé). Structure vérifiée : `{value, appraisal, items: 
+  {ITEM_ID: {donated_time, items:{type,data}}}, special}` — chaque item donné est un blob NBT 
+  décodable avec le décodeur déjà existant. Mappé cette passe : `museum_value` (109 188 742 
+  chez Cucumber) + `museum_donated_item_ids` (40 vrais item_id réels, ex HYPERION/
+  ASPECT_OF_THE_VOID/CRIMSON).
+
+**✅ Piste ouverte fermée le même jour — Museum Donations vérifie maintenant le vrai don, 
+pas la possession en inventaire** : les 416 tâches Milestones "Museum Donations" 
+(`item_owned`, Bloc 6) comparaient le nom cible à l'inventaire réel du joueur — question 
+différente de l'intention réelle du wiki (a-t-il DONNÉ cet item au musée, pas "le 
+possède-t-il actuellement"). Corrigé en résolvant `requirement.item_name` → vrai `item_id` 
+via `item_stats`/`items_catalog` (mesuré avant d'implémenter : 265/416, 63,7%, résolvent), 
+puis vérifié contre `museum_donated_item_ids` (Bloc 7) au lieu du scan d'inventaire. Les 151 
+noms non résolus restent honnêtement `data_available:false` — jamais de repli sur l'ancien 
+scan inventaire, qui répond à une autre question, pas une version dégradée de celle-ci. 
+**Vérifié en conditions réelles** : sur Cucumber, `museum_met` passe de 71 (ancien, possession 
+inventaire) à **24** (nouveau, vrai don musée) — les 24 items confirmés recoupés un par un 
+avec sa vraie liste `museum_donated_item_ids` (Aspect of the End, Basic Fishing Net, Stonk 
+Pickaxe, etc., tous réellement donnés). Orange reste à 0 — aucune fabrication. Conséquence 
+honnête sur le taux global : `tasks_computable` recule de 60,8% à **51,8%** (873/1685) — 
+recul attendu et correct, la précision de la question posée prime sur le taux de couverture 
+brut.
+- **HOTM Forge (7.5)** — la vraie table de durées existait déjà dans le wiki caché 
+  (`game_mechanics_misc.the_forge_table`, jamais exploitée). Parsée en 119 lignes réelles 
+  (item, durée en secondes, palier HOTM requis) dans une nouvelle table 
+  `hotm_forge_durations` — spot-check contre la source confirmé exact (Refined Diamond 8h/II, 
+  Drill Motor 1 jour 6h/II, Perfect Plate 30 min/X). Débloque l'axe comme demandé — aucune 
+  fonctionnalité consommatrice câblée cette passe (le process de forge en cours d'un joueur 
+  n'a jamais pu être vérifié : `mining_core.forge` absent chez Cucumber, elle n'a jamais 
+  forgé). Défaut mineur noté : le champ `section` de chaque ligne contient la phrase de 
+  description du sous-tableau wiki plutôt qu'un intitulé court ("Refine your ores into more 
+  valuable ores." plutôt que "Refining") — cosmétique, n'affecte ni `item_name` ni 
+  `duration_seconds`, pas corrigé (aucune fonctionnalité ne lit encore ce champ).
+
+**Restent honnêtement bloquées, avec la raison réelle vérifiée** :
+- **Mythological Ritual (7.1)** — `player_stats.mythos` confirmé présent mais **littéralement 
+  vide** (`{}`, zéro clé) chez Cucumber. Contrairement à d'autres zones vides-mais-structurées 
+  (harp_songs, autopet_rules), impossible d'inférer ne serait-ce qu'un schéma partiel — pas de 
+  colonne ajoutée, rien à mapper tant qu'aucun profil réel n'a de contenu ici.
+- **Rift, 11 sous-systèmes (7.2)** — recherche explicite tentée (recherche web d'un joueur 
+  public reconnu pour un vrai engagement Rift) sans candidat concret trouvé. Les 11 
+  sous-systèmes restent vides chez Cucumber, seul `rift.access.charge_track_timestamp` porte 
+  une vraie valeur non-nulle (un timestamp brut, signification incertaine — pas mappé sans 
+  interprétation confirmée). Documenté bloqué plutôt que deviné, conformément à la consigne.
+- **Mining Crystals / Crystal Hollows (7.4)** — `mining_core` confirmé réel et non-vide 
+  (powder mithril/gemstone), mais aucune clé `crystals` présente chez Cucumber (jamais placé 
+  de cristal) — même limite que Rift, structure non vérifiable sur ce profil.
+- **Dojo réel (7.6)** — reconfirmé : seul le statut de quête d'unlock existe côté API 
+  (`nether_island_player_data.quests.quest_data.dojo`), aucune donnée de points par minigame 
+  trouvée sous aucune clé contenant "dojo" — verified-absent, pas juste non-trouvé sur ce 
+  profil précis.
+
+**Vérifié en conditions réelles avant merge** (route de debug temporaire appelant les 
+fonctions d'extraction réelles + écriture partielle ciblée sur `player_data`, sans passer par 
+le handler `GET` complet de `player/sync` qui est protégé par une vraie session Vault) : toutes 
+les nouvelles valeurs confirmées identiques au dump brut sur Cucumber, et à zéro/vide/null sur 
+Orange — même garde-fou early-game que partout ailleurs.
+
+**Build prod confirmé `READY`** (`vault-intel-iota.vercel.app` dans les alias) après merge sur 
+master. Branche `feat/bloc7-uncovered-zones` supprimée après merge.
+
+**Suite du plan (8 blocs)** : Bloc 8 (Pluton, moteur d'intelligence comparative) est la 
+dernière étape prévue — rappel de la contrainte explicite de l'utilisateur : 100% calcul 
+déterministe, zéro appel IA à l'exécution, évaluation de faisabilité (8.1) à rapporter 
+honnêtement avant tout code.
+
+## ✅ Bloc 6 (plan d'audit 8 blocs) — requirement_type item_owned, +40,8 points de tasks_computable (31 juillet)
+
+Suite directe du Bloc 5. Les 1302 tâches `item` (81% du total Milestones) restaient 
+uncomputable — le plan visait "potentiellement proche de 100%" si le matching item_id 
+fonctionnait bien. **Investigation avant tout code (6.1/6.2) a corrigé cette attente à la 
+baisse, avec des raisons réelles vérifiées**, avant qu'aucune ligne ne soit écrite.
+
+**6.1 — généralisable, sans réécriture** : chaque item NBT décodé dans `player_data` 
+(armure équipée, accessoires, inventaire, enderchest, backpacks, Personal Vault, wardrobe) 
+porte déjà un vrai champ `item_id`/`item_name` — confirmé directement en base sur Cucumber. 
+`collectOwnedButUnequipped()` (Evolve Skills) scanne déjà ces mêmes sources ; nouvelle 
+fonction `lib/owned-items.ts` réutilise les mêmes sources, sortie différente (Set de noms 
+normalisés au lieu de texte formaté pour un prompt).
+
+**6.2 — le vrai format a changé le plan** : `requirement.item_name` est un artefact brut du 
+scrape wiki, un vrai sac mélangé — vérifié sur 25 échantillons aléatoires : des items 
+réellement possédables ("Cat Talisman", "Skeleton Minion", "Bottle of Jyrre") à côté de 
+choses qui ne sont structurellement PAS des items sous le même template wiki (classes de 
+donjon "Obtain Mage", zones "Obtain Crimson Isle"/"Obtain Dwarven Mines", contacts Abiphone 
+"Obtain George"/"Obtain Shifty", features génériques "Obtain Personal Bank"). Mesuré 
+directement : seulement 283/1302 (21,7%) matchent exactement `item_stats.display_name`, 
+425/1302 (32,6%) `items_catalog.item_name` — les deux catalogues internes ne couvrent que 
+les items actifs sur le marché AH/Bazaar, pas un registre complet (pets, pièces de musée 
+jamais tradées en sont absents). **Décidé avec l'utilisateur** : matcher directement contre 
+l'inventaire RÉEL du joueur plutôt que contre ces catalogues incomplets — plus robuste, et 
+honnête sur ce qui n'est structurellement pas un item (reste non-résolu plutôt que forcé).
+
+**Bug réel trouvé en testant sur échantillon avant généralisation** (exactement la 
+précaution demandée avant d'appliquer à l'ensemble) : `player_data.pets` est un champ 
+SÉPARÉ (roster complet actif+inactifs, `{type,tier,level,active,heldItem}`), absent de 
+tous les tableaux NBT scannés au premier passage — Cucumber possède réellement un pet 
+`BEE` et un `GRANDMA_WOLF` (confirmés dans son vrai roster), tous deux remontaient pourtant 
+"non possédé" avant l'ajout de ce scan. Corrigé, revalidé : 19 pets réels de Cucumber 
+matchent correctement après le fix (dont Bee et Grandma Wolf).
+
+**6.3 — `item_owned` implémenté, scope volontairement restreint** : sur les 1302 tâches 
+`item`, seules les 687 dont la vraie catégorie wiki (Museum Donations 416, Accessories 196, 
+Pets 75) correspond à un vrai objet possédable individuellement ont été retaggées 
+`item_owned` (migration `retag_item_owned_museum_accessories_pets`). Les 615 restantes 
+gardent `type='item'`, toujours honnêtement uncomputable : beaucoup sont structurellement 
+pas des items (classes/zones/NPCs), d'autres sont déjà couvertes par leur vrai 
+requirement_type dédié du Bloc 4 (boss/slayer/essence/banque/bestiary/dungeon — redondant 
+et faux de les traiter comme un item), et `Minions` (254 tâches) a été délibérément exclue : 
+un minion crafté devient un générateur posé sur l'île, jamais un item NBT tenu en 
+inventaire — `minion_count` (Bloc 4) reste le bon outil pour cet axe, même limité en 
+données.
+
+**Vérifié en conditions réelles avant merge** (route de debug temporaire appelant 
+`computeMilestones()` directement) : les 687 tâches `item_owned` toutes `data_available: 
+true` sur les deux profils. **Cucumber** : 71 tâches réellement complétées, exactement le 
+même compte que l'échantillon de validation initial (talismans/rings réellement possédés, 
+pets réellement possédés incluant Bee/Grandma Wolf, dons de musée réellement en 
+inventaire). **Orange** (profil vide) : 687/687 computable mais 0 complétée — même 
+garde-fou early-game que partout ailleurs, aucune fabrication.
+
+**6.6 — nouveau taux réel de `tasks_computable`** : **60,8%** (1024/1685) au runtime, contre 
+20,0% (337/1685) après le Bloc 4 — un bond de +40,8 points, le plus gros gain du plan à 
+date. Honnête sur ce qui reste : les 615 tâches `item` non retaggées + les 5 `mobtype` 
+(table de référence mob→catégorie pas construite) représentent encore ~36,8% du total 
+hors de portée — loin des "potentiellement proche de 100%" espérés au départ du bloc, pour 
+des raisons réelles vérifiées avant codage, pas par manque d'effort d'implémentation.
+
+**Build prod confirmé `READY`** (`vault-intel-iota.vercel.app` dans les alias) après merge 
+sur master. Branche `feat/bloc6-item-tasks-investigation` supprimée après merge.
+
+**Suite du plan (8 blocs)** : Bloc 7 (zones joueur non couvertes) est la prochaine étape 
+prévue dans l'ordre.
+
+## ✅ Bloc 5 (plan d'audit 8 blocs) — Radar multi-timeframe réel, jusqu'à 7+ ans (31 juillet)
+
+Suite directe du Bloc 4. Radar plafonnait à 3 ans côté frontend et à une fenêtre 30 jours 
+étiquetée "long" côté `radar-agent`, alors que 7,1 ans de vraie donnée existent déjà en base 
+(`price_history_ah`, ligne la plus ancienne confirmée en direct : 2019-06-19 — plus profond 
+que les "6,4 ans" supposés dans le plan d'audit d'origine).
+
+**5.1 — vrai bug trouvé en étendant `PERIODS`** : ajouter `'ALL'` seul n'aurait pas suffi. 
+`loadSeries()` (`RadarSection.tsx`) plafonnait déjà la requête générale à `.limit(1500)` — 
+avec un tri **ascendant** par date, cette limite aurait silencieusement coupé les lignes les 
+plus **récentes** dès qu'un item dépasse ~4 ans d'historique (confirmé en base : les items 
+les mieux suivis ont jusqu'à 2297 lignes DAILY réelles). Relevé à 3000. Découvert au passage : 
+le chemin Bazaar (`price_history`) n'avait **aucune** limite explicite, reposant sur le 
+défaut serveur PostgREST — même risque de troncature silencieuse, corrigé en ajoutant 
+`.limit(3000)` explicite là aussi. Header du bandeau Radar mis à jour ("up to 3 years" → 
+"up to 7+ years").
+
+**5.2 — renommage** : les labels `short|mid|long` du prompt `radar-agent` (1-7j/1-4sem/
+1-3mois) collisionnaient sémantiquement avec le vrai pluriannuel introduit en 5.3 — renommés 
+`short|mid|extended`, comportement des 3 fenêtres inchangé.
+
+**5.3 — `computeLongTermMovers()`, 100% déterministe, zéro coût Claude** — nouvelle fonction 
+SQL RPC `get_longstanding_ah_items(min_rows, limit_n)` (migration additive) trouve les vrais 
+items avec ≥1000 lignes DAILY (~3+ ans de profondeur réelle), pour ne jamais comparer 
+année N vs N-1 sur un item tracké depuis 2 semaines. Pool de 80 items réels, comparaison 
+moyenne 365 derniers jours vs 365 jours précédents (exigeant ≥30 points réels de chaque côté 
+avant de calculer une moyenne, jamais sur un échantillon trop mince). Stocké dans le même 
+blob JSON `claude_analysis.radar` que le contenu déjà généré par Sonnet (`long_term_movers`), 
+sans appel Claude supplémentaire — la fonction elle-même ne produit aucun texte, seulement 
+des chiffres.
+
+**5.4 — exposé côté frontend** : nouvelle section "📆 Long-Term Movers" dans 
+`IntelligenceVault` (`RadarSection.tsx`), gainers/decliners rendus directement depuis les 
+chiffres calculés — aucun texte généré par Claude dans cette section, contrairement aux 
+cartes Top Opportunities/Risk Items existantes.
+
+**Vérifié en conditions réelles avant merge** (route de debug temporaire appelant 
+`computeLongTermMovers()` seule — jamais `runRadarAgent()` en entier, pour éviter un vrai 
+coût Sonnet juste pour vérifier une fonction purement déterministe) : pool de 80 items réels 
+confirmé, 7 à 7,1 ans de profondeur chacun. Résultats cohérents, pas du bruit : **ASPECT_OF_
+THE_END** (item populaire choisi spécifiquement pour ce test) montre +297% sur l'année (1,29M 
+→ 5,12M de moyenne), `DIAMOND_SWORD` +60%, `DIAMOND_PICKAXE` -68% — mouvements réels 
+explicables, aucun artefact à un seul point aberrant.
+
+**Build prod confirmé `READY`** (`vault-intel-iota.vercel.app` dans les alias) après merge 
+sur master. Branche `feat/bloc5-radar-multitimeframe` supprimée après merge.
+
+**Suite du plan (8 blocs)** : Bloc 6 (faisabilité du type de tâche "item", 1302 tâches 
+Milestones hors scope) est la prochaine étape prévue dans l'ordre.
+
+## ✅ Bloc 4 (plan d'audit 8 blocs) — 11 axes Milestones comblés, 69 tâches réelles (31 juillet)
+
+Suite directe du Bloc 3 et de l'extension `computeMilestones()` du 30 juillet : 15 
+`requirement_type` supportés côté code, mais seuls 4 avaient une vraie ligne 
+`milestone_tasks` (les placeholders flippés ce jour-là). Ce bloc remplit les 11 axes 
+restants avec du vrai contenu — 69 tâches insérées, réparties en 4 lots, chaque seuil 
+sourcé avant codage (jamais deviné), conformément à la règle 7.
+
+**Recherche de sources réelles avant tout Haiku/insert** — deux ajustements demandés par 
+l'utilisateur avant de lancer la génération, tous les deux confirmés utiles :
+- **Bank tier** : le wiki interne déjà caché (`game_mechanics_misc.bank`) donne la vraie 
+  table complète à 6 tiers réels (Starter→Gold→Deluxe→Super Deluxe→Premier→Luxurious→
+  Palatial) — utilisé intégralement (6 tâches, target 1→6) au lieu du plafond arbitraire à 
+  2 initialement proposé par prudence.
+- **Lot 4 (minions/bestiary/chocolate factory/auctions/fishing)** : recherche supplémentaire 
+  a trouvé deux vrais plafonds officiels non détectés au premier passage — la table 
+  "Bestiary Milestone Rewards" (checkpoints réels V/X/XV/XX.../C, contrairement à la table 
+  "Cumulative Kill Brackets" par famille de mob, différente) et la table "Chocolate Factory 
+  Milestones" (chocolat total à vie, checkpoints réels 1k→700b). Les deux utilisées 
+  intégralement (vrais nombres Hypixel, zéro invention). À l'inverse, `minion_count` s'est 
+  révélé ne PAS avoir de plafond utilisable : `crafted_generators.length` compte chaque 
+  palier de minion jamais acheté (pas les types distincts), donc même le total réel de 61 
+  minions (compté depuis nos propres pages wiki `*_minion` déjà scrapées) ne mappait pas 
+  proprement dessus — laissé à une seule tâche minimale (target=1), `calibration_note` 
+  explicite. `auction_activity`/`fishing_activity` n'ont aucun plafond officiel non plus 
+  (compteurs d'activité, pas des totaux d'espèces/objets) — calibrés sur les vraies valeurs 
+  observées de Cucumber (completed:56, sea_creature_kills:333), `calibration_note` explicite 
+  sur chaque tâche pour signaler que c'est provisoire.
+
+**4 lots, sources réelles par axe** :
+- **Lot 1 (20 tâches)** — Kuudra 5 tiers réels (`none`/`hot`/`burning`/`fiery`/`infernal`, 
+  confirmés via le wiki interne déjà caché, page `kuudra_teeth`) ; Arachne (1 tâche) ; 
+  Ender Dragon 7 variantes réelles (Young/Old/Protector/Strong/Superior/Unstable/Wise, 
+  confirmées via nos propres lignes `milestone_tasks` scrapées du wiki, catégorie 
+  "Slay Dragons") ; Essence 7 types restants (DIAMOND/DRAGON/SPIDER/GOLD/WITHER/UNDEAD/ICE), 
+  target=1 — miroir exact de la tâche Crimson déjà existante, zéro nouveau pattern.
+- **Lot 2 (14 tâches)** — Slayer claimed_levels, réel et pré-calculé par Hypixel lui-même : 
+  limité aux 4 boss avec de vraies clés `claimed_levels` observées sur Cucumber (Zombie/
+  Spider/Wolf/Enderman) — Blaze/Vampire volontairement exclus, aucune donnée réelle pour 
+  confirmer leurs noms de clé. Jacob's medals bronze/silver/gold, target=1 chacune (mêmes 
+  vraies raretés de médaille que le jeu, pas de nombre inventé).
+- **Lot 3 (20 tâches)** — Catacombs F1-F7 + Master Catacombs M1-M7 (numérotation réelle du 
+  jeu), target=1 ("jouée au moins une fois", comportement par défaut du type) ; Bank tier 
+  1→6 (voir ci-dessus).
+- **Lot 4 (15 tâches)** — Minions (1 tâche, voir ci-dessus) ; Bestiary milestone 5/15/30/50/
+  75/100 (checkpoints réels) ; Chocolate Factory 1M/100M/1B/10B chocolat à vie (checkpoints 
+  réels) ; Auctions 5/25 ventes complétées (calibré, `calibration_note`) ; Fishing 25/150 
+  sea creatures tuées (calibré, `calibration_note`).
+
+**Vérifié en conditions réelles avant merge** (route de debug temporaire appelant 
+`computeMilestones()` directement — un premier passage de vérification avait un bug dans 
+sa propre requête de filtrage, pas dans les données insérées : il matchait par texte de 
+catégorie et attrapait par erreur des centaines de lignes wiki préexistantes "Craft 
+Minions" qui partagent par coïncidence `category:"Minions"` ; corrigé en filtrant par le 
+vrai `task_key` inséré) : les 69 nouvelles lignes confirmées `data_available:true` à 100% 
+sur les deux profils. **Cucumber** (progression réelle) : 41/69 tâches complétées, cohérent 
+avec ses vraies données (Wolf Slayer Level 2 réclamé, Bestiary 71≥5, Bank tier 1 atteint, 
+Arachne et minions correctement non complétés puisqu'elle n'a ni l'un ni l'autre). 
+**Orange** (profil vide) : 69/69 computable mais 0/69 complété — même garde-fou early-game 
+que partout ailleurs, aucune progression fabriquée.
+
+**Nouveau taux réel de `tasks_computable`** (4.5) : 337/1685 tâches computables en direct 
+au runtime (20,0%), contre 268/1616 avant ce bloc (16,6% — recalculé en excluant les 69 
+nouvelles lignes du total post-merge, puisque aucune ligne préexistante n'a été modifiée). 
+Écart honnête à noter : un classement statique par `requirement_type` "computable" donnait 
+301 avant / 370 après (301+69, +1685 lignes) — plus élevé que les chiffres runtime 
+ci-dessus, parce que certaines tâches `collection` déjà existantes ont un `item_name` qui 
+ne matche aucune ligne de la table `collections` interne et retombent donc à 
+`data_available:false` en pratique malgré leur type nominalement "computable" — un écart de 
+données préexistant, sans rapport avec ce bloc, pas creusé ici. **Toujours pas 100%** : 
+les tâches `item` (1302, wiki-scrapées, mécanisme structurellement différent — voir Bloc 6) 
+et `mobtype` (5, nécessite une table de référence mob→catégorie pas encore construite) 
+restent hors scope, comme prévu dès l'audit du 30 juillet.
+
+**Build prod confirmé `READY`** (`vault-intel-iota.vercel.app` dans les alias) après merge 
+sur master. Branche `feat/bloc4-milestones-content` supprimée après merge.
+
+**Suite du plan (8 blocs)** : Bloc 5 (Radar multi-timeframe) est la prochaine étape prévue 
+dans l'ordre.
+
+## ✅ Bloc 3 (plan d'audit 8 blocs) — fidélité du scoring AH, 2 écarts fermés (31 juillet)
+
+Suite directe des Blocs 1-2. Deux écarts réels entre le comportement du scoring de flip 
+AH (`ah-collect`) et son intention documentée, fermés dans le même bloc car tous les deux 
+touchent la même fonction `runAhCollect()`.
+
+**3.1 — Top 25/catégorie réel vs 50/catégorie + 300 global** : la promesse produit 
+("Top 25 per AH category", présente dans `app/page.tsx`, `app/features/page.tsx`, 
+`FlashAlertsPage.tsx` — libellé UI "🎯 {category} — Top 25", `FreeFlashPreview.tsx`) 
+divergeait du code réel, qui cappait chaque catégorie à 50 puis appliquait un cap global 
+de 300 sur l'ensemble combiné. **Vérifié en base avant fix** : `weapon`/`armor`/`misc`/
+`cosmetic` saturaient chacune leur cap à 50 pendant que `runes`/`dyes` tombaient à 1 ligne 
+— le cap global, appliqué APRÈS le cap par catégorie sur le classement combiné toutes 
+catégories confondues, laissait les catégories fortes écraser les plus faibles. Tranché en 
+faveur de la cible documentée (pas du code) : chaque catégorie plafonnée à 25 
+(`catItems.slice(0, 25)`), le cap global renommé `TOP_ITEMS_SAFETY_CEILING` et relevé 
+(1000) pour redevenir un pur filet de sécurité plutôt qu'une contrainte fonctionnelle — 
+avec ~10 catégories AH réelles, 25×10=250 reste naturellement sous ce seuil, donc plus 
+aucune catégorie n'est structurellement affamée par une autre.
+
+**3.2 — Cascade exact→base→blended, corrige une exclusion silencieuse** : un item sans 
+historique EXACT suffisant (variante rare — étoiles/reforge/ultimate précis peu scannés, 
+ex: une pièce Necron's 5★) était totalement exclu du classement même quand un historique 
+BASE solide existait (même étoiles+recomb, reforge/ultimate/hot potato ignorés) — un vrai 
+flip exploitable disparaissait sans raison métier. Ajout d'un fetch bulk batché 
+(`price_history_ah_variant_base`, même fenêtre 7 jours, même pattern de batching par 200 
+que l'exact existant) comme second palier ; palier "blended" 
+(`price_history_ah.__all_variants_blended__`) calculé aussi pour transparence 
+(`hist_precision` visible sur chaque item scoré) mais **volontairement jamais inclus dans 
+`relevant`** — décision explicite avec l'utilisateur avant codage : comparer une variante 
+précise contre une moyenne qui mélange 0★ bradés et 5★ rares produit un discount_pct 
+trompeur dans les deux sens, l'objectif étant des flips précis entre variantes réellement 
+comparables ("pour identifier les flips AH la pertinence maximale, on compare le prix 
+actuel d'un item avec son alter ego vendu en historique, jamais un 0★ contre un 5★"), pas 
+une couverture maximale au prix de faux signaux.
+
+**Vérifié en conditions réelles avant merge** (route de debug temporaire, supprimée après 
+validation, appelant le vrai handler `GET` de `ah-collect` — le `cron_locks` anti-doublon 
+partagé avec le cron prod réel a fait échouer le premier essai avec "Already running", 
+contourné en revérifiant l'état du lock via SQL puis en retentant dans une fenêtre libre) : 
+`scored_precision_breakdown` a montré 560-966 variantes/run tombant sur le palier "base" 
+(auparavant `hist_precision:'none'`, exclues silencieusement) ; `relevant_by_precision` a 
+montré 52-227 de ces items entrant réellement dans le classement grâce au nouveau 
+fallback. Exemples nommés concrets confirmés réels au moment du test : **Necron's Leggings** 
+(`POWER_WITHER_LEGGINGS`) et une **Ancient Shadow Assassin Chestplate ✪✪✪✪✪**, tous deux 
+sans historique exact mais avec un match base solide — exactement la classe d'item citée 
+dans le plan (3.3). `top_items_by_category` confirmé à 25 pour chaque catégorie bien 
+peuplée, les catégories plus rares (`runes`, `barn_skins`) légitimement sous 25 par manque 
+réel de candidats, plus jamais par troncature du cap global.
+
+**Build prod confirmé `READY`** (`vault-intel-iota.vercel.app` dans les alias) après merge 
+sur master. Branche `feat/bloc3-ah-scoring-fidelity` supprimée après merge.
+
+**Suite du plan (8 blocs)** : Bloc 4 (remplir les 11 axes Milestones sans contenu de 
+tâches — `boss_kill`/`bank_tier`/`minion_count`/`bestiary_milestone`/etc, capacité déjà 
+construite lors de l'extension `computeMilestones()` du 30 juillet mais zéro ligne 
+`milestone_tasks` les référençant encore) est la prochaine étape prévue dans l'ordre.
+
+## ✅ Bloc 2 (plan d'audit 8 blocs) — observability, 10 crons instrumentés (30 juillet)
+
+Suite directe du Bloc 1. Avant cette passe, seuls 5/15 crons actifs écrivaient dans 
+`sync_log` (`neu-sync`, `wiki-auto-sync`, `skyblock-resources-sync`, `milestones-sync`, 
+`armor-color-sync`) — les 10 autres (`ah-collect`, `ah-aggregate`, `bazaar-collect`, 
+`data-retention`, `patch-collect`, `money-making-agent`, `setup-generate-agent`, 
+`patch-analysis-agent`, `radar-agent`, `update-catalog`) n'avaient aucun historique 
+persistant : un job cassé ou muet n'était visible qu'en creusant les logs Vercel a 
+posteriori — exactement le pattern qui avait laissé le crash loop `historic-import` et le 
+bug `ah-collect TODAY` tourner plusieurs jours sans être détectés (voir plus bas dans ce 
+document).
+
+**Instrumenté les 10 crons manquants**, même pattern `startSync`/`finishSync` que les 5 
+déjà en place (`lib/sync-log.ts`, inchangé). Deux d'entre eux (`data-retention`, 
+`update-catalog`) n'avaient même pas de `try/catch` avant cette passe — une exception non 
+gérée tombait sur la page d'erreur par défaut de Next.js plutôt qu'un vrai 500 JSON propre, 
+et serait de toute façon restée invisible de `sync_log`. Aucune logique métier touchée dans 
+aucun des 10 fichiers — uniquement l'ajout de l'import + wrapping `startSync(...)`/
+`await finishSync(...)` autour du corps déjà existant.
+
+**Vérifié en conditions réelles avant merge** (route de debug temporaire important les 
+handlers `GET` réels de chaque cron — pas les fonctions plain exportées seules, un premier 
+essai s'est trompé sur `ah-collect`/`ah-aggregate` en appelant `runAhCollect()`/
+`runAhAggregate()` directement, ce qui contourne le wrapper `GET` où vit l'instrumentation ; 
+corrigé en repassant par `GET` avec une vraie `Request` porteuse du header 
+`CRON_SECRET`) : les 6 crons sans coût Claude (`ah-collect`, `ah-aggregate`, 
+`bazaar-collect`, `data-retention`, `patch-collect`, `update-catalog`) confirmés écrire de 
+vraies lignes `sync_log` avec `status`/`rows_written` corrects — y compris le chemin 
+`cron_locks` "Already running" de `ah-collect`, qui écrit bien une ligne `success`/0 lignes 
+plutôt que de sauter l'instrumentation. Les 4 crons à coût Claude réel (`money-making-agent`, 
+`patch-analysis-agent`, `radar-agent`, `setup-generate-agent`) volontairement **pas** 
+déclenchés manuellement pour éviter une dépense API inutile juste pour vérifier un wrapper 
+identique déjà validé 6 fois sur les autres crons — seront confirmés naturellement par leur 
+propre planning réel (`radar-agent`/`patch-analysis-agent` sous 24h, `money-making-agent`/
+`setup-generate-agent` au prochain lundi).
+
+**Anomalie `armor-color-sync` de l'audit du 30 juillet résolue** — le cron avait déjà 
+l'instrumentation `sync_log` correcte dans son code, mais zéro ligne en base malgré 
+`neu-sync` (même jour, même semaine) fonctionnant normalement. Cause réelle trouvée via 
+`git log` : la route `armor-color-sync` et son entrée `vercel.json` (`30 5 * * 1`, lundi 
+5h30) ont été ajoutées au commit `c28481b` le **28 juillet** (un mardi) — après le passage 
+du lundi 27 juillet 5h30, donc après la seule fenêtre de déclenchement possible cette 
+semaine-là. Le prochain déclenchement réel est le lundi 3 août, qui n'a pas encore eu lieu 
+à la date de cet audit (30 juillet). Zéro ligne `sync_log` est donc le comportement attendu, 
+pas un bug — mystère refermé sans code à changer.
+
+**Trouvé au passage, hors scope de ce bloc, pas corrigé** : `get_runtime_errors` a fait 
+remonter une vraie erreur récurrente sur `patch-analysis-agent` — 
+`"Alpha parse error: SyntaxError: Unexpected non-whitespace character after JSON..."`, 
+observée à plusieurs dates (25 → 30 juillet). Le `parseJSON` de la réponse Haiku pour les 
+patches alpha échoue occasionnellement (`alphaAnalysis` retombe alors sur `[]`, pas de 
+crash du cron dans son ensemble). Noté pour une passe future (candidat naturel : le même 
+fallback "découpe premier `{` au dernier `}`" déjà appliqué à `evolve-skills` lors du 
+chantier Phase 1).
+
+**Build prod confirmé `READY`** (`vault-intel-iota.vercel.app` dans les alias) après merge 
+sur master. Branche `feat/bloc2-observability` supprimée après merge.
+
+**Suite du plan (8 blocs)** : Bloc 3 (AH scoring fidelity fixes) est la prochaine étape 
+prévue dans l'ordre.
+
+## ✅ Bloc 1 (plan d'audit 8 blocs) — pipeline prix de vente AH mort depuis toujours, corrigé (30 juillet)
+
+Suite directe de l'audit architectural complet (voir plus bas dans ce document pour le 
+détail complet de l'audit) qui avait trouvé `avg_sold_price`/`sold_count` à 0 sur 
+70 910/70 910 lignes de `price_history_ah_variants` sur 7 jours glissants — le prix de 
+VENTE réel (par opposition au prix de listing/BIN) n'a jamais été collecté depuis que la 
+fonctionnalité existe dans le code, silencieusement.
+
+**Diagnostic en 2 passes, la 1ère une fausse piste partielle** :
+1. `fetchSoldAuctions()` (`ah-collect/route.ts`) appelait `https://api.hypixel.net/v2/skyblock/auctions/ended` 
+   sans header `API-Key` — confirmé cassé par curl direct (`400 Missing API-Key header`). 
+   1er fix : header ajouté + logging d'erreur explicite remplaçant l'échec silencieux 
+   (`return { auctions: [] }` sans aucune trace). Déployé, mais la vérification en direct 
+   montrait toujours un échec.
+2. **Vraie cause trouvée en creusant plus loin** : ce chemin d'URL n'existe simplement pas 
+   côté Hypixel. Le vrai endpoint est `/v2/skyblock/auctions_ended` (underscore, pas de 
+   slash) — confirmé par un vrai test réseau direct (`200 OK`, aucune clé requise, endpoint 
+   public comme `/v2/skyblock/auctions`) et recoupé avec la doc à jour du forum Hypixel. 
+   Piège qui explique pourquoi la fausse piste semblait plausible : le WAF Hypixel valide 
+   la clé API **avant** le routing — une clé absente/invalide sur le mauvais chemin renvoie 
+   une erreur trompeuse liée à la clé au lieu du vrai 404 "Unknown endpoint", qui ne 
+   ressort qu'une fois une vraie clé valide testée contre le mauvais chemin.
+
+**Propagation à toutes les couches d'agrégation** — jusqu'ici seule Table 1 
+(`price_history_ah_variants`, exact) portait déjà les colonnes `avg_sold_price`/
+`sold_count` (jamais alimentées à cause du bug) ; ajoutées aussi à Table 3 
+(`price_history_ah_variant_base`, palier intermédiaire) et Table 2 (`price_history_ah`, 
+blended `__all_variants_blended__` — la table qui assure la continuité avec l'historique 
+SkyCofl 6 ans, basé sur le vendu). Migration `add_sold_price_to_ah_blended_and_base` 
+(ALTER TABLE additif, appliquée via MCP Supabase) : `avg_sold_price numeric DEFAULT 0`, 
+`sold_count integer DEFAULT 0` sur les 2 tables. Pondération par `sold_count` (fiabilité du 
+vendu), jamais par `scan_count` (fiabilité du listing — axe différent), cohérent avec le 
+pattern déjà en place pour `avg_price`/`scan_count` dans `ah-aggregate`.
+
+**Vérifié en conditions réelles avant merge** (route de debug temporaire, supprimée après 
+validation — piège trouvé au passage : la route de debug elle-même avait le mauvais chemin 
+d'URL codé en dur séparément dans son propre diagnostic, corrigé avant la vérification 
+finale) : `/v2/skyblock/auctions_ended` → 200/success, 162 enchères vendues réelles ; 
+`runAhCollect()` → `ah_scan_buffer` avec 114 lignes `sold_count > 0` réelles (ex : 
+`THUNDER_BOOTS` nostar/norecomb/fierce, `avg_sold_price: 500000, sold_count: 1`) ; 
+`runAhAggregate()` forcé en avance sur la journée → les 3 tables journalières montrent des 
+lignes réelles `sold_count > 0` (variants: 18, base: 10, blended: 8). Volumes modestes par 
+run isolé, normal et attendu : `/auctions_ended` ne renvoie qu'une fenêtre glissante de 
+~60 secondes par appel — la couverture 24h s'accumule naturellement via le cron réel à la 
+minute, aucun code supplémentaire nécessaire pour ça (voir Bloc 1.5 du plan, pas une action 
+mais une simple attente).
+
+**Build prod confirmé `READY`** (`vault-intel-iota.vercel.app` dans les alias) après merge 
+sur master. Branche `fix/ah-sold-price-observability` supprimée après merge.
+
+**Suite du plan (8 blocs, audit du 30 juillet)** : Bloc 2 (observability — instrumenter 
+`sync_log` sur les ~10 crons qui ne le font pas encore, investiguer l'anomalie 
+`armor-color-sync`) est la prochaine étape prévue dans l'ordre du plan.
+
