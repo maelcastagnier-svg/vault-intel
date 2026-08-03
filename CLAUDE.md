@@ -22,6 +22,86 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Correction méthodologique — extraction brute NEU-REPO, 7 nouvelles tables + 2 automatisées (3 août)
+
+Correction explicite demandée par l'utilisateur après un retour en arrière sur le biais
+de catégorisation présupposée (le rapport d'audit précédent était reparti sur un cadre
+"15 systèmes + Économie"). Méthode reprise sans aucune liste de référence : chaque
+fichier NEU-REPO déjà fetché mais jamais vraiment inspecté (17 fichiers) a été lu pour
+son propre contenu réel, classé ensuite selon ce qu'il contenait effectivement — jamais
+par correspondance de nom. NEU-REPO est maintenant réellement épuisé : 40/40 fichiers
+vérifiés par contenu.
+
+**🔴 Bug réel trouvé et corrigé au passage** : `lib/skill-xp.ts`'s `RUNECRAFTING_XP`
+avait un index faux (15200 au lieu de 15300, niveau 24) ET 15 niveaux entièrement
+inventés au-delà du vrai cap (`leveling_caps.runecrafting = 25` dans NEU-REPO
+`leveling.json`, le tableau en dur allait jusqu'à 40) — une vraie violation de la règle
+"jamais de constante de jeu reconstituée de mémoire". Vérifié avant correction : consommé
+par `player/sync` (écrit `player_data.skills.runecrafting`) et `player/skills` (barre de
+progression) ; aucune tâche `milestone_tasks` ne vérifie Runecrafting, donc Milestones
+non affecté ; les 2 seuls profils de test réels ont un XP runecrafting (0 et 275) bien
+en dessous du point de divergence — bug réel mais dormant, corrigé avant qu'un vrai
+joueur à haut niveau ne soit affecté.
+
+**Sources déjà existantes, provenance jamais tracée jusqu'ici, maintenant confirmée et
+automatisée** :
+- `npc_locations` (84 lignes, chargées one-shot le 10 juillet sans jamais vérifier
+  d'où) — source réelle : `abiphone.json` (match exact ligne pour ligne). `call_names`
+  (21/84 NPCs) jamais capturé, ajouté.
+- `glacite_tunnel_waypoints` (20 lignes, one-shot) — source confirmée exacte
+  (`glacite_tunnel_waypoints.json`), jamais reliée à un cron. **Bug trouvé en vérifiant
+  le vrai résultat après le premier déploiement** : l'upsert (au lieu d'un replaceAll)
+  a laissé une ligne orpheline par collecteur (24 lignes au lieu de 20 attendues) --
+  l'ancien chargement one-shot indexait `waypoint_order` à partir de 1, le nouveau
+  parseur à partir de 0. Aucun code applicatif ne lit cette table (vérifié), donc zéro
+  impact utilisateur, mais corrigé (replaceAll) et revérifié en conditions réelles.
+
+**7 nouveaux jeux de données réels, jamais capturés nulle part, tous automatisés via
+neu-sync** :
+- `attribute_shards` (189 shards réels) + `attribute_shard_leveling_costs` (5 raretés
+  x 10 niveaux) — tout le système Rift/Kuudra des Attribute Shards. La table
+  `attribute_shards` existait déjà mais vide (0 ligne, schema Phase-0 incompatible avec
+  le vrai contenu), reconstruite.
+- `bestiary_mobs` (203) + `bestiary_brackets` (185) — vrai système de mobs par zone
+  (19 zones dont "dynamic") avec cap/bracket, jamais mappé.
+- `level_bonus_stats` (53) — bonus de stats passifs par niveau de skill/slayer (ex :
+  Combat niveau 1 → +4% dégâts), jamais mappé.
+- `pet_score_magic_find` (11) + `pet_rarity_value` (6) — bonus Magical Find par score
+  de pet + poids de comparaison par rareté, jamais mappés.
+- `essence_upgrade_costs` (3580) + `essence_upgrade_extra_items` (3996) — coût
+  essence + items par palier de star pour ~528 items, distinct de
+  `essence_shop_upgrades` déjà mappée (arbre de boutique, pas coût d'upgrade par item).
+- `carnival_shop_items` (24) — boutiques à jetons carnaval par événement saisonnier
+  (Spooky Festival, Season of Jerry, Fishing Festival, Mining Fiesta, Mythological
+  Ritual, Harvest Feast), jamais mappées.
+- `pet_level_xp_curve` (119) + `pet_rarity_level_offset` (6) + `custom_pet_leveling`
+  (300, 5 pets spéciaux : Golden/Jade/Rose Dragon, Bingo, Reindeer) — la courbe XP du
+  niveau de pet elle-même, distincte de `petnums.json` déjà mappée (stats par niveau,
+  pas la courbe XP).
+- `bazaar_stock_id_map` (954) — correspondance nom interne ↔ SKU Bazaar à portée
+  générale (pas seulement les shards, ex : paliers d'enchant `ENCHANTMENT_CORRUPTION_5`),
+  backfill en plus `attribute_shards.bazaar_stock_id` pour les 189 shards concernés.
+
+**Confirmé cosmétique/sans valeur mécanique, volontairement pas construit** :
+`dyes.json`/`animatedskulls.json`/`legacyrainbownames.json` (données de skin/couleur
+pures), `calendar.json` (annonces de maintenance périmées 2024), `resource_pack.json`
+(vide).
+
+**Testé avant déploiement** : harness local rejouant le code exact extrait contre les
+vrais fichiers fetchés, tous les comptes vérifiés avant tout déploiement. `neu-sync`
+refactorée en `runNeuSync()` exportée (même pattern que les 3 crons fixés plus tôt) pour
+déclenchement direct réel en prod, hors CRON_SECRET, route de debug supprimée après
+validation. **Vérifié en conditions réelles** : run complet 40/40 fichiers, 0 échec.
+
+Sur les 38 tables du backlog initial, il ne reste donc plus que **`dungeon_classes`**
+(aucune source identifiée) et l'enrichissement optionnel `accessory_powers` comme
+vrais restes côté NEU-REPO/wiki simple — `npc_locations` version enrichie (Bucket/HTML)
+reste le seul vrai gap wiki complexe différé.
+
+**Prochaine étape** : extraction brute du wiki (15 000+ pages), même discipline —
+lecture de contenu réel, jamais de correspondance par nom. Par lots, rapports groupés
+réguliers plutôt qu'à chaque découverte, jusqu'à épuisement réel de la source.
+
 ## ✅ 3 anomalies cron réelles corrigées — trouvées par l'audit de clôture (3 août)
 
 Suite directe du rapport d'audit de clôture du chantier NEU-REPO (voir section
