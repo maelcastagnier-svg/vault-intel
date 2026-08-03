@@ -1368,6 +1368,124 @@ async function syncSkyblockQuests(): Promise<number> {
 }
 
 // ============================================================
+// location_details -- Locations (271 lignes, 19 zones top-level, jusqu'à 3 niveaux
+// d'imbrication réels, ex Hub > Combat Settlement > Archery Range). Enrichit `game_zones`
+// (NEU-REPO, liste plate zone->sub_zones sans détail) avec Resources Found/NPCs Found/
+// Special Requirements par sous-lieu, jamais capturé -- vérifié avant construction que ce
+// n'est pas un doublon (contenu de `game_zones` inspecté : aucune de ces 3 colonnes).
+// Le header groupe "Location (and sub locations)" déclare colspan="3" -- la portion
+// chemin fait TOUJOURS exactement 3 colonnes logiques (1 segment réel -> colspan3, 2
+// segments -> colspan2 sur le 2e, 3 segments -> aucun colspan), suivie des 3 colonnes
+// fixes Resources/NPCs/Requirements -- numCols=6 fixe avec extraction par POSITION,
+// pas par "dernière colonne non-vide" (contrairement à skyblock_level_xp_tasks) : ici
+// les 3 champs traînants sont chacun fréquemment vides indépendamment, une extraction
+// par la droite décale tout dès qu'un seul d'entre eux est vide. Bug réel trouvé et
+// corrigé en local avant déploiement (Hub > Canvas Room : le NPC "Marco" atterrissait
+// dans special_requirements car Requirements était vide sur cette ligne précise).
+// Vérifié : 271/271 lignes, 0 zone vide, 0 markup résiduel.
+// ============================================================
+function cleanLocationCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{bc\}\}/gi, '')
+  s = s.replace(/\{\{Zone\|([^{}|]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{NPC List\|([^{}]*)\}\}/gi, (_m, inner) => inner.split('|').join('; '))
+  s = s.replace(/\{\{NPCSprite\|([^{}|;]*)[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{RL\|([^{}]*)\}\}/g, (_m, inner) => inner.split('|').join('; '))
+  s = s.replace(/\{\{ID\|([^{}|]*)\}\}/g, '$1')
+  s = s.replace(/\{\{SkyBlock Level\|([^{}]*)\}\}/g, 'SkyBlock Level $1')
+  s = s.replace(/\{\{c\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/'''/g, '')
+  s = s.replace(/<br\s*\/?>/gi, '; ')
+  s = s.replace(/\s+/g, ' ')
+  return s.trim()
+}
+function parseLocationCell(line: string): { value: string; rowspan: number; colspan: number } {
+  let s = line.replace(/^\|/, '')
+  let rowspan = 1, colspan = 1
+  const firstPipe = s.indexOf('|')
+  if (firstPipe !== -1 && /rowspan\s*=|class\s*=|colspan\s*=|style\s*=|data-sort|scope\s*=/.test(s.slice(0, firstPipe))) {
+    const attrs = s.slice(0, firstPipe)
+    s = s.slice(firstPipe + 1)
+    const rs = attrs.match(/rowspan\s*=\s*"?(\d+)"?/)
+    if (rs) rowspan = parseInt(rs[1], 10)
+    const cs = attrs.match(/colspan\s*=\s*"?(\d+)"?/)
+    if (cs) colspan = parseInt(cs[1], 10)
+  }
+  return { value: s.trim(), rowspan, colspan }
+}
+function parseLocationTable(tableBody: string, numCols: number): string[][] {
+  const rowBlocks = tableBody.split(/\n\|-\n?/).filter(b => b.trim().length > 0)
+  const rows: string[][] = []
+  const active: Array<{ value: string; remaining: number } | null> = new Array(numCols).fill(null)
+  for (const block of rowBlocks) {
+    const lines = block.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('|}'))
+    let cellIdx = 0
+    const resolved: string[] = new Array(numCols).fill('')
+    let col = 0
+    while (col < numCols) {
+      const a = active[col]
+      if (a && a.remaining > 0) {
+        resolved[col] = a.value
+        a.remaining -= 1
+        if (a.remaining === 0) active[col] = null
+        col += 1
+        continue
+      }
+      const raw = lines[cellIdx]
+      cellIdx += 1
+      if (raw === undefined) { col += 1; continue }
+      const { value, rowspan, colspan } = parseLocationCell(raw)
+      for (let k = 0; k < colspan && col + k < numCols; k++) {
+        const v = k === 0 ? value : ''
+        resolved[col + k] = v
+        if (rowspan > 1) active[col + k] = { value: v, remaining: rowspan - 1 }
+      }
+      col += colspan
+    }
+    rows.push(resolved)
+  }
+  return rows
+}
+async function syncLocationDetails(): Promise<number> {
+  const content = await getWikiContent(supabase, 'locations')
+  const sectionIdx = content.indexOf('== Locations ==')
+  if (sectionIdx === -1) throw new Error('location_details: section "Locations" introuvable')
+  const tableStart = content.indexOf('{|', sectionIdx)
+  const tableEnd = content.indexOf('|}', tableStart)
+  if (tableStart === -1 || tableEnd === -1) throw new Error('location_details: wikitable introuvable')
+  const table = content.slice(tableStart, tableEnd)
+  const allBlocks = table.split(/\n\|-\n?/)
+  const dataStart = allBlocks.findIndex(b => b.trim().startsWith('|') && !b.trim().startsWith('!'))
+  if (dataStart === -1) throw new Error('location_details: aucune ligne de donnée trouvée')
+  const body = allBlocks.slice(dataStart).join('\n|-\n')
+
+  const parsedRows = parseLocationTable(body, 6)
+  const rows: any[] = []
+  for (const r of parsedRows) {
+    const pathParts = r.slice(0, 3).map(cleanLocationCell).filter(Boolean)
+    if (pathParts.length === 0) continue
+    rows.push({
+      zone: pathParts[0],
+      sub_location: pathParts.slice(1).join(' > ') || null,
+      resources: cleanLocationCell(r[3]) || null,
+      npcs: cleanLocationCell(r[4]) || null,
+      special_requirements: cleanLocationCell(r[5]) || null,
+    })
+  }
+
+  if (rows.length === 0) throw new Error('location_details: 0 lignes extraites, parsing probablement cassé')
+  const { error: delErr } = await supabase.from('location_details').delete().gte('id', 0)
+  if (delErr) throw new Error('location_details delete: ' + delErr.message)
+  const { error } = await supabase.from('location_details').insert(rows)
+  if (error) throw new Error('location_details insert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -1393,6 +1511,7 @@ export async function runWikiReferentialSync() {
     skyblock_achievements: syncSkyblockAchievements,
     garden_mutations: syncGardenMutations,
     skyblock_quests: syncSkyblockQuests,
+    location_details: syncLocationDetails,
   })) {
     try {
       const rows = await fn()
