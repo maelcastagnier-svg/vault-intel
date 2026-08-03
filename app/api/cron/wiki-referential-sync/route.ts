@@ -934,6 +934,45 @@ async function syncSkyblockLevelXpTasks(): Promise<number> {
 }
 
 // ============================================================
+// museum_milestones -- Museum/Milestones (référencée directement par skyblock_level_
+// xp_tasks, catégorie Core "Museum Progression" -> "See Museum/Milestones"). Même format
+// menu en jeu que attribute_milestones (blocs {{UI|...}} qui se chevauchent, chaque palier
+// visible 2-3 fois dans des fenêtres de défilement successives) -- dédupliqué par numéro
+// de palier. Piège trouvé en testant : le nombre "Required XP" utilise un backslash
+// d'échappement wiki pour la virgule des milliers (ex "1\,500", pas "1,500") -- une
+// première regex ([\d,]+) ratait tout palier >= 10 (tous en 4 chiffres), corrigée
+// ([\d,\\]+) avant tout déploiement. Vérifié en local (parse_museum.js) : 40/40 paliers
+// (I-40, confirmé par le texte du menu "Milestone: 0/40"), 0 XP invalide, 0 reward vide,
+// 0 code couleur résiduel. Palier 40 (4 000 XP requis) dépasse le max réellement
+// obtenable actuellement (3 571, cf. skyblock_level_xp_tasks) -- capturé tel quel, pas
+// ajusté (règle 7, jamais de donnée inventée pour "corriger" un écart réel du jeu).
+// ============================================================
+function stripMcColorCodes(s: string): string {
+  return s.replace(/&[0-9a-fk-or]/gi, '')
+}
+async function syncMuseumMilestones(): Promise<number> {
+  const content = await getWikiContent(supabase, 'museum_milestones_ui')
+  const re = /&aMuseum Milestone (\d+), &7Required XP: &e([\d,\\]+)\/&5\/&7Rewards:\/([^\n]*)\n/g
+  const byTier = new Map<number, any>()
+  let m
+  while ((m = re.exec(content)) !== null) {
+    const tier = parseInt(m[1], 10)
+    if (byTier.has(tier)) continue
+    const requiredXp = parseInt(m[2].replace(/[\\,]/g, ''), 10)
+    const rewards = m[3].split('/')
+      .filter(s => s.startsWith('&8+'))
+      .map(s => stripMcColorCodes(s.replace(/^&8\+/, '')).trim())
+      .filter(Boolean)
+    byTier.set(tier, { tier_number: tier, required_xp: requiredXp, rewards })
+  }
+  const rows = [...byTier.values()]
+  if (rows.length === 0) throw new Error('museum_milestones: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('museum_milestones').upsert(rows, { onConflict: 'tier_number' })
+  if (error) throw new Error('museum_milestones upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -954,6 +993,7 @@ export async function runWikiReferentialSync() {
     attribute_milestones: syncAttributeMilestones,
     necromancy_souls: syncNecromancySouls,
     skyblock_level_xp_tasks: syncSkyblockLevelXpTasks,
+    museum_milestones: syncMuseumMilestones,
   })) {
     try {
       const rows = await fn()
