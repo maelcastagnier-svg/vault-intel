@@ -1081,6 +1081,94 @@ async function syncCropFortuneSources(): Promise<number> {
 }
 
 // ============================================================
+// skyblock_achievements -- SkyBlock Achievements/UI (menu jeu, 3 sous-catégories
+// distinctes : Challenge/Seasonal/Tiered, chacune paginée sur plusieurs blocs {{UI|...}}
+// avec chevauchement de scroll comme attribute_milestones/museum_milestones -- dédupliqué
+// par (catégorie, nom). Deux formats de ligne différents selon la catégorie : Challenge/
+// Seasonal ont "Unlocked by X% of (SkyBlock) players!" (stat globale réelle, pas une
+// valeur par joueur) ; Tiered a "Progress: X/Y" (cible du palier) + un chiffre romain
+// final dans le nom à séparer (ex "Angler V" -> nom="Angler", tier_label="V"). Vérifié en
+// local (parse_achievements.js) : 216 lignes (128 challenge + 8 seasonal + 80 tiered),
+// 0 nom vide, 0 code couleur résiduel. Note honnête : le header du menu annonce 222
+// Challenge Achievements au total mais seuls 128 noms uniques apparaissent réellement
+// dans le contenu wiki mis en cache (7 pages de scroll, aucune perte par dédoublonnage
+// vérifiée : 140 lignes brutes -> 128 noms uniques, l'écart vient de la source elle-même,
+// pas du parsing) -- capturé tel quel, pas complété par une supposition (règle 7).
+// ============================================================
+function stripMcColor(s: string): string {
+  return s.replace(/&[0-9a-fk-or]/gi, '').trim()
+}
+async function syncSkyblockAchievements(): Promise<number> {
+  const content = await getWikiContent(supabase, 'achievements_ui')
+  const blockRe = /\{\{UI\|([^|]+)\|?[\s\S]*?\n\}\}/g
+  const blocks: { title: string; text: string }[] = []
+  let bm
+  while ((bm = blockRe.exec(content)) !== null) {
+    blocks.push({ title: bm[1].trim(), text: bm[0] })
+  }
+
+  const lineRe = /^\|\d+, \d+=[^,]*,\s*(?:[a-z0-9-]+|none),\s*&c([^,]+),\s*(.*)$/gm
+  const byKey = new Map<string, any>()
+  for (const block of blocks) {
+    let category: string
+    if (/Tiered/i.test(block.title)) category = 'tiered'
+    else if (/Seasonal/i.test(block.title)) category = 'seasonal'
+    else if (/Challenge/i.test(block.title)) category = 'challenge'
+    else continue
+
+    let m
+    lineRe.lastIndex = 0
+    while ((m = lineRe.exec(block.text)) !== null) {
+      const rawName = m[1].trim()
+      const body = m[2]
+      const segments = body.split('/')
+
+      const descParts: string[] = []
+      for (const seg of segments) {
+        if (/Reward:/.test(seg) || /Progress:/.test(seg)) break
+        const cleaned = stripMcColor(seg)
+        if (cleaned) descParts.push(cleaned)
+      }
+      const description = descParts.join(' ').trim()
+
+      const pointsMatch = body.match(/&8\+&e(\d+) &7Achievement Points/)
+      const points = pointsMatch ? parseInt(pointsMatch[1], 10) : null
+
+      const progressMatch = body.match(/&7Progress: &a\d+&7\\\/&a(\d+)/)
+      const progressTarget = progressMatch ? parseInt(progressMatch[1], 10) : null
+
+      const unlockedMatch = body.match(/Unlocked by ([\d.]+)% of (?:SkyBlock )?players!/)
+      const unlockedPct = unlockedMatch ? parseFloat(unlockedMatch[1]) : null
+
+      const achCategoryMatch = body.match(/&[0-9a-f]([A-Za-z][A-Za-z ]* Achievement)\//)
+      const achievementCategory = achCategoryMatch ? achCategoryMatch[1].trim() : null
+
+      let name = rawName, tierLabel: string | null = null
+      if (category === 'tiered') {
+        const tm = rawName.match(/^(.+?)\s+([IVXLCDM]+)$/)
+        if (tm) { name = tm[1].trim(); tierLabel = tm[2] }
+      }
+
+      const key = category + '::' + rawName
+      if (byKey.has(key)) continue
+      byKey.set(key, {
+        category, name, tier_label: tierLabel, description: description || null,
+        points, progress_target: progressTarget, unlocked_pct: unlockedPct,
+        achievement_category: achievementCategory,
+      })
+    }
+  }
+
+  const rows = [...byKey.values()]
+  if (rows.length === 0) throw new Error('skyblock_achievements: 0 lignes extraites, parsing probablement cassé')
+  const { error: delErr } = await supabase.from('skyblock_achievements').delete().gte('id', 0)
+  if (delErr) throw new Error('skyblock_achievements delete: ' + delErr.message)
+  const { error } = await supabase.from('skyblock_achievements').insert(rows)
+  if (error) throw new Error('skyblock_achievements insert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -1103,6 +1191,7 @@ export async function runWikiReferentialSync() {
     skyblock_level_xp_tasks: syncSkyblockLevelXpTasks,
     museum_milestones: syncMuseumMilestones,
     crop_fortune_sources: syncCropFortuneSources,
+    skyblock_achievements: syncSkyblockAchievements,
   })) {
     try {
       const rows = await fn()
