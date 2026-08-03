@@ -1677,6 +1677,86 @@ async function syncSkyblockLevelRewards(): Promise<number> {
 }
 
 // ============================================================
+// bingo_goals_archive -- Bingo Events/<Year> (2021-2026, 6 pages), archive historique
+// des goals Bingo par mois -- `skyblock_bingo_goals` (API live, chantier Tier 1) ne
+// couvre que l'événement courant (25 lignes), jamais l'historique. Format menu jeu
+// {{UI|Bingo Card...}}, un seul bloc par mois (pas de chevauchement de scroll comme
+// attribute_milestones/museum_milestones -- vérifié : exactement 1 occurrence "{{UI|
+// Bingo Card" par tab mois). 2 types de goals réels : Personal (récompense fixe) et
+// Community (récompense par palier de percentile de contribution, capturée en texte
+// brut plutôt que décomposée en colonnes séparées -- disproportionné pour la valeur).
+// Les entrées "Row #N" (bonus de ligne, méta-UI) sont exclues -- seuls Personal Goal/
+// Community Goal sont retenus. Vérifié en local (parse_bingo.js) contre l'année 2021
+// complète : 24 lignes, 0 nom vide, 0 code couleur résiduel.
+// ============================================================
+function stripBingoColor(s: string): string {
+  return s.replace(/&[0-9a-fk-or]/gi, '').trim()
+}
+const BINGO_ARCHIVE_KEYS: Record<number, string> = {
+  2021: 'bingo_events_2021',
+  2022: 'bingo_events_2022',
+  2023: 'bingo_events_2023',
+  2024: 'bingo_events_2024',
+  2025: 'bingo_events_2025',
+  2026: 'bingo_events_2026',
+}
+async function syncBingoGoalsArchive(): Promise<number> {
+  const rows: any[] = []
+  const lineRe = /^\|\d+, \d+=[^,]*,\s*(?:[a-z0-9-]+|none),\s*&[0-9a-f]([^,]+),\s*&8(Personal Goal|Community Goal)(.*)$/gm
+
+  for (const [yearStr, key] of Object.entries(BINGO_ARCHIVE_KEYS)) {
+    const year = parseInt(yearStr, 10)
+    const content = await getWikiContent(supabase, key)
+    const tabRe = /\|-\|([A-Za-z]+)=/g
+    const tabMatches = [...content.matchAll(tabRe)]
+    const tabBounds = tabMatches.map((m, i) => ({
+      month: m[1],
+      start: m.index!,
+      end: i + 1 < tabMatches.length ? tabMatches[i + 1].index! : content.length,
+    }))
+
+    for (const b of tabBounds) {
+      const chunk = content.slice(b.start, b.end)
+      let m
+      lineRe.lastIndex = 0
+      while ((m = lineRe.exec(chunk)) !== null) {
+        const name = m[1].trim()
+        const goalType = m[2]
+        const segments = m[3].split('/')
+
+        const descParts: string[] = []
+        let i = 0
+        for (; i < segments.length; i++) {
+          const seg = segments[i]
+          if (/Reward/.test(seg) || /Progress to/.test(seg) || /Contribution Rewards/.test(seg)) break
+          const cleaned = stripBingoColor(seg)
+          if (cleaned) descParts.push(cleaned)
+        }
+        const description = descParts.join(' ').replace(/\\,/g, ',').trim()
+        while (i < segments.length && !/^Reward$/.test(stripBingoColor(segments[i])) && !/^Contribution Rewards/.test(stripBingoColor(segments[i]))) i++
+        const rewardParts: string[] = []
+        for (; i < segments.length; i++) {
+          const seg = segments[i]
+          if (/You have not|&8&o/.test(seg)) break
+          const cleaned = stripBingoColor(seg)
+          if (cleaned) rewardParts.push(cleaned)
+        }
+        const reward = rewardParts.join(' | ').replace(/\\,/g, ',').trim()
+
+        rows.push({ year, month: b.month, name, goal_type: goalType, description: description || null, reward: reward || null })
+      }
+    }
+  }
+
+  if (rows.length === 0) throw new Error('bingo_goals_archive: 0 lignes extraites, parsing probablement cassé')
+  const { error: delErr } = await supabase.from('bingo_goals_archive').delete().gte('id', 0)
+  if (delErr) throw new Error('bingo_goals_archive delete: ' + delErr.message)
+  const { error } = await supabase.from('bingo_goals_archive').insert(rows)
+  if (error) throw new Error('bingo_goals_archive insert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -1706,6 +1786,7 @@ export async function runWikiReferentialSync() {
     chocolate_rabbits: syncChocolateRabbits,
     sea_creature_pools: syncSeaCreaturePools,
     skyblock_level_rewards: syncSkyblockLevelRewards,
+    bingo_goals_archive: syncBingoGoalsArchive,
   })) {
     try {
       const rows = await fn()
