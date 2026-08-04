@@ -2465,6 +2465,52 @@ async function syncRodParts(): Promise<number> {
 }
 
 // ============================================================
+// composter_organic_matter -- Composter/Organic Matter Table (51 items), conversion
+// Item -> Organic Matter jamais capturée. "Bazaar Cost" volontairement pas capturé
+// (template live {{BZC|...}}, même raison que bits_shop_items/fame_ranks). Format
+// wikitext single-ligne `cell1 || cell2 || ...`. Vérifié en local (parse_compost.js) :
+// 51/51 lignes, 0 markup résiduel.
+// ============================================================
+function cleanCompostCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/^\|/, '').trim()
+  s = s.replace(/\{\{ID\|([^{}|]*)\}\}/g, '$1')
+  s = s.replace(/\{\{RD\|([^{}|]*)\|?[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  return s.trim()
+}
+async function syncComposterOrganicMatter(): Promise<number> {
+  const content = await getWikiContent(supabase, 'compost_organic_matter_table')
+  const tableStart = content.indexOf('{|')
+  const tableEnd = content.indexOf('|}', tableStart)
+  if (tableStart === -1 || tableEnd === -1) throw new Error('composter_organic_matter: wikitable introuvable')
+  const table = content.slice(tableStart, tableEnd)
+  const allBlocks = table.split(/\n\|-\n?/)
+  const dataStart = allBlocks.findIndex(b => b.trim().startsWith('|') && !b.trim().startsWith('!'))
+  if (dataStart === -1) throw new Error('composter_organic_matter: aucune ligne de donnée trouvée')
+  const rowBlocks = allBlocks.slice(dataStart).filter(b => b.trim().length > 0)
+
+  const rows: any[] = []
+  for (const block of rowBlocks) {
+    const lines = block.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('!'))
+    if (lines.length === 0) continue
+    const cells = lines[0].split('||').map(cleanCompostCell)
+    if (cells.length < 3) continue
+    const item = cells[0]
+    if (!item) continue
+    rows.push({ item, organic_matter: cells[1] || null, amount_per_4000: cells[2] || null })
+  }
+
+  if (rows.length === 0) throw new Error('composter_organic_matter: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('composter_organic_matter').upsert(rows, { onConflict: 'item' })
+  if (error) throw new Error('composter_organic_matter upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -2505,6 +2551,7 @@ export async function runWikiReferentialSync() {
     power_scroll_recipes: syncPowerScrollRecipes,
     fame_ranks: syncFameRanks,
     rod_parts: syncRodParts,
+    composter_organic_matter: syncComposterOrganicMatter,
   })) {
     try {
       const rows = await fn()
