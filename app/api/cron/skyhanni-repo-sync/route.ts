@@ -177,7 +177,7 @@ async function syncDojoBelts(): Promise<number> {
 // RiftRace.json -> rift_race_checkpoints
 // ============================================================
 async function syncRiftRaceCheckpoints(): Promise<number> {
-  const data = await fetchJson('RiftRace.json')
+  const data = await fetchJson('rift/RiftRace.json')
   const rows = (data.locations || []).map((pos: string, i: number) => {
     const { x, y, z } = parsePos(pos)
     return { checkpoint_order: i + 1, x, y, z }
