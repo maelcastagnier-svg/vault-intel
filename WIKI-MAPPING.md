@@ -670,8 +670,45 @@ passe s'étend sur plusieurs sessions) :
     lot — cohérent avec la taille de page qui est passée sous ~1000 caractères
     (contre ~2000+ caractères en moyenne pour les lots précédents), signe que la
     zone à forte densité de vrais systèmes touche à sa fin.
+- ✅ **Checkpoint 22 — correction méthodologique explicite de l'utilisateur** : "garde
+  tout, même la low value, on verra si c'est utile plus tard, à moi de juger" — contredit
+  directement l'exclusion de `advent_calendar_rewards` au checkpoint 21 (et les
+  exclusions similaires plus anciennes : `library`/`star_upgrades` jamais même tentées).
+  Critère d'inclusion corrigé pour la suite : **source actuelle (`hypixelskyblock_wiki`,
+  jamais `fandom_wiki`) + non-doublon + vraie structure parseable (pas de la prose pure)
+  + source elle-même pas explicitement WIP** — plus aucun filtre sur la valeur
+  économique perçue. Retour en arrière sur les 3 candidats explicitement exclus par
+  jugement de valeur, tous les 3 construits et vérifiés en prod ce jour :
+  - `library_npc_shop` (10 items, boutique du Librarian) — format single-line `||`
+    identique à `composter_organic_matter`, aucun nouveau pattern de parsing.
+  - `advent_calendar_rewards` (25 jours, 2022 seule année documentée côté wiki) —
+    `<tabber>` à onglet unique, cellules `!` en ligne de donnée (comme
+    `trials_of_fire`), template `{{RL|...}}` concaténé sans séparateur au texte
+    suivant dans le wikitext source lui-même (`{{RL|...}}Snowball Fight [[Spray]]`)
+    corrigé en insérant `; ` après le remplacement du template.
+  - `star_upgrades` (4 lignes, paliers de star Master/6-10/11-15) — même format
+    single-line `||`. **Bug réel trouvé en vérifiant le contenu réel après le premier
+    déploiement** (pas en relisant le code) : la ligne "11th-15th Star" a 2 lignes de
+    contexte supplémentaires (Crimson Essence / infernal Kuudra armor) collées à la
+    cellule sans `|` initial — l'extraction ne gardait que les lignes commençant par
+    `|`, ces 2 lignes de continuation étaient silencieusement perdues. Corrigé (les
+    lignes sans `|` après la première ligne d'un bloc de ligne sont maintenant traitées
+    comme continuation de la dernière cellule), redéployé, revérifié : la ligne complète
+    remonte maintenant avec son contexte, ligne orpheline tronquée nettoyée en base
+    (le conflit `UNIQUE(star_symbol, condition)` avait créé une 2e ligne au lieu de
+    remplacer l'ancienne, texte différent = clé différente).
+  - `fire_sale_events` réévalué avec la même rigueur mais **reste non construit — pas
+    par jugement de valeur, par règle de source dure** : la page racine
+    `hypixelskyblock_wiki` ne contient aucune donnée réelle (uniquement un commentaire
+    de template + un `<tabber>` qui transclut `{{:Fire Sale/Events/<year>}}`), et les 7
+    sous-pages annuelles réellement porteuses de données sont **toutes cachées sous la
+    source périmée `fandom_wiki`**, jamais migrées vers le nouveau wiki communautaire —
+    exactement le cas que la règle "jamais `fandom_wiki`" est censée bloquer (voir
+    `ship_parts`, reverté plus haut, même diagnostic). Cohérent avec `skyblock_fire_sales`
+    déjà confirmée vide en vrai côté API (Tier 1, 1er août) — aucune donnée fire sale
+    actuelle disponible nulle part dans ce projet à ce jour.
 
-**Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
+**Bilan de cette session (3-4 août, méthode corrigée)** : nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
 `skyblock_level_xp_tasks`, `museum_milestones`, `crop_fortune_sources`,
 `skyblock_achievements`, `garden_mutations`, `skyblock_quests`, `location_details`,
@@ -686,11 +723,12 @@ construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `ne
 `museum_items`, `starlyn_prize_shop`, `upgrade_fragments`, `odger_filleting_rewards`,
 `ribery_frog_donation_rewards`, `npc_discounts`, `reforging_prices`, `critters`,
 `automated_shipping_hoppers`, `city_project_contributions`, `city_project_bonuses`,
-`hotf_ability_cooldowns`
-— **52 systèmes réels au total cette session**, plus **6 pools ajoutés à
+`hotf_ability_cooldowns`, `library_npc_shop`, `advent_calendar_rewards`, `star_upgrades`
+— **55 systèmes réels au total cette session**, plus **6 pools ajoutés à
 `sea_creature_pools`** (extension d'une table déjà existante, pas comptée comme
 nouveau système) (`ship_parts` tenté puis reverté, source fandom_wiki périmée, ne
-compte pas).
+compte pas ; `fire_sale_events` réévalué au checkpoint 22, même diagnostic de source
+périmée, ne compte pas non plus).
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
 dans l'ordre où ils ont été traités :
