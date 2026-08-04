@@ -596,6 +596,20 @@ passe s'étend sur plusieurs sessions) :
     directement pertinent pour le calcul de coût des setups Money Making/Evolve
     Skills. Le tout premier reforge d'un item (gratuit, 10 Coal) n'est pas capturé,
     seuls les coûts en coins des reforges suivants.
+  - `critters` (**38 lignes**, 3 zones Lotus Atoll/Moonglade Marsh/Torrhus Canyon)
+    — mécanique de capture des critters (Fishing Net/Lasso/clics répétés/stamina
+    bars/pièges spécifiques par créature), jamais mappée. **Vérifié avant de
+    construire que ce n'est pas un doublon** de `attribute_shards` (déjà réel,
+    189 lignes) : ce dernier est centré sur le SHARD lui-même (rareté/ability/
+    bazaar), les pages Critters sont centrées sur le MOB et sa mécanique de
+    capture — confirmé complémentaire, pas redondant (Azure/Lotusfish/Flipflopper
+    retrouvés identiques dans les deux tables, avec des colonnes différentes).
+    `{{InfoNeeded}}` (placeholder wiki pour donnée non confirmée par les éditeurs,
+    présent sur plusieurs entrées Torrhus Canyon) converti en vide plutôt
+    qu'inventé — cohérent avec le traitement déjà appliqué à
+    `bestiary_list_safari_zone` (WIP, pas construit) mais ici seuls des DÉTAILS
+    ponctuels manquent sur un roster par ailleurs réel et complet, différence
+    jugée suffisante pour construire quand même.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
@@ -610,8 +624,8 @@ construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `ne
 `trial_of_blue_flames`, `trials_of_fire`, `fossil_chisels`, `mob_modifiers`,
 `griffin_burrows_loot`, `mythological_creatures`, `wormhole_fishing_items`,
 `museum_items`, `starlyn_prize_shop`, `upgrade_fragments`, `odger_filleting_rewards`,
-`ribery_frog_donation_rewards`, `npc_discounts`, `reforging_prices`
-— **47 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
+`ribery_frog_donation_rewards`, `npc_discounts`, `reforging_prices`, `critters`
+— **48 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
 source fandom_wiki périmée, ne compte pas).
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
