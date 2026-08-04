@@ -628,6 +628,29 @@ passe s'étend sur plusieurs sessions) :
     skins/dyes/runes), `skyblock_fire_sales` (table API live déjà réelle) confirmée
     vide en usage courant — effort de parsing élevé (structure colspan complexe)
     pour une valeur économique jugée trop faible face au reste du backlog.
+- ✅ **Lot 11 (positions ~4260-4560, checkpoint 20)** — 1 nouveau système + extension
+  majeure d'une table existante, tous vérifiés en prod :
+  - `hotf_ability_cooldowns` (15 lignes, 3 abilities x 5 niveaux) — **vérifié avant
+    de construire que ce n'est pas un doublon** : `hotf_perks` (déjà réel) liste
+    bien Damage Boost/Axe Toss/Maniac Slicer par nom mais avec `cost_formula`/
+    `stat_formula` vides/null — cette page comble exactement ce trou avec la vraie
+    donnée par niveau (cooldown/duration), gardée dans une table séparée plutôt
+    que de modifier le schéma générique `hotf_perks`.
+  - **`sea_creature_pools` étendue de 56 à 90 lignes (6 nouveaux pools)** —
+    famille complète `Sea Creatures/List/*` revérifiée titre par titre (14 pages
+    au total, pas seulement les 5 déjà connues) : `spooky` (Spooky Festival, 6),
+    `winter` (Jerry's Workshop, 6), `bayou` (Backwater Bayou, 6), `lotus` (Lotus
+    Atoll, 6), `shark` (Fishing Festival, 4), `torrhus_canyon` (Torrhus Canyon, 6)
+    — tous confirmés `hypixelskyblock_wiki`, même schéma exact à 8 colonnes que
+    les 5 pools déjà réels, ajoutés à `SEA_CREATURE_POOL_KEYS` sans nouveau
+    parseur. `lava`/`water` (les 2 seules pages restantes de la famille)
+    confirmées `fandom_wiki` **et** structurellement différentes (schéma legacy
+    Sea Creature/Requirements/Base Weight/Item Drops/Other Drops/Chat Message,
+    pas le schéma pool) — pas juste une source périmée du même contenu, un vrai
+    format hérité différent. Aucune page `hypixelskyblock_wiki` équivalente
+    trouvée sous ces 2 noms — non construites, à reprendre si une vraie source
+    actuelle est identifiée. Revérifié en prod : 90/90 (62 après spooky seul,
+    +28 pour les 5 pools restants).
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
@@ -643,9 +666,12 @@ construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `ne
 `griffin_burrows_loot`, `mythological_creatures`, `wormhole_fishing_items`,
 `museum_items`, `starlyn_prize_shop`, `upgrade_fragments`, `odger_filleting_rewards`,
 `ribery_frog_donation_rewards`, `npc_discounts`, `reforging_prices`, `critters`,
-`automated_shipping_hoppers`, `city_project_contributions`, `city_project_bonuses`
-— **51 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
-source fandom_wiki périmée, ne compte pas).
+`automated_shipping_hoppers`, `city_project_contributions`, `city_project_bonuses`,
+`hotf_ability_cooldowns`
+— **52 systèmes réels au total cette session**, plus **6 pools ajoutés à
+`sea_creature_pools`** (extension d'une table déjà existante, pas comptée comme
+nouveau système) (`ship_parts` tenté puis reverté, source fandom_wiki périmée, ne
+compte pas).
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
 dans l'ordre où ils ont été traités :
