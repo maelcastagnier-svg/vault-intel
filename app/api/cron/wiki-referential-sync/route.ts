@@ -3605,6 +3605,66 @@ async function syncMuseumItems(): Promise<number> {
 }
 
 // ============================================================
+// starlyn_prize_shop -- boutique Agatha (monnaie Starlyn Prize, récompense du
+// Starlyn Contest sur Moonglade Marsh, équivalent Foraging de Jacob's Contest --
+// confirmé réel mais jamais mappé dès la passe système du 1er août). 5 récompenses
+// réelles (Fig/Mangrove Fortune 41-50, 2 paliers de cap Foraging, Shiniest).
+// Cellules de la 1re colonne en style `!` (comme trials_of_fire/trial_of_blue_
+// flames), même cell-splitter mixte `!`/`|`. Vérifié en local
+// (parse_starlyn.js) : 5/5 lignes, 0 markup résiduel.
+// ============================================================
+function cleanStarlynCell(s: string): string {
+  s = (s || '').replace(/^[!|]/, '').trim()
+  s = s.replace(/\{\{Statname\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Green\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{ID\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{RL\|([^{}]*)\}\}/gi, (_m, inner) => inner.split('|').join('; '))
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+function splitStarlynCellLines(block: string): string[] {
+  const lines = block.split('\n')
+  const cells: string[] = []
+  let current: string | null = null
+  for (const line of lines) {
+    if (/^\|\}/.test(line)) continue
+    if (/^[!|](?!-)/.test(line)) { if (current !== null) cells.push(current); current = line }
+    else if (current !== null) current += '\n' + line
+  }
+  if (current !== null) cells.push(current)
+  return cells
+}
+async function syncStarlynPrizeShop(): Promise<number> {
+  const content = await getWikiContent(supabase, 'starlyn_prize')
+  const tableStart = content.indexOf('{|')
+  const tableEnd = content.indexOf('|}', tableStart)
+  if (tableStart === -1 || tableEnd === -1) throw new Error('starlyn_prize_shop: wikitable introuvable')
+  const table = content.slice(tableStart, tableEnd)
+  const blocks = table.split(/\n\|-\n?/)
+  const body = blocks.slice(1).join('\n|-\n')
+  const rowBlocks = body.split(/\n\|-\n?/).filter(b => b.trim().length > 0)
+  const rows: any[] = []
+  for (const block of rowBlocks) {
+    const lines = splitStarlynCellLines(block)
+    if (lines.length < 3) continue
+    const name = cleanStarlynCell(lines[0])
+    if (!name) continue
+    rows.push({
+      reward_name: name,
+      requirement: cleanStarlynCell(lines[1]) || null,
+      cost: cleanStarlynCell(lines[2]) || null,
+    })
+  }
+  if (rows.length === 0) throw new Error('starlyn_prize_shop: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('starlyn_prize_shop').upsert(rows, { onConflict: 'reward_name' })
+  if (error) throw new Error('starlyn_prize_shop upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -3662,6 +3722,7 @@ export async function runWikiReferentialSync() {
     mythological_creatures: syncMythologicalCreatures,
     wormhole_fishing_items: syncWormholeFishingItems,
     museum_items: syncMuseumItems,
+    starlyn_prize_shop: syncStarlynPrizeShop,
   })) {
     try {
       const rows = await fn()
