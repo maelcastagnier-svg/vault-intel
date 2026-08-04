@@ -1439,14 +1439,20 @@ async function syncSkyblockQuests(): Promise<number> {
 function cleanLocationCell(s: string): string {
   s = (s || '').trim()
   s = s.replace(/\{\{bc\}\}/gi, '')
-  s = s.replace(/\{\{Zone\|([^{}|]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Zone\|([^{}]*)\}\}/gi, (_m, inner) => { const parts = inner.split('|'); return parts[parts.length - 1] })
   s = s.replace(/\{\{NPC List\|([^{}]*)\}\}/gi, (_m, inner) => inner.split('|').join('; '))
   s = s.replace(/\{\{NPCSprite\|([^{}|;]*)[^{}]*\}\}/g, '$1')
   s = s.replace(/\{\{RL\|([^{}]*)\}\}/g, (_m, inner) => inner.split('|').join('; '))
   s = s.replace(/\{\{ID\|([^{}|]*)\}\}/g, '$1')
   s = s.replace(/\{\{SkyBlock Level\|([^{}]*)\}\}/g, 'SkyBlock Level $1')
   s = s.replace(/\{\{c\|([^{}]*)\}\}/gi, '$1')
-  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  // fallback générique -- prend le DERNIER paramètre positionnel (convention
+  // wiki : le dernier argument d'un template à 2+ params est l'alias affiché,
+  // ex {{Zone|Colosseum (Rift)|Colosseum}}), jamais toute la capture brute --
+  // bug réel trouvé en vérifiant le résultat direct en base après le premier
+  // déploiement de cette table (checkpoint 7) : "Colosseum (Rift)|Colosseum"
+  // fuitait tel quel car ce fallback gardait '$1' brut, pipe inclus.
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, (_m, inner) => { const parts = inner.split('|'); return parts[parts.length - 1] })
   s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
   s = s.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?\|([^\]]+)\]\]/g, '$2')
   s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
