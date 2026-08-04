@@ -821,6 +821,34 @@ passe s'étend sur plusieurs sessions) :
   individuelle (~la moitié des exemples vus en ont), filtrer `Historical article`,
   fallback nom exact uniquement quand aucune coordonnée n'est disponible.
 
+- ✅ **Checkpoint 25 — `skyblock_guide_tasks` (179 lignes, 7/7 paliers)**, trouvé en
+  continuant le screening (`skyblock_guide_tasks` remonté comme page de transclusion
+  pure vers 7 sous-pages `skyblock_guide_tasks_<tier>`). Système officiel Hypixel
+  "SkyBlock Guide" — **complètement distinct** de `milestone_tasks` (Vault-authored,
+  déjà construit) : les vraies tâches du menu Guide en jeu (Skills/Slayer/
+  Collections/Accessories/Museum/Minions/Essence Shops/etc.) par palier Starter→
+  Master, chacune avec sa vraie récompense XP SkyBlock. Jamais mappé.
+  - Parseur générique de templates par profondeur (`extractTemplateAt`, même
+    fonction que `cosmetic_skins`) réutilisé tel quel — gère `{{Plainlist|...}}`
+    (liste à puces de sous-objectifs), `{{Skl|Farming|IV}}` (cas particulier :
+    joint nom+niveau, contrairement aux wrappers couleur `{{Green|texte}}` qui ne
+    gardent que le dernier paramètre), et les liens `[[Cible|{{Template|Alias}}]]`
+    via un scanner de premier pipe en profondeur (`firstTopLevelPipe`) — un simple
+    `lastIndexOf('|')` aurait coupé au mauvais endroit dès qu'un alias de lien est
+    lui-même un template imbriqué (`[[Revenant Horror|{{Dark Purple|Revenant
+    Horror}}]]`), bug réel trouvé et corrigé en testant avant tout déploiement.
+  - **"Skilled" absente du cache au moment de la conception du parseur** (page
+    jamais fetchée par `wiki-auto-sync`, confirmé par une recherche de clé
+    infructueuse) — géré honnêtement (`try/catch` par palier, skip silencieux
+    sans fabriquer de données), documenté comme lacune connue plutôt que masqué.
+    **Résolu tout seul avant même le déploiement** : au moment du run réel en
+    prod, `wiki-auto-sync` avait entre-temps rafraîchi son cycle et mis "Skilled"
+    en cache — 179 lignes obtenues (144 attendues sur les 6 paliers testés
+    localement + 35 pour Skilled), 7/7 paliers réels confirmés en base.
+  - Testé localement contre les 6 pages alors disponibles avant déploiement (144
+    tâches, 0 résidu de template/lien, 0 XP null), revérifié en prod après
+    déploiement avec les 7 paliers réels : 179/179 lignes, 0 résidu, 0 XP null.
+
 **Bilan de cette session (3-4 août, méthode corrigée)** : nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
 `skyblock_level_xp_tasks`, `museum_milestones`, `crop_fortune_sources`,
