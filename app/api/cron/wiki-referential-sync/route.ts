@@ -3864,6 +3864,78 @@ async function syncReforgingPrices(): Promise<number> {
 }
 
 // ============================================================
+// critters -- 3 pages réelles `Critters/<Zone>` (Lotus Atoll/Moonglade Marsh/
+// Torrhus Canyon), jamais mappées. Distinct de `attribute_shards` (déjà réel,
+// 189 lignes) : ce dernier est centré sur le SHARD (rareté/ability/famille/bazaar),
+// ici c'est centré sur le CRITTER (le mob à capturer et sa mécanique de capture
+// -- Fishing Net/Lasso/clics répétés/stamina bars/pièges). Vérifié avant de
+// construire : les shards eux-mêmes (Azure/Lotusfish/Flipflopper) existent bien
+// déjà dans `attribute_shards`, confirmant que ce n'est pas un doublon mais un
+// vrai complément mécanique. Cellule Attribute à 2 lignes séparées par `----`
+// (ID du shard puis nom d'Attribut affiché, seul le shard retenu -- l'Attribut est
+// déjà dans `attribute_shards.ability_name`). `{{InfoNeeded}}` (placeholder wiki
+// pour donnée non confirmée par les éditeurs, présent sur plusieurs entrées
+// Torrhus Canyon) converti en vide plutôt qu'inventé. Vérifié en local
+// (parse_critters.js) : 4/4 lignes sur l'échantillon testé, 0 markup résiduel.
+// ============================================================
+const CRITTER_ZONES: { zone: string; wikiKey: string }[] = [
+  { zone: 'Lotus Atoll', wikiKey: 'critters_lotus_atoll' },
+  { zone: 'Moonglade Marsh', wikiKey: 'critters_moonglade_marsh' },
+  { zone: 'Torrhus Canyon', wikiKey: 'critters_torrhus_canyon' },
+]
+function cleanCritterCell(s: string): string {
+  s = (s || '').replace(/^\|/, '').trim()
+  s = s.replace(/\{\{InfoNeeded\}\}/gi, '')
+  s = s.replace(/\{\{MobSprite\|([^{}|;]*)[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{ID\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Attr\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Green\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/\n+/g, ' ')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+function parseCritterAttributeCell(s: string): string | null {
+  s = (s || '').replace(/^\|/, '')
+  const parts = s.split('----')
+  return cleanCritterCell(parts[0] || '') || null
+}
+async function syncCritters(): Promise<number> {
+  const rows: any[] = []
+  for (const { zone, wikiKey } of CRITTER_ZONES) {
+    const content = await getWikiContent(supabase, wikiKey)
+    const body = extractFirstWikitableBody(content)
+    if (!body) continue
+    const rowBlocks = body.split(/\n\|-\n?/).filter(b => b.trim().length > 0)
+    for (const block of rowBlocks) {
+      const lines: string[] = []
+      let current: string | null = null
+      for (const line of block.split('\n')) {
+        if (/^\|\}/.test(line)) continue
+        if (/^\|(?!-)/.test(line)) { if (current !== null) lines.push(current); current = line }
+        else if (current !== null) current += '\n' + line
+      }
+      if (current !== null) lines.push(current)
+      if (lines.length < 4) continue
+      const name = cleanCritterCell(lines[0])
+      if (!name) continue
+      rows.push({
+        zone,
+        critter_name: name,
+        attribute_shard: parseCritterAttributeCell(lines[2]),
+        capture_method: cleanCritterCell(lines[3]) || null,
+      })
+    }
+  }
+  if (rows.length === 0) throw new Error('critters: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('critters').upsert(rows, { onConflict: 'critter_name' })
+  if (error) throw new Error('critters upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -3927,6 +3999,7 @@ export async function runWikiReferentialSync() {
     ribery_frog_donation_rewards: syncRiberyFrogDonationRewards,
     npc_discounts: syncNpcDiscounts,
     reforging_prices: syncReforgingPrices,
+    critters: syncCritters,
   })) {
     try {
       const rows = await fn()
