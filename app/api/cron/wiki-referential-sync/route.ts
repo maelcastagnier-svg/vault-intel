@@ -3665,6 +3665,62 @@ async function syncStarlynPrizeShop(): Promise<number> {
 }
 
 // ============================================================
+// upgrade_fragments -- 7 fragments réels de craft d'items Dungeon endgame (drop
+// Watcher Undead F7/M7, Arachne, ou achat NPC), jamais mappés. Chaque fragment
+// débloque le craft d'un petit groupe d'items spécifiques (ex: Livid Fragment ->
+// Shadow Assassin Armor/Cloak/Shadow Fury/Last Breath). Vérifié en local
+// (parse_upgradefrag.js) : 7/7 lignes, 0 markup résiduel, gère une ligne `|-`
+// finale vide avant le `|}` (filtrée, pas de ligne fantôme).
+// ============================================================
+function cleanUpgradeFragmentCell(s: string): string {
+  s = (s || '').replace(/^\|/, '').trim()
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/gi, '')
+  s = s.replace(/\{\{ID\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{NPCSprite\|([^{}|;]*)[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{MobSprite\|([^{}|;]*)[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{AN\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  return s.trim()
+}
+function cleanUpgradeFragmentList(s: string): string {
+  s = (s || '').replace(/^\|/, '')
+  const items = s.split('\n').map(l => l.trim()).filter(l => l.startsWith('*'))
+  return items.map(l => cleanUpgradeFragmentCell(l.replace(/^\*/, ''))).filter(Boolean).join('; ')
+}
+async function syncUpgradeFragments(): Promise<number> {
+  const content = await getWikiContent(supabase, 'upgrade_fragments')
+  const body = extractFirstWikitableBody(content)
+  if (!body) throw new Error('upgrade_fragments: wikitable introuvable')
+  const rowBlocks = body.split(/\n\|-\n?/).filter(b => b.trim().length > 0)
+  const rows: any[] = []
+  for (const block of rowBlocks) {
+    const lines = block.split('\n')
+    const cells: string[] = []
+    let current: string | null = null
+    for (const line of lines) {
+      if (/^\|\}/.test(line)) continue
+      if (/^\|(?!-)/.test(line)) { if (current !== null) cells.push(current); current = line }
+      else if (current !== null) current += '\n' + line
+    }
+    if (current !== null) cells.push(current)
+    if (cells.length < 4) continue
+    const name = cleanUpgradeFragmentCell(cells[1])
+    if (!name) continue
+    rows.push({
+      fragment_name: name,
+      obtainment: cleanUpgradeFragmentCell(cells[2].split('\n')[0]) || null,
+      applicable_items: cleanUpgradeFragmentList(cells[3]) || null,
+    })
+  }
+  if (rows.length === 0) throw new Error('upgrade_fragments: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('upgrade_fragments').upsert(rows, { onConflict: 'fragment_name' })
+  if (error) throw new Error('upgrade_fragments upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -3723,6 +3779,7 @@ export async function runWikiReferentialSync() {
     wormhole_fishing_items: syncWormholeFishingItems,
     museum_items: syncMuseumItems,
     starlyn_prize_shop: syncStarlynPrizeShop,
+    upgrade_fragments: syncUpgradeFragments,
   })) {
     try {
       const rows = await fn()
