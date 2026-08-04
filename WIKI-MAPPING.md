@@ -425,8 +425,8 @@ passe s'étend sur plusieurs sessions) :
   - `stranded_trophy_fish` confirmé être un gamemode séparé ("Stranded", distinct du
     SkyBlock principal — la page le dit explicitement : "different on Stranded than
     it is in other gamemodes") — hors du périmètre économique de Vault, pas construit.
-- ✅ **Lot 5 (suite, checkpoint 14)** — 2 nouveaux systèmes réels construits et
-  vérifiés en prod :
+- ✅ **Lot 5 (suite, checkpoint 14)** — 1 nouveau système réel construit et vérifié
+  en prod (1 second tenté puis reverté, voir 🔴 ci-dessous) :
   - `trial_of_blue_flames` (30 lignes) — système Rift "Soul Campfire", jamais mappé.
     30 trials (I-XXX), DPS/dégâts totaux requis + récompense badge par rareté (bonus
     Fire/Permanent). **Parseur dédié écrit plutôt que le `parseRowspanTable` partagé**
@@ -436,10 +436,19 @@ passe s'étend sur plusieurs sessions) :
     `wiki-table-parse.ts`) ne reconnaît pas — aurait fusionné ces lignes avec la
     précédente. Vérifié en local avant tout code partagé : 30/30 lignes, 0 markup
     résiduel, revérifié 30/30 en prod.
-  - `ship_parts` (6 pièces, 2 paliers) — progression du bateau (Captain Baha,
-    Backwater Bayou/Fishing Outpost), jamais mappée. Seuls 2 tiers réels documentés
-    côté wiki (`Rusty`/`Bronze`, 3 slots Helm/Engine/Hull chacun) — pas plus inventés
-    même si un système à paliers suggère souvent plus de tiers.
+  - **🔴 `ship_parts` construit puis reverté** — trouvé en screening, contenu lu et
+    codé (progression du bateau, Captain Baha/Backwater Bayou, 6 pièces/2 paliers)
+    **sans vérifier le champ `source` avant de coder** — vraie violation de méthode,
+    trouvée uniquement par l'échec du déploiement réel en prod
+    (`getWikiContent` filtre explicitement `source='hypixelskyblock_wiki'`, cette
+    page n'existe qu'en `fandom_wiki`, source périmée abandonnée le 22 juillet et déjà
+    reconfirmée non fiable ce jour même avec `tree_gifts_list`). Aucune page
+    `hypixelskyblock_wiki` équivalente trouvée après recherche par titre. Code +
+    table + route de debug entièrement revertés (migration `DROP TABLE`), rien ne
+    reste en base. **Leçon retenue pour la suite** : toujours vérifier
+    `value->>'source'` AVANT de lire le contenu pour coder, pas seulement pour les
+    candidats explicitement suspects (fandom_wiki peut apparaître sous n'importe quel
+    titre, pas seulement ceux qui "sentent" l'ancien contenu).
   - `power_stones` reconfirmé verrouillé (donnée réelle dans un module Lua
     transclus, `{{/List of Power Stones}}`, même diagnostic qu'au checkpoint 10 pour
     `power_stones_list_of_power_stones`) — pas construit.
@@ -457,8 +466,10 @@ construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `ne
 `crystal_hollows_loot`, `treasure_fishing_loot`, `zone_mob_stats`, `bits_shop_items`,
 `power_scroll_recipes`, `fame_ranks`, `rod_parts`, `composter_organic_matter`,
 `skyblock_gems_pricing`, `rift_timecharms`, `drop_chance_tiers`, `milestone_reward_tiers`,
-`tree_gift_drops`, `trophy_frogs`, `wormhole_locations`, `mob_type_categories`
-— **30 systèmes réels au total cette session**.
+`tree_gift_drops`, `trophy_frogs`, `wormhole_locations`, `mob_type_categories`,
+`trial_of_blue_flames`
+— **31 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
+source fandom_wiki périmée, ne compte pas).
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
 dans l'ordre où ils ont été traités :
