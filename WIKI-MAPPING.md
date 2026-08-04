@@ -880,6 +880,71 @@ passe s'étend sur plusieurs sessions) :
   revérifier périodiquement les nouvelles pages via `discovery_queue`/
   `game_mechanics_misc.created_at` (déjà câblé par `discovery-scan`, voir Volet 2).
 
+- ✅ **Checkpoint 27 — `location_details` enrichie (271 → 286 lignes, colonne
+  `mobs` neuve), repris sur demande explicite de l'utilisateur** ("les 296 pages
+  restent une vraie donnée identifiée, pas juste théorique"). Fusionné DANS
+  `syncLocationDetails` (pas une fonction séparée) — le cron fait un delete+
+  reinsert complet à chaque run, un enrichissement à part se serait fait écraser
+  au prochain passage.
+
+  **Méthode de rattachement alternative demandée par l'utilisateur** (au lieu de
+  coordonnées, absentes du schéma `location_details`) : matching par dernier
+  segment du chemin `sub_location`, avec vérification de compatibilité de zone
+  via un index sous-région→zone **dérivé des vrais chemins déjà en base** (ex :
+  "Hub > Village > Bank" révèle que "Village" appartient au Hub) — jamais deviné
+  à la main. Fiable dans ce cas précis car `location_details` a `(zone,
+  sub_location)` unique à 100% (0 doublon), contrairement au risque générique de
+  faux rattachement par nom seul.
+
+  **2 vrais pièges trouvés et corrigés en testant contre les 296 pages réelles
+  avant tout déploiement** :
+  1. **"Mondes miroirs" du Rift** — Colosseum/Wizard Tower/The Bastion existent
+     sous le même nom au Hub (ou Crimson Isle) ET dans le Rift Dimension, deux
+     lieux réellement distincts (confirmé par le hatnote `{{About|...}}` du wiki
+     lui-même). Une correspondance nom-unique naïve aurait fusionné à tort 4
+     paires de lignes. Corrigé : rejet de la correspondance nom-unique dès que
+     `location=` de la page individuelle n'a aucun recoupement (direct ou via
+     l'index sous-région) avec la zone de la ligne candidate.
+  2. **Extraction du titre par 1ère phrase en gras cassée** par un
+     `{{Quote|...}}` placé avant la vraie phrase, ou un `'''X''', also known as
+     '''Y'''...` sans "is" direct après le premier gras — le match non-greedy
+     dérivait vers du texte sans rapport (bug concret : `jerry_s_workshop`
+     récupérait un paragraphe entier de lore comme "titre"). Corrigé par un
+     garde-fou de plausibilité (≤60 caractères, ≤8 mots) avec repli sur le slug
+     de la clé wiki (convention déjà exploitée tout du long de ce chantier :
+     underscore=espace, double-underscore=apostrophe).
+  3. **Bug pré-existant trouvé au passage, pas introduit par cette enrichissement**
+     (checkpoint 7, plus tôt cette session) : `cleanLocationCell` gardait le
+     template brut (pipe inclus) pour tout `{{Zone|X|Y}}` à 2 arguments —
+     `"Colosseum (Rift)|Colosseum"` fuitait tel quel dans `sub_location` pour 3
+     lignes déjà en base. Corrigé (même règle "dernier paramètre positionnel"
+     que `museum_items`), redéployé, revérifié : 0 résidu de pipe/template sur
+     les 286 lignes.
+
+  **13 pages "zone elles-mêmes" exclues** (Crimson Isle/Crystal Hollows/Deep
+  Caverns/Galatea/Gold Mine/Jerry's Workshop/Mushroom Desert/Private Island/
+  Rift Dimension/Spider's Den/The Barn/The End/The Park) — ce sont les zones de
+  haut niveau, pas des sous-lieux, insertion aurait été une erreur de catégorie.
+  **11 pages `{{Historical article}}`** (contenu retiré du jeu) exclues comme
+  demandé. **15 lieux réellement nouveaux insérés** (ceux avec un `location=`
+  résolvable sans ambiguïté) ; les candidats sans zone connue ou avec un nom
+  dupliqué entre plusieurs zones restent volontairement non insérés (même
+  discipline "jamais fabriquer" que le reste du chantier) — dont les 4 vraies
+  paires miroir-Rift, dont le contenu (mobs) reste donc temporairement non
+  fusionné (gap connu, sûr — aucune ligne mal fusionnée, juste un enrichissement
+  différé sur un cas rare).
+
+  Vérifié en prod après le fix : 286/286 lignes, 0 résidu de template/pipe/lien,
+  86 lignes avec `mobs` réel (contre 0 avant), 0 zone nulle. Exemple concret
+  vérifié : Goblin Burrows (Dwarven Mines) passe de `resources: null` à
+  `"Goblin Egg, Goblin Helmet, Goblin Chestplate, Goblin Leggings, Goblin Boots"`
+  + `mobs: "Goblin, Knifethrower, Fireslinger"`.
+
+**Avec `location_details` traitée, le criblage brut du wiki (chantier "CHANTIER
+FINAL — extraction brute du wiki") est considéré terminé.** Passage à l'audit de
+fermeture complet (chiffres bruts, couverture par système, checkup des
+automatisations, gaps honnêtes restants) — voir section dédiée plus bas.
+
 **Bilan de cette session (3-4 août, méthode corrigée)** : nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
 `skyblock_level_xp_tasks`, `museum_milestones`, `crop_fortune_sources`,
