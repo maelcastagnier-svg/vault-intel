@@ -3542,7 +3542,15 @@ function splitMuseumTemplateArgs(inner: string): string[] {
 function cleanMuseumText(s: string | null | undefined): string | null {
   s = (s || '').trim()
   if (!s) return null
-  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  // certains templates ont plusieurs arguments dont un/des `key=value` avant la
+  // vraie valeur affichée (ex: {{Rank|br=false|MVP++}} -> "MVP++") -- prendre le
+  // DERNIER segment plutôt que tout le contenu après le 1er "|" (trouvé en
+  // vérifiant le vrai résultat en prod : 58/982 lignes avaient un résidu
+  // "br=false|" dans notes avant ce fix).
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, (_m, inner) => {
+    const parts = inner.split('|')
+    return parts[parts.length - 1]
+  })
   s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
   s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
   s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
