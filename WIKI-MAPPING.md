@@ -570,6 +570,9 @@ passe s'étend sur plusieurs sessions) :
     lire le contenu en détail, pas construit.
   - `sea_creatures_list_basic` confirmé déjà couvert par `sea_creature_pools`
     (pool `basic`) — pas de nouvelle table.
+  - Revérifiés en prod : `starlyn_prize_shop` 5/5, `upgrade_fragments` 7/7,
+    `odger_filleting_rewards` **18/18** (17 attendus sur l'échantillon local testé
+    + 1 réel supplémentaire dans la vraie page).
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
@@ -583,8 +586,8 @@ construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `ne
 `tree_gift_drops`, `trophy_frogs`, `wormhole_locations`, `mob_type_categories`,
 `trial_of_blue_flames`, `trials_of_fire`, `fossil_chisels`, `mob_modifiers`,
 `griffin_burrows_loot`, `mythological_creatures`, `wormhole_fishing_items`,
-`museum_items`
-— **41 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
+`museum_items`, `starlyn_prize_shop`, `upgrade_fragments`, `odger_filleting_rewards`
+— **44 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
 source fandom_wiki périmée, ne compte pas).
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
