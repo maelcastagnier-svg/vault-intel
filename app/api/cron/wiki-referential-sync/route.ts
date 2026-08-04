@@ -2127,6 +2127,75 @@ async function syncTreasureFishingLoot(): Promise<number> {
 }
 
 // ============================================================
+// zone_mob_stats -- 10 pages Mob List/<Zone> (Barn/Caverns/Crimson/Crystal/Dwarven/End/
+// Hub/Mining/Park/Spider), stats de combat réelles par mob (Level/Location/HP/Damage/
+// Combat XP/Behavior/Drops) -- jamais capturé dans ce projet. Distinct de `bestiary_mobs`
+// (NEU-REPO, uniquement cap/bracket de progression Bestiary, vérifié avant de construire
+// : aucune colonne HP/Damage/Behavior/Drops côté bestiary_mobs). Wikitable standard à
+// rowspan (mobs groupés par niveau/HP/dégâts partagés), réutilise directement les
+// helpers partagés déjà en place. Vérifié en local (parse_moblist.js) contre Mob List/
+// Crystal : 24/24 lignes, 0 markup résiduel.
+// ============================================================
+function cleanZoneMobCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\[\[File:[^\]]*\]\]/g, '')
+  s = s.replace(/\{\{Lv\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{[Zz]one\|([^{}|]*)\}\}/g, '$1')
+  s = s.replace(/\{\{Stat\|[a-z]+\|icononly=yes\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{RL\|([^{}]*)\}\}/g, (_m, inner) => inner.split('|').join('; '))
+  s = s.replace(/\{\{bc\}\}/gi, '')
+  s = s.replace(/\{\{confirm\}\}/gi, '')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/<br\s*\/?>/gi, '; ')
+  return s.trim()
+}
+const ZONE_MOB_LIST_KEYS: Record<string, string> = {
+  'Barn': 'mob_list_barn',
+  'Caverns': 'mob_list_caverns',
+  'Crimson Isle': 'mob_list_crimson',
+  'Crystal Hollows': 'mob_list_crystal',
+  'Dwarven Mines': 'mob_list_dwarven',
+  'The End': 'mob_list_end',
+  'Hub': 'mob_list_hub',
+  'Mining': 'mob_list_mining',
+  'The Park': 'mob_list_park',
+  "Spider's Den": 'mob_list_spider',
+}
+async function syncZoneMobStats(): Promise<number> {
+  const rows: any[] = []
+  for (const [zonePage, key] of Object.entries(ZONE_MOB_LIST_KEYS)) {
+    const content = await getWikiContent(supabase, key)
+    const body = extractFirstWikitableBody(content)
+    if (!body) continue
+    for (const r of parseRowspanTable(body, 9)) {
+      const name = cleanZoneMobCell(r[1])
+      if (!name) continue
+      rows.push({
+        zone_page: zonePage,
+        name,
+        level: cleanZoneMobCell(r[2]) || null,
+        location: cleanZoneMobCell(r[3]) || null,
+        hp: cleanZoneMobCell(r[4]) || null,
+        damage: cleanZoneMobCell(r[5]) || null,
+        combat_xp: cleanZoneMobCell(r[6]) || null,
+        behavior: cleanZoneMobCell(r[7]) || null,
+        drops: cleanZoneMobCell(r[8]) || null,
+      })
+    }
+  }
+
+  if (rows.length === 0) throw new Error('zone_mob_stats: 0 lignes extraites, parsing probablement cassé')
+  const { error: delErr } = await supabase.from('zone_mob_stats').delete().gte('id', 0)
+  if (delErr) throw new Error('zone_mob_stats delete: ' + delErr.message)
+  const { error } = await supabase.from('zone_mob_stats').insert(rows)
+  if (error) throw new Error('zone_mob_stats insert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -2162,6 +2231,7 @@ export async function runWikiReferentialSync() {
     dungeon_class_milestones: syncDungeonClassMilestones,
     crystal_hollows_loot: syncCrystalHollowsLoot,
     treasure_fishing_loot: syncTreasureFishingLoot,
+    zone_mob_stats: syncZoneMobStats,
   })) {
     try {
       const rows = await fn()
