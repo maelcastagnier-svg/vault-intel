@@ -707,6 +707,56 @@ passe s'étend sur plusieurs sessions) :
     `ship_parts`, reverté plus haut, même diagnostic). Cohérent avec `skyblock_fire_sales`
     déjà confirmée vide en vrai côté API (Tier 1, 1er août) — aucune donnée fire sale
     actuelle disponible nulle part dans ce projet à ce jour.
+- ✅ **Checkpoint 23 — `cosmetic_skins` (479 lignes), trouvé en creusant la même zone
+  que le checkpoint 22** : en passant en revue le lot ~5060-5160 sous le nouveau
+  critère élargi, une forte densité de pages `<nom>_skin` (skins cosmétiques
+  individuels : pets/casques/sacs à dos/granges/serres) a fait remonter un système
+  entier jamais mappé — 482 pages au total sous ce pattern de nom, dont 479 réelles
+  (3 faux positifs exclus : `werewolf_skin`/`ditto_skin`/`alligator_skin` sont des
+  items d'artisanat ordinaires nommés "Skin", pas des cosmétiques — infobox
+  `Infobox/Item`, pas `Infobox/<Type> Skin`, filtre naturel par regex d'infobox).
+  **Résout directement le gap `fire_sale_events` fermé au checkpoint précédent** :
+  318 des 479 pages portent elles-mêmes un `{{Fire Sale Obtaining|date|gems_cost|
+  stock}}` sous la source ACTUELLE (`hypixelskyblock_wiki`), contrairement aux 7
+  sous-pages annuelles `Fire Sale/Events/<year>` qui restent, elles, sous
+  `fandom_wiki` périmé — même donnée économique, source différente, l'une valide
+  l'autre non. Les 161 pages restantes couvrent 3 autres canaux d'obtention réels :
+  `Seasonal Bundle Obtaining` (93, bundle Taylor par saison), `Taylor's Collection
+  Obtaining` (20), `Event Shop Obtaining` (36, jetons d'événement saisonnier),
+  `Cosmetic Miscellaneous Source` (12, texte libre — Raffle of the Century, achat
+  direct en zone, etc., capturé tel quel dans `obtaining_notes`).
+
+  Testé intégralement en local avant tout déploiement (méthode habituelle) : les
+  479 pages réelles récupérées via `execute_sql` (4 lots, sauvegardées en fichiers
+  bruts dans le scratchpad, jamais chargées telles quelles dans le contexte),
+  parseur générique de templates par profondeur d'accolades (`extractTemplateAt`,
+  gère les templates imbriqués `{{Green|...}}`/liens `[[...]]` dans un paramètre)
+  écrit et itéré jusqu'à 0 erreur / 0 doublon / 0 résidu sur l'ensemble des 479.
+
+  **Bug réel trouvé et corrigé en testant** : la première version de
+  `extractTemplateAt` avait un décalage d'un caractère sur la fermeture `}}` finale
+  (incrémentait l'index une fois de trop avant le `break`), tronquant le DERNIER
+  paramètre de chaque template d'une accolade fermante orpheline (`id = "...SKIN\n}"`
+  au lieu de `"...SKIN"`, `applied_to = "Yog Helmet}"` au lieu de `"Yog Helmet"`) —
+  invisible sur un test à un seul niveau d'imbrication simple, découvert seulement
+  en vérifiant le JSON de sortie complet, pas en relisant le code. Corrigé (l'index
+  n'avance qu'une seule fois vers la position correcte avant le `break`), revérifié :
+  0/479 résidu sur `item_id`/`applied_to`/`skin_name` après correction.
+
+  **Anomalie de contenu source repérée, non corrigée (n'est pas notre bug)** :
+  `seafoam_armadillo_skin` a `gems_cost={{Green|This skin is animated!}}` dans le
+  wikitext lui-même — une vraie erreur de saisie côté wiki communautaire (mauvais
+  paramètre collé). Le parseur rejette correctement toute valeur non-numérique
+  (`null` plutôt qu'une valeur fabriquée) — comportement honnête, pas une régression
+  à corriger de notre côté.
+
+  `skin_type` (Pet/Helmet/Backpack/Barn/Greenhouse Skin), `rarity`, `item_id`,
+  `applied_to` (item/pet cible — `null` pour Barn/Backpack, confirmé réel : ces 2
+  types s'appliquent à une structure générique, pas un item nommé, leur propre
+  template `Usage` n'a structurellement aucun paramètre `applied`), `animated`
+  (bool), `obtaining_method`/`obtaining_date`/`gems_cost`/`silver_cost`/`stock`/
+  `obtaining_notes`. Vérifié en prod : 479/479 lignes, 0 résidu de template/lien,
+  0 doublon de `skin_key`.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
@@ -723,8 +773,9 @@ construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `ne
 `museum_items`, `starlyn_prize_shop`, `upgrade_fragments`, `odger_filleting_rewards`,
 `ribery_frog_donation_rewards`, `npc_discounts`, `reforging_prices`, `critters`,
 `automated_shipping_hoppers`, `city_project_contributions`, `city_project_bonuses`,
-`hotf_ability_cooldowns`, `library_npc_shop`, `advent_calendar_rewards`, `star_upgrades`
-— **55 systèmes réels au total cette session**, plus **6 pools ajoutés à
+`hotf_ability_cooldowns`, `library_npc_shop`, `advent_calendar_rewards`, `star_upgrades`,
+`cosmetic_skins`
+— **56 systèmes réels au total cette session**, plus **6 pools ajoutés à
 `sea_creature_pools`** (extension d'une table déjà existante, pas comptée comme
 nouveau système) (`ship_parts` tenté puis reverté, source fandom_wiki périmée, ne
 compte pas ; `fire_sale_events` réévalué au checkpoint 22, même diagnostic de source
