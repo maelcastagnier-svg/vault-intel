@@ -2111,3 +2111,108 @@ aux ~59 qu'un cron par table aurait produit (48 legacy + 4 Tier 1 + 7 Volet 2), 
 
 **Pas construit cette passe** — plan proposé pour validation avant de continuer le
 chantier, conformément à la demande explicite de l'utilisateur.
+
+## Checkpoint 29 — CLÔTURE FINALE, criblage des 52 derniers fichiers SkyHanni-REPO (4 août)
+
+Suite du Checkpoint 28. Les 52 fichiers `constants/*.json` restants de SkyHanni-REPO
+(hors les 19 `island_graphs/*.json` de pathfinding déjà écartés et les ~19 fichiers du
+premier lot) ont été lus intégralement (contenu réel, jamais jugés par nom seul) et
+triés un par un. **13 nouvelles fonctions de sync, 10 nouvelles tables**, ajoutées à
+`skyhanni-repo-sync/route.ts` (même cron hebdomadaire, aucun nouveau cron créé) :
+
+**Réel et non-redondant, construit** :
+- `Garden.json` — presque tout le contenu (`garden_exp`/`crop_milestones`/`visitors`
+  de base) est en fait déjà couvert **exactement** par `garden_xp_levels`/
+  `garden_crop_milestones`/`garden_visitors` (source NEU-REPO, vérifié valeur pour
+  valeur avant d'exclure — ex: WHEAT `[30,50,80,200,...]` identique). Mais 3 sous-clés
+  sont réellement nouvelles : `organic_matter`/`fuel` (valeurs de conversion Composter
+  par item, `garden_composter_items`, 27 lignes — distinct de
+  `garden_composter_upgrades` qui ne couvre que le coût des paliers d'amélioration) ;
+  `pest_rare_drops` (drop rare par pest avec dénominateur de taux, `garden_pest_rare_drops`,
+  14 lignes, matché contre les 13 pest_name déjà réels de `garden_pests`) ; et
+  `visitors[].need_items`/`mode`/`position` (item demandé + lieu de spawn par visiteur,
+  absent de `garden_visitors` qui n'a que `visitor_id`/`rarity`). **Divergence trouvée
+  en comparant** : les noms de visiteurs SkyHanni-REPO (140) ne correspondent pas 1:1 à
+  ceux de `garden_visitors` (140 aussi, mais ~40 noms différents — ex: "Mayor Cole"/
+  "Chief Scorn" présents ici mais absents de l'autre, "Artist"/"Bear Pete" l'inverse) —
+  deux sources indépendantes avec un effectif similaire mais pas identique. Plutôt que
+  de forcer un rapprochement par ID risqué, `garden_visitor_requests` a été construite
+  comme table autonome (nom normalisé propre à cette source), cohérent avec le pattern
+  déjà utilisé pour d'autres enrichissements non-fusionnés ce chantier. **Bug de dédoublonnage
+  trouvé en testant en prod** (pas en local) : "Pest Wrangler" et "Pest Wrangler?" se
+  normalisent au même slug (`pest_wrangler`), causant un rejet `ON CONFLICT` PostgreSQL
+  (upsert ne peut pas affecter la même ligne deux fois dans un seul batch) — corrigé par
+  une fusion en Map avant upsert (need_items combinés), redéployé, reconfirmé (139 lignes,
+  un de moins que les 140 entrées sources car les deux Pest Wrangler fusionnent en une seule).
+- `AnitaUpgradeCosts.json` → `anita_upgrade_costs` (15 lignes) — coût réel par niveau de
+  l'arbre d'upgrade d'Anita (médailles d'or + tickets Jacob), jamais capturé.
+- `RiftEffigies.json` → `rift_effigy_locations` (6 lignes) — les 6 emplacements réels
+  des effigies Rift (quête d'accessoire Wyld Woods), jamais capturés.
+- `events/Diana.json` → `diana_sphinx_answers` (15 Q&R réelles du Sphinx) +
+  `mythological_ritual_mobs` (12 mobs réels de l'événement Mythological Ritual, avec
+  flag `is_rare`), aucun des deux jamais capturé.
+- `misc/IslandType.json` → `skyblock_island_metadata` (29 îles) — mapping
+  `api_name`↔nom d'affichage + bornes de coordonnées (`bounds_min/max_x/z`) +
+  `max_players` par île, distinct de `game_zones` (NEU-REPO, pas de bornes/api_name).
+- `SeaCreatures.json` → `sea_creature_fishing_xp` (90 lignes, 21 zones) — XP de pêche
+  réel par créature marine, absent de `sea_creature_pools` (table wiki existante, plus
+  riche sur poids/catégories mais sans XP par créature ni la même taxonomie de zone).
+- `Items.json` — fichier hétérogène (calculateur de prix interne au mod pour la
+  majorité des clés). Une seule sous-clé retenue : `crimson_prestige_costs` →
+  `kuudra_tier_prestige_costs` (4 lignes, coût réel Hot→Burning→Fiery→Infernal en
+  essence/dents/coins), le reste (`value_calculation_data`, `distance_enchant_data`,
+  `compact_names`, etc.) écarté comme heuristique de pricing interne au mod, pas une
+  donnée Hypixel faisant autorité.
+- `BingoRanks.json` → `skyblock_bingo_ranks` (5 lignes, mapping §-code→rang communauté).
+- `DanceRoomInstructions.json` → `dungeon_dance_room_sequence` (49 lignes, la séquence
+  réelle de résolution de la Dance Room, secret de donjon jamais documenté).
+
+**Confirmé redondant, pas reconstruit** : `Mining.json.block_strengths` — déjà
+exactement identique à `pluton_target_blocks.block_strength` (COAL_ORE=30, IRON_ORE=30,
+etc., vérifié valeur pour valeur).
+
+**Confirmé hors-sujet ou sans valeur mécanique/économique, volontairement pas
+construit** (toujours lu en entier avant d'exclure, jamais jugé par nom seul) :
+- Mod-interne pur (config, parsing de chat, gestion d'erreur, launchers, crédits) :
+  `ChangedChatErrors`, `EnforcedConfigValues`, `PlayerChatFilter`, `ErrorManager`,
+  `Launchers`, `LocationFix`, `ItemAliases`, `CarryTracker`, `Wiki`, `ModGuiSwitcher`,
+  `Contributors`, `ContributorList`, `CommunityTodos`, `regexesModern`,
+  `IslandGraphSettings`, `ForcedRepoPerks`, `DisabledFeatures`,
+  `DiscontinuedMinecraftVersions`, `DisabledApi`, `EnchantedClock` (UI slots),
+  `ArrowTypes` (juste des libellés cosmétiques d'affichage), `IgnoredItems`,
+  `HideNotClickableItems`.
+- Vide ou déprécié : `IslandTypeTags`, `DisabledEvents`.
+- Cosmétique pur (même famille que `dyes.json`/`legacyrainbownames.json` déjà exclus
+  le 3 août) : `Skulls.json` (têtes custom base64), `HoppityRabbitTextures.json`,
+  `Pets.json` (skins de pets).
+- Config triviale à faible valeur (2-3 constantes) : `Bazaar.json` (plafond d'ordre
+  quotidien), `Events.json` (une seule entrée d'événement déjà périmée/gérée en live
+  par `skyblock_mayor_election`/`skyblock_news`), `ExcludedSeaCreatureAreas.json`.
+- **`EventWaypoints.json` — hors-sujet, pas Skyblock** : localisations de cadeaux dans
+  les lobbys d'autres jeux Hypixel (Bed Wars, TNT Games, Blitz, UHC...), zéro rapport
+  avec Skyblock.
+- **`Bingo.json` — contenu communautaire non-officiel** : guides stratégiques
+  rédigés par la communauté SkyHanni pour un événement Bingo précis et déjà passé (25
+  entrées `bingo_tips`), pas une donnée Hypixel — périmerait immédiatement et va à
+  l'encontre de la règle "jamais de contenu non-officiel/inventé".
+- **Navigation pure, même famille que les 19 `island_graphs` déjà écartés** (liste de
+  coordonnées de parkour/chemin, sans récompense ni donnée économique associée) :
+  `DungeonHubRaces.json`, `DeepCavernsParkour.json`, `RiftUpsideDownParkour.json`,
+  `RiftLavaMazeParkour.json`, `RiftWoodenButtons.json` (positions de boutons de
+  puzzle Rift, aucune récompense/ordre de résolution documenté dans le fichier).
+- **Listes blanches de "profit tracker" du mod** (item_id → poids/catégorie utilisés
+  pour l'overlay de calcul de profit du mod, pas des taux de drop ni des prix
+  faisant autorité) : `MinionDrops.json`, `FishingProfitItems.json`,
+  `DragonProfitTrackerItems.json`.
+
+**Bilan des 52 fichiers** : 10 tables construites, 1 doublon confirmé exact
+(`Mining.json`), 41 fichiers explicitement revus et exclus avec raison précise
+ci-dessus. **Criblage SkyHanni-REPO (Source 4) considéré épuisé** — 113 fichiers
+`constants/` au total (hors `island_graphs/`), tous inspectés par contenu réel sur
+les deux lots (17 tables le 4 août matin + 10 tables cette passe), zéro fichier
+restant non revu.
+
+**Vérifié en prod réel** (`runSkyhanniRepoSync()` via route de debug temporaire,
+supprimée après validation) : 26/26 fonctions réussies, 1112 lignes totales sur ce
+run complet (17 tables du premier lot + 10 nouvelles), 0 échec après le fix du
+doublon `garden_visitor_requests`.
