@@ -2197,13 +2197,20 @@ async function syncZoneMobStats(): Promise<number> {
 
 // ============================================================
 // bits_shop_items -- Bits Shop (Elizabeth, Community Center), monnaie Bits jamais
-// mappée dans ce projet. Wikitable simple (Icon/Item/Bits/Item Worth), 0 rowspan.
-// "Item Worth" volontairement PAS capturé : la colonne contient des templates live
-// ({{AuctionHousePrice|...}}/{{BazaarData|...}}) rendus dynamiquement par le wiki au
-// moment de la consultation, pas une valeur statique présente dans le wikitext --
-// extraire ce texte littéralement aurait donné un placeholder trompeur, pas un prix
-// (règle 7 : jamais de donnée inventée/simulée). Réutilise les helpers partagés.
-// Vérifié en local : 56 lignes, 0 rowspan, page confirmée simple avant de coder.
+// mappée dans ce projet. "Item Worth" volontairement PAS capturé : la colonne contient
+// des templates live ({{AuctionHousePrice|...}}/{{BazaarData|...}}) rendus dynamiquement
+// par le wiki au moment de la consultation, pas une valeur statique présente dans le
+// wikitext -- extraire ce texte littéralement aurait donné un placeholder trompeur, pas
+// un prix (règle 7 : jamais de donnée inventée/simulée).
+// 🔴 Bug réel trouvé en vérifiant le vrai résultat en prod après le 1er déploiement
+// (12 lignes au lieu des 56 attendues) : la page a 8 wikitables séparées (le tableau
+// "Items" principal + 7 sous-catégories : Kat Items/Upgrade Components/Sacks/Abiphone/
+// Dyes/Stacking Enchants/Enrichments) -- `extractFirstWikitableBody` ne prend que la
+// PREMIÈRE table, perdant silencieusement les 7 autres. Corrigé en itérant TOUTES les
+// wikitables de la page, chacune taguée par sa section `=== X ===` précédente (ou
+// "General" pour le tableau principal sans sous-titre). Vérifié en local
+// (parse_bitsshop2.js) après correction : 56/56 lignes réparties sur 8 catégories,
+// 0 markup résiduel.
 // ============================================================
 function cleanBitsShopCell(s: string): string {
   s = (s || '').trim()
@@ -2217,17 +2224,33 @@ function cleanBitsShopCell(s: string): string {
 }
 async function syncBitsShopItems(): Promise<number> {
   const content = await getWikiContent(supabase, 'bits_shop')
-  const body = extractFirstWikitableBody(content)
-  if (!body) throw new Error('bits_shop_items: wikitable introuvable')
-  const rows = parseRowspanTable(body, 4)
-    .map(r => ({
-      item_name: cleanBitsShopCell(r[1]),
-      bits_cost: cleanBitsShopCell(r[2]) || null,
-    }))
-    .filter(r => r.item_name)
+  const tableRe = /\{\| class="wikitable"[\s\S]*?\n\|\}/g
+  const sectionRe = /=== ?([^=\n]+?) ?===\n/g
+  const sections = [...content.matchAll(sectionRe)].map(m => ({ name: m[1], pos: m.index! }))
+  const sectionFor = (pos: number) => {
+    let cat = 'General'
+    for (const s of sections) { if (s.pos < pos) cat = s.name; else break }
+    return cat
+  }
+
+  const rows: any[] = []
+  let m
+  while ((m = tableRe.exec(content)) !== null) {
+    const category = sectionFor(m.index)
+    const tableText = m[0]
+    const allBlocks = tableText.split(/\n\|-\n?/)
+    const dataStart = allBlocks.findIndex(b => b.trim().startsWith('|') && !b.trim().startsWith('!'))
+    if (dataStart === -1) continue
+    const body = allBlocks.slice(dataStart).join('\n|-\n')
+    for (const r of parseRowspanTable(body, 4)) {
+      const itemName = cleanBitsShopCell(r[1])
+      if (!itemName) continue
+      rows.push({ category, item_name: itemName, bits_cost: cleanBitsShopCell(r[2]) || null })
+    }
+  }
 
   if (rows.length === 0) throw new Error('bits_shop_items: 0 lignes extraites, parsing probablement cassé')
-  const { error } = await supabase.from('bits_shop_items').upsert(rows, { onConflict: 'item_name' })
+  const { error } = await supabase.from('bits_shop_items').upsert(rows, { onConflict: 'category,item_name' })
   if (error) throw new Error('bits_shop_items upsert: ' + error.message)
   return rows.length
 }
