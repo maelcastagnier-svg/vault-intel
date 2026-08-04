@@ -3284,6 +3284,65 @@ async function syncMobModifiers(): Promise<number> {
 }
 
 // ============================================================
+// griffin_burrows_loot -- treasure loot du minigame Griffin Burrows par palier de
+// spade (Ancestral/Archaic/Deific), jamais mappé. 3 pages réelles distinctes
+// (`Griffin Burrows/Item Loot/<Tier>`), structure standard rowspan (réutilise le
+// parseur partagé, pas de parseur dédié nécessaire ici) -- 6/9/11 lignes selon le
+// tier, total_weight extrait du `<span title="Total Weight: N">` d'en-tête. Vérifié
+// en local (parse_griffin.js) : 6/6 sur Ancestral (échantillon testé), 0 markup
+// résiduel, robuste à une ligne vide parasite avant un `|-` rencontrée dans le
+// wikitext source (n'affecte pas le split, juste du whitespace trim).
+// ============================================================
+const GRIFFIN_SPADE_TIERS: { tier: string; wikiKey: string }[] = [
+  { tier: 'Ancestral', wikiKey: 'griffin_burrows_item_loot_ancestral_spade' },
+  { tier: 'Archaic', wikiKey: 'griffin_burrows_item_loot_archaic_spade' },
+  { tier: 'Deific', wikiKey: 'griffin_burrows_item_loot_deific_spade' },
+]
+function cleanGriffinBurrowCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{bc\}\}/gi, '')
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/gi, '')
+  s = s.replace(/\{\{c\|([^{}]*)\}\}/gi, '$1 coins')
+  s = s.replace(/\{\{Chance\|([^|{}]*)\|[^{}]*\}\}/gi, '$1')
+  s = s.replace(/\{\{Reforge\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/<span[^>]*>([^<]*)<\/span>/gi, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/\n/g, ' ')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+async function syncGriffinBurrowsLoot(): Promise<number> {
+  const rows: any[] = []
+  for (const { tier, wikiKey } of GRIFFIN_SPADE_TIERS) {
+    const content = await getWikiContent(supabase, wikiKey)
+    const totalWeightM = content.match(/Total Weight:\s*([\d,]+)/)
+    const totalWeight = totalWeightM ? totalWeightM[1] : null
+    const body = extractFirstWikitableBody(content)
+    if (!body) continue
+    for (const r of parseRowspanTable(body, 6)) {
+      const item = cleanGriffinBurrowCell(r[1])
+      if (!item) continue
+      rows.push({
+        spade_tier: tier,
+        item,
+        weight: cleanGriffinBurrowCell(r[2]) || null,
+        total_weight: totalWeight,
+        chance_per_treasure: cleanGriffinBurrowCell(r[3]) || null,
+        chance_per_burrow_no_reforge: cleanGriffinBurrowCell(r[4]) || null,
+        chance_per_burrow_erudite: cleanGriffinBurrowCell(r[5]) || null,
+      })
+    }
+  }
+  if (rows.length === 0) throw new Error('griffin_burrows_loot: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('griffin_burrows_loot').upsert(rows, { onConflict: 'spade_tier,item' })
+  if (error) throw new Error('griffin_burrows_loot upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -3337,6 +3396,7 @@ export async function runWikiReferentialSync() {
     trials_of_fire: syncTrialsOfFire,
     fossil_chisels: syncFossilChisels,
     mob_modifiers: syncMobModifiers,
+    griffin_burrows_loot: syncGriffinBurrowsLoot,
   })) {
     try {
       const rows = await fn()
