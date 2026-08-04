@@ -416,6 +416,15 @@ passe s'étend sur plusieurs sessions) :
     juste vérifié en passant pendant le screening.
   - `corrupted_mobs` confirmé prose pure (aucune vraie table, `{{InfoNeeded}}` sur la
     seule vraie donnée numérique manquante côté wiki lui-même) — pas construit.
+  - `mob_type_categories` vérifié en prod : **832 lignes réelles** (24 pages, dédupliquées
+    par upsert sur mob_name+category).
+  - `all_in_aloe_table` (27 paliers de croissance, probabilités détaillées) confirmé
+    enrichissement d'une entrée déjà réelle dans `garden_mutations` ("All-in Aloe",
+    déjà 1 ligne avec rarity/weight/growth_stages/drops) — pas un gap, même statut que
+    `accessory_powers`/`fairy_souls_list_*`, pas construit.
+  - `stranded_trophy_fish` confirmé être un gamemode séparé ("Stranded", distinct du
+    SkyBlock principal — la page le dit explicitement : "different on Stranded than
+    it is in other gamemodes") — hors du périmètre économique de Vault, pas construit.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
@@ -425,8 +434,9 @@ construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `ne
 `chocolate_factory_levels`, `dungeon_chest_combo_chances`, `dungeon_class_milestones`,
 `crystal_hollows_loot`, `treasure_fishing_loot`, `zone_mob_stats`, `bits_shop_items`,
 `power_scroll_recipes`, `fame_ranks`, `rod_parts`, `composter_organic_matter`,
-`skyblock_gems_pricing`, `rift_timecharms`, `drop_chance_tiers`, `milestone_reward_tiers`
-— **26 systèmes réels au total cette session**.
+`skyblock_gems_pricing`, `rift_timecharms`, `drop_chance_tiers`, `milestone_reward_tiers`,
+`tree_gift_drops`, `trophy_frogs`, `wormhole_locations`, `mob_type_categories`
+— **30 systèmes réels au total cette session**.
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
 dans l'ordre où ils ont été traités :
