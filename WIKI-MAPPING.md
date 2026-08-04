@@ -573,6 +573,17 @@ passe s'étend sur plusieurs sessions) :
   - Revérifiés en prod : `starlyn_prize_shop` 5/5, `upgrade_fragments` 7/7,
     `odger_filleting_rewards` **18/18** (17 attendus sur l'échantillon local testé
     + 1 réel supplémentaire dans la vraie page).
+  - `ribery_frog_donation_rewards` (12 lignes) — Lotus gagné par Trophy Frog donné
+    à Researcher Ribery, symétrique exact de `odger_filleting_rewards` (Magmafish)
+    trouvé juste après dans le même lot de titres — même structure (rowspan +
+    caption `|+`), même parseur partagé réutilisé sans modification, 12 frogs =
+    exactement les mêmes espèces que `trophy_frogs` déjà réel. Revérifié en prod :
+    12/12.
+  - `bestiary_list_safari_zone` confirmé marquée `{{WIP}}` par le wiki lui-même
+    (Work In Progress) — seulement 1 mob d'exemple par biome sur 4 biomes,
+    manifestement incomplet côté source elle-même, pas juste de notre côté. Pas
+    construit pour éviter de capturer des données placeholder — à re-vérifier dans
+    une session future si la page est complétée côté wiki.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
@@ -586,8 +597,9 @@ construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `ne
 `tree_gift_drops`, `trophy_frogs`, `wormhole_locations`, `mob_type_categories`,
 `trial_of_blue_flames`, `trials_of_fire`, `fossil_chisels`, `mob_modifiers`,
 `griffin_burrows_loot`, `mythological_creatures`, `wormhole_fishing_items`,
-`museum_items`, `starlyn_prize_shop`, `upgrade_fragments`, `odger_filleting_rewards`
-— **44 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
+`museum_items`, `starlyn_prize_shop`, `upgrade_fragments`, `odger_filleting_rewards`,
+`ribery_frog_donation_rewards`
+— **45 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
 source fandom_wiki périmée, ne compte pas).
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
