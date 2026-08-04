@@ -4468,6 +4468,133 @@ async function syncCosmeticSkins(): Promise<number> {
 }
 
 // ============================================================
+// skyblock_guide_tasks -- système officiel "SkyBlock Guide" (7 paliers Starter->
+// Master, distinct des milestone_tasks Vault-authored). Table transclusion
+// `skyblock_guide_tasks` -> 7 sous-pages `skyblock_guide_tasks_<tier>`, jamais
+// mappées. "Skilled" absente du cache wiki-auto-sync au moment de ce build (page
+// jamais fetchée, pas un choix de tri) -- les 6 autres paliers couvrent déjà 144
+// tâches réelles. Parseur générique de templates par profondeur (même
+// extractTemplateAt que cosmetic_skins), gère {{Plainlist|...}} (liste à puces),
+// {{Skl|Skill|Niveau}} (joint nom+niveau, contrairement aux wrappers couleur
+// {{Green|texte}} qui ne gardent que le dernier paramètre), et les liens
+// [[Cible|{{Template|Affichage}}]] via un scanner de pipe de premier niveau
+// (jamais un simple lastIndexOf('|'), qui tombe dans le mauvais pipe si l'alias
+// du lien est lui-même un template).
+function findLinkClose(s: string, startIdx: number): number {
+  let depth = 0
+  let i = startIdx
+  for (; i < s.length; i++) {
+    if (s.slice(i, i + 2) === '[[') { depth++; i++ }
+    else if (s.slice(i, i + 2) === '{{') { const t = extractTemplateAt(s, i); if (t) i = t.endIdx - 1 }
+    else if (s.slice(i, i + 2) === ']]') { depth--; if (depth === 0) return i + 2 }
+  }
+  return -1
+}
+function firstTopLevelPipe(s: string): number {
+  let depth = 0
+  for (let i = 0; i < s.length; i++) {
+    const two = s.slice(i, i + 2)
+    if (two === '{{' || two === '[[') { depth++; i++; continue }
+    if (two === '}}' || two === ']]') { depth--; i++; continue }
+    if (s[i] === '|' && depth === 0) return i
+  }
+  return -1
+}
+function cleanGuideTaskTextOnce(s: string): string {
+  let out = ''
+  let i = 0
+  while (i < s.length) {
+    if (s.slice(i, i + 2) === '{{') {
+      const t = extractTemplateAt(s, i)
+      if (!t) { out += s[i]; i++; continue }
+      if (/^Plainlist$/i.test(t.name)) {
+        const raw = (t.params.get(1) as string) || ''
+        const items = raw.split('\n').map(l => l.replace(/^\*\s*/, '').trim()).filter(Boolean)
+        out += items.join('; ')
+      } else if (/^(Skl|Skill)$/i.test(t.name)) {
+        out += [...t.params.values()].join(' ')
+      } else {
+        const vals = [...t.params.values()]
+        out += vals.length ? (vals[vals.length - 1] as string) : ''
+      }
+      i = t.endIdx
+      continue
+    }
+    if (s.slice(i, i + 2) === '[[') {
+      const close = findLinkClose(s, i)
+      if (close === -1) { out += s[i]; i++; continue }
+      const inner = s.slice(i + 2, close - 2)
+      const pipeIdx = firstTopLevelPipe(inner)
+      out += pipeIdx !== -1 ? inner.slice(pipeIdx + 1) : inner
+      i = close
+      continue
+    }
+    out += s[i]; i++
+  }
+  return out
+}
+function cleanGuideTaskText(s: string): string {
+  let prev = (s || '').trim()
+  for (let n = 0; n < 8; n++) {
+    const next = cleanGuideTaskTextOnce(prev)
+    if (next === prev) break
+    prev = next
+  }
+  return prev.replace(/'''/g, '').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()
+}
+function parseGuideTasksTable(content: string): { name: string; task: string; description: string; total_xp: number | null }[] {
+  const tableStart = content.indexOf('{|')
+  const tableEnd = content.lastIndexOf('|}')
+  if (tableStart === -1 || tableEnd === -1) return []
+  const table = content.slice(tableStart, tableEnd)
+  const blocks = table.split(/\n\|-\n?/)
+  const dataBlocks = blocks.slice(1).filter(b => b.trim().length > 0)
+  const rows: { name: string; task: string; description: string; total_xp: number | null }[] = []
+  for (const block of dataBlocks) {
+    const cells: string[] = []
+    let current: string | null = null
+    for (const rawLine of block.split('\n')) {
+      if (/^\|(?!\})/.test(rawLine.trim())) {
+        if (current !== null) cells.push(current)
+        current = rawLine.trim().replace(/^\|/, '')
+      } else if (current !== null) {
+        current += '\n' + rawLine
+      }
+    }
+    if (current !== null) cells.push(current)
+    if (cells.length < 5) continue
+    const [, name, task, description, xpRaw] = cells
+    const xpMatch = xpRaw.match(/\+([\d,]+)/)
+    rows.push({
+      name: cleanGuideTaskText(name),
+      task: cleanGuideTaskText(task),
+      description: cleanGuideTaskText(description),
+      total_xp: xpMatch ? parseInt(xpMatch[1].replace(/,/g, ''), 10) : null,
+    })
+  }
+  return rows
+}
+async function syncSkyblockGuideTasks(): Promise<number> {
+  const tiers = ['starter', 'amateur', 'intermediate', 'skilled', 'expert', 'professional', 'master']
+  const rows: any[] = []
+  for (const tier of tiers) {
+    let content: string
+    try {
+      content = await getWikiContent(supabase, `skyblock_guide_tasks_${tier}`)
+    } catch {
+      continue // "skilled" absente du cache au moment de ce build -- pas fabriquée
+    }
+    for (const t of parseGuideTasksTable(content)) {
+      rows.push({ guide_tier: tier, name: t.name, task_type: t.task, description: t.description, total_xp: t.total_xp })
+    }
+  }
+  if (rows.length === 0) throw new Error('skyblock_guide_tasks: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('skyblock_guide_tasks').upsert(rows, { onConflict: 'guide_tier,name' })
+  if (error) throw new Error('skyblock_guide_tasks upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -4539,6 +4666,7 @@ export async function runWikiReferentialSync() {
     advent_calendar_rewards: syncAdventCalendarRewards,
     star_upgrades: syncStarUpgrades,
     cosmetic_skins: syncCosmeticSkins,
+    skyblock_guide_tasks: syncSkyblockGuideTasks,
   })) {
     try {
       const rows = await fn()
