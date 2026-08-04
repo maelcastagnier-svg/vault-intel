@@ -2514,6 +2514,37 @@ async function syncComposterOrganicMatter(): Promise<number> {
 }
 
 // ============================================================
+// skyblock_gems_pricing -- SkyBlock Gems (5 paliers), monnaie premium jamais mappée.
+// Prix USD réels (base + code créateur), wikitable simple, 0 rowspan. Vérifié en local :
+// 5/5 lignes.
+// ============================================================
+function cleanGemsPricingCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{Green\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Red\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  return s.trim()
+}
+async function syncSkyblockGemsPricing(): Promise<number> {
+  const content = await getWikiContent(supabase, 'skyblock_gems')
+  const body = extractFirstWikitableBody(content)
+  if (!body) throw new Error('skyblock_gems_pricing: wikitable introuvable')
+  const rows = parseRowspanTable(body, 3)
+    .map(r => ({
+      quantity: cleanGemsPricingCell(r[0]),
+      base_price_usd: cleanGemsPricingCell(r[1]),
+      creator_code_price_usd: cleanGemsPricingCell(r[2]),
+    }))
+    .filter(r => r.quantity)
+
+  if (rows.length === 0) throw new Error('skyblock_gems_pricing: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('skyblock_gems_pricing').upsert(rows, { onConflict: 'quantity' })
+  if (error) throw new Error('skyblock_gems_pricing upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -2555,6 +2586,7 @@ export async function runWikiReferentialSync() {
     fame_ranks: syncFameRanks,
     rod_parts: syncRodParts,
     composter_organic_matter: syncComposterOrganicMatter,
+    skyblock_gems_pricing: syncSkyblockGemsPricing,
   })) {
     try {
       const rows = await fn()
