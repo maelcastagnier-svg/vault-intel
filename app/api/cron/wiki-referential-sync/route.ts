@@ -3343,6 +3343,120 @@ async function syncGriffinBurrowsLoot(): Promise<number> {
 }
 
 // ============================================================
+// mythological_creatures -- roster complet des mobs Mythological (Griffin Burrows,
+// Mythological Ritual de Diana), jamais mappé. 6 onglets réels par rareté du
+// Griffin Pet du joueur (Common->Mythic, roster qui double quasi à chaque palier :
+// 2/4/6/8/10/12 mobs), chacun avec niveau/types/HP/dégâts/drop unique/shard/poids/
+// chance. Connecté à `griffin_burrows_loot` (même minigame) et `mob_type_categories`
+// (ces mobs portent tous le tag Mythological + d'autres catégories déjà mappées).
+// **Bug de parsing réel trouvé et corrigé avant tout déploiement** (testé en local,
+// parse_mythological2.js) : le `extractFirstWikitableBody` partagé (indexOf('|}')
+// naïf) tombe dans un piège sur cette page précise -- la cellule Stats/Mob Types
+// contient `{{List|...|}}` (template MediaWiki se terminant par un paramètre vide
+// `|}}`), qui contient littéralement la sous-chaîne "|}" AVANT la vraie fermeture
+// de la wikitable -- coupait le corps de table en plein milieu de la 1re ligne,
+// perdant silencieusement la 2e ligne et toutes les colonnes après Mob Types.
+// Corrigé par une extraction dédiée ligne-par-ligne (le `|}` de fermeture doit être
+// SEUL sur sa ligne, convention MediaWiki réelle, jamais un substring nu) --
+// **pas appliqué au parseur partagé** (risque de régression sur les tables déjà
+// vérifiées qui n'ont jamais rencontré ce piège), gardé local à cette fonction.
+// Alt-noms `{{MobSprite|Espèce;NomAffiché}}` : le nom affiché spécifique au palier
+// (2e partie) préféré à l'espèce de base (1re partie) quand présent. Vérifié en
+// local : 6/6 lignes sur l'échantillon 3-onglets testé (Common/Rare/Mythic), 0
+// markup résiduel.
+// ============================================================
+function extractMythologicalTableBody(text: string): string | null {
+  const lines = text.split('\n')
+  let tableStartLine = -1, tableEndLine = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (tableStartLine === -1 && lines[i].trim().startsWith('{|')) { tableStartLine = i; continue }
+    if (tableStartLine !== -1 && lines[i].trim() === '|}') { tableEndLine = i; break }
+  }
+  if (tableStartLine === -1 || tableEndLine === -1) return null
+  const tableLines = lines.slice(tableStartLine, tableEndLine + 1)
+  const blocks = tableLines.join('\n').split(/\n\|-\n?/)
+  const dataStart = blocks.findIndex(b => b.trim().startsWith('|') && !b.trim().startsWith('!'))
+  if (dataStart === -1) return null
+  return blocks.slice(dataStart).join('\n|-\n')
+}
+function extractMythologicalMobCell(cell: string): { level: string | null; name: string | null } {
+  cell = cell.replace(/^style="[^"]*"\s*\|\s*/, '')
+  const lvM = cell.match(/\{\{Lv\|([^{}]*)\}\}/i)
+  const level = lvM ? lvM[1].replace(/,/g, '') : null
+  const spriteM = cell.match(/\{\{MobSprite\|([^{}]*)\}\}/i)
+  let name: string | null = null
+  if (spriteM) {
+    const parts = spriteM[1].split(';')
+    name = (parts.length > 1 ? parts[1] : parts[0]).trim()
+  }
+  return { level, name }
+}
+function extractMythologicalMobTypes(cell: string): string {
+  const mts = [...cell.matchAll(/\{\{mt\|([^{}]*)\}\}/gi)]
+  return mts.map(m => m[1].trim()).join('; ')
+}
+function extractMythologicalStats(cell: string): { health: string | null; damage: string | null } {
+  const hp = cell.match(/\{\{Stat\|Health\|([^{}]*)\}\}/i)
+  const dmg = cell.match(/\{\{Stat\|Damage\|([^{}]*)\}\}/i)
+  return { health: hp ? hp[1].trim() : null, damage: dmg ? dmg[1].trim() : null }
+}
+function cleanMythologicalSimple(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{ID\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{RL\|([^{}]*)\}\}/gi, (_m, inner) => inner.split('|').join('; '))
+  s = s.replace(/\{\{Chance\|([^|{}]*)\|[^{}]*\}\}/gi, '$1')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+function extractMythologicalShard(cell: string): string | null {
+  const linkM = cell.match(/\[\[([^\]|]+)\|\{\{Yes/i)
+  if (linkM) return linkM[1].trim()
+  if (/\{\{Yes/i.test(cell)) return 'Yes'
+  return null
+}
+async function syncMythologicalCreatures(): Promise<number> {
+  const content = await getWikiContent(supabase, 'mythological_list')
+  const tabRe = /\|-\|([A-Za-z]+)=/g
+  const tabMatches = [...content.matchAll(tabRe)]
+  if (tabMatches.length === 0) throw new Error('mythological_creatures: aucun onglet trouvé')
+  const tabBounds = tabMatches.map((m, i) => ({
+    tier: m[1],
+    start: m.index!,
+    end: i + 1 < tabMatches.length ? tabMatches[i + 1].index! : content.length,
+  }))
+  const rows: any[] = []
+  for (const tb of tabBounds) {
+    const chunk = content.slice(tb.start, tb.end)
+    const totalWeightM = chunk.match(/Total ?Weight:\s*([\d,]+)/)
+    const totalWeight = totalWeightM ? totalWeightM[1] : null
+    const body = extractMythologicalTableBody(chunk)
+    if (!body) continue
+    for (const r of parseRowspanTable(body, 7)) {
+      const { level, name } = extractMythologicalMobCell(r[0])
+      if (!name) continue
+      const { health, damage } = extractMythologicalStats(r[2])
+      rows.push({
+        pet_rarity_tier: tb.tier,
+        level,
+        mob_name: name,
+        mob_types: extractMythologicalMobTypes(r[1]),
+        health,
+        damage,
+        unique_drops: cleanMythologicalSimple(r[3]) || null,
+        shard: extractMythologicalShard(r[4]),
+        weight: cleanMythologicalSimple(r[5]) || null,
+        total_weight: totalWeight,
+        chance: cleanMythologicalSimple(r[6]) || null,
+      })
+    }
+  }
+  if (rows.length === 0) throw new Error('mythological_creatures: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('mythological_creatures').upsert(rows, { onConflict: 'pet_rarity_tier,mob_name' })
+  if (error) throw new Error('mythological_creatures upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -3397,6 +3511,7 @@ export async function runWikiReferentialSync() {
     fossil_chisels: syncFossilChisels,
     mob_modifiers: syncMobModifiers,
     griffin_burrows_loot: syncGriffinBurrowsLoot,
+    mythological_creatures: syncMythologicalCreatures,
   })) {
     try {
       const rows = await fn()
