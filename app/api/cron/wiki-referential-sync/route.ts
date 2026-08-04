@@ -2196,6 +2196,43 @@ async function syncZoneMobStats(): Promise<number> {
 }
 
 // ============================================================
+// bits_shop_items -- Bits Shop (Elizabeth, Community Center), monnaie Bits jamais
+// mappée dans ce projet. Wikitable simple (Icon/Item/Bits/Item Worth), 0 rowspan.
+// "Item Worth" volontairement PAS capturé : la colonne contient des templates live
+// ({{AuctionHousePrice|...}}/{{BazaarData|...}}) rendus dynamiquement par le wiki au
+// moment de la consultation, pas une valeur statique présente dans le wikitext --
+// extraire ce texte littéralement aurait donné un placeholder trompeur, pas un prix
+// (règle 7 : jamais de donnée inventée/simulée). Réutilise les helpers partagés.
+// Vérifié en local : 56 lignes, 0 rowspan, page confirmée simple avant de coder.
+// ============================================================
+function cleanBitsShopCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/g, '')
+  s = s.replace(/\{\{Aqua\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  return s.trim()
+}
+async function syncBitsShopItems(): Promise<number> {
+  const content = await getWikiContent(supabase, 'bits_shop')
+  const body = extractFirstWikitableBody(content)
+  if (!body) throw new Error('bits_shop_items: wikitable introuvable')
+  const rows = parseRowspanTable(body, 4)
+    .map(r => ({
+      item_name: cleanBitsShopCell(r[1]),
+      bits_cost: cleanBitsShopCell(r[2]) || null,
+    }))
+    .filter(r => r.item_name)
+
+  if (rows.length === 0) throw new Error('bits_shop_items: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('bits_shop_items').upsert(rows, { onConflict: 'item_name' })
+  if (error) throw new Error('bits_shop_items upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -2232,6 +2269,7 @@ export async function runWikiReferentialSync() {
     crystal_hollows_loot: syncCrystalHollowsLoot,
     treasure_fishing_loot: syncTreasureFishingLoot,
     zone_mob_stats: syncZoneMobStats,
+    bits_shop_items: syncBitsShopItems,
   })) {
     try {
       const rows = await fn()
