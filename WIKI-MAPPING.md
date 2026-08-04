@@ -610,8 +610,8 @@ construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `ne
 `trial_of_blue_flames`, `trials_of_fire`, `fossil_chisels`, `mob_modifiers`,
 `griffin_burrows_loot`, `mythological_creatures`, `wormhole_fishing_items`,
 `museum_items`, `starlyn_prize_shop`, `upgrade_fragments`, `odger_filleting_rewards`,
-`ribery_frog_donation_rewards`
-— **45 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
+`ribery_frog_donation_rewards`, `npc_discounts`, `reforging_prices`
+— **47 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
 source fandom_wiki périmée, ne compte pas).
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
