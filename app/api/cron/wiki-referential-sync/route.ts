@@ -2854,6 +2854,77 @@ async function syncWormholeLocations(): Promise<number> {
 }
 
 // ============================================================
+// mob_type_categories -- ferme un vrai gap documenté : les 5 tâches milestone
+// `mobtype` (catégories Bestiary larges type "Arthropod"/"Undead") étaient non
+// calculables faute d'une table de référence mob -> catégorie (notée explicitement
+// dans CLAUDE.md, jamais construite faute de source). 24 pages réelles
+// `Mob Types/List/<Catégorie>` trouvées en screening, chacune une wikitable
+// Name/Mob Types où la colonne Mob Types liste déjà TOUTES les catégories du mob
+// (via `{{mt|X}}<br>{{mt|Y}}`, pas seulement la catégorie de la page courante) --
+// les 24 pages se recoupent donc largement, upsert sur (mob_name, category) dédoublonne
+// naturellement sans jamais avoir besoin de faire confiance à une seule page.
+// **Bug de parsing réel trouvé et corrigé avant tout déploiement** (testé en local,
+// parse_mobtypes2.js, contre `mob_types_list_animal` -- la plus grosse page, 6277
+// caractères) : des lignes entières sont désactivées via commentaire HTML
+// (`<!-- |-\n| {{MobSprite|Night Squid}}\n| ... -->`) qui englobe un `|-` de
+// séparation de ligne à l'intérieur du commentaire -- un split naïf sur `\n|-\n?`
+// AVANT d'avoir retiré les commentaires aurait cassé la cellule précédente
+// (Squid) et fabriqué une fausse ligne "Night Squid" à partir du texte commenté.
+// Corrigé en retirant tous les commentaires HTML sur le texte brut ENTIER avant
+// toute extraction de table, pas seulement par cellule. Quelques entrées sont des
+// groupes placeholder plutôt que des mobs individuels (`[[Trevor|Trapper Mobs]]`
+// -> "Trapper Mobs") -- capturées telles quelles, fidèles à la source.
+// ============================================================
+const MOB_TYPE_CATEGORY_KEYS: string[] = [
+  'mob_types_list_airborne', 'mob_types_list_animal', 'mob_types_list_aquatic',
+  'mob_types_list_arcane', 'mob_types_list_arthropod', 'mob_types_list_construct',
+  'mob_types_list_critter', 'mob_types_list_cubic', 'mob_types_list_elusive',
+  'mob_types_list_ender', 'mob_types_list_frozen', 'mob_types_list_glacial',
+  'mob_types_list_humanoid', 'mob_types_list_infernal', 'mob_types_list_magmatic',
+  'mob_types_list_mythological', 'mob_types_list_pest', 'mob_types_list_shielded',
+  'mob_types_list_skeletal', 'mob_types_list_spooky', 'mob_types_list_subterranean',
+  'mob_types_list_undead', 'mob_types_list_wither', 'mob_types_list_woodland',
+]
+function cleanMobTypeName(s: string): string {
+  s = (s || '').replace(/^\|/, '').trim()
+  s = s.replace(/\{\{MobSprite\|([^{}|;]*)[^{}]*\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  return s.trim()
+}
+function extractMobTypeCategories(cell: string): string[] {
+  const mts = [...cell.matchAll(/\{\{mt\|([^{}]*)\}\}/gi)]
+  return mts.map(m => m[1].trim())
+}
+async function syncMobTypeCategories(): Promise<number> {
+  const seen = new Map<string, { mob_name: string; category: string }>()
+  for (const key of MOB_TYPE_CATEGORY_KEYS) {
+    const raw = await getWikiContent(supabase, key)
+    if (!raw) continue
+    const content = raw.replace(/<!--[\s\S]*?-->/g, '')
+    const body = extractFirstWikitableBody(content)
+    if (!body) continue
+    const rowBlocks = body.split(/\n\|-\n?/).filter(b => b.trim().length > 0)
+    for (const block of rowBlocks) {
+      const lines = block.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('|}'))
+      if (lines.length < 2) continue
+      const name = cleanMobTypeName(lines[0])
+      if (!name) continue
+      const cats = extractMobTypeCategories(lines.slice(1).join('\n'))
+      for (const cat of cats) {
+        seen.set(`${name}|${cat}`, { mob_name: name, category: cat })
+      }
+    }
+  }
+  const rows = [...seen.values()]
+  if (rows.length === 0) throw new Error('mob_type_categories: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('mob_type_categories').upsert(rows, { onConflict: 'mob_name,category' })
+  if (error) throw new Error('mob_type_categories upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -2902,6 +2973,7 @@ export async function runWikiReferentialSync() {
     tree_gift_drops: syncTreeGiftDrops,
     trophy_frogs: syncTrophyFrogs,
     wormhole_locations: syncWormholeLocations,
+    mob_type_categories: syncMobTypeCategories,
   })) {
     try {
       const rows = await fn()
