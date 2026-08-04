@@ -2059,6 +2059,74 @@ async function syncCrystalHollowsLoot(): Promise<number> {
 }
 
 // ============================================================
+// treasure_fishing_loot -- 4 pages Treasure Loot/<Zone> (Crimson Isle/Fairy Pond/Winter/
+// Water), items obtenables en Treasure Fishing par zone -- poids, chance totale, et
+// chance à 2 paliers du stat Treasure Chance (5/20) -- jamais capturé. Même format
+// wikitext single-ligne `cell1 || cell2 || ...` que `crystal_hollows_loot`, réutilise le
+// même style de parseur. Au moins une ligne par page a un `colspan="4" | Unknown` (valeur
+// non documentée côté wiki pour cet item précis, ex Flake the Fish sur Winter) -- capturé
+// avec les champs numériques à NULL plutôt que sauté, pas de valeur inventée pour
+// combler. Vérifié en local (parse_treasureloot.js) contre Crimson Isle : 64/64 lignes,
+// 0 item vide, 0 markup résiduel.
+// ============================================================
+function cleanTreasureLootCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/^\|/, '').trim()
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/g, '')
+  s = s.replace(/\{\{RD\|([^{}|]*)\|?[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{c\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{aqua\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Chance\|([^|}]*)\|[^}]*\}\}/g, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  return s.trim()
+}
+const TREASURE_LOOT_KEYS: Record<string, string> = {
+  'Crimson Isle': 'treasure_loot_crimson_isle',
+  'Fairy Pond': 'treasure_loot_fairy_pond',
+  'Winter': 'treasure_loot_winter',
+  'Water': 'treasure_loot_water',
+}
+async function syncTreasureFishingLoot(): Promise<number> {
+  const rows: any[] = []
+  for (const [zone, key] of Object.entries(TREASURE_LOOT_KEYS)) {
+    const content = await getWikiContent(supabase, key)
+    const tableStart = content.indexOf('{|')
+    const tableEnd = content.indexOf('|}', tableStart)
+    if (tableStart === -1 || tableEnd === -1) throw new Error(`treasure_fishing_loot: wikitable introuvable pour ${zone}`)
+    const table = content.slice(tableStart, tableEnd)
+    const allBlocks = table.split(/\n\|-\n?/)
+    const dataStart = allBlocks.findIndex(b => b.trim().startsWith('|') && !b.trim().startsWith('!'))
+    if (dataStart === -1) continue
+    const rowBlocks = allBlocks.slice(dataStart).filter(b => b.trim().length > 0)
+    for (const block of rowBlocks) {
+      const lines = block.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('!'))
+      if (lines.length === 0) continue
+      const cells = lines[0].split('||').map(cleanTreasureLootCell)
+      const item = cells[1]
+      if (!item) continue
+      rows.push({
+        zone, item,
+        pool: cells[2] || null,
+        weight: cells[3] || null,
+        total_chance: cells[4] || null,
+        chance_treasure5: cells[5] || null,
+        chance_treasure20: cells[6] || null,
+      })
+    }
+  }
+
+  if (rows.length === 0) throw new Error('treasure_fishing_loot: 0 lignes extraites, parsing probablement cassé')
+  const { error: delErr } = await supabase.from('treasure_fishing_loot').delete().gte('id', 0)
+  if (delErr) throw new Error('treasure_fishing_loot delete: ' + delErr.message)
+  const { error } = await supabase.from('treasure_fishing_loot').insert(rows)
+  if (error) throw new Error('treasure_fishing_loot insert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -2093,6 +2161,7 @@ export async function runWikiReferentialSync() {
     dungeon_chest_combo_chances: syncDungeonChestComboChances,
     dungeon_class_milestones: syncDungeonClassMilestones,
     crystal_hollows_loot: syncCrystalHollowsLoot,
+    treasure_fishing_loot: syncTreasureFishingLoot,
   })) {
     try {
       const rows = await fn()
