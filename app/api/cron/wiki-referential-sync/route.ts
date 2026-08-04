@@ -3224,6 +3224,66 @@ async function syncFossilChisels(): Promise<number> {
 }
 
 // ============================================================
+// mob_modifiers -- glossaire des modificateurs de mob (Corrupted/Runic génériques,
+// + 6 modificateurs Dungeon Mobs + 6 modificateurs Watcher Undeads sur Catacombs
+// F5+), jamais mappé. Page 100% prose/liste à puces, aucune wikitable -- extraction
+// par section `== X ==` + regex sur les puces `* {{color|'''Nom'''}}: description`
+// (2 styles de nesting template rencontrés, `Healing` inverse l'ordre
+// `'''{{color|Nom}}'''` -- les deux gérés). **Piège de source confirmé une 2e fois
+// le même jour** : cette clé existe sous DEUX sources (`hypixelskyblock_wiki` ET
+// `fandom_wiki` périmée) -- `getWikiContent` filtre déjà sur la bonne source,
+// vérifié explicitement avant de coder cette fois (leçon du revert `ship_parts`
+// appliquée). "Stormy"/"Speedy"/"Healthy" apparaissent dans les deux groupes
+// Dungeon/Watcher avec des effets différents -- gardés comme entrées séparées
+// (clé unique name+category, pas juste name). Vérifié en local
+// (parse_mobmodifiers2.js) : 14/14 lignes, 0 markup résiduel.
+// ============================================================
+function cleanMobModifierText(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{Stat\|([a-zA-Z ]+)\|([^{}]*)\}\}/gi, '$1 $2')
+  s = s.replace(/\{\{id\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{zone\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{PotionName\|([^{}]*)\}\}/gi, '$1 Potion')
+  s = s.replace(/\{\{PotN\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{LI\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/'''/g, '')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+function extractMobModifierBullets(content: string, sectionRegex: RegExp, category: string): { name: string; category: string; description: string }[] {
+  const m = content.match(sectionRegex)
+  if (!m) return []
+  const lines = m[1].split('\n').filter(l => l.trim().startsWith('*'))
+  const rows: { name: string; category: string; description: string }[] = []
+  for (const line of lines) {
+    let bm = line.match(/^\*\s*\{\{[A-Za-z]+\|'''([^']+)'''\}\}\s*:\s*(.+)$/)
+    if (!bm) bm = line.match(/^\*'''\{\{[A-Za-z]+\|([^}]+)\}\}'''\s*:\s*(.+)$/)
+    if (!bm) continue
+    rows.push({ name: bm[1].trim(), category, description: cleanMobModifierText(bm[2]) })
+  }
+  return rows
+}
+async function syncMobModifiers(): Promise<number> {
+  const content = await getWikiContent(supabase, 'mob_modifiers')
+  const rows: any[] = []
+  const corruptedM = content.match(/== Corrupted Modifier ==\n([\s\S]*?)(?=\n== )/)
+  const runicM = content.match(/== Runic Modifier ==\n([\s\S]*?)(?=\n== )/)
+  if (corruptedM) rows.push({ name: 'Corrupted', category: 'general', description: cleanMobModifierText(corruptedM[1]) })
+  if (runicM) rows.push({ name: 'Runic', category: 'general', description: cleanMobModifierText(runicM[1]) })
+  rows.push(...extractMobModifierBullets(content, /== Dungeon Mobs Modifiers ==\n([\s\S]*?)(?=\n== )/, 'dungeon'))
+  rows.push(...extractMobModifierBullets(content, /== The Watcher Undeads Modifiers ==\n([\s\S]*?)(?=\n== )/, 'watcher_undead'))
+
+  if (rows.length === 0) throw new Error('mob_modifiers: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('mob_modifiers').upsert(rows, { onConflict: 'name,category' })
+  if (error) throw new Error('mob_modifiers upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -3276,6 +3336,7 @@ export async function runWikiReferentialSync() {
     trial_of_blue_flames: syncTrialOfBlueFlames,
     trials_of_fire: syncTrialsOfFire,
     fossil_chisels: syncFossilChisels,
+    mob_modifiers: syncMobModifiers,
   })) {
     try {
       const rows = await fn()
