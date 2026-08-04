@@ -456,6 +456,18 @@ passe s'étend sur plusieurs sessions) :
     (légende visuelle symbole★→condition, ex: "First through Fifth Master Stars"),
     pas un jeu de seuils numériques actionnable comme `drop_chance_tiers`/
     `milestone_reward_tiers` — valeur marginale, pas construit.
+  - `trials_of_fire` (30 lignes) — **vraie source vérifiée hypixelskyblock_wiki
+    cette fois** (leçon du revert `ship_parts` appliquée immédiatement) — système
+    Rift "Campfire Badge", distinct de `trial_of_blue_flames`/"Soul Campfire Badge"
+    (badges/stats/courbes de dégâts différents, deux pages séparées confirmées, pas
+    un doublon). Même structure rowspan+colspan que blue_flames mais **différence
+    réelle de style wikitext trouvée en testant** : les cellules de données de la
+    colonne Trial utilisent `!` au lieu de `|` sur cette page précise — parseur
+    dédié écrit pour accepter les deux marqueurs de cellule et déterminer la limite
+    d'en-tête en sautant exactement les 2 premiers blocs plutôt que par une
+    heuristique "commence par |". Vérifié en local puis en prod : 30/30 lignes.
+  - `sea_creatures_list_crimson_isle` confirmé déjà couvert par `sea_creature_pools`
+    (pool `crimson_isle`, 56 lignes déjà réelles) — pas de nouvelle table.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
@@ -467,8 +479,8 @@ construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `ne
 `power_scroll_recipes`, `fame_ranks`, `rod_parts`, `composter_organic_matter`,
 `skyblock_gems_pricing`, `rift_timecharms`, `drop_chance_tiers`, `milestone_reward_tiers`,
 `tree_gift_drops`, `trophy_frogs`, `wormhole_locations`, `mob_type_categories`,
-`trial_of_blue_flames`
-— **31 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
+`trial_of_blue_flames`, `trials_of_fire`
+— **32 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
 source fandom_wiki périmée, ne compte pas).
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
