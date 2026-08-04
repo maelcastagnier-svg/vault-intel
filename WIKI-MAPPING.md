@@ -320,10 +320,21 @@ passe s'étend sur plusieurs sessions) :
     capturé, cellules multi-lignes.
   - `composter_organic_matter` (51 items) — conversion Item → Organic Matter, jamais
     capturée.
-  - `treasure_fishing_loot` étendue à 5 zones (+ Lotus Atoll, 177 → 205 lignes).
+  - `treasure_fishing_loot` complétée à **8 zones réelles** (page racine `treasure_loot`
+    liste explicitement Water/Lotus Atoll/Fairy Pond/Winter/Moonglade Marsh/Junk/Lava/
+    Crimson Isle via son Tabview -- 3 manquées lors des ajouts précédents, toutes
+    confirmées présentes en cache avant l'ajout final).
+  - `power_stones_list_of_power_stones` — vérifié : utilise `{{#invoke:Power|
+    powerStoneTableRow|stone=...}}`, données réelles stockées dans un module Lua, pas
+    extractibles depuis le wikitext brut. Confirme le statut déjà noté dans CLAUDE.md
+    pour `accessory_powers` (enrichissement non accessible sans accès au module Lua,
+    pas un gap réparable par ce chantier).
+  - `mobs_list_crimson` (avec un "s", distinct de `mob_list_crimson` déjà réel) —
+    confirmé être un artefact de cache corrompu (`=== RAW DATA ===\nrowspan: "3"...`,
+    pas du wikitext), pas une vraie page. Ignoré.
   - **Candidats forts repérés, pas encore lus en détail** : `mob_types_list_*`
     (glossaire de catégories de mob), `npc_list_*` (à vérifier contre `npc_locations`),
-    `bosses_list`.
+    `bosses_list`, `pet_upgrades`.
 - ⏳ **Reste du bucket générique** — **~5400 titres non encore screenés** sur les 6386
   actuels (le chiffre total croît légèrement en continu via `wiki-auto-sync`). Les titres
   déjà screenés (~980, les plus gros par taille) ont produit l'essentiel des systèmes
