@@ -610,6 +610,24 @@ passe s'étend sur plusieurs sessions) :
     `bestiary_list_safari_zone` (WIP, pas construit) mais ici seuls des DÉTAILS
     ponctuels manquent sur un roster par ailleurs réel et complet, différence
     jugée suffisante pour construire quand même.
+- ✅ **Lot 10 (positions ~3860-4260, checkpoint 19)** — 3 nouveaux systèmes réels
+  construits et vérifiés en prod :
+  - `automated_shipping_hoppers` (3 lignes) — taux de vente réel des hoppers
+    Minion (Budget 50%/Enchanted 70%/Perfect 100% inobtenable), jamais mappé —
+    mécanique passive déjà notée ailleurs dans ce projet comme représentant
+    jusqu'à 53% de la génération de coins via minions à un moment donné.
+  - `city_project_contributions` (44 lignes) + `city_project_bonuses` (26 lignes)
+    — 11 City Projects réels (Community Center, Elizabeth), jamais mappés.
+    **Complète directement `npc_discounts`** (checkpoint 18) qui référençait "Making
+    4/8/16 contributions" sans jamais donner le coût matériel réel — ces 2 tables
+    donnent le coût exact (matériaux + fame) de chaque composant et le palier de
+    contribution qui débloque chaque bonus. Revérifié en prod : 44+26=70,
+    répartition confirmée par requête directe.
+  - `fire_sale_events` (7 sous-pages annuelles 2020-2026, ~50KB) — évalué, pas
+    construit : contenu réel mais purement cosmétique (historique d'achats de
+    skins/dyes/runes), `skyblock_fire_sales` (table API live déjà réelle) confirmée
+    vide en usage courant — effort de parsing élevé (structure colspan complexe)
+    pour une valeur économique jugée trop faible face au reste du backlog.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
@@ -624,8 +642,9 @@ construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `ne
 `trial_of_blue_flames`, `trials_of_fire`, `fossil_chisels`, `mob_modifiers`,
 `griffin_burrows_loot`, `mythological_creatures`, `wormhole_fishing_items`,
 `museum_items`, `starlyn_prize_shop`, `upgrade_fragments`, `odger_filleting_rewards`,
-`ribery_frog_donation_rewards`, `npc_discounts`, `reforging_prices`, `critters`
-— **48 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
+`ribery_frog_donation_rewards`, `npc_discounts`, `reforging_prices`, `critters`,
+`automated_shipping_hoppers`, `city_project_contributions`, `city_project_bonuses`
+— **51 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
 source fandom_wiki périmée, ne compte pas).
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
