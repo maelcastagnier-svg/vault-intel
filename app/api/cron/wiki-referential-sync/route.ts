@@ -2545,6 +2545,54 @@ async function syncSkyblockGemsPricing(): Promise<number> {
 }
 
 // ============================================================
+// rift_timecharms -- Rift Timecharms (8 items), système Rift Time jamais mappé.
+// Wikitable simple (Slot/Name/Access/Obtaining), cellules multi-lignes via "----"
+// (marqueur de continuation intra-cellule, pas un séparateur de ligne). Un nom
+// "mrahcemiT esrevrorriM" (Mirrorverse Timecharm à l'envers) est un vrai nom en jeu,
+// pas un artefact de parsing. Vérifié en local (parse_timecharms.js) : 8/8 lignes,
+// 0 markup résiduel.
+// ============================================================
+function cleanTimecharmCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/style="[^"]*"\s*\|\s*/g, '')
+  s = s.replace(/\{\{slot\|[^}]*\}\}/gi, '')
+  s = s.replace(/\{\{[Zz]one\|([^{}|]*)\}\}/g, '$1')
+  s = s.replace(/\{\{Crafting Table\|([^{}]*)\}\}/gi, 'Craft ($1)')
+  s = s.replace(/\{\{RL\|([^{}]*)\}\}/g, (_m, inner) => inner.split('|').join('; '))
+  s = s.replace(/\{\{NPCSprite\|([^{}|;]*)[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/^----$/gm, '')
+  s = s.replace(/\n/g, '; ')
+  s = s.replace(/<br\s*\/?>/gi, '; ')
+  s = s.replace(/;\s*;+/g, ';').replace(/^;\s*/, '').trim()
+  return s.trim()
+}
+async function syncRiftTimecharms(): Promise<number> {
+  const content = await getWikiContent(supabase, 'rift_timecharms')
+  const idx = content.indexOf('== Rift Timecharms ==')
+  const idx2 = content.indexOf('== Trivia ==')
+  if (idx === -1) throw new Error('rift_timecharms: section introuvable')
+  const chunk = idx2 === -1 ? content.slice(idx) : content.slice(idx, idx2)
+  const body = extractFirstWikitableBody(chunk)
+  if (!body) throw new Error('rift_timecharms: wikitable introuvable')
+  const rows = parseRowspanTable(body, 4)
+    .map(r => ({
+      name: cleanTimecharmCell(r[1]),
+      access: cleanTimecharmCell(r[2]) || null,
+      obtaining: cleanTimecharmCell(r[3]) || null,
+    }))
+    .filter(r => r.name)
+
+  if (rows.length === 0) throw new Error('rift_timecharms: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('rift_timecharms').upsert(rows, { onConflict: 'name' })
+  if (error) throw new Error('rift_timecharms upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -2587,6 +2635,7 @@ export async function runWikiReferentialSync() {
     rod_parts: syncRodParts,
     composter_organic_matter: syncComposterOrganicMatter,
     skyblock_gems_pricing: syncSkyblockGemsPricing,
+    rift_timecharms: syncRiftTimecharms,
   })) {
     try {
       const rows = await fn()
