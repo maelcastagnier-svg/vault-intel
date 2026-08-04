@@ -584,6 +584,17 @@ async function syncTrapperPelts(): Promise<number> {
 // chacune un {{Infobox/Stat}} uniforme. Trouvé en lisant le contenu brut du wiki
 // (3 août, correction méthodologique -- extraction par contenu réel, jamais par
 // correspondance de nom/catégorie).
+// 🔴 Extension réelle (4 août, criblage continué) : requête directe sur le contenu
+// caché a trouvé 49 pages utilisant `{{Infobox/Stat` au total, pas seulement les 16
+// déjà connues -- 33 stats jamais capturées (Wisdom par skill, Fortune par ressource,
+// stats Rift, stats Fishing/Hunting...). Vérifié une par une avant d'étendre (pas
+// juste la liste des noms) : `stats` et `damage_calculation` exclus car ce sont des
+// pages de synthèse (infobox vide, sans `base_value`/`max_value` réels, pas un stat
+// individuel) -- les 31 restantes confirmées avoir un vrai `base_value`/`max_value`/
+// `uses`/`ways_to_increase` comme les 16 d'origine, même format exact, même parseur
+// réutilisé sans modification. `title=` seulement présent sur les pages de synthèse
+// exclues, jamais sur les vraies pages de stat -- display_name dérivé du nom de page
+// est fiable pour toutes les 31.
 // ============================================================
 const PLAYER_STAT_PAGES: { key: string; display_name: string }[] = [
   { key: 'health', display_name: 'Health' },
@@ -602,6 +613,40 @@ const PLAYER_STAT_PAGES: { key: string; display_name: string }[] = [
   { key: 'magic_find', display_name: 'Magic Find' },
   { key: 'pet_luck', display_name: 'Pet Luck' },
   { key: 'mending', display_name: 'Mending' },
+  { key: 'fear', display_name: 'Fear' },
+  { key: 'runecrafting_wisdom', display_name: 'Runecrafting Wisdom' },
+  { key: 'social_wisdom', display_name: 'Social Wisdom' },
+  { key: 'hunting_wisdom', display_name: 'Hunting Wisdom' },
+  { key: 'alchemy_wisdom', display_name: 'Alchemy Wisdom' },
+  { key: 'cold', display_name: 'Cold' },
+  { key: 'swing_range', display_name: 'Swing Range' },
+  { key: 'fig_fortune', display_name: 'Fig Fortune' },
+  { key: 'crux_fortune', display_name: 'Crux Fortune' },
+  { key: 'combat_wisdom', display_name: 'Combat Wisdom' },
+  { key: 'cold_resistance', display_name: 'Cold Resistance' },
+  { key: 'double_hook_chance', display_name: 'Double Hook Chance' },
+  { key: 'overbloom', display_name: 'Overbloom' },
+  { key: 'taming_wisdom', display_name: 'Taming Wisdom' },
+  { key: 'mana', display_name: 'Mana' },
+  { key: 'block_fortune', display_name: 'Block Fortune' },
+  { key: 'mangrove_fortune', display_name: 'Mangrove Fortune' },
+  { key: 'pressure_resistance', display_name: 'Pressure Resistance' },
+  { key: 'pristine', display_name: 'Pristine' },
+  { key: 'rift_time', display_name: 'Rift Time' },
+  { key: 'rift_damage', display_name: 'Rift Damage' },
+  { key: 'pull', display_name: 'Pull' },
+  { key: 'treasure_chance', display_name: 'Treasure Chance' },
+  { key: 'sweep', display_name: 'Sweep' },
+  { key: 'ore_fortune', display_name: 'Ore Fortune' },
+  { key: 'foraging_fortune', display_name: 'Foraging Fortune' },
+  { key: 'foraging_wisdom', display_name: 'Foraging Wisdom' },
+  { key: 'carpentry_wisdom', display_name: 'Carpentry Wisdom' },
+  { key: 'hearts', display_name: 'Hearts' },
+  { key: 'hunter_fortune', display_name: 'Hunter Fortune' },
+  { key: 'trophy_chance', display_name: 'Trophy Chance' },
+  { key: 'true_damage', display_name: 'True Damage' },
+  { key: 'breaking_power', display_name: 'Breaking Power' },
+  { key: 'respiration', display_name: 'Respiration' },
 ]
 
 // Capture jusqu'à fin de ligne (pas jusqu'au prochain "|") -- les valeurs réelles
