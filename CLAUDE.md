@@ -22,6 +22,91 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ CHANTIER FINAL clos — audit de fermeture (4 août)
+
+**Le criblage brut du wiki (`game_mechanics_misc`/`game_wiki`, ~6395 pages) est
+terminé** — parcouru dans son intégralité une première fois, positions triées par
+taille décroissante de 1 à 6393+. Dernier lot fermé : `cosmetic_skins` (497
+pages, catalogue skins jamais mappé, résout au passage la donnée fire sale
+historique via la source actuelle plutôt que les 7 sous-pages `fandom_wiki`
+périmées de `fire_sale_events`), `fairy_soul_locations` (+19 coordonnées, 3
+zones entières absentes trouvées), `skyblock_guide_tasks` (179 lignes, système
+officiel "SkyBlock Guide" à 7 paliers, distinct de `milestone_tasks`), et
+`location_details` enrichie (271→286 lignes, colonne `mobs` neuve, backfill
+`resources`/`npcs`, 15 nouveaux lieux) — détail complet des 27 checkpoints de ce
+chantier dans `WIKI-MAPPING.md`. Un bug de couverture réel (`cosmetic_skins`
+ratait 18/497 pages à cause d'un filtre par nom de clé peu fiable) et un bug
+pré-existant (`cleanLocationCell` fuitait le pipe de `{{Zone|X|Y}}` à 2
+arguments, trouvé en vérifiant `location_details` après coup) ont été trouvés et
+corrigés en route.
+
+**Audit de fermeture demandé explicitement par l'utilisateur une fois le
+criblage terminé** — chiffres bruts vérifiés en direct (pas de mémoire) :
+
+**Automatisations** — 18 crons actifs (`vercel.json`), tous confirmés `success`
+sur leur dernier run réel (`sync_log`) au moment de l'audit, sauf
+`setup-generate-agent` en `partial` (23/24 setups générés, 1 échec constant déjà
+documenté et accepté — pas une régression). Aucun cron en erreur active.
+
+**Base de données** — 189 tables au total. Zéro-lignes notables classées :
+légitimement vides et déjà documentées comme telles (`skyblock_fire_sales`,
+`mayors` — remplacée par `skyblock_mayor_election`, `method_feedback`), stubs
+Phase-0 visiblement remplacés par leur équivalent réel jamais nettoyés
+(`items`/`minions`/`pets`/`rift_items`/`dungeon_data`/`fishing_data`/
+`kuudra_data`/`slayer_data`/`subscription` au singulier — doublon de
+`subscriptions`), reste (`claude_insights`/`claude_predictions`/
+`market_anomalies`/`reddit_signals`/`craft_arbitrage`/`bazaar_5min`/
+`bazaar_aggregates`/`events_calendar`/`game_context`/`loot_tables`/
+`bestiary_milestones`/`player_builds`/`vector_indexes`) non creusé plus loin
+cette passe — probablement des tables préparées pour une feature pas encore
+branchée, aucun cron ne devrait les écrire, pas un signal d'alarme en soi mais
+jamais confirmé activement.
+
+**Couverture par système** (issue de l'ensemble des chantiers cartographie +
+collecte totale + extraction brute, résumé) : Combat/Slayer, Farming, Foraging
+(+ Heart of the Forest), Fishing, Dungeons, Crimson Isle/Kuudra, Enchanting/
+Alchemy, Mining/HOTM/HOTF, Garden, Rift (mapping mécanique complet, données
+joueur réelles toujours bloquées faute de profil de test engagé), Économie/
+Événements réseau (élections, news, fire sales, bingo), cosmétiques (skins),
+lieux (`location_details`), fairy souls, essence, minions, bestiary, musée,
+donjons (classes/étages/coffres), festivals saisonniers — tous mappés avec au
+moins une table réelle sourcée. Carpentry/Taming/Social confirmés
+cosmétique/faible-enjeu, exclus par décision explicite plutôt que par oubli.
+
+**Gaps honnêtes restants, non résolus par ce chantier** :
+- `npc_locations` (version enrichie Bucket/HTML) — complexité confirmée
+  (`Module:NPC` génère le HTML côté serveur depuis un store propriétaire, pas de
+  wikitable dans le wikitext), diagnostic complet dans `discovery_queue` #25,
+  reste en l'état.
+- `dungeon_classes` — 15 lignes déjà en base mais **source jamais confirmée**
+  (contenu a l'air écrit à la main), aucune correspondance NEU-REPO ni wiki
+  trouvée malgré recherche répétée.
+- `method_feedback_summary` (vue `SECURITY DEFINER`) — **toujours accessible en
+  lecture par `anon`/`authenticated`, bypass RLS de `method_feedback`**, reconfirmé
+  ce jour par requête directe sur `information_schema.role_table_grants`. Impact
+  nul aujourd'hui (`method_feedback` a 0 ligne) mais fuira dès la première vraie
+  donnée communautaire — toujours pas corrigé depuis le 22 juillet.
+- Contamination Slayer T4/T5 (bug corrigé le 1er août) — **le masquage
+  code (`SLAYER_BUG_CONTAMINATED_METHOD_IDS`) est toujours actif**, reconfirmé
+  ce jour (grep direct) : les 3 lignes `claude_analysis`/`method_setups`
+  contaminées n'ont jamais été régénérées (coût API réel, décision explicite de
+  le faire en un seul lot groupé, jamais fait depuis). `stale_slayer_data` côté
+  `player_skill_cards` de Cucumber toujours actif également.
+- `HYPIXEL_API_KEY` — clé de dev à expiration périodique documentée (~tous les
+  4-6 jours observés), pas re-testée en direct dans cet audit (aucun appel
+  Hypixel fait), à vérifier au prochain sync joueur réel.
+- `sack_contents`/`weight_formulas` — one-shot par décision explicite de
+  l'utilisateur, jamais reliés à un cron, toujours le cas.
+- `location_details` — 4 paires "monde miroir" du Rift (Colosseum/Wizard Tower/
+  The Bastion) restent avec leur `mobs` non fusionné (ambiguïté nom dupliqué,
+  volontairement pas résolu pour éviter un mauvais rattachement — voir
+  WIKI-MAPPING.md checkpoint 27).
+
+**Décision suivante à prendre avec l'utilisateur** : le criblage wiki et l'audit
+de fermeture sont clos. Aucun nouveau seuil fixé — reprendre Pluton (Bloc 8, en
+pause depuis le 31 juillet), traiter un des gaps honnêtes ci-dessus, ou tout
+autre chantier au choix de l'utilisateur.
+
 ## ✅ Extraction brute wiki — premier lot, player_stats (16 pages Stats) (3 août)
 
 Premier lot de l'extraction brute du wiki (7724 pages cachées, 6280 dans un bucket
