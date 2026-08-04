@@ -3156,6 +3156,74 @@ async function syncTrialsOfFire(): Promise<number> {
 }
 
 // ============================================================
+// fossil_chisels -- système Fossil Excavator (Fossil Research Center), jamais
+// mappé. 2 wikitables réelles sur la même page fusionnées en une table : charges
+// par rareté (4 paliers Common->Legendary) + recette d'upgrade/palier HotM requis
+// (3 recettes, Chisel de base exclu car obtenu autrement, pas craft). Recette
+// `{{DRL|...}}` (liste à puces `*`/`**`) aplatie en liste `;` des ingrédients
+// (le `*` racine redondant avec le nom déjà en 1re colonne, ignoré). Vérifié en
+// local (parse_chisels.js) : 4+3 lignes, 0 markup résiduel.
+// ============================================================
+function cleanFossilChiselCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/gi, '')
+  s = s.replace(/\{\{Yellow\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{ID\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{DRL\|([\s\S]*?)\}\}/gi, (_m, inner) => {
+    const lines = inner.split('\n').map((l: string) => l.trim()).filter((l: string) => l.startsWith('**'))
+    return lines.map((l: string) => l.replace(/^\*\*/, '').trim()).join('; ')
+  })
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/\n/g, ' ')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+async function syncFossilChisels(): Promise<number> {
+  const content = await getWikiContent(supabase, 'chisels')
+  const firstTableStart = content.indexOf('{|')
+  const firstTableEnd = content.indexOf('|}', firstTableStart)
+  if (firstTableStart === -1 || firstTableEnd === -1) throw new Error('fossil_chisels: 1re wikitable introuvable')
+  const body1 = extractFirstWikitableBody(content)
+  if (!body1) throw new Error('fossil_chisels: parsing de la 1re wikitable échoué')
+
+  const body2 = extractFirstWikitableBody(content.slice(firstTableEnd + 2))
+  if (!body2) throw new Error('fossil_chisels: 2e wikitable introuvable')
+
+  const byName = new Map<string, any>()
+  for (const r of parseRowspanTable(body1, 4)) {
+    const name = cleanFossilChiselCell(r[1])
+    if (!name) continue
+    byName.set(name, {
+      name,
+      rarity: cleanFossilChiselCell(r[2]) || null,
+      charges: cleanFossilChiselCell(r[3]) || null,
+      recipe: null,
+      hotm_requirement: null,
+      obtaining: null,
+    })
+  }
+  for (const r of parseRowspanTable(body2, 3)) {
+    const name = cleanFossilChiselCell(r[0])
+    if (!name || !byName.has(name)) continue
+    const entry = byName.get(name)
+    entry.recipe = cleanFossilChiselCell(r[1]) || null
+    entry.hotm_requirement = cleanFossilChiselCell(r[2]) || null
+  }
+  if (byName.has('Chisel')) {
+    byName.get('Chisel').obtaining = "Given by Dr. Stone on first talk, or purchased from Researcher Beryl (Fossil Research Center) for 5 Fossil Essence"
+  }
+
+  const rows = [...byName.values()]
+  if (rows.length === 0) throw new Error('fossil_chisels: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('fossil_chisels').upsert(rows, { onConflict: 'name' })
+  if (error) throw new Error('fossil_chisels upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -3207,6 +3275,7 @@ export async function runWikiReferentialSync() {
     mob_type_categories: syncMobTypeCategories,
     trial_of_blue_flames: syncTrialOfBlueFlames,
     trials_of_fire: syncTrialsOfFire,
+    fossil_chisels: syncFossilChisels,
   })) {
     try {
       const rows = await fn()
