@@ -290,6 +290,176 @@ async function syncKuudraFactionDiscounts(): Promise<number> {
 }
 
 // ============================================================
+// Garden.json -> garden_composter_items, garden_pest_rare_drops, garden_visitor_requests
+// (garden_exp/crop_milestones/visitors base info already covered by NEU-REPO garden.json ->
+// garden_xp_levels/garden_crop_milestones/garden_visitors -- confirmed exact value match
+// before excluding. organic_matter/fuel/pest_rare_drops/visitor need_items+position are
+// genuinely new, not in those tables.)
+// ============================================================
+function toVisitorId(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+}
+async function syncGardenComposterItems(): Promise<number> {
+  const data = await fetchJson('Garden.json')
+  const rows: any[] = []
+  for (const [item_id, value] of Object.entries<any>(data.organic_matter || {})) {
+    rows.push({ item_id, value_type: 'organic_matter', value })
+  }
+  for (const [item_id, value] of Object.entries<any>(data.fuel || {})) {
+    rows.push({ item_id, value_type: 'fuel', value })
+  }
+  return upsertBatched('garden_composter_items', rows, 'item_id,value_type')
+}
+async function syncGardenPestRareDrops(): Promise<number> {
+  const data = await fetchJson('Garden.json')
+  const rows: any[] = []
+  for (const [pestKey, drops] of Object.entries<any>(data.pest_rare_drops || {})) {
+    const pest_name = pestKey.charAt(0) + pestKey.slice(1).toLowerCase()
+    for (const [drop_item, drop_rate_denominator] of Object.entries<any>(drops)) {
+      rows.push({ pest_name, drop_item, drop_rate_denominator })
+    }
+  }
+  return upsertBatched('garden_pest_rare_drops', rows, 'pest_name,drop_item')
+}
+async function syncGardenVisitorRequests(): Promise<number> {
+  const data = await fetchJson('Garden.json')
+  const rows: any[] = []
+  for (const [name, info] of Object.entries<any>(data.visitors || {})) {
+    let position_x = null, position_y = null, position_z = null
+    if (info.position) {
+      const p = parsePos(info.position)
+      position_x = p.x; position_y = p.y; position_z = p.z
+    }
+    rows.push({
+      visitor_name: toVisitorId(name),
+      need_items: info.need_items || [],
+      mode: info.mode || null,
+      position_x, position_y, position_z,
+    })
+  }
+  return upsertBatched('garden_visitor_requests', rows, 'visitor_name')
+}
+
+// ============================================================
+// AnitaUpgradeCosts.json -> anita_upgrade_costs
+// ============================================================
+async function syncAnitaUpgradeCosts(): Promise<number> {
+  const data = await fetchJson('AnitaUpgradeCosts.json')
+  const rows = Object.entries<any>(data.level_price || {}).map(([level, cost]) => ({
+    level: parseInt(level, 10),
+    gold_medals: cost.gold_medals ?? null,
+    jacob_tickets: cost.jacob_tickets ?? null,
+  }))
+  return upsertBatched('anita_upgrade_costs', rows, 'level')
+}
+
+// ============================================================
+// RiftEffigies.json -> rift_effigy_locations
+// ============================================================
+async function syncRiftEffigyLocations(): Promise<number> {
+  const data = await fetchJson('RiftEffigies.json')
+  const rows = (data.locations || []).map((pos: string, i: number) => {
+    const { x, y, z } = parsePos(pos)
+    return { effigy_order: i + 1, x, y, z }
+  })
+  return upsertBatched('rift_effigy_locations', rows, 'effigy_order')
+}
+
+// ============================================================
+// events/Diana.json -> diana_sphinx_answers, mythological_ritual_mobs
+// ============================================================
+async function syncDianaSphinxAnswers(): Promise<number> {
+  const data = await fetchJson('events/Diana.json')
+  const rows = Object.entries<any>(data.sphinx_questions || {})
+    .filter(([q]) => !q.startsWith('//'))
+    .map(([question, answer]) => ({ question, answer }))
+  return upsertBatched('diana_sphinx_answers', rows, 'question')
+}
+async function syncMythologicalRitualMobs(): Promise<number> {
+  const data = await fetchJson('events/Diana.json')
+  const rows = Object.entries<any>(data.mythological_mobs || {}).map(([mob_name, info]) => ({
+    mob_name, is_rare: !!info.rare,
+  }))
+  return upsertBatched('mythological_ritual_mobs', rows, 'mob_name')
+}
+
+// ============================================================
+// misc/IslandType.json -> skyblock_island_metadata
+// ============================================================
+async function syncIslandMetadata(): Promise<number> {
+  const data = await fetchJson('misc/IslandType.json')
+  const rows = Object.entries<any>(data.islands || {}).map(([island_id, info]) => ({
+    island_id,
+    display_name: info.name || null,
+    api_name: info.api_name || null,
+    max_players: info.max_players ?? null,
+    bounds_min_x: info.bounds?.min_x ?? null,
+    bounds_max_x: info.bounds?.max_x ?? null,
+    bounds_min_z: info.bounds?.min_z ?? null,
+    bounds_max_z: info.bounds?.max_z ?? null,
+  }))
+  return upsertBatched('skyblock_island_metadata', rows, 'island_id')
+}
+
+// ============================================================
+// SeaCreatures.json -> sea_creature_fishing_xp
+// (distinct from wiki-sourced sea_creature_pools: adds fishing_experience per creature,
+// organized by SkyHanni's own zone key rather than the wiki's pool taxonomy)
+// ============================================================
+async function syncSeaCreatureFishingXp(): Promise<number> {
+  const data = await fetchJson('SeaCreatures.json')
+  const rows: any[] = []
+  for (const [zone, zdata] of Object.entries<any>(data)) {
+    for (const [name, info] of Object.entries<any>(zdata.sea_creatures || {})) {
+      rows.push({
+        zone, name,
+        fishing_experience: info.fishing_experience ?? null,
+        rarity: info.rarity ?? null,
+        is_rare_variant: !!info.rare,
+      })
+    }
+  }
+  return upsertBatched('sea_creature_fishing_xp', rows, 'zone,name')
+}
+
+// ============================================================
+// Items.json (crimson_prestige_costs only -- rest is mod pricing-calculator heuristics,
+// not authoritative Hypixel data, deliberately not built) -> kuudra_tier_prestige_costs
+// ============================================================
+async function syncKuudraTierPrestigeCosts(): Promise<number> {
+  const data = await fetchJson('Items.json')
+  const rows = Object.entries<any>(data.crimson_prestige_costs || {}).map(([tier, cost]) => ({
+    tier,
+    essence_crimson: cost.ESSENCE_CRIMSON ?? null,
+    kuudra_teeth: cost.KUUDRA_TEETH ?? null,
+    skyblock_coin: cost.SKYBLOCK_COIN ?? null,
+  }))
+  return upsertBatched('kuudra_tier_prestige_costs', rows, 'tier')
+}
+
+// ============================================================
+// BingoRanks.json -> skyblock_bingo_ranks
+// ============================================================
+async function syncBingoRanks(): Promise<number> {
+  const data = await fetchJson('BingoRanks.json')
+  const rows = Object.entries<any>(data.ranks || {}).map(([color_code, rank_order]) => ({
+    color_code, rank_order,
+  }))
+  return upsertBatched('skyblock_bingo_ranks', rows, 'rank_order')
+}
+
+// ============================================================
+// DanceRoomInstructions.json -> dungeon_dance_room_sequence
+// ============================================================
+async function syncDungeonDanceRoomSequence(): Promise<number> {
+  const data = await fetchJson('DanceRoomInstructions.json')
+  const rows = (data.instructions || []).map((action: string, i: number) => ({
+    step_order: i + 1, action,
+  }))
+  return upsertBatched('dungeon_dance_room_sequence', rows, 'step_order')
+}
+
+// ============================================================
 export async function runSkyhanniRepoSync() {
   const logId = await startSync('skyhanni-repo-sync')
   const results: Record<string, any> = {}
@@ -311,6 +481,18 @@ export async function runSkyhanniRepoSync() {
     rift_experimentation_table_rewards: syncExperimentationTableRewards,
     starlyn_contest_tier_rewards: syncStarlynContestTierRewards,
     kuudra_faction_discounts: syncKuudraFactionDiscounts,
+    garden_composter_items: syncGardenComposterItems,
+    garden_pest_rare_drops: syncGardenPestRareDrops,
+    garden_visitor_requests: syncGardenVisitorRequests,
+    anita_upgrade_costs: syncAnitaUpgradeCosts,
+    rift_effigy_locations: syncRiftEffigyLocations,
+    diana_sphinx_answers: syncDianaSphinxAnswers,
+    mythological_ritual_mobs: syncMythologicalRitualMobs,
+    skyblock_island_metadata: syncIslandMetadata,
+    sea_creature_fishing_xp: syncSeaCreatureFishingXp,
+    kuudra_tier_prestige_costs: syncKuudraTierPrestigeCosts,
+    skyblock_bingo_ranks: syncBingoRanks,
+    dungeon_dance_room_sequence: syncDungeonDanceRoomSequence,
   })) {
     try {
       const rows = await fn()
