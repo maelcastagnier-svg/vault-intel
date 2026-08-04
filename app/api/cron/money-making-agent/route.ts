@@ -173,7 +173,7 @@ async function saveToLibrary(methods: any[], tier: string, bazaarSnapshot: any[]
 }
 
 // ─── Logique principale (exportée pour test direct hors HTTP) ──
-export async function runMoneyMakingAgent() {
+export async function runMoneyMakingAgent(tiersFilter?: string[]) {
   const logId = await startSync('money-making-agent')
   try {
     // Charge contexte + bibliothèque + feedback
@@ -189,8 +189,12 @@ export async function runMoneyMakingAgent() {
       feedbackData    || []
     )
 
+    const tierEntries = tiersFilter
+      ? Object.entries(TIER_CONFIG).filter(([tier]) => tiersFilter.includes(tier))
+      : Object.entries(TIER_CONFIG)
+
     const results = await Promise.all(
-      Object.entries(TIER_CONFIG).map(async ([tier, config]) => {
+      tierEntries.map(async ([tier, config]) => {
         try {
           const res = await fetch('https://api.anthropic.com/v1/messages', {
             method:  'POST',

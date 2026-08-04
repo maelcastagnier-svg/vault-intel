@@ -329,13 +329,17 @@ export async function generateOne(
 }
 
 // ── Logique principale (exportée pour test direct hors HTTP) ──
-export async function runSetupGenerateAgent() {
+export async function runSetupGenerateAgent(tiersFilter?: string[]) {
   const logId = await startSync('setup-generate-agent')
   try {
-    const { data: analyses } = await supabase
+    const { data: allAnalyses } = await supabase
       .from('claude_analysis')
       .select('section, content')
       .like('section', 'money_making_%')
+
+    const analyses = tiersFilter
+      ? allAnalyses?.filter(a => tiersFilter.includes(a.section.replace('money_making_', '')))
+      : allAnalyses
 
     if (!analyses?.length) {
       const msg = 'No methods in DB — run money-making-agent first'
