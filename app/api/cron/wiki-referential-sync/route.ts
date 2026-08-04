@@ -3831,6 +3831,39 @@ async function syncNpcDiscounts(): Promise<number> {
 }
 
 // ============================================================
+// reforging_prices -- coût réel en coins d'un reforge par rarité, jamais mappé.
+// Table `reforges` déjà existante n'a AUCUNE colonne de prix (name/item_types/
+// rarity/stats seulement) -- vrai complément économique, directement pertinent
+// pour le calcul de coût des setups Money Making/Evolve Skills. Le tout premier
+// reforge d'un item est gratuit (10 Coal, pas des coins) -- non capturé ici, seuls
+// les coûts en coins des reforges suivants (Notes: Special/Very Special donnent le
+// même bonus que Mythic mais coûtent plus cher, prix distincts confirmés).
+// 9 lignes transcrites directement depuis le wikitext vérifié, même pattern que
+// DROP_CHANCE_TIERS/MILESTONE_REWARD_TIERS ci-dessus (petite table figée, pas de
+// parseur dédié pour si peu de lignes).
+// ============================================================
+const REFORGING_PRICES: { rarity: string; price_coins: number }[] = [
+  { rarity: 'Common', price_coins: 250 },
+  { rarity: 'Uncommon', price_coins: 500 },
+  { rarity: 'Rare', price_coins: 1000 },
+  { rarity: 'Epic', price_coins: 2500 },
+  { rarity: 'Legendary', price_coins: 5000 },
+  { rarity: 'Mythic', price_coins: 10000 },
+  { rarity: 'Divine', price_coins: 15000 },
+  { rarity: 'Special', price_coins: 25000 },
+  { rarity: 'Very Special', price_coins: 50000 },
+]
+async function syncReforgingPrices(): Promise<number> {
+  const content = await getWikiContent(supabase, 'reforging_prices')
+  if (!content || !content.includes('50000') || !content.includes('Very Special')) {
+    throw new Error('reforging_prices: page source introuvable ou changée (vérifier avant de continuer à upsert des valeurs figées)')
+  }
+  const { error } = await supabase.from('reforging_prices').upsert(REFORGING_PRICES, { onConflict: 'rarity' })
+  if (error) throw new Error('reforging_prices upsert: ' + error.message)
+  return REFORGING_PRICES.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -3893,6 +3926,7 @@ export async function runWikiReferentialSync() {
     odger_filleting_rewards: syncOdgerFilletingRewards,
     ribery_frog_donation_rewards: syncRiberyFrogDonationRewards,
     npc_discounts: syncNpcDiscounts,
+    reforging_prices: syncReforgingPrices,
   })) {
     try {
       const rows = await fn()
