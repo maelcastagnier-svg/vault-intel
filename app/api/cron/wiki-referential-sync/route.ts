@@ -2746,6 +2746,114 @@ async function syncTreeGiftDrops(): Promise<number> {
 }
 
 // ============================================================
+// trophy_frogs -- système de pêche à la grenouille (Lotus Atoll/Rift), jamais mappé,
+// distinct de trophy_fish_thresholds (autre système, Bronze->Diamond par poisson pas
+// par frog). 12 grenouilles réelles, Slot/Name/Rarity/Requirement/Catch Chance/Pity
+// Gold/Pity Diamond -- header à 2 lignes (rowspan sur les 5 premières colonnes,
+// colspan sur "Pity" qui se déplie en 2 sous-colonnes GOLD/DIAMOND). Vérifié en
+// local (parse_trophyfrogs.js) : 12/12 lignes, 0 markup résiduel.
+// ============================================================
+function cleanTrophyFrogCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/style="[^"]*"\s*\|\s*/g, '')
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/gi, '')
+  s = s.replace(/\{\{TA\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Rarity\|([^{}|]*)\|?[^{}]*\}\}/gi, '$1')
+  s = s.replace(/\{\{Chance\|([^|{}]*)\|[^{}]*\}\}/gi, '$1')
+  s = s.replace(/\{\{Green\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Aqua\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Pink\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Red\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Gold\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Zone\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{MobSprite\|([^{}|;]*)[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{ID\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/'''/g, '')
+  s = s.replace(/\n/g, ' ')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+async function syncTrophyFrogs(): Promise<number> {
+  const content = await getWikiContent(supabase, 'trophy_frogs_list')
+  const body = extractFirstWikitableBody(content)
+  if (!body) throw new Error('trophy_frogs: wikitable introuvable')
+  const rows = parseRowspanTable(body, 7)
+    .map(r => ({
+      name: cleanTrophyFrogCell(r[1]),
+      rarity: cleanTrophyFrogCell(r[2]) || null,
+      requirement: cleanTrophyFrogCell(r[3]) || null,
+      catch_chance: cleanTrophyFrogCell(r[4]) || null,
+      pity_gold: cleanTrophyFrogCell(r[5]) || null,
+      pity_diamond: cleanTrophyFrogCell(r[6]) || null,
+    }))
+    .filter(r => r.name)
+
+  if (rows.length === 0) throw new Error('trophy_frogs: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('trophy_frogs').upsert(rows, { onConflict: 'name' })
+  if (error) throw new Error('trophy_frogs upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
+// wormhole_locations -- 21 coordonnées de wormholes réels (Rift, Lotus Atoll/Tewtil
+// Tunnel), jamais mappées -- connecté à trophy_frogs (Reality Hopper "Caught in
+// Wormholes on the Lotus Atoll"). Wikitable avec caption (`|+`) avant les en-têtes,
+// gérée en filtrant les lignes `+`. Coordonnées négatives (`z=-19` etc) confirmées
+// parser correctement en `parseInt`. Vérifié en local (parse_wormhole2.js) :
+// 21/21 lignes, 0 markup résiduel, 0 NaN.
+// ============================================================
+function cleanWormholeCell(s: string): string {
+  s = (s || '').replace(/^\|/, '').trim()
+  s = s.replace(/\{\{NPCSprite\|([^{}|;]*)[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{Zone\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  return s.trim()
+}
+function extractWormholeLocation(minimapCell: string): string | null {
+  const m = minimapCell.match(/location=([^|}]*)/)
+  return m ? m[1].trim() : null
+}
+async function syncWormholeLocations(): Promise<number> {
+  const content = await getWikiContent(supabase, 'wormhole_locations')
+  const tableStart = content.indexOf('{|')
+  const tableEnd = content.indexOf('|}', tableStart)
+  if (tableStart === -1 || tableEnd === -1) throw new Error('wormhole_locations: wikitable introuvable')
+  const table = content.slice(tableStart, tableEnd)
+  const blocks = table.split(/\n\|-\n?/)
+  const dataStart = blocks.findIndex(b => {
+    const t = b.trim()
+    return t.startsWith('|') && !t.startsWith('!') && !t.startsWith('+')
+  })
+  if (dataStart === -1) throw new Error('wormhole_locations: aucune ligne de donnée trouvée')
+  const body = blocks.slice(dataStart).join('\n|-\n')
+  const rowBlocks = body.split(/\n\|-\n?/).filter(b => b.trim().length > 0)
+
+  const rows: any[] = []
+  for (const block of rowBlocks) {
+    const lines = block.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('|}'))
+    if (lines.length < 6) continue
+    const wormholeNo = cleanWormholeCell(lines[0])
+    if (!wormholeNo) continue
+    rows.push({
+      wormhole_no: wormholeNo,
+      location: extractWormholeLocation(lines[1]),
+      x: parseInt(cleanWormholeCell(lines[2]), 10) || null,
+      y: parseInt(cleanWormholeCell(lines[3]), 10) || null,
+      z: parseInt(cleanWormholeCell(lines[4]), 10) || null,
+      description: cleanWormholeCell(lines[5]) || null,
+    })
+  }
+  if (rows.length === 0) throw new Error('wormhole_locations: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('wormhole_locations').upsert(rows, { onConflict: 'wormhole_no' })
+  if (error) throw new Error('wormhole_locations upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -2792,6 +2900,8 @@ export async function runWikiReferentialSync() {
     drop_chance_tiers: syncDropChanceTiers,
     milestone_reward_tiers: syncMilestoneRewardTiers,
     tree_gift_drops: syncTreeGiftDrops,
+    trophy_frogs: syncTrophyFrogs,
+    wormhole_locations: syncWormholeLocations,
   })) {
     try {
       const rows = await fn()
