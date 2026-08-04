@@ -554,6 +554,22 @@ passe s'étend sur plusieurs sessions) :
   - `sea_creatures_list_hotspot` et `treasure_loot_junk` confirmés déjà couverts
     par `sea_creature_pools` (pool `hotspot`)/`treasure_fishing_loot` (zone
     `Junk`) respectivement — pas de nouvelle table.
+- ✅ **Lot 8 (positions ~2960-3360, checkpoint 17)** — 3 nouveaux systèmes réels
+  construits et vérifiés en prod :
+  - `starlyn_prize_shop` (5 lignes) — boutique Agatha (monnaie Starlyn Prize,
+    récompense du Starlyn Contest sur Moonglade Marsh, équivalent Foraging de
+    Jacob's Contest) — confirmé réel dès la passe système du 1er août mais jamais
+    construit avant ce lot.
+  - `upgrade_fragments` (7 lignes) — fragments de craft d'items Dungeon endgame
+    (drop Watcher Undead, Arachne, achat NPC), jamais mappés.
+  - `odger_filleting_rewards` (17 poissons trophées) — Magmafish gagné par Trophy
+    Fish filleté chez Odger, 4 paliers qualité (Bronze/Silver/Gold/Diamond), jamais
+    mappé.
+  - `list_of_item_prices` confirmé source `fandom_wiki` périmée (stub, liens vers
+    un Google Sheets externe non maintenu) — leçon `ship_parts` appliquée avant de
+    lire le contenu en détail, pas construit.
+  - `sea_creatures_list_basic` confirmé déjà couvert par `sea_creature_pools`
+    (pool `basic`) — pas de nouvelle table.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
