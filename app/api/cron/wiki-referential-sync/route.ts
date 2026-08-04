@@ -1807,16 +1807,32 @@ async function syncChocolateFactoryLevels(): Promise<number> {
 }
 
 // ============================================================
-// dungeon_chest_combo_chances -- 5 pages wiki structurellement identiques (Hot Potato
-// Book/Combo/No Pain No Gain/Ultimate Wise/Ultimate Jerry "chances"), chacune la vraie
-// chance moyenne d'obtenir cet item précis par Coffre de Récompense de Donjon (Floor ×
-// type de coffre), avec/sans bonus de qualité max -- jamais capturé. Distinct de
+// dungeon_chest_combo_chances -- 7 items (Hot Potato Book/Combo/No Pain No Gain/
+// Ultimate Wise/Ultimate Jerry/Bank Enchantment/Wisdom Enchantment "chances"), chacun la
+// vraie chance moyenne d'obtenir cet item précis par Coffre de Récompense de Donjon
+// (Floor × type de coffre), avec/sans bonus de qualité max -- jamais capturé. Distinct de
 // `dungeon_rng_scores` (NEU-REPO, poids RNG brut par item) déjà réel : celui-ci donne le
 // POIDS, ces pages donnent la PROBABILITÉ DÉRIVÉE déjà calculée par floor/coffre, pas
 // reconstructible facilement depuis le poids seul (dépend du poids total du pool, non
-// capturé ailleurs). Wikitable standard, 0 rowspan/colspan sur les 5 pages (vérifié avant
-// de coder). Vérifié en local (parse_dungeonchances.js) contre hot_potato_book_chances :
-// 58/58 lignes, 0 floor vide, 0 markup résiduel.
+// capturé ailleurs).
+// 🔴 Bug réel trouvé et corrigé après la 1ère construction (vérifiée en prod le même
+// jour) : plusieurs pages sont paginées côté wiki (`combo_chances_2`, `ultimate_jerry_
+// chances_2`/`_3`, `last_stand_chances_2`, `no_pain_no_gain_chances_2`, `ultimate_wise_
+// chances_2` -- suffixes jamais criblés lors de la 1ère passe) -- la 1ère version de ce
+// sync ne lisait que la page de base, perdant les lignes des étages supérieurs
+// silencieusement présentes uniquement sur la page de continuation (vérifié : `combo_
+// chances_2` contient bien Floor V/VI/VII, absentes de `combo_chances`). Corrigé en
+// listant chaque page de continuation par type et en concaténant leurs LIGNES (jamais le
+// texte brut avant extraction -- `extractFirstWikitableBody` ne prend que la 1ère table,
+// concaténer le texte brut aurait tronqué la continuation à la 1ère page quand même).
+// 2 items en plus trouvés dans le même criblage : `last_stand_chances`
+// (2 items manqués initialement : Last Stand n'avait pas été repéré au premier passage)
+// et 2 vrais nouveaux types (Bank/Wisdom Enchantment, même mécanique de coffre).
+// `bank__enchantment__chances` est un `<tabber>` à paliers (Bank I/II/III, l'enchant a
+// plusieurs niveaux) -- seul type de cette famille avec cette structure, capturé dans la
+// nouvelle colonne `variant` (NULL pour tous les autres types). Vérifié en local
+// (parse_dungeonchances.js) contre hot_potato_book_chances : 58/58 lignes, 0 floor vide,
+// 0 markup résiduel -- le reste des types réutilise la même logique de parsing prouvée.
 // ============================================================
 function cleanDungeonChanceCell(s: string): string {
   s = (s || '').trim()
@@ -1832,32 +1848,64 @@ function cleanDungeonChanceCell(s: string): string {
   s = s.replace(/\s+/g, ' ')
   return s.trim()
 }
-const DUNGEON_COMBO_CHANCE_KEYS: Record<string, string> = {
-  hot_potato_book: 'hot_potato_book_chances',
-  combo: 'combo_chances',
-  no_pain_no_gain: 'no_pain_no_gain_chances',
-  ultimate_wise: 'ultimate_wise_chances',
-  ultimate_jerry: 'ultimate_jerry_chances',
+function parseDungeonChanceTable(body: string): any[] {
+  const out: any[] = []
+  for (const r of parseRowspanTable(body, 7)) {
+    const floor = cleanDungeonChanceCell(r[0])
+    if (!floor) continue
+    out.push({
+      floor,
+      chest: cleanDungeonChanceCell(r[1]),
+      cost: cleanDungeonChanceCell(r[2]) || null,
+      chance_no_bonus: cleanDungeonChanceCell(r[3]) || null,
+      chance_max_bonus: cleanDungeonChanceCell(r[4]) || null,
+      quality: cleanDungeonChanceCell(r[5]) || null,
+      weight: cleanDungeonChanceCell(r[6]) || null,
+    })
+  }
+  return out
+}
+const DUNGEON_COMBO_CHANCE_KEYS: Record<string, string[]> = {
+  hot_potato_book: ['hot_potato_book_chances'],
+  combo: ['combo_chances', 'combo_chances_2'],
+  no_pain_no_gain: ['no_pain_no_gain_chances', 'no_pain_no_gain_chances_2'],
+  ultimate_wise: ['ultimate_wise_chances', 'ultimate_wise_chances_2'],
+  ultimate_jerry: ['ultimate_jerry_chances', 'ultimate_jerry_chances_2', 'ultimate_jerry_chances_3'],
+  last_stand: ['last_stand_chances', 'last_stand_chances_2'],
+  wisdom_enchantment: ['wisdom__enchantment__chances', 'wisdom__enchantment__chances_2'],
 }
 async function syncDungeonChestComboChances(): Promise<number> {
   const rows: any[] = []
-  for (const [comboType, key] of Object.entries(DUNGEON_COMBO_CHANCE_KEYS)) {
-    const content = await getWikiContent(supabase, key)
-    const body = extractFirstWikitableBody(content)
-    if (!body) throw new Error(`dungeon_chest_combo_chances: wikitable introuvable pour ${comboType}`)
-    for (const r of parseRowspanTable(body, 7)) {
-      const floor = cleanDungeonChanceCell(r[0])
-      if (!floor) continue
-      rows.push({
-        combo_type: comboType,
-        floor,
-        chest: cleanDungeonChanceCell(r[1]),
-        cost: cleanDungeonChanceCell(r[2]) || null,
-        chance_no_bonus: cleanDungeonChanceCell(r[3]) || null,
-        chance_max_bonus: cleanDungeonChanceCell(r[4]) || null,
-        quality: cleanDungeonChanceCell(r[5]) || null,
-        weight: cleanDungeonChanceCell(r[6]) || null,
-      })
+  for (const [comboType, keys] of Object.entries(DUNGEON_COMBO_CHANCE_KEYS)) {
+    for (const key of keys) {
+      const content = await getWikiContent(supabase, key)
+      const body = extractFirstWikitableBody(content)
+      if (!body) throw new Error(`dungeon_chest_combo_chances: wikitable introuvable pour ${comboType} (${key})`)
+      for (const row of parseDungeonChanceTable(body)) {
+        rows.push({ combo_type: comboType, variant: null, ...row })
+      }
+    }
+  }
+
+  // bank_enchantment -- seul type tabbé (paliers Bank I/II/III), pas de page de
+  // continuation observée pour celui-ci.
+  {
+    const content = await getWikiContent(supabase, 'bank__enchantment__chances')
+    const tabRe = /\|-\|([A-Za-z0-9 ]+)=/g
+    const tabMatches = [...content.matchAll(tabRe)]
+    if (tabMatches.length === 0) throw new Error('dungeon_chest_combo_chances: aucun palier trouvé pour bank_enchantment')
+    const tabBounds = tabMatches.map((m, i) => ({
+      variant: m[1].trim(),
+      start: m.index! + m[0].length,
+      end: i + 1 < tabMatches.length ? tabMatches[i + 1].index! : content.length,
+    }))
+    for (const tb of tabBounds) {
+      const chunk = content.slice(tb.start, tb.end)
+      const body = extractFirstWikitableBody(chunk)
+      if (!body) continue
+      for (const row of parseDungeonChanceTable(body)) {
+        rows.push({ combo_type: 'bank_enchantment', variant: tb.variant, ...row })
+      }
     }
   }
 
