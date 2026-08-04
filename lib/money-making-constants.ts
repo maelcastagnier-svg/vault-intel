@@ -34,22 +34,6 @@ export const TIER_CONFIG = {
 export type TierKey = keyof typeof TIER_CONFIG
 export type TierConfig = (typeof TIER_CONFIG)[TierKey]
 
-// Contamination du bug Slayer Blaze/Spider max tier inversé (corrigé le 31 juillet 2026,
-// voir CLAUDE.md section "Cartographie exhaustive Hypixel Skyblock"). Ces 3 méthodes ont
-// été générées par Claude avec l'ancien GAME_TRUTHS erroné (Blaze T5/Spider T4 au lieu de
-// Blaze T4/Spider T5) — masquées ici en pur code (aucune régénération, coût réel évité)
-// en attendant une régénération groupée future. Ne pas retirer sans régénérer d'abord.
-export const SLAYER_BUG_CONTAMINATED_METHOD_IDS = new Set([
-  'blaze_t5_slayer_grind',                        // claude_analysis.money_making_end + method_setups(tier=end)
-  'blaze_t5_slayer_scorched_books_arbitrage',      // claude_analysis.money_making_late + method_setups(tier=late)
-  'spider_t4_slayer',                              // claude_analysis.money_making_mid + method_setups(tier=mid)
-])
-
-// Timestamp du merge du fix (commit a365b4e) — tout player_skill_cards généré avant cette
-// date peut porter la même contamination sur sa carte Slayer (current/target basés sur le
-// mauvais max tier). Utilisé pour flaguer `stale_slayer_data` côté API plutôt que masquer.
-export const SLAYER_BUG_FIX_DEPLOYED_AT = '2026-07-31T17:38:48Z'
-
 export const GAME_TRUTHS = `
 === SLAYER SYSTEM (mandatory — always describe this way) ===
 Slayer bosses are SUMMONED via Maddox NPC, NOT naturally spawning.

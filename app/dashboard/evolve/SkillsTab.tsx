@@ -118,11 +118,6 @@ export default function SkillsTab({ profileId }: { profileId: string }) {
             <span style={{ fontSize: 11, fontWeight: 700, color: '#e8e6df', fontFamily: "'Press Start 2P', monospace", letterSpacing: '0.02em' }}>{SKILL_ICONS.slayer} SLAYER — 6 BOSSES</span>
             <span style={{ fontSize: 11, color: '#6b6960' }}>{expandedSlayer ? '▲ collapse' : '▼ expand'}</span>
           </div>
-          {data.stale_slayer_data && (
-            <div style={{ fontSize: 11, color: '#d6a02a', background: 'rgba(214,160,42,0.08)', border: '1px solid rgba(214,160,42,0.25)', borderRadius: 8, padding: '8px 12px', marginBottom: 10 }}>
-              ⚠️ This Slayer card was generated before a max-tier data fix — hit "Sync now" above to refresh it.
-            </div>
-          )}
           {expandedSlayer && (slayerCard.bosses || []).map(b => (
             <SkillCard
               key={b.boss}

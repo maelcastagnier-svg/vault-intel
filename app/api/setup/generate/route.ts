@@ -4,7 +4,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requirePlan } from '../../../../lib/get-plan'
-import { SLAYER_BUG_CONTAMINATED_METHOD_IDS } from '../../../../lib/money-making-constants'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,13 +31,6 @@ export async function POST(req: NextRequest) {
     }
 
     const key = methodKey(method)
-
-    // Défense en profondeur — ces 3 setups (voir CLAUDE.md) sont générés sur la base du
-    // bug Slayer Blaze/Spider inversé. Déjà exclus de la liste servie par /api/market-data,
-    // mais un client ne devrait de toute façon jamais pouvoir en récupérer le setup.
-    if (SLAYER_BUG_CONTAMINATED_METHOD_IDS.has(key)) {
-      return NextResponse.json({ not_ready: true })
-    }
 
     const { data } = await supabase
       .from('method_setups')
