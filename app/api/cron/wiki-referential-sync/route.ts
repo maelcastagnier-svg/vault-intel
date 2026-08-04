@@ -3796,6 +3796,41 @@ async function syncRiberyFrogDonationRewards(): Promise<number> {
 }
 
 // ============================================================
+// npc_discounts -- vraie mécanique économique jamais mappée : réductions
+// multiplicatives sur les prix NPC (Lucius via accessoire, ou paliers de
+// contribution aux City Projects Builder's House/Farm Merchant's Dwelling/
+// Bartender's Brewery, ou Maddox via Slayer). 8 NPC réels, structure rowspan
+// standard, réutilise le parseur partagé sans modification. Vérifié en local
+// (parse_discounts.js) : 8/8 lignes, 0 markup résiduel.
+// ============================================================
+function cleanNpcDiscountCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{NPCSprite\|([^{}|;]*)[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{ID\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+async function syncNpcDiscounts(): Promise<number> {
+  const content = await getWikiContent(supabase, 'discounts')
+  const body = extractFirstWikitableBody(content)
+  if (!body) throw new Error('npc_discounts: wikitable introuvable')
+  const rows = parseRowspanTable(body, 3)
+    .map(r => ({
+      npc: cleanNpcDiscountCell(r[0]),
+      discount: cleanNpcDiscountCell(r[1]) || null,
+      discount_source: cleanNpcDiscountCell(r[2]) || null,
+    }))
+    .filter(r => r.npc)
+
+  if (rows.length === 0) throw new Error('npc_discounts: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('npc_discounts').upsert(rows, { onConflict: 'npc' })
+  if (error) throw new Error('npc_discounts upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -3857,6 +3892,7 @@ export async function runWikiReferentialSync() {
     upgrade_fragments: syncUpgradeFragments,
     odger_filleting_rewards: syncOdgerFilletingRewards,
     ribery_frog_donation_rewards: syncRiberyFrogDonationRewards,
+    npc_discounts: syncNpcDiscounts,
   })) {
     try {
       const rows = await fn()
