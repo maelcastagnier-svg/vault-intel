@@ -653,8 +653,15 @@ const PLAYER_STAT_PAGES: { key: string; display_name: string }[] = [
 // contiennent souvent un template {{Skill|Enchanting}} avec un "|" interne, qui
 // tronquait le match à tort avec une version antérieure de cette regex (bug trouvé
 // en testant : ways_to_increase revenait null sur 7/16 pages où ce cas se produit).
+// 🔴 3e bug trouvé en étendant player_stats à 31 stats supplémentaires (4 août) :
+// `\s*` juste après le "=" traversait la fin de ligne pour un champ VRAIMENT vide
+// (ex `|max_value=\n|symbol= ...`) et capturait le DÉBUT DU CHAMP SUIVANT à la place
+// (`treasure_chance.max_value` récupérait littéralement "|symbol= ..."). `\s` matche
+// `\n` par défaut en JS -- corrigé en `[ \t]*` (espace horizontal seulement) entre le
+// "=" et la capture, pour ne jamais franchir la vraie limite de ligne. N'affecte pas
+// les 49 autres stats (elles ont toutes une vraie valeur sur la même ligne).
 function extractInfoboxField(infobox: string, field: string): string | null {
-  const re = new RegExp(`\\|\\s*${field}\\s*=\\s*([^\\n]*)`, 'i')
+  const re = new RegExp(`\\|\\s*${field}\\s*=[ \\t]*([^\\n]*)`, 'i')
   const m = infobox.match(re)
   if (!m) return null
   const v = m[1].trim()
