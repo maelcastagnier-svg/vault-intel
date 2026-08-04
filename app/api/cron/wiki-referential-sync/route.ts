@@ -4385,8 +4385,14 @@ async function syncCosmeticSkins(): Promise<number> {
     .from('game_mechanics_misc')
     .select('key, value')
     .eq('category', 'game_wiki')
-    .like('key', '%_skin')
     .eq('value->>source', 'hypixelskyblock_wiki')
+    .or([
+      'value->>content.ilike.%Infobox/Pet Skin%',
+      'value->>content.ilike.%Infobox/Helmet Skin%',
+      'value->>content.ilike.%Infobox/Backpack Skin%',
+      'value->>content.ilike.%Infobox/Barn Skin%',
+      'value->>content.ilike.%Infobox/Greenhouse Skin%',
+    ].join(','))
   if (fetchError) throw new Error('cosmetic_skins fetch: ' + fetchError.message)
   if (!data || data.length === 0) throw new Error('cosmetic_skins: aucune page trouvée')
 
