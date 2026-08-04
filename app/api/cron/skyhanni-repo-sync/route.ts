@@ -323,21 +323,23 @@ async function syncGardenPestRareDrops(): Promise<number> {
 }
 async function syncGardenVisitorRequests(): Promise<number> {
   const data = await fetchJson('Garden.json')
-  const rows: any[] = []
+  const byId = new Map<string, any>()
   for (const [name, info] of Object.entries<any>(data.visitors || {})) {
     let position_x = null, position_y = null, position_z = null
     if (info.position) {
       const p = parsePos(info.position)
       position_x = p.x; position_y = p.y; position_z = p.z
     }
-    rows.push({
-      visitor_name: toVisitorId(name),
-      need_items: info.need_items || [],
-      mode: info.mode || null,
-      position_x, position_y, position_z,
-    })
+    const visitor_name = toVisitorId(name)
+    const existing = byId.get(visitor_name)
+    const need_items = info.need_items || []
+    if (existing) {
+      existing.need_items = Array.from(new Set([...existing.need_items, ...need_items]))
+    } else {
+      byId.set(visitor_name, { visitor_name, need_items, mode: info.mode || null, position_x, position_y, position_z })
+    }
   }
-  return upsertBatched('garden_visitor_requests', rows, 'visitor_name')
+  return upsertBatched('garden_visitor_requests', Array.from(byId.values()), 'visitor_name')
 }
 
 // ============================================================
