@@ -2629,6 +2629,51 @@ async function syncDropChanceTiers(): Promise<number> {
 }
 
 // ============================================================
+// milestone_reward_tiers -- 2 systèmes de paliers jamais capturés, trouvés sur la
+// page overview "Milestones" : déblocage de rareté du Dolphin Pet (kills de Sea
+// Creature) et du Rock Pet (Ores minés), plus les 10 niveaux de l'enchant Expertise
+// (Sea Creatures tués avec la canne enchantée -- compteur distinct du total kills
+// Dolphin). La 3e table de cette page ("Dungeon Milestones -- Actions par classe",
+// Archer/Tank/Healer/Berserk/Mage) est un résumé générique déjà largement dépassé
+// par dungeon_class_milestones (630 lignes, détail réel par floor/classe/palier) --
+// volontairement pas reconstruite ici, pure redite. Vérifié : aucune table
+// existante ne couvrait Dolphin/Rock Pet ni Expertise (grep WIKI-MAPPING.md +
+// information_schema, 0 résultat). 20 lignes transcrites directement depuis le
+// wikitext vérifié, même pattern que DROP_CHANCE_TIERS ci-dessus.
+// ============================================================
+const MILESTONE_REWARD_TIERS: { system: string; tier_label: string; threshold: string | null; unit: string }[] = [
+  { system: 'dolphin_pet', tier_label: 'Common', threshold: '250', unit: 'sea_creature_kills' },
+  { system: 'dolphin_pet', tier_label: 'Uncommon', threshold: '1000', unit: 'sea_creature_kills' },
+  { system: 'dolphin_pet', tier_label: 'Rare', threshold: '2500', unit: 'sea_creature_kills' },
+  { system: 'dolphin_pet', tier_label: 'Epic', threshold: '5000', unit: 'sea_creature_kills' },
+  { system: 'dolphin_pet', tier_label: 'Legendary', threshold: '10000', unit: 'sea_creature_kills' },
+  { system: 'rock_pet', tier_label: 'Common', threshold: '2500', unit: 'ores_mined' },
+  { system: 'rock_pet', tier_label: 'Uncommon', threshold: '7500', unit: 'ores_mined' },
+  { system: 'rock_pet', tier_label: 'Rare', threshold: '20000', unit: 'ores_mined' },
+  { system: 'rock_pet', tier_label: 'Epic', threshold: '100000', unit: 'ores_mined' },
+  { system: 'rock_pet', tier_label: 'Legendary', threshold: '250000', unit: 'ores_mined' },
+  { system: 'expertise_enchant', tier_label: 'I', threshold: null, unit: 'sea_creatures_killed_with_expertise_rod' },
+  { system: 'expertise_enchant', tier_label: 'II', threshold: '50', unit: 'sea_creatures_killed_with_expertise_rod' },
+  { system: 'expertise_enchant', tier_label: 'III', threshold: '100', unit: 'sea_creatures_killed_with_expertise_rod' },
+  { system: 'expertise_enchant', tier_label: 'IV', threshold: '250', unit: 'sea_creatures_killed_with_expertise_rod' },
+  { system: 'expertise_enchant', tier_label: 'V', threshold: '500', unit: 'sea_creatures_killed_with_expertise_rod' },
+  { system: 'expertise_enchant', tier_label: 'VI', threshold: '1000', unit: 'sea_creatures_killed_with_expertise_rod' },
+  { system: 'expertise_enchant', tier_label: 'VII', threshold: '2500', unit: 'sea_creatures_killed_with_expertise_rod' },
+  { system: 'expertise_enchant', tier_label: 'VIII', threshold: '5500', unit: 'sea_creatures_killed_with_expertise_rod' },
+  { system: 'expertise_enchant', tier_label: 'IX', threshold: '10000', unit: 'sea_creatures_killed_with_expertise_rod' },
+  { system: 'expertise_enchant', tier_label: 'X', threshold: '15000', unit: 'sea_creatures_killed_with_expertise_rod' },
+]
+async function syncMilestoneRewardTiers(): Promise<number> {
+  const content = await getWikiContent(supabase, 'milestones')
+  if (!content || !content.includes('Rock Pet') || !content.includes('Expertise')) {
+    throw new Error('milestone_reward_tiers: page source introuvable ou changée (vérifier avant de continuer à upsert des valeurs figées)')
+  }
+  const { error } = await supabase.from('milestone_reward_tiers').upsert(MILESTONE_REWARD_TIERS, { onConflict: 'system,tier_label' })
+  if (error) throw new Error('milestone_reward_tiers upsert: ' + error.message)
+  return MILESTONE_REWARD_TIERS.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
