@@ -1612,6 +1612,10 @@ const SEA_CREATURE_POOL_KEYS: Record<string, string> = {
   hotspot: 'sea_creatures_list_hotspot',
   moonglade_marsh: 'sea_creatures_list_moonglade_marsh',
   special: 'sea_creatures_list_special',
+  // spooky ajouté en screening ultérieur (Spooky Festival, 6 sea creatures) --
+  // pool manquant confirmé par comparaison directe avec la liste de pools
+  // réellement en base avant ajout, pas de doublon.
+  spooky: 'sea_creatures_list_spooky',
 }
 async function syncSeaCreaturePools(): Promise<number> {
   const rows: any[] = []
@@ -4044,6 +4048,62 @@ async function syncCityProjects(): Promise<number> {
 }
 
 // ============================================================
+// hotf_ability_cooldowns -- cooldown/duration par niveau des 3 capacités actives
+// Heart of the Forest (Damage Boost/Axe Toss/Maniac Slicer), jamais mappé.
+// **Vérifié avant de construire que ce n'est pas un doublon** : `hotf_perks`
+// (déjà réel) liste bien ces 3 perks par nom mais avec `cost_formula`/
+// `stat_formula` vides/null -- cette page comble exactement ce trou avec la vraie
+// donnée par niveau (1-5), gardée dans une table séparée plutôt que de modifier le
+// schéma générique `hotf_perks` déjà utilisé par d'autres perks. Nombre de
+// colonnes variable par onglet (Damage Boost/Axe Toss : Level+Cooldown ;
+// Maniac Slicer : +Duration) -- géré en comptant les `!!` de l'en-tête par onglet
+// plutôt que supposé fixe. Vérifié en local (parse_hotfab.js) : 15/15 lignes
+// (3 abilities x 5 niveaux), gère correctement une ligne `|-` finale vide avant
+// le `|}` de Maniac Slicer (filtrée, pas de ligne fantôme).
+// ============================================================
+function cleanHotfAbilityCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+async function syncHotfAbilityCooldowns(): Promise<number> {
+  const content = await getWikiContent(supabase, 'heart_of_the_forest_abilities')
+  const tabRe = /\|-\|([A-Za-z ]+)=/g
+  const tabMatches = [...content.matchAll(tabRe)]
+  if (tabMatches.length === 0) throw new Error('hotf_ability_cooldowns: aucun onglet trouvé')
+  const tabBounds = tabMatches.map((m, i) => ({
+    ability: m[1].trim(),
+    start: m.index!,
+    end: i + 1 < tabMatches.length ? tabMatches[i + 1].index! : content.length,
+  }))
+  const rows: any[] = []
+  for (const tb of tabBounds) {
+    const chunk = content.slice(tb.start, tb.end)
+    const body = extractFirstWikitableBody(chunk)
+    if (!body) continue
+    const rowBlocks = body.split(/\n\|-\n?/).filter(b => b.trim().length > 0)
+    for (const block of rowBlocks) {
+      const lines = block.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('|}'))
+      if (lines.length === 0) continue
+      const cells = lines[0].split('||').map((s) => cleanHotfAbilityCell(s.replace(/^\|/, '')))
+      const level = cells[0] && /^\d+$/.test(cells[0]) ? parseInt(cells[0], 10) : null
+      if (!level) continue
+      rows.push({
+        ability_name: tb.ability,
+        level,
+        cooldown: cells[1] || null,
+        duration: cells[2] || null,
+      })
+    }
+  }
+  if (rows.length === 0) throw new Error('hotf_ability_cooldowns: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('hotf_ability_cooldowns').upsert(rows, { onConflict: 'ability_name,level' })
+  if (error) throw new Error('hotf_ability_cooldowns upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -4110,6 +4170,7 @@ export async function runWikiReferentialSync() {
     critters: syncCritters,
     automated_shipping_hoppers: syncAutomatedShippingHoppers,
     city_projects: syncCityProjects,
+    hotf_ability_cooldowns: syncHotfAbilityCooldowns,
   })) {
     try {
       const rows = await fn()
