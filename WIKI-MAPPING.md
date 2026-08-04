@@ -522,6 +522,38 @@ passe s'étend sur plusieurs sessions) :
   - `arachne_s_burrow` confirmé prose pure (description de sous-zone, liste de mobs
     sans stats, aucune wikitable) — hors périmètre des tables déjà construites,
     pas construit.
+- ✅ **Lot 7 (positions ~2600-2960, checkpoint 16)** — 1 nouveau système réel
+  construit et vérifié en prod, le plus gros de la session :
+  - `museum_items` (**982 lignes**, 8 catégories) — catalogue complet des items
+    donables au Museum, jamais mappé. Distinct de `museum_milestones` (paliers de
+    récompense par XP totale) : ici chaque ITEM individuel avec son XP propre et sa
+    chaîne d'upgrade. 8 pages réelles `Museum/Items/<Combat/Dungeoneering/Farming/
+    Fishing/Foraging/Hunting/Mining/Special>`, dont la plus grosse
+    (`Museum/Items/Special`, 42 534 caractères) n'utilise ni wikitable classique ni
+    aucun des parseurs déjà écrits cette session — chaque ligne est une invocation
+    de template `{{MuseumItemRow|Name|xp=N|upgrade=X|category=Y|notes=Z}}`.
+    **Tokenizer dédié écrit et testé contre des cas réels tirés de la page la plus
+    complexe avant tout code de production** : certains arguments contiennent des
+    templates/liens imbriqués avec leurs propres `|` internes
+    (`image={{animate|A.png;B.png|40px|link=X}}`, `image=[[File:X.png|40px|
+    link=Y]]`) qu'un split naïf sur `|` aurait cassés en plein milieu — le
+    tokenizer ne coupe que les `|` à profondeur 0 (compte `{{`/`[[` et `}}`/`]]`).
+    Le nom d'item est parfois donné en positionnel APRÈS des arguments nommés
+    `link=`/`image=` (override d'affichage, ex: "Secret Bingo Card") — pris comme
+    le DERNIER argument positionnel, qui gère les deux cas.
+    **Bug réel trouvé et corrigé après le premier déploiement, en vérifiant le
+    vrai résultat en prod** (pas seulement le test local) : 58/982 lignes avaient
+    un résidu `br=false|` dans `notes`, causé par des templates à args multiples
+    comme `{{Rank|br=false|MVP++}}` où le nettoyage générique gardait tout le
+    contenu après le 1er `|` au lieu du dernier segment. Corrigé (prend le dernier
+    segment pipe-séparé), redéployé, revérifié : 0/982 résidu après fix.
+  - `block_drop_calculation` (formules Mining/Farming/Foraging drop multiplier) —
+    prose/formules mathématiques pures, aucune table — documenté ici pour un futur
+    calculateur, même statut que les autres formules trouvées cette session
+    (Sea Creature Chance, Dungeon Score), pas construit.
+  - `sea_creatures_list_hotspot` et `treasure_loot_junk` confirmés déjà couverts
+    par `sea_creature_pools` (pool `hotspot`)/`treasure_fishing_loot` (zone
+    `Junk`) respectivement — pas de nouvelle table.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
@@ -534,8 +566,9 @@ construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `ne
 `skyblock_gems_pricing`, `rift_timecharms`, `drop_chance_tiers`, `milestone_reward_tiers`,
 `tree_gift_drops`, `trophy_frogs`, `wormhole_locations`, `mob_type_categories`,
 `trial_of_blue_flames`, `trials_of_fire`, `fossil_chisels`, `mob_modifiers`,
-`griffin_burrows_loot`, `mythological_creatures`, `wormhole_fishing_items`
-— **40 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
+`griffin_burrows_loot`, `mythological_creatures`, `wormhole_fishing_items`,
+`museum_items`
+— **41 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
 source fandom_wiki périmée, ne compte pas).
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
