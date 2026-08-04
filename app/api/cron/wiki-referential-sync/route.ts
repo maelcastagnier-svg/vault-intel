@@ -3721,6 +3721,43 @@ async function syncUpgradeFragments(): Promise<number> {
 }
 
 // ============================================================
+// odger_filleting_rewards -- Magmafish gagné par Trophy Fish filleté chez Odger,
+// jamais mappé (17 poissons trophées, 4 paliers qualité Bronze/Silver/Gold/
+// Diamond). Structure standard rowspan + caption `|+`, réutilise le parseur
+// partagé sans modification (caption absorbée dans le bloc d'en-tête, jamais son
+// propre bloc de ligne). Vérifié en local (parse_odger.js) : 3/3 sur l'échantillon
+// testé, 0 markup résiduel.
+// ============================================================
+function cleanOdgerCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/gi, '')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+async function syncOdgerFilletingRewards(): Promise<number> {
+  const content = await getWikiContent(supabase, 'odger_filleting_rewards')
+  const body = extractFirstWikitableBody(content)
+  if (!body) throw new Error('odger_filleting_rewards: wikitable introuvable')
+  const rows = parseRowspanTable(body, 7)
+    .map(r => ({
+      fish_name: cleanOdgerCell(r[1]),
+      rarity: cleanOdgerCell(r[2]) || null,
+      magmafish_bronze: cleanOdgerCell(r[3]) || null,
+      magmafish_silver: cleanOdgerCell(r[4]) || null,
+      magmafish_gold: cleanOdgerCell(r[5]) || null,
+      magmafish_diamond: cleanOdgerCell(r[6]) || null,
+    }))
+    .filter(r => r.fish_name)
+
+  if (rows.length === 0) throw new Error('odger_filleting_rewards: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('odger_filleting_rewards').upsert(rows, { onConflict: 'fish_name' })
+  if (error) throw new Error('odger_filleting_rewards upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -3780,6 +3817,7 @@ export async function runWikiReferentialSync() {
     museum_items: syncMuseumItems,
     starlyn_prize_shop: syncStarlynPrizeShop,
     upgrade_fragments: syncUpgradeFragments,
+    odger_filleting_rewards: syncOdgerFilletingRewards,
   })) {
     try {
       const rows = await fn()
