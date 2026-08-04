@@ -280,9 +280,50 @@ passe s'étend sur plusieurs sessions) :
   - `frozen_corpses`/`frozen_corpses_lapis`/`_vanguard`/`_umber_and_tungsten` — repérés
     réels (loot du Glacite Mineshaft) mais pas encore lus en détail — reste en liste
     d'attente, pas fermé définitivement.
-- ⏳ **Reste du bucket générique** — **~5700 titres non encore screenés** sur les 6386
+- ✅ **Lot 4 (positions 681-980 par taille, checkpoint 10)** :
+  - **🔴 GROSSE TROUVAILLE — `player_stats` étendue de 16 à 50 stats.** Requête directe
+    sur le contenu caché (`{{Infobox/Stat` littéral) a trouvé 49 pages au format Stat
+    uniforme au total, alors que le Lot 0 n'en avait capturé que 16 (les stats
+    "principales" : Health/Strength/Speed/etc). 31 nouvelles stats jamais mappées
+    ajoutées d'un coup : Wisdom par skill (Runecrafting/Social/Hunting/Alchemy/Combat/
+    Taming/Foraging/Carpentry Wisdom), Fortune par ressource (Fig/Crux/Block/Mangrove/
+    Ore/Foraging/Hunter Fortune), stats Rift (Rift Time/Rift Damage/Hearts/Fear), stats
+    Fishing/Hunting (Double Hook Chance/Pull/Treasure Chance/Trophy Chance/Sweep/Swing
+    Range/Cold/Cold Resistance/Pressure Resistance/Pristine/Mana/Breaking Power/
+    Respiration/True Damage/Overbloom). 2 pages exclues après vérification (`stats`/
+    `damage_calculation` : infobox vide, pages de synthèse sans base_value/max_value
+    réels). Réutilise le parseur déjà éprouvé (`findTemplateEnd`/`extractInfoboxField`,
+    2 bugs déjà corrigés lors du Lot 0) sans aucune modification de logique.
+    **3e bug réel trouvé et corrigé en vérifiant le résultat en prod** : `\s*` juste
+    après le "=" dans `extractInfoboxField` traverse la fin de ligne par défaut en JS
+    (`\s` inclut `\n`) -- un champ VRAIMENT vide (`treasure_chance.max_value`, suivi
+    immédiatement d'un autre champ sans ligne vide entre les deux) capturait le contenu
+    du champ SUIVANT au lieu de rester vide. Corrigé (`[ \t]*` espace horizontal
+    seulement) -- n'affecte aucune des 49 autres stats déjà correctement remplies.
+  - `bits_shop_items` (56 lignes, 8 catégories) — **bug réel trouvé et corrigé en
+    vérifiant le vrai résultat en prod** : 12 lignes au lieu de 56 attendues,
+    `extractFirstWikitableBody` ne prenait que la 1ère des 8 wikitables de la page
+    (Items + Kat Items/Upgrade Components/Sacks/Abiphone/Dyes/Stacking Enchants/
+    Enrichments) — corrigé en itérant toutes les tables, taguées par leur section.
+  - `power_scroll_recipes` (6 gemmes) — recette de craft, format Infobox/Item à onglets
+    numérotés (pas une wikitable), extraction par regex de champ nommé.
+  - `fame_ranks` (24 paliers) — Bits Multiplier/votes d'élection/coût Gems du palier
+    suivant, jamais mappé.
+  - `fairy_souls_list_*` (19 pages) — **vérifié contre `fairy_soul_locations`** (255
+    lignes déjà réelles, coordonnées exactes confirmées identiques) : doublon des
+    coordonnées, mais la page wiki a en plus Location/Description/Walkable — même
+    statut que `attributes_list_*` (enrichissement, pas un gap), mis en queue basse
+    priorité plutôt que construit.
+  - `ender_dragon_drop_tables` confirmé page de maintenance (déjà noté), `trophy_fish`
+    confirmé déjà couvert par `trophy_fish_thresholds` (déjà noté).
+  - **Candidats forts repérés, pas encore lus en détail** : `rod_parts_list` (catalogue
+    Hooks/Lines/Sinkers de canne à pêche), `compost_organic_matter_table` (conversion
+    Composter), `treasure_loot_lotus_atoll` (5e zone de `treasure_fishing_loot`, à
+    ajouter), `mob_types_list_*` (glossaire de catégories de mob), `npc_list_*` (à
+    vérifier contre `npc_locations`), `bosses_list`.
+- ⏳ **Reste du bucket générique** — **~5400 titres non encore screenés** sur les 6386
   actuels (le chiffre total croît légèrement en continu via `wiki-auto-sync`). Les titres
-  déjà screenés (~680, les plus gros par taille) ont produit l'essentiel des systèmes
+  déjà screenés (~980, les plus gros par taille) ont produit l'essentiel des systèmes
   substantiels trouvés à ce jour — statistiquement, la densité de vrais systèmes devrait
   continuer de baisser à mesure que la taille des pages diminue, mais rien n'est supposé
   sans vérification. **Épuisement complet non atteint dans cette session** (volume
