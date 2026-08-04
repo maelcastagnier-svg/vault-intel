@@ -316,11 +316,14 @@ passe s'étend sur plusieurs sessions) :
     priorité plutôt que construit.
   - `ender_dragon_drop_tables` confirmé page de maintenance (déjà noté), `trophy_fish`
     confirmé déjà couvert par `trophy_fish_thresholds` (déjà noté).
-  - **Candidats forts repérés, pas encore lus en détail** : `rod_parts_list` (catalogue
-    Hooks/Lines/Sinkers de canne à pêche), `compost_organic_matter_table` (conversion
-    Composter), `treasure_loot_lotus_atoll` (5e zone de `treasure_fishing_loot`, à
-    ajouter), `mob_types_list_*` (glossaire de catégories de mob), `npc_list_*` (à
-    vérifier contre `npc_locations`), `bosses_list`.
+  - `rod_parts` (18 pièces, Hooks/Lines/Sinkers) — catalogue de canne à pêche jamais
+    capturé, cellules multi-lignes.
+  - `composter_organic_matter` (51 items) — conversion Item → Organic Matter, jamais
+    capturée.
+  - `treasure_fishing_loot` étendue à 5 zones (+ Lotus Atoll, 177 → 205 lignes).
+  - **Candidats forts repérés, pas encore lus en détail** : `mob_types_list_*`
+    (glossaire de catégories de mob), `npc_list_*` (à vérifier contre `npc_locations`),
+    `bosses_list`.
 - ⏳ **Reste du bucket générique** — **~5400 titres non encore screenés** sur les 6386
   actuels (le chiffre total croît légèrement en continu via `wiki-auto-sync`). Les titres
   déjà screenés (~980, les plus gros par taille) ont produit l'essentiel des systèmes
