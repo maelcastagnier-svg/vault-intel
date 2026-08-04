@@ -2256,6 +2256,48 @@ async function syncBitsShopItems(): Promise<number> {
 }
 
 // ============================================================
+// power_scroll_recipes -- Power Scrolls (6 gemmes : Ruby/Sapphire/Jasper/Amethyst/Amber/
+// Opal), recette de craft jamais capturée. Format Infobox/Item à onglets numérotés
+// (`|tab=`/`|tab2=`/.../`|raw_materialsN=`/`|mat_cost_bazaarN=`), pas une wikitable --
+// extraction par regex de champ nommé plutôt que les helpers de table partagés (aucune
+// table concernée ici). Opal (6e onglet) a `item_id`/`raw_materials`/`mat_cost_bazaar`
+// vides côté wiki source lui-même (confirmé en lisant le wikitext brut, pas un bug de
+// parsing) -- capturé à NULL, pas de valeur inventée pour compléter (règle 7). Vérifié
+// en local (parse_powerscrolls.js) : 6/6 items, 5/6 avec recette complète.
+// ============================================================
+function getPowerScrollField(inner: string, idx: string, field: string): string | null {
+  const re = new RegExp('\\|' + field + idx + '\\s*=([\\s\\S]*?)(?=\\n\\s*\\|[a-zA-Z]|\\n\\}\\})')
+  const m = inner.match(re)
+  if (!m) return null
+  const val = (m[1] || '').trim()
+  if (!val) return null
+  return val.split('\n').map(l => l.replace(/^\*/, '').trim()).filter(Boolean).join('; ')
+}
+async function syncPowerScrollRecipes(): Promise<number> {
+  const content = await getWikiContent(supabase, 'power_scrolls')
+  const infoboxStart = content.indexOf('{{Infobox/Item')
+  const infoboxEnd = content.indexOf('\n}}\n', infoboxStart)
+  if (infoboxStart === -1 || infoboxEnd === -1) throw new Error('power_scroll_recipes: Infobox introuvable')
+  const inner = content.slice(infoboxStart, infoboxEnd)
+
+  const tabRe = /\|tab(\d*)\s*=\s*([^\n]+)/g
+  const tabs = [...inner.matchAll(tabRe)].map(m => ({ idx: m[1] || '', name: m[2].trim() }))
+  const rows = tabs
+    .map(t => ({
+      item_name: t.name,
+      item_id: getPowerScrollField(inner, t.idx, 'id'),
+      raw_materials: getPowerScrollField(inner, t.idx, 'raw_materials'),
+      mat_cost_bazaar: getPowerScrollField(inner, t.idx, 'mat_cost_bazaar'),
+    }))
+    .filter(r => r.item_name)
+
+  if (rows.length === 0) throw new Error('power_scroll_recipes: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('power_scroll_recipes').upsert(rows, { onConflict: 'item_name' })
+  if (error) throw new Error('power_scroll_recipes upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -2293,6 +2335,7 @@ export async function runWikiReferentialSync() {
     treasure_fishing_loot: syncTreasureFishingLoot,
     zone_mob_stats: syncZoneMobStats,
     bits_shop_items: syncBitsShopItems,
+    power_scroll_recipes: syncPowerScrollRecipes,
   })) {
     try {
       const rows = await fn()
