@@ -4322,6 +4322,146 @@ async function syncStarUpgrades(): Promise<number> {
 }
 
 // ============================================================
+// cosmetic_skins -- 479 pages "Pet/Helmet/Backpack/Barn/Greenhouse Skin", jamais
+// mappées. Résout au passage la donnée fire sale historique (obtaining_method=
+// 'Fire Sale Obtaining') via la source ACTUELLE (chaque page skin individuelle),
+// contrairement à `fire_sale_events` (page racine vide, 7 sous-pages annuelles
+// toutes cachées sous la source périmée fandom_wiki, jamais construite -- voir
+// WIKI-MAPPING.md checkpoint 22).
+// Scan direct (pas getWikiContent par clé -- des centaines de pages, une seule
+// requête groupée), parseur générique de templates par profondeur d'accolades
+// (buildTemplateExtractor) réutilisable pour tout template `{{Nom|k=v|...}}`.
+function extractTemplateAt(text: string, startIdx: number): { name: string; params: Map<string | number, string>; endIdx: number } | null {
+  if (text.slice(startIdx, startIdx + 2) !== '{{') return null
+  let depth = 0
+  let i = startIdx
+  for (; i < text.length; i++) {
+    if (text.slice(i, i + 2) === '{{') { depth++; i++ }
+    else if (text.slice(i, i + 2) === '}}') { depth--; if (depth === 0) { i += 2; break } else { i++ } }
+  }
+  const raw = text.slice(startIdx + 2, i - 2)
+  const parts: string[] = []
+  let d2 = 0
+  let cur = ''
+  for (let j = 0; j < raw.length; j++) {
+    const two = raw.slice(j, j + 2)
+    if (two === '{{' || two === '[[') { d2++; cur += raw[j]; continue }
+    if (two === '}}' || two === ']]') { d2--; cur += raw[j]; continue }
+    if (raw[j] === '|' && d2 === 0) { parts.push(cur); cur = ''; continue }
+    cur += raw[j]
+  }
+  parts.push(cur)
+  const name = parts[0].trim()
+  const params = new Map<string | number, string>()
+  let posIdx = 1
+  for (let k = 1; k < parts.length; k++) {
+    const p = parts[k]
+    const eq = p.indexOf('=')
+    if (eq !== -1 && /^[A-Za-z0-9_ ]+$/.test(p.slice(0, eq).trim())) {
+      params.set(p.slice(0, eq).trim(), p.slice(eq + 1).trim())
+    } else {
+      params.set(posIdx, p.trim())
+      posIdx++
+    }
+  }
+  return { name, params, endIdx: i }
+}
+function findTemplateNear(text: string, nameRegex: RegExp, sectionMarker: string): ReturnType<typeof extractTemplateAt> {
+  const sectionIdx = text.indexOf(sectionMarker)
+  if (sectionIdx === -1) return null
+  const braceIdx = text.indexOf('{{', sectionIdx)
+  if (braceIdx === -1 || braceIdx > sectionIdx + 300) return null
+  const t = extractTemplateAt(text, braceIdx)
+  if (t && nameRegex.test(t.name)) return t
+  return t // renvoyé même si le nom ne matche pas -- utilisé pour Obtaining générique
+}
+function parseIntOrNull(v: string | undefined | null): number | null {
+  if (!v) return null
+  const cleaned = v.replace(/,/g, '').trim()
+  return /^\d+$/.test(cleaned) ? parseInt(cleaned, 10) : null
+}
+async function syncCosmeticSkins(): Promise<number> {
+  const { data, error: fetchError } = await supabase
+    .from('game_mechanics_misc')
+    .select('key, value')
+    .eq('category', 'game_wiki')
+    .like('key', '%_skin')
+    .eq('value->>source', 'hypixelskyblock_wiki')
+  if (fetchError) throw new Error('cosmetic_skins fetch: ' + fetchError.message)
+  if (!data || data.length === 0) throw new Error('cosmetic_skins: aucune page trouvée')
+
+  const rows: any[] = []
+  for (const row of data) {
+    const content = (row.value as any)?.content as string | undefined
+    if (!content) continue
+    const infobox = (() => {
+      const re = /\{\{Infobox\/(Pet|Helmet|Backpack|Barn|Greenhouse) Skin/
+      const m = re.exec(content)
+      if (!m) return null
+      return extractTemplateAt(content, m.index)
+    })()
+    if (!infobox) continue // pages "X Skin" hors-scope (item craftable nommé "Skin", pas un cosmétique)
+
+    const titleMatch = content.match(/'''(.+?)'''/)
+    const skinName = titleMatch ? titleMatch[1] : row.key
+
+    const obtaining = findTemplateNear(content, /./, '== Obtaining ==')
+    let obtainingMethod: string | null = null
+    let obtainingDate: string | null = null
+    let gemsCost: number | null = null
+    let silverCost: number | null = null
+    let stock: number | null = null
+    let obtainingNotes: string | null = null
+    if (obtaining) {
+      obtainingMethod = obtaining.name
+      const p = obtaining.params
+      if (obtaining.name === 'Fire Sale Obtaining') {
+        obtainingDate = p.get('date') as string || null
+        gemsCost = parseIntOrNull(p.get('gems_cost') as string)
+        stock = parseIntOrNull(p.get('stock') as string)
+      } else if (obtaining.name === 'Seasonal Bundle Obtaining') {
+        obtainingDate = [p.get('bundle_season'), p.get('bundle_year')].filter(Boolean).join(' ') || null
+        gemsCost = parseIntOrNull(p.get('gems_cost') as string)
+      } else if (obtaining.name === 'Event Shop Obtaining') {
+        obtainingDate = [p.get('event_name'), p.get('event_year')].filter(Boolean).join(' ') || null
+        silverCost = parseIntOrNull(p.get('event_silver_cost') as string)
+        gemsCost = parseIntOrNull(p.get('event_gems_cost') as string)
+      } else if (obtaining.name === "Taylor's Collection Obtaining") {
+        gemsCost = parseIntOrNull(p.get('gems_cost') as string)
+      } else if (obtaining.name === 'Cosmetic Miscellaneous Source') {
+        obtainingNotes = (p.get(1) as string) || null
+      } else {
+        obtainingNotes = [...p.values()].join(' | ') || null
+      }
+    }
+
+    const usage = findTemplateNear(content, /./, '== Usage ==')
+    const appliedTo = (usage?.params.get('applied') as string) || null
+    const animated = ((usage?.params.get('animated') as string) || '').trim().toLowerCase() === 'yes'
+
+    rows.push({
+      skin_key: row.key,
+      skin_name: skinName,
+      skin_type: infobox.name.replace('Infobox/', ''),
+      rarity: (infobox.params.get('rarity') as string) || null,
+      item_id: (infobox.params.get('id') as string) || null,
+      applied_to: appliedTo,
+      animated,
+      obtaining_method: obtainingMethod,
+      obtaining_date: obtainingDate,
+      gems_cost: gemsCost,
+      silver_cost: silverCost,
+      stock,
+      obtaining_notes: obtainingNotes,
+    })
+  }
+  if (rows.length === 0) throw new Error('cosmetic_skins: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('cosmetic_skins').upsert(rows, { onConflict: 'skin_key' })
+  if (error) throw new Error('cosmetic_skins upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -4392,6 +4532,7 @@ export async function runWikiReferentialSync() {
     library_npc_shop: syncLibraryNpcShop,
     advent_calendar_rewards: syncAdventCalendarRewards,
     star_upgrades: syncStarUpgrades,
+    cosmetic_skins: syncCosmeticSkins,
   })) {
     try {
       const rows = await fn()
