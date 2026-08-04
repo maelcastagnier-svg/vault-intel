@@ -514,6 +514,14 @@ passe s'étend sur plusieurs sessions) :
     `sack_contents` existants, pas construit.
   - `mythological_creatures` revérifié en prod : **42 lignes réelles** (2+4+6+8+10+12,
     progression exacte attendue par palier de rareté).
+  - `wormhole_fishing_items` revérifié en prod : 4/4 lignes.
+  - `minibosses_list` confirmé doublon complet : les 5 mini-boss (Brood Mother,
+    Barbarian Duke X, Mage Outlaw, Ashfang, Bladesoul) déjà tous présents dans
+    `zone_mob_stats` (Spider's Den/Crimson Isle), y compris leurs vrais drops —
+    pas de nouvelle table.
+  - `arachne_s_burrow` confirmé prose pure (description de sous-zone, liste de mobs
+    sans stats, aucune wikitable) — hors périmètre des tables déjà construites,
+    pas construit.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
@@ -527,7 +535,7 @@ construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `ne
 `tree_gift_drops`, `trophy_frogs`, `wormhole_locations`, `mob_type_categories`,
 `trial_of_blue_flames`, `trials_of_fire`, `fossil_chisels`, `mob_modifiers`,
 `griffin_burrows_loot`, `mythological_creatures`, `wormhole_fishing_items`
-— **37 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
+— **40 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
 source fandom_wiki périmée, ne compte pas).
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
