@@ -3961,6 +3961,89 @@ async function syncAutomatedShippingHoppers(): Promise<number> {
 }
 
 // ============================================================
+// city_project_contributions / city_project_bonuses -- 11 City Projects réels
+// (Community Center, Elizabeth), jamais mappés. Complète directement
+// `npc_discounts` (déjà réel) qui référençait "Making 4/8/16 contributions" sans
+// jamais donner le coût matériel réel par palier -- ces 2 tables donnent le coût
+// exact (matériaux + fame) de chaque composant et le palier de contribution
+// (nombre, pas coût) qui débloque chaque bonus. 2 wikitables réelles par page
+// (Contributions: Title/Materials/Fame ; Bonuses: Contributions/Bonus), structure
+// identique au pattern `fossil_chisels` (2 tables sur la même page, 2e table
+// extraite depuis le reste du texte après la fermeture de la 1re). Vérifié en
+// local (parse_cityproj.js) : 4+4 lignes sur l'échantillon Bartender's Brewery
+// testé, 0 markup résiduel.
+// ============================================================
+const CITY_PROJECT_PAGES: { project: string; wikiKey: string }[] = [
+  { project: "Artist's Abode", wikiKey: 'city_projects_artist_s_abode' },
+  { project: "Bartender's Brewery", wikiKey: 'city_projects_bartender_s_brewery' },
+  { project: 'Blacksmith Workspace', wikiKey: 'city_projects_blacksmith_workspace' },
+  { project: "Builder's House", wikiKey: 'city_projects_builder_s_house' },
+  { project: 'Community Center Refurbishment', wikiKey: 'city_projects_community_center_refurbishment' },
+  { project: "Farm Merchant's Dwelling", wikiKey: 'city_projects_farm_merchant_s_dwelling' },
+  { project: 'Fishing Outpost', wikiKey: 'city_projects_fishing_outpost' },
+  { project: 'Hub Revamp', wikiKey: 'city_projects_hub_revamp' },
+  { project: 'Pet Care Expansion', wikiKey: 'city_projects_pet_care_expansion' },
+  { project: 'Repair Wizard Portal', wikiKey: 'city_projects_repair_wizard_portal' },
+  { project: 'Weaponsmith Workshop', wikiKey: 'city_projects_weaponsmith_workshop' },
+]
+function cleanCityProjectCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{RL\|([^{}]*)\}\}/gi, (_m, inner) => inner.split('|').join('; '))
+  s = s.replace(/\{\{NPCSprite\|([^{}|;]*)[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{MobSprite\|([^{}|;]*)[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+async function syncCityProjects(): Promise<number> {
+  const contributionRows: any[] = []
+  const bonusRows: any[] = []
+  for (const { project, wikiKey } of CITY_PROJECT_PAGES) {
+    const content = await getWikiContent(supabase, wikiKey)
+    const firstTableStart = content.indexOf('{|')
+    const firstTableEnd = content.indexOf('|}', firstTableStart)
+    if (firstTableStart === -1 || firstTableEnd === -1) continue
+    const body1 = extractFirstWikitableBody(content)
+    if (body1) {
+      for (const r of parseRowspanTable(body1, 3)) {
+        const title = cleanCityProjectCell(r[0])
+        if (!title) continue
+        const fameRaw = cleanCityProjectCell(r[2]).replace(/,/g, '')
+        contributionRows.push({
+          project,
+          title,
+          materials: cleanCityProjectCell(r[1]) || null,
+          fame: fameRaw && /^\d+$/.test(fameRaw) ? parseInt(fameRaw, 10) : null,
+        })
+      }
+    }
+    const body2 = extractFirstWikitableBody(content.slice(firstTableEnd + 2))
+    if (body2) {
+      for (const r of parseRowspanTable(body2, 2)) {
+        const contributionsRequired = cleanCityProjectCell(r[0])
+        if (!contributionsRequired) continue
+        bonusRows.push({
+          project,
+          contributions_required: contributionsRequired,
+          bonus: cleanCityProjectCell(r[1]) || null,
+        })
+      }
+    }
+  }
+  if (contributionRows.length === 0) throw new Error('city_project_contributions: 0 lignes extraites, parsing probablement cassé')
+  const { error: err1 } = await supabase.from('city_project_contributions').upsert(contributionRows, { onConflict: 'project,title' })
+  if (err1) throw new Error('city_project_contributions upsert: ' + err1.message)
+  if (bonusRows.length > 0) {
+    const { error: err2 } = await supabase.from('city_project_bonuses').upsert(bonusRows, { onConflict: 'project,contributions_required,bonus' })
+    if (err2) throw new Error('city_project_bonuses upsert: ' + err2.message)
+  }
+  return contributionRows.length + bonusRows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -4026,6 +4109,7 @@ export async function runWikiReferentialSync() {
     reforging_prices: syncReforgingPrices,
     critters: syncCritters,
     automated_shipping_hoppers: syncAutomatedShippingHoppers,
+    city_projects: syncCityProjects,
   })) {
     try {
       const rows = await fn()
