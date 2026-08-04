@@ -3457,6 +3457,47 @@ async function syncMythologicalCreatures(): Promise<number> {
 }
 
 // ============================================================
+// wormhole_fishing_items -- bonus des 4 items Froggles (Silver/Golden/Diamond +
+// Geometric Oddity) en pêchant dans un Wormhole (Lotus Atoll), jamais mappé.
+// Connecté à trophy_frogs/wormhole_locations déjà réels (même minigame). Vérifié
+// en local (parse_froggles.js) : 4/4 lignes, 0 markup résiduel.
+// ============================================================
+function cleanWormholeFishingCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/gi, '')
+  s = s.replace(/\{\{Stat\|tfc\|([^{}]*)\}\}/gi, 'Treasure Fishing Chance $1')
+  s = s.replace(/\{\{Green\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Gold\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Aqua\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/<br\s*\/?>/gi, '; ')
+  s = s.replace(/\n/g, ' ')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+async function syncWormholeFishingItems(): Promise<number> {
+  const content = await getWikiContent(supabase, 'wormhole')
+  const body = extractFirstWikitableBody(content)
+  if (!body) throw new Error('wormhole_fishing_items: wikitable introuvable')
+  const rowBlocks = body.split(/\n\|-\n?/).filter(b => b.trim().length > 0)
+  const rows: any[] = []
+  for (const block of rowBlocks) {
+    const lines = block.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('|}'))
+    if (lines.length < 3) continue
+    const item = cleanWormholeFishingCell(lines[1].replace(/^\|/, ''))
+    if (!item) continue
+    rows.push({ item, effect: cleanWormholeFishingCell(lines[2].replace(/^\|/, '')) || null })
+  }
+  if (rows.length === 0) throw new Error('wormhole_fishing_items: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('wormhole_fishing_items').upsert(rows, { onConflict: 'item' })
+  if (error) throw new Error('wormhole_fishing_items upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -3512,6 +3553,7 @@ export async function runWikiReferentialSync() {
     mob_modifiers: syncMobModifiers,
     griffin_burrows_loot: syncGriffinBurrowsLoot,
     mythological_creatures: syncMythologicalCreatures,
+    wormhole_fishing_items: syncWormholeFishingItems,
   })) {
     try {
       const rows = await fn()
