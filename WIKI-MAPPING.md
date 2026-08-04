@@ -651,6 +651,25 @@ passe s'étend sur plusieurs sessions) :
     trouvée sous ces 2 noms — non construites, à reprendre si une vraie source
     actuelle est identifiée. Revérifié en prod : 90/90 (62 après spooky seul,
     +28 pour les 5 pools restants).
+- ⏳ **Lot 12 (positions ~4560-5060, checkpoint 21)** — passe entièrement négative
+  (0 nouveau système), candidats vérifiés puis écartés :
+  - `npc_list` confirmé être exactement le système `NPC/List/<Zone>` déjà
+    diagnostiqué en détail dans CLAUDE.md (Bucket/HTML généré côté serveur, aucune
+    wikitable dans le wikitext, `discovery_queue` #25) — reconfirmé, toujours pas
+    construit.
+  - `advent_calendar_rewards` (25 jours, cadeaux/coins/cosmétiques) confirmé réel
+    mais majoritairement cosmétique et verrouillé par rang Hypixel payant (VIP/
+    MVP/MVP+, pas par progression de jeu), montants en coins négligeables
+    (10-50k), et une seule année (2022) documentée côté wiki — même statut que
+    `calendar.json` déjà exclu du côté NEU-REPO ("annonces périmées") — pas
+    construit.
+  - Le reste du lot (~100 titres passés en revue) : uniquement des doublons déjà
+    classés (`sea_creatures_list_lotus`/`torrhus_canyon`/`bayou` déjà couverts par
+    l'extension du lot précédent) ou des items/cosmétiques individuels sans
+    mécanique de jeu réelle. Densité de nouveaux systèmes tombée à zéro sur ce
+    lot — cohérent avec la taille de page qui est passée sous ~1000 caractères
+    (contre ~2000+ caractères en moyenne pour les lots précédents), signe que la
+    zone à forte densité de vrais systèmes touche à sa fin.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
