@@ -4301,11 +4301,15 @@ async function syncStarUpgrades(): Promise<number> {
   const rowBlocks = blocks.slice(dataStart).filter(b => b.trim().length > 0)
   const rows: any[] = []
   for (const block of rowBlocks) {
-    const lines = block.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('|}'))
+    // les lignes de continuation (sans '|' initial, ex: notes Crimson Essence/Kuudra
+    // sur la ligne 11-15 stars) appartiennent à la dernière cellule, pas ignorées.
+    const lines = block.split('\n').filter(l => !l.trim().startsWith('|}'))
     if (lines.length === 0) continue
-    const joined = lines.join('\n')
-    const cells = joined.replace(/^\|/, '').split('||')
+    const firstLine = lines[0].replace(/^\|/, '')
+    const cells = firstLine.split('||')
     if (cells.length < 2) continue
+    const continuation = lines.slice(1).join('\n').trim()
+    if (continuation) cells[cells.length - 1] += '\n' + continuation
     const star = cleanStarUpgradeCell(cells[0])
     const condition = cleanStarUpgradeCell(cells.slice(1).join('||'))
     if (!star || !condition) continue
