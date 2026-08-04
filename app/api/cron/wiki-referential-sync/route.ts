@@ -3039,6 +3039,52 @@ async function syncTrialOfBlueFlames(): Promise<number> {
 }
 
 // ============================================================
+// ship_parts -- système de progression du bateau (Captain Baha, Backwater Bayou/
+// Fishing Outpost), jamais mappé. 2 paliers réels (`Rusty`/`Bronze`, <tabber>),
+// 3 slots chacun (Helm/Engine/Hull) -- seuls 2 tiers documentés côté wiki à ce jour,
+// pas plus inventés. Cellule Slot avec tooltip riche (`{{Slot|X|title=...|text=...}}`)
+// volontairement pas capturée (décorative, le nom réel est déjà propre en colonne
+// Name) -- seuls part_name/obtainment retenus. Vérifié en local
+// (parse_shipparts.js) : 6/6 lignes, 0 markup résiduel.
+// ============================================================
+function cleanShipPartCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{RD\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{ID\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{NPCSprite\|([^{}|;]*)[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{Zone\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/'''/g, '')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+async function syncShipParts(): Promise<number> {
+  const content = await getWikiContent(supabase, 'ship_parts')
+  const tabRe = /\|-\|([A-Za-z]+)=/g
+  const tabMatches = [...content.matchAll(tabRe)]
+  if (tabMatches.length === 0) throw new Error('ship_parts: aucun onglet trouvé')
+  const tabBounds = tabMatches.map((m, i) => ({
+    name: m[1],
+    start: m.index!,
+    end: i + 1 < tabMatches.length ? tabMatches[i + 1].index! : content.length,
+  }))
+  const rows: any[] = []
+  for (const tb of tabBounds) {
+    const chunk = content.slice(tb.start, tb.end)
+    const body = extractFirstWikitableBody(chunk)
+    if (!body) continue
+    for (const r of parseRowspanTable(body, 3)) {
+      const name = cleanShipPartCell(r[1])
+      if (!name) continue
+      rows.push({ tier: tb.name, part_name: name, obtainment: cleanShipPartCell(r[2]) || null })
+    }
+  }
+  if (rows.length === 0) throw new Error('ship_parts: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('ship_parts').upsert(rows, { onConflict: 'part_name' })
+  if (error) throw new Error('ship_parts upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -3089,6 +3135,7 @@ export async function runWikiReferentialSync() {
     wormhole_locations: syncWormholeLocations,
     mob_type_categories: syncMobTypeCategories,
     trial_of_blue_flames: syncTrialOfBlueFlames,
+    ship_parts: syncShipParts,
   })) {
     try {
       const rows = await fn()
