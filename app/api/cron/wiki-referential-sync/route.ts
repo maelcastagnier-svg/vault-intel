@@ -2925,6 +2925,120 @@ async function syncMobTypeCategories(): Promise<number> {
 }
 
 // ============================================================
+// trial_of_blue_flames -- système Rift jamais mappé (Soul Campfire, 30 trials
+// I-XXX, DPS/dégâts totaux requis + récompense badge par rareté avec bonus Fire/
+// Permanent). Table à rowspan ET colspan combinés (la ligne "I" a une seule cellule
+// `colspan=4` vide pour tout le groupe Reward, les autres lignes ont des rowspan
+// variables sur Name/Rarity/Fire boost/Permanent boost groupés par badge) --
+// **parseur dédié, pas le `parseRowspanTable` partagé** : plusieurs séparateurs de
+// ligne sont `|- class="oddrow"` (pas un `|-` nu), que le split partagé
+// (`\n\|-\n?`, wiki-table-parse.ts) ne reconnaît pas comme séparateur -- aurait fusionné
+// ces lignes avec la précédente. Vérifié en local (parse_blueflames.js) : 30/30
+// lignes, 0 markup résiduel.
+// ============================================================
+function extractBlueFlamesTableBody(text: string): string | null {
+  const tableStart = text.indexOf('{|')
+  const tableEnd = text.indexOf('|}', tableStart)
+  if (tableStart === -1 || tableEnd === -1) return null
+  const table = text.slice(tableStart, tableEnd)
+  const blocks = table.split(/\n\|-[^\n]*\n?/)
+  const dataStart = blocks.findIndex(b => b.trim().startsWith('|') && !b.trim().startsWith('!'))
+  if (dataStart === -1) return null
+  return blocks.slice(dataStart).join('\n|-\n')
+}
+function splitBlueFlamesCellLines(block: string): string[] {
+  const lines = block.split('\n')
+  const cells: string[] = []
+  let current: string | null = null
+  for (const line of lines) {
+    if (/^\|\}/.test(line)) continue
+    if (/^\|(?!-)/.test(line)) { if (current !== null) cells.push(current); current = line }
+    else if (current !== null) current += '\n' + line
+  }
+  if (current !== null) cells.push(current)
+  return cells
+}
+function parseBlueFlamesCellAttrs(line: string): { value: string; rowspan: number; colspan: number } {
+  let s = line.replace(/^\|/, '')
+  let rowspan = 1, colspan = 1
+  const firstPipe = s.indexOf('|')
+  if (firstPipe !== -1 && /rowspan\s*=|class\s*=|colspan\s*=|style\s*=|data-sort/.test(s.slice(0, firstPipe))) {
+    const attrs = s.slice(0, firstPipe)
+    s = s.slice(firstPipe + 1)
+    const rs = attrs.match(/rowspan\s*=\s*"?(\d+)"?/)
+    const cs = attrs.match(/colspan\s*=\s*"?(\d+)"?/)
+    if (rs) rowspan = parseInt(rs[1], 10)
+    if (cs) colspan = parseInt(cs[1], 10)
+  }
+  return { value: s.trim(), rowspan, colspan }
+}
+function cleanBlueFlamesCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{bc\}\}/gi, '')
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/gi, '')
+  s = s.replace(/\{\{def\|([^{}]*)\}\}/gi, 'DEF +$1')
+  s = s.replace(/\{\{stat\|mending\|([^{}]*)\}\}/gi, 'Mending +$1')
+  s = s.replace(/\{\{stat\|damage\}\}/gi, 'Damage')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/<br\s*\/?>/gi, ' ')
+  s = s.replace(/\n/g, ' ')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+async function syncTrialOfBlueFlames(): Promise<number> {
+  const content = await getWikiContent(supabase, 'trial_of_blue_flames_list')
+  const body = extractBlueFlamesTableBody(content)
+  if (!body) throw new Error('trial_of_blue_flames: wikitable introuvable')
+  const numCols = 7
+  const rowBlocks = body.split(/\n\|-[^\n]*\n?/).filter(b => b.trim().length > 0)
+  const active: ({ value: string; remaining: number } | null)[] = new Array(numCols).fill(null)
+  const rows: any[] = []
+  for (const block of rowBlocks) {
+    const lines = splitBlueFlamesCellLines(block)
+    let cellIdx = 0
+    const resolved = new Array(numCols).fill('')
+    let col = 0
+    while (col < numCols) {
+      const a = active[col]
+      if (a && a.remaining > 0) {
+        resolved[col] = a.value
+        a.remaining -= 1
+        if (a.remaining === 0) active[col] = null
+        col += 1
+        continue
+      }
+      const raw = lines[cellIdx]; cellIdx += 1
+      if (raw === undefined) { col += 1; continue }
+      const { value, rowspan, colspan } = parseBlueFlamesCellAttrs(raw)
+      for (let k = 0; k < colspan; k++) {
+        if (col + k >= numCols) break
+        resolved[col + k] = value
+        if (rowspan > 1) active[col + k] = { value, remaining: rowspan - 1 }
+      }
+      col += colspan
+    }
+    const trial = cleanBlueFlamesCell(resolved[0])
+    if (!trial) continue
+    rows.push({
+      trial,
+      dps: cleanBlueFlamesCell(resolved[1]) || null,
+      total_damage: cleanBlueFlamesCell(resolved[2]) || null,
+      reward_name: cleanBlueFlamesCell(resolved[3]) || null,
+      reward_rarity: cleanBlueFlamesCell(resolved[4]) || null,
+      fire_boost: cleanBlueFlamesCell(resolved[5]) || null,
+      permanent_boost: cleanBlueFlamesCell(resolved[6]) || null,
+    })
+  }
+  if (rows.length === 0) throw new Error('trial_of_blue_flames: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('trial_of_blue_flames').upsert(rows, { onConflict: 'trial' })
+  if (error) throw new Error('trial_of_blue_flames upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -2974,6 +3088,7 @@ export async function runWikiReferentialSync() {
     trophy_frogs: syncTrophyFrogs,
     wormhole_locations: syncWormholeLocations,
     mob_type_categories: syncMobTypeCategories,
+    trial_of_blue_flames: syncTrialOfBlueFlames,
   })) {
     try {
       const rows = await fn()
