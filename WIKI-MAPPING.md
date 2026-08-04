@@ -503,6 +503,17 @@ passe s'étend sur plusieurs sessions) :
     documente aussi une table de longueur de chaîne par spade (Ancestral=4,
     Archaic=6, Deific=8/10 avec Erudite) — qualitative/déjà déductible des 75%/25%
     documentés en prose, pas construite séparément.
+  - `wormhole_fishing_items` (4 lignes) — bonus des items Froggles (Silver/Golden/
+    Diamond + Geometric Oddity) en pêchant dans un Wormhole (Lotus Atoll), jamais
+    mappé — connecté à `trophy_frogs`/`wormhole_locations` déjà réels (même
+    minigame), trouvé en explorant la page racine `Wormhole` (singulier, distincte
+    de `Wormhole/Locations` déjà construite).
+  - `crystal_hollows_sack_ui` confirmé être un mockup UI générique (template
+    `{{UI|...}}`, capacité "0/20k" placeholder identique sur chaque case, aucune
+    vraie donnée par item) — liste de noms déjà couverte par `sack_tiers`/
+    `sack_contents` existants, pas construit.
+  - `mythological_creatures` revérifié en prod : **42 lignes réelles** (2+4+6+8+10+12,
+    progression exacte attendue par palier de rareté).
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
@@ -514,8 +525,9 @@ construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `ne
 `power_scroll_recipes`, `fame_ranks`, `rod_parts`, `composter_organic_matter`,
 `skyblock_gems_pricing`, `rift_timecharms`, `drop_chance_tiers`, `milestone_reward_tiers`,
 `tree_gift_drops`, `trophy_frogs`, `wormhole_locations`, `mob_type_categories`,
-`trial_of_blue_flames`, `trials_of_fire`
-— **32 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
+`trial_of_blue_flames`, `trials_of_fire`, `fossil_chisels`, `mob_modifiers`,
+`griffin_burrows_loot`, `mythological_creatures`, `wormhole_fishing_items`
+— **37 systèmes réels au total cette session** (`ship_parts` tenté puis reverté,
 source fandom_wiki périmée, ne compte pas).
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
