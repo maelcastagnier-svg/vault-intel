@@ -425,6 +425,28 @@ passe s'étend sur plusieurs sessions) :
   - `stranded_trophy_fish` confirmé être un gamemode séparé ("Stranded", distinct du
     SkyBlock principal — la page le dit explicitement : "different on Stranded than
     it is in other gamemodes") — hors du périmètre économique de Vault, pas construit.
+- ✅ **Lot 5 (suite, checkpoint 14)** — 2 nouveaux systèmes réels construits et
+  vérifiés en prod :
+  - `trial_of_blue_flames` (30 lignes) — système Rift "Soul Campfire", jamais mappé.
+    30 trials (I-XXX), DPS/dégâts totaux requis + récompense badge par rareté (bonus
+    Fire/Permanent). **Parseur dédié écrit plutôt que le `parseRowspanTable` partagé**
+    — la table combine rowspan ET colspan (ligne "I" a une seule cellule `colspan=4`
+    vide pour tout le groupe Reward), et plusieurs séparateurs de ligne sont
+    `|- class="oddrow"` (pas un `|-` nu) que le split partagé (`\n\|-\n?`,
+    `wiki-table-parse.ts`) ne reconnaît pas — aurait fusionné ces lignes avec la
+    précédente. Vérifié en local avant tout code partagé : 30/30 lignes, 0 markup
+    résiduel, revérifié 30/30 en prod.
+  - `ship_parts` (6 pièces, 2 paliers) — progression du bateau (Captain Baha,
+    Backwater Bayou/Fishing Outpost), jamais mappée. Seuls 2 tiers réels documentés
+    côté wiki (`Rusty`/`Bronze`, 3 slots Helm/Engine/Hull chacun) — pas plus inventés
+    même si un système à paliers suggère souvent plus de tiers.
+  - `power_stones` reconfirmé verrouillé (donnée réelle dans un module Lua
+    transclus, `{{/List of Power Stones}}`, même diagnostic qu'au checkpoint 10 pour
+    `power_stones_list_of_power_stones`) — pas construit.
+  - `star_upgrades` évalué : une seule petite table (4 lignes) mais très qualitative
+    (légende visuelle symbole★→condition, ex: "First through Fifth Master Stars"),
+    pas un jeu de seuils numériques actionnable comme `drop_chance_tiers`/
+    `milestone_reward_tiers` — valeur marginale, pas construit.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
