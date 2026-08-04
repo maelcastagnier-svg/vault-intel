@@ -849,6 +849,37 @@ passe s'étend sur plusieurs sessions) :
     tâches, 0 résidu de template/lien, 0 XP null), revérifié en prod après
     déploiement avec les 7 paliers réels : 179/179 lignes, 0 résidu, 0 XP null.
 
+- ✅ **Checkpoint 26 — corpus wiki entièrement parcouru une première fois (positions
+  ~5060 à 6393, fin de la liste triée par taille)**. Dernier lot (~6150-6393, le bas
+  du corpus) passé en revue : quasi exclusivement des pages de dialogue NPC
+  individuelles (`X_ui`), des stubs de widget UI par collection (`X_collection_ui`),
+  des instances de perk de mayor par année (`candidate_jerry_perkpocalypse_year_
+  XXX`) — aucune donnée structurée nouvelle. Vérifié explicitement `mob_list`/
+  `mobs_list` (page de transclusion vers `Mobs/List/<Zone>`, 7 zones) contre
+  `zone_mob_stats` déjà réel : les 7 zones (Hub/Park/Spider's Den/End/Crimson Isle/
+  Barn/Caverns) y sont déjà toutes présentes, plus 2 zones supplémentaires
+  (Crystal Hollows, Dwarven Mines) jamais listées dans cette page — confirmation
+  que `zone_mob_stats` est déjà plus complet que cette transclusion, rien à ajouter.
+
+  **Le corpus `game_mechanics_misc`/`game_wiki` compte 6395 pages au moment de la
+  clôture de ce passage (6393 en début de session — `wiki-auto-sync` continue de
+  découvrir de nouvelles pages en tâche de fond toutes les 30 min, cible mouvante
+  par nature)**. Sous le critère élargi de ce jour (source actuelle + non-doublon +
+  vraie structure parseable + source pas explicitement WIP — plus aucun filtre sur
+  la valeur perçue), la zone de forte densité de systèmes réels jamais mappés s'est
+  révélée épuisée entre les positions ~5160 et ~5900 (`cosmetic_skins`,
+  `fairy_soul_locations` +19, `skyblock_guide_tasks`) ; au-delà de ~5900 (contenu
+  sous ~600 caractères), 100% du contenu passé en revue est soit déjà couvert par
+  une table existante, soit structurellement non-tabulaire (pages de dialogue NPC,
+  stubs UI, descriptions d'objet individuelles, disambiguations). **Reste ouvert,
+  documenté explicitement ci-dessus, pas fermé par choix** : l'enrichissement
+  `location_details` (296 pages `Infobox/Location`, checkpoint précédent) et
+  `npc_locations`/`dungeon_classes` déjà documentés ailleurs dans CLAUDE.md.
+  Prochaine étape naturelle : soit reprendre l'enrichissement `location_details`
+  différé, soit laisser `wiki-auto-sync` continuer à alimenter le corpus et
+  revérifier périodiquement les nouvelles pages via `discovery_queue`/
+  `game_mechanics_misc.created_at` (déjà câblé par `discovery-scan`, voir Volet 2).
+
 **Bilan de cette session (3-4 août, méthode corrigée)** : nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
 `skyblock_level_xp_tasks`, `museum_milestones`, `crop_fortune_sources`,
