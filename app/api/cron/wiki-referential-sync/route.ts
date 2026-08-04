@@ -2350,6 +2350,56 @@ async function syncPowerScrollRecipes(): Promise<number> {
 }
 
 // ============================================================
+// fame_ranks -- Fame Ranks (24 paliers), système économique jamais mappé (Bits
+// Multiplier, votes d'élection, coût en Gems du palier suivant). "Coins per Bit to
+// break even" volontairement PAS capturé : formule live ({{#expr:...}}/{{BazaarData|...}})
+// calculée au rendu, pas une valeur statique (même raison que bits_shop_items/Item
+// Worth). Wikitable simple, 10 colonnes, 0 rowspan. Vérifié en local
+// (parse_famerank.js) : 24/24 lignes, 0 markup résiduel.
+// ============================================================
+function cleanFameRankCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{bc\}\}/gi, '')
+  s = s.replace(/\{\{Blank cell\}\}/gi, '')
+  s = s.replace(/\{\{Bits\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Gems\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{aqua\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  return s.trim()
+}
+async function syncFameRanks(): Promise<number> {
+  const content = await getWikiContent(supabase, 'fame_ranks_table')
+  const body = extractFirstWikitableBody(content)
+  if (!body) throw new Error('fame_ranks: wikitable introuvable')
+  const rowBlocks = body.split(/\n\|-\n?/).filter(b => b.trim().length > 0)
+  const rows: any[] = []
+  for (const block of rowBlocks) {
+    const lines = block.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('|}'))
+    if (lines.length < 10) continue
+    const cells = lines.map(l => cleanFameRankCell(l.replace(/^\|/, '')))
+    const fameRank = cells[0]
+    if (!fameRank) continue
+    rows.push({
+      fame_rank: fameRank,
+      fame_required: cells[1] || null,
+      bits_multiplier: cells[2] || null,
+      election_votes: cells[3] || null,
+      bits_per_cookie: cells[4] || null,
+      cookies_4800: cells[6] || null,
+      cookies_multiplied: cells[7] || null,
+      gems_required: cells[8] || null,
+      usd_for_next_rank: cells[9] || null,
+    })
+  }
+
+  if (rows.length === 0) throw new Error('fame_ranks: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('fame_ranks').upsert(rows, { onConflict: 'fame_rank' })
+  if (error) throw new Error('fame_ranks upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -2388,6 +2438,7 @@ export async function runWikiReferentialSync() {
     zone_mob_stats: syncZoneMobStats,
     bits_shop_items: syncBitsShopItems,
     power_scroll_recipes: syncPowerScrollRecipes,
+    fame_ranks: syncFameRanks,
   })) {
     try {
       const rows = await fn()
