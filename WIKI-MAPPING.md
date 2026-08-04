@@ -346,12 +346,56 @@ passe s'étend sur plusieurs sessions) :
   ci-dessus pour ne rien reperdre. Piste `hotf_perks`/`hotm_perks` (formules Pluton)
   toujours en attente d'une session dédiée si l'utilisateur la priorise.
 
+- ✅ **Lot 4 (suite, checkpoint 12)** — 4 nouveaux systèmes réels construits et vérifiés
+  en prod, sur la tranche de titres ~1281-1580 :
+  - `skyblock_gems_pricing` (5 paliers) — monnaie premium jamais mappée, prix USD réels
+    (base + code créateur). Page simple, 0 rowspan. **Bug auto-corrigé avant déploiement**
+    (pas trouvé en prod cette fois, attrapé en relisant le code) : le wikitext contient
+    déjà "USD" en texte littéral après le template de prix (`{{Red|$5.99}} USD`) — un
+    premier brouillon qui ajoutait `+ ' USD'` aurait doublé l'unité ("$5.99 USD USD"),
+    retiré avant tout commit.
+  - `rift_timecharms` (8 items) — le vrai système Rift Time jamais mappé (11
+    sous-systèmes déjà connus mais Timecharms jamais construit, signalé "riche" dès la
+    passe système du 1er août). Cellules multi-lignes via `----` (continuation
+    intra-cellule, pas un séparateur de ligne) dans la colonne Obtaining — réutilise le
+    parseur multiline déjà éprouvé. Un nom "mrahcemiT esrevrorriM" (Mirrorverse
+    Timecharm à l'envers) confirmé être un vrai nom en jeu, pas un artefact de parsing.
+  - `drop_chance_tiers` (11 lignes, 2 systèmes) — glossaire des tags `{{Odds|...}}`
+    utilisés partout dans le wiki mais jamais reliés à leur vraie plage numérique :
+    Bestiary Loot (Common→RNGesus, 5 paliers) et RNG Meter/Slayer (Guaranteed→RNGesus
+    Incarnate, 6 paliers). Vérifié distinct de `bestiary_brackets` (paliers de kills
+    pour débloquer un niveau bestiary, système sans rapport). Formule de drop chance
+    (Looting/Luck/Magic Find/Pet Luck, + variante Overbloom pour les Pests) documentée
+    ici seulement, pas construite en table (formule, pas donnée tabulaire).
+  - `milestone_reward_tiers` (20 lignes, 3 systèmes) — trouvé sur la page overview
+    "Milestones" : déblocage de rareté du Dolphin Pet (Sea Creature Kills) et du Rock
+    Pet (Ores Minés), 5 paliers chacun ; + les 10 niveaux de l'enchant Expertise (Sea
+    Creatures tués avec canne enchantée, compteur distinct du total Dolphin). La 3e
+    table de cette page ("Dungeon Milestones — Actions par classe") confirmée pure
+    redite de `dungeon_class_milestones` (630 lignes déjà réelles, bien plus détaillé),
+    volontairement pas reconstruite.
+  - `mobs_list_crystal` (avec un "s", comme `mobs_list_crimson` déjà classé au
+    checkpoint 10) — confirmé même artefact de cache corrompu
+    (`=== RAW DATA ===\nrowspan: "4"...`, pas du wikitext réel), pas une vraie page.
+    Ignoré, même statut que son jumeau.
+  - Les 4 tables ci-dessus suivent toutes le pattern `Record<>`/tableau de constantes
+    directement transcrit (comme `POWDER_COST_LINES`) plutôt qu'un parseur wikitext
+    générique pour `drop_chance_tiers`/`milestone_reward_tiers` — sources à 100% prose
+    + petites tables figées (11 et 20 lignes), un vrai parseur regex aurait été plus
+    de code que de valeur pour ce volume, transcription vérifiée ligne à ligne contre
+    le wikitext brut avant commit, garde-fou `content.includes(...)` dans chaque sync
+    pour détecter si la page source change un jour sous nos pieds.
+
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
 `skyblock_level_xp_tasks`, `museum_milestones`, `crop_fortune_sources`,
 `skyblock_achievements`, `garden_mutations`, `skyblock_quests`, `location_details`,
 `chocolate_rabbits`, `sea_creature_pools`, `skyblock_level_rewards`, `bingo_goals_archive`,
-`chocolate_factory_levels`, `dungeon_chest_combo_chances`.
+`chocolate_factory_levels`, `dungeon_chest_combo_chances`, `dungeon_class_milestones`,
+`crystal_hollows_loot`, `treasure_fishing_loot`, `zone_mob_stats`, `bits_shop_items`,
+`power_scroll_recipes`, `fame_ranks`, `rod_parts`, `composter_organic_matter`,
+`skyblock_gems_pricing`, `rift_timecharms`, `drop_chance_tiers`, `milestone_reward_tiers`
+— **26 systèmes réels au total cette session**.
 
 Systèmes couverts par l'ancienne passe par-système (1er août, méthode corrigée depuis),
 dans l'ordre où ils ont été traités :
