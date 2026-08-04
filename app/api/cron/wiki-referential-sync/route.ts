@@ -2593,6 +2593,42 @@ async function syncRiftTimecharms(): Promise<number> {
 }
 
 // ============================================================
+// drop_chance_tiers -- glossaire des 2 systèmes de tags "Odds" utilisés partout dans
+// le wiki (template {{Odds|...}}) mais jamais reliés à leur vraie plage numérique --
+// Bestiary Loot (Common/Uncommon/Rare/Legendary/RNGesus, mobs bestiary) et RNG
+// Meter/Slayer (Guaranteed/Occasional/Rare/Extraordinary/Pray RNGesus/RNGesus
+// Incarnate, drops slayer/RNG meter) : deux vocabulaires distincts, pas doublon de
+// bestiary_brackets (paliers de kills pour débloquer un niveau bestiary, système
+// sans rapport). Page en grande partie prose (formule Looting/Luck/Magic Find/Pet
+// Luck + variante Overbloom pour les Pests), seules les 2 tables de tiers sont
+// tabulaires -- 11 lignes transcrites directement depuis le wikitext vérifié
+// (source_page='Drop Chance'), même pattern que POWDER_COST_LINES ci-dessus plutôt
+// qu'un parseur pour 2 petites tables figées.
+// ============================================================
+const DROP_CHANCE_TIERS: { system: string; tier_name: string; chance_range: string; examples: string | null }[] = [
+  { system: 'bestiary', tier_name: 'Common Loot', chance_range: '30.01%-100%', examples: null },
+  { system: 'bestiary', tier_name: 'Uncommon Loot', chance_range: '1.01%-30%', examples: null },
+  { system: 'bestiary', tier_name: 'Rare Loot', chance_range: '0.11%-1%', examples: null },
+  { system: 'bestiary', tier_name: 'Legendary Loot', chance_range: '0.02%-0.1%', examples: null },
+  { system: 'bestiary', tier_name: 'RNGesus Loot', chance_range: '<=0.01%', examples: null },
+  { system: 'rng_meter', tier_name: 'Guaranteed', chance_range: '100%', examples: 'Revenant Flesh; Tarantula Webs; Wolf Teeth; most Mob drops' },
+  { system: 'rng_meter', tier_name: 'Occasional', chance_range: '20%', examples: 'Foul Flesh; Toxic Arrow Poison; Hamster Wheels' },
+  { system: 'rng_meter', tier_name: 'Rare', chance_range: '5%', examples: 'Pestilence Rune; Null Atom' },
+  { system: 'rng_meter', tier_name: 'Extraordinary', chance_range: '1%', examples: 'Hazmat Enderman; Revenant Catalysts' },
+  { system: 'rng_meter', tier_name: 'Pray RNGesus', chance_range: '<1%', examples: 'Overflux Capacitor; Sinful Dice' },
+  { system: 'rng_meter', tier_name: 'RNGesus Incarnate', chance_range: '<<1%', examples: 'Warden Heart; Primordial Eye; Exceedingly Rare Ender Artifact Upgrade' },
+]
+async function syncDropChanceTiers(): Promise<number> {
+  const content = await getWikiContent(supabase, 'drop_chance')
+  if (!content || !content.includes('RNGesus Incarnate')) {
+    throw new Error('drop_chance_tiers: page source introuvable ou changée (vérifier avant de continuer à upsert des valeurs figées)')
+  }
+  const { error } = await supabase.from('drop_chance_tiers').upsert(DROP_CHANCE_TIERS, { onConflict: 'system,tier_name' })
+  if (error) throw new Error('drop_chance_tiers upsert: ' + error.message)
+  return DROP_CHANCE_TIERS.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -2636,6 +2672,7 @@ export async function runWikiReferentialSync() {
     composter_organic_matter: syncComposterOrganicMatter,
     skyblock_gems_pricing: syncSkyblockGemsPricing,
     rift_timecharms: syncRiftTimecharms,
+    drop_chance_tiers: syncDropChanceTiers,
   })) {
     try {
       const rows = await fn()
