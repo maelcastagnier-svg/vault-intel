@@ -584,6 +584,18 @@ passe s'étend sur plusieurs sessions) :
     manifestement incomplet côté source elle-même, pas juste de notre côté. Pas
     construit pour éviter de capturer des données placeholder — à re-vérifier dans
     une session future si la page est complétée côté wiki.
+- ✅ **Lot 9 (positions ~3460-3860, checkpoint 18)** — 2 nouveaux systèmes réels
+  construits et vérifiés en prod :
+  - `npc_discounts` (8 lignes) — vraie mécanique économique jamais mappée :
+    réductions multiplicatives sur les prix NPC (Lucius via accessoire, ou paliers
+    de contribution aux City Projects Builder's House/Farm Merchant's Dwelling/
+    Bartender's Brewery, ou Maddox via Slayer Level 7).
+  - `reforging_prices` (9 paliers de rareté) — coût réel en coins d'un reforge par
+    rareté, jamais mappé. La table `reforges` déjà existante n'a AUCUNE colonne de
+    prix (juste name/item_types/rarity/stats) — vrai complément économique,
+    directement pertinent pour le calcul de coût des setups Money Making/Evolve
+    Skills. Le tout premier reforge d'un item (gratuit, 10 Coal) n'est pas capturé,
+    seuls les coûts en coins des reforges suivants.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
