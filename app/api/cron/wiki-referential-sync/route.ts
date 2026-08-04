@@ -2400,6 +2400,70 @@ async function syncFameRanks(): Promise<number> {
 }
 
 // ============================================================
+// rod_parts -- Rod Parts/List (18 pièces : Hooks/Lines/Sinkers), catalogue de pièces de
+// canne à pêche jamais capturé. Cellules multi-lignes (source/recipe étendu via "----")
+// -- réutilise `parseRowspanTable` déjà rendu multiline-aware plus tôt dans ce chantier
+// (sea_creature_pools). Vérifié en local (parse_rodparts.js) : 18/18 lignes, 0 markup
+// résiduel.
+// ============================================================
+function cleanRodPartCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/class="ct"\s*\|?\s*/g, '')
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/g, '')
+  s = s.replace(/\{\{Rarity\|ordered=true\|([a-z])\}\}/gi, (_m, r) => (
+    { c: 'Common', u: 'Uncommon', r: 'Rare', e: 'Epic', l: 'Legendary' } as Record<string, string>
+  )[r.toLowerCase()] || r)
+  s = s.replace(/\{\{Skl\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Crafting Table\|([^{}]*)\}\}/gi, 'Craft ($1)')
+  s = s.replace(/\{\{RL\|([^{}]*)\}\}/g, (_m, inner) => inner.split('|').join('; '))
+  s = s.replace(/\{\{Collection\|([^{}]*)\}\}/gi, 'Collection: $1')
+  s = s.replace(/\{\{MobSprite\|([^{}|;]*)[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/^----$/gm, '')
+  s = s.replace(/\n/g, '; ')
+  s = s.replace(/;\s*;+/g, ';').replace(/^;\s*/, '').trim()
+  return s.trim()
+}
+async function syncRodParts(): Promise<number> {
+  const content = await getWikiContent(supabase, 'rod_parts_list')
+  const tabRe = /\|-\|([A-Za-z]+)=/g
+  const tabMatches = [...content.matchAll(tabRe)]
+  if (tabMatches.length === 0) throw new Error('rod_parts: aucun onglet trouvé')
+  const tabBounds = tabMatches.map((m, i) => ({
+    name: m[1],
+    start: m.index!,
+    end: i + 1 < tabMatches.length ? tabMatches[i + 1].index! : content.length,
+  }))
+
+  const rows: any[] = []
+  for (const tb of tabBounds) {
+    const chunk = content.slice(tb.start, tb.end)
+    const body = extractFirstWikitableBody(chunk)
+    if (!body) continue
+    for (const r of parseRowspanTable(body, 6)) {
+      const name = cleanRodPartCell(r[1])
+      if (!name) continue
+      rows.push({
+        part_type: tb.name,
+        name,
+        rarity: cleanRodPartCell(r[2]) || null,
+        stats: cleanRodPartCell(r[3]) || null,
+        requirements: cleanRodPartCell(r[4]) || null,
+        source: cleanRodPartCell(r[5]) || null,
+      })
+    }
+  }
+
+  if (rows.length === 0) throw new Error('rod_parts: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('rod_parts').upsert(rows, { onConflict: 'part_type,name' })
+  if (error) throw new Error('rod_parts upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -2439,6 +2503,7 @@ export async function runWikiReferentialSync() {
     bits_shop_items: syncBitsShopItems,
     power_scroll_recipes: syncPowerScrollRecipes,
     fame_ranks: syncFameRanks,
+    rod_parts: syncRodParts,
   })) {
     try {
       const rows = await fn()
