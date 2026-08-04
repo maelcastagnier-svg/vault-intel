@@ -755,8 +755,52 @@ passe s'étend sur plusieurs sessions) :
   types s'appliquent à une structure générique, pas un item nommé, leur propre
   template `Usage` n'a structurellement aucun paramètre `applied`), `animated`
   (bool), `obtaining_method`/`obtaining_date`/`gems_cost`/`silver_cost`/`stock`/
-  `obtaining_notes`. Vérifié en prod : 479/479 lignes, 0 résidu de template/lien,
-  0 doublon de `skin_key`.
+  `obtaining_notes`. Vérifié en prod (1ère passe) : 479/479 lignes, 0 résidu de
+  template/lien, 0 doublon de `skin_key`.
+
+  **🔴 Bug de couverture trouvé en creusant le lot suivant, corrigé le même jour** :
+  le filtre `key LIKE '%_skin'` ratait 18 pages réelles dont la clé ne se termine
+  pas par ce suffixe littéral — `shimmer_skin__young_`/`baby_skin__holy_`/etc. (18
+  pages, motif `<nom>_skin__<variante>_`) et même `a_very_jerry_new_year_2026`
+  (zéro occurrence du mot "skin" dans tout le titre) sont de vrais skins
+  cosmétiques (`Infobox/Barn Skin` + `Fire Sale Obtaining` bien réel). Trouvé en
+  screenant le lot ~5160-5280 (`shimmer_skin__young_` remonté par le screening
+  général, pas par une vérification ciblée de `cosmetic_skins`). Corrigé : filtre
+  remplacé par un `ilike` sur le contenu réel (les 5 templates `Infobox/<Type>
+  Skin`) plutôt que sur le nommage de la clé — indépendant de toute convention de
+  titre. Revérifié en prod : 497/497 lignes (479→497), 0 résidu, 0 doublon.
+
+- ✅ **Checkpoint 24 — `fairy_soul_locations` étendue de 255 à 274 lignes (19
+  nouvelles coordonnées réelles)**, trouvé en creusant le même lot (`fairy_souls_
+  list_critter_safari` remonté par le screening général). Les 15 pages wiki
+  `fairy_souls_list_<zone>` (jamais reliées à la table existante depuis son
+  chargement one-shot d'origine) diffées par coordonnée exacte (x,y,z) contre les
+  255 lignes déjà réelles — méthode choisie précisément pour éviter un faux
+  dédoublonnage par nom de zone (la table existante utilise des codes de zone
+  internes type Hypixel — `mining_2`/`foraging_1`/`hub`/`winter`... — pas les noms
+  de page wiki, donc une correspondance par nom aurait été aveugle). 234 lignes
+  au total sur les 15 pages, 211 déjà présentes (confirmé cohérent : `fairy_souls_
+  list_the_park` → 11/12 coordonnées matchent exactement la zone `foraging_1`
+  existante, `fairy_souls_list_deep_caverns` → 20/21 matchent `mining_2` — aucune
+  collision croisée entre zones différentes détectée, donc le dédoublonnage par
+  coordonnée pure est fiable sur ce jeu de données précis). 19 lignes réellement
+  nouvelles :
+  - **3 zones entières absentes** : `safari_zone` (4 souls — `fairy_souls_list_
+    critter_safari` et `fairy_souls_list_safari_zone` sont deux pages avec les 4
+    MÊMES coordonnées exactes, doublon l'une de l'autre côté wiki, probablement un
+    renommage de zone jamais nettoyé sur le wiki lui-même — une seule copie
+    insérée sous `safari_zone`, `critter_safari` écartée comme doublon intra-
+    source), `rift_dimension` (1 soul, page à une seule ligne), `torrhus_canyon`
+    (12 souls, zone Crystal Hollows-like jamais indexée jusqu'ici).
+  - **2 vrais trous isolés dans des zones déjà connues** : Deep Caverns/Slimehill
+    (`DC-14`, coordonnée manquante au milieu de 21 déjà présentes) et The Park/
+    Birch Park (`Park-2`), insérées sous les mêmes codes de zone que leurs 20/11
+    voisines respectives (`mining_2`/`foraging_1`) pour rester cohérent avec la
+    convention déjà en place.
+  Migration SQL directe (pas de nouveau cron — la table reste one-shot comme à
+  l'origine, cette extension est un correctif ponctuel de complétude, pas un
+  changement de stratégie d'automatisation). Vérifié en prod : 274 lignes, count
+  exact confirmé après insertion.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
