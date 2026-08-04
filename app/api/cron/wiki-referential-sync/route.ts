@@ -3039,6 +3039,123 @@ async function syncTrialOfBlueFlames(): Promise<number> {
 }
 
 // ============================================================
+// trials_of_fire -- système Rift "Campfire Badge" (distinct de trial_of_blue_flames
+// / "Soul Campfire Badge" -- badges, stats et courbes de dégâts différents, deux
+// vraies pages séparées, pas un doublon). 30 trials (I-XXX), DPS/dégâts totaux
+// requis + récompense badge par rareté (bonus Health Regen fire/permanent).
+// **Parseur dédié distinct de trial_of_blue_flames** : les cellules de données de
+// la colonne Trial utilisent `!` (style en-tête) au lieu de `|` sur CETTE page
+// précise (`!I`, `!II`... contre `|I`, `|II` chez blue_flames) -- une vraie
+// différence de style wikitext entre deux pages structurellement similaires, pas
+// une erreur de copie. Le split de cellules accepte donc `!` ET `|` comme
+// marqueurs de début de cellule ; la limite de l'en-tête est déterminée en sautant
+// exactement les 2 premiers blocs (groupe de colonnes + sous-en-têtes) plutôt que
+// par une heuristique "commence par |" qui échouerait puisque TOUTES les lignes de
+// données commencent par `!`. Vérifié en local (parse_trialsfire.js) : 30/30
+// lignes, 0 markup résiduel, y compris la ligne transitionnelle XXI où
+// permanent_boost casse le rowspan du groupe Scion un cran plus tôt que les autres
+// colonnes (rowspan="7" sur 8 lignes) -- donnée réelle, pas un bug.
+// ============================================================
+function extractTrialsOfFireBody(text: string): string | null {
+  const tableStart = text.indexOf('{|')
+  const tableEnd = text.indexOf('|}', tableStart)
+  if (tableStart === -1 || tableEnd === -1) return null
+  const table = text.slice(tableStart, tableEnd)
+  const blocks = table.split(/\n\|-[^\n]*\n?/)
+  if (blocks.length < 3) return null
+  return blocks.slice(2).join('\n|-\n')
+}
+function splitTrialsOfFireCellLines(block: string): string[] {
+  const lines = block.split('\n')
+  const cells: string[] = []
+  let current: string | null = null
+  for (const line of lines) {
+    if (/^\|\}/.test(line)) continue
+    if (/^[!|](?!-)/.test(line)) { if (current !== null) cells.push(current); current = line }
+    else if (current !== null) current += '\n' + line
+  }
+  if (current !== null) cells.push(current)
+  return cells
+}
+function parseTrialsOfFireCellAttrs(line: string): { value: string; rowspan: number; colspan: number } {
+  let s = line.replace(/^[!|]/, '')
+  let rowspan = 1, colspan = 1
+  const firstPipe = s.indexOf('|')
+  if (firstPipe !== -1 && /rowspan\s*=|class\s*=|colspan\s*=|style\s*=|data-sort/.test(s.slice(0, firstPipe))) {
+    const attrs = s.slice(0, firstPipe)
+    s = s.slice(firstPipe + 1)
+    const rs = attrs.match(/rowspan\s*=\s*"?(\d+)"?/)
+    const cs = attrs.match(/colspan\s*=\s*"?(\d+)"?/)
+    if (rs) rowspan = parseInt(rs[1], 10)
+    if (cs) colspan = parseInt(cs[1], 10)
+  }
+  return { value: s.trim(), rowspan, colspan }
+}
+function cleanTrialsOfFireCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{bc\}\}/gi, '')
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/gi, '')
+  s = s.replace(/\{\{Stat\|hr\|([^{}]*)\}\}/gi, 'Health Regen $1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/'''/g, '')
+  s = s.replace(/\n/g, ' ')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+async function syncTrialsOfFire(): Promise<number> {
+  const content = await getWikiContent(supabase, 'trials_of_fire_list')
+  const body = extractTrialsOfFireBody(content)
+  if (!body) throw new Error('trials_of_fire: wikitable introuvable')
+  const numCols = 7
+  const rowBlocks = body.split(/\n\|-[^\n]*\n?/).filter(b => b.trim().length > 0)
+  const active: ({ value: string; remaining: number } | null)[] = new Array(numCols).fill(null)
+  const rows: any[] = []
+  for (const block of rowBlocks) {
+    const lines = splitTrialsOfFireCellLines(block)
+    let cellIdx = 0
+    const resolved = new Array(numCols).fill('')
+    let col = 0
+    while (col < numCols) {
+      const a = active[col]
+      if (a && a.remaining > 0) {
+        resolved[col] = a.value
+        a.remaining -= 1
+        if (a.remaining === 0) active[col] = null
+        col += 1
+        continue
+      }
+      const raw = lines[cellIdx]; cellIdx += 1
+      if (raw === undefined) { col += 1; continue }
+      const { value, rowspan, colspan } = parseTrialsOfFireCellAttrs(raw)
+      for (let k = 0; k < colspan; k++) {
+        if (col + k >= numCols) break
+        resolved[col + k] = value
+        if (rowspan > 1) active[col + k] = { value, remaining: rowspan - 1 }
+      }
+      col += colspan
+    }
+    const trial = cleanTrialsOfFireCell(resolved[0])
+    if (!trial) continue
+    rows.push({
+      trial,
+      dps: cleanTrialsOfFireCell(resolved[1]) || null,
+      total_damage: cleanTrialsOfFireCell(resolved[2]) || null,
+      reward_name: cleanTrialsOfFireCell(resolved[3]) || null,
+      reward_rarity: cleanTrialsOfFireCell(resolved[4]) || null,
+      fire_boost: cleanTrialsOfFireCell(resolved[5]) || null,
+      permanent_boost: cleanTrialsOfFireCell(resolved[6]) || null,
+    })
+  }
+  if (rows.length === 0) throw new Error('trials_of_fire: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('trials_of_fire').upsert(rows, { onConflict: 'trial' })
+  if (error) throw new Error('trials_of_fire upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -3089,6 +3206,7 @@ export async function runWikiReferentialSync() {
     wormhole_locations: syncWormholeLocations,
     mob_type_categories: syncMobTypeCategories,
     trial_of_blue_flames: syncTrialOfBlueFlames,
+    trials_of_fire: syncTrialsOfFire,
   })) {
     try {
       const rows = await fn()
