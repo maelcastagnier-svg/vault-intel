@@ -468,6 +468,41 @@ passe s'étend sur plusieurs sessions) :
     heuristique "commence par |". Vérifié en local puis en prod : 30/30 lignes.
   - `sea_creatures_list_crimson_isle` confirmé déjà couvert par `sea_creature_pools`
     (pool `crimson_isle`, 56 lignes déjà réelles) — pas de nouvelle table.
+- ✅ **Lot 6 (positions ~2340-2620, checkpoint 15)** — 4 nouveaux systèmes réels
+  construits et vérifiés en prod :
+  - `pelts` — revérifié **avant** de coder cette fois (leçon `ship_parts`) :
+    `trapper_pelt_rarities`/`trapper_pelt_modifiers` (déjà réels) confirmés
+    identiques ligne à ligne à la page actuelle, y compris le rework "Trapper
+    Crest" du 2026/Mar 31 mentionné dans l'historique de la page — pas de
+    régénération nécessaire, juste vérifié.
+  - `fossil_chisels` (4 lignes fusionnées) — système Fossil Excavator/Chisels
+    (charges par rareté + recette d'upgrade/palier HotM requis), jamais mappé. 2
+    wikitables réelles sur la même page fusionnées en une table.
+  - `mob_modifiers` (14 lignes, 3 catégories) — glossaire Corrupted/Runic +
+    6 modificateurs Dungeon Mobs + 6 modificateurs Watcher Undeads (Catacombs F5+),
+    jamais mappé. Page 100% prose/puces, extraction par section + regex sur puces.
+    **Piège de source retrouvé une 2e fois** : clé existant sous 2 sources
+    (`hypixelskyblock_wiki` + `fandom_wiki`) — vérifié explicitement avant de coder.
+  - `griffin_burrows_loot` (26 lignes, 3 paliers de spade) — treasure loot du
+    minigame Griffin Burrows (Ancestral/Archaic/Deific), jamais mappé.
+  - `mythological_creatures` (roster complet, 6 paliers de rareté Griffin Pet) —
+    trouvaille majeure de ce lot : les mobs Mythological (dig up depuis Griffin
+    Burrows) n'avaient jamais été mappés. **2e vrai bug de parsing trouvé et corrigé
+    avant tout déploiement** : le `extractFirstWikitableBody` PARTAGÉ tombe dans un
+    piège sur cette page précise — la cellule Stats/Mob Types contient
+    `{{List|...|}}` (template se terminant par un paramètre vide `|}}`), qui
+    contient littéralement la sous-chaîne "|}" AVANT la vraie fermeture de la
+    wikitable, coupant le corps de table en plein milieu de la 1re ligne. Corrigé
+    par une extraction dédiée ligne-par-ligne (le `|}` de fermeture doit être SEUL
+    sur sa ligne, convention MediaWiki réelle) — **pas appliqué au parseur partagé**
+    (risque de régression sur les tables déjà vérifiées qui n'ont jamais rencontré
+    ce piège), gardé local à cette fonction seule.
+  - Connexions trouvées entre ces 3 derniers systèmes et l'existant : Griffin
+    Burrows/Mythological utilisent des tags `{{mt|X}}` identiques à ceux capturés
+    dans `mob_type_categories` (checkpoint 13) ; `griffin_burrows` (page racine)
+    documente aussi une table de longueur de chaîne par spade (Ancestral=4,
+    Archaic=6, Deific=8/10 avec Erudite) — qualitative/déjà déductible des 75%/25%
+    documentés en prose, pas construite séparément.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
