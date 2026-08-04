@@ -1612,10 +1612,23 @@ const SEA_CREATURE_POOL_KEYS: Record<string, string> = {
   hotspot: 'sea_creatures_list_hotspot',
   moonglade_marsh: 'sea_creatures_list_moonglade_marsh',
   special: 'sea_creatures_list_special',
-  // spooky ajouté en screening ultérieur (Spooky Festival, 6 sea creatures) --
-  // pool manquant confirmé par comparaison directe avec la liste de pools
-  // réellement en base avant ajout, pas de doublon.
+  // 5 pools ajoutés en screening ultérieur -- famille complète `Sea Creatures/
+  // List/*` (14 pages) vérifiée titre par titre : spooky/winter/bayou/lotus/shark/
+  // torrhus_canyon manquants confirmés par comparaison directe avec les pools déjà
+  // en base avant ajout (pas de doublon). `lava`/`water` (les 2 seules pages
+  // restantes de la famille) confirmées `fandom_wiki` -- ET structurellement
+  // différentes (schéma Sea Creature/Requirements/Base Weight/Item Drops/Other
+  // Drops/Chat Message, pas le schéma pool à 8 colonnes ci-dessous) -- pas juste
+  // une source périmée d'un même contenu, un format hérité différent. Aucune page
+  // hypixelskyblock_wiki équivalente trouvée sous ces 2 noms -- volontairement
+  // pas construites, à reprendre dans une session dédiée si une vraie source
+  // actuelle est identifiée pour Crimson Isle/Crystal Hollows sea creatures.
   spooky: 'sea_creatures_list_spooky',
+  winter: 'sea_creatures_list_winter',
+  bayou: 'sea_creatures_list_bayou',
+  lotus: 'sea_creatures_list_lotus',
+  shark: 'sea_creatures_list_shark',
+  torrhus_canyon: 'sea_creatures_list_torrhus_canyon',
 }
 async function syncSeaCreaturePools(): Promise<number> {
   const rows: any[] = []
