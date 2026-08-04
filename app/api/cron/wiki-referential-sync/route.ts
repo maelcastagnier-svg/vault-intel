@@ -3758,6 +3758,44 @@ async function syncOdgerFilletingRewards(): Promise<number> {
 }
 
 // ============================================================
+// ribery_frog_donation_rewards -- Lotus gagné par Trophy Frog donné à Researcher
+// Ribery, jamais mappé -- symétrique de `odger_filleting_rewards` (Magmafish),
+// même structure exacte (rowspan + caption `|+`), même parseur partagé
+// (`extractFirstWikitableBody`/`parseRowspanTable`) sans modification. 12 frogs
+// réels (mêmes espèces que `trophy_frogs`), 4 paliers qualité. Vérifié en local
+// (parse_ribery.js) : échantillon 2/2 correct, 0 markup résiduel.
+// ============================================================
+function cleanRiberyCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/gi, '')
+  s = s.replace(/\{\{Rarity\|([^{}|]*)\|?[^{}]*\}\}/gi, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+async function syncRiberyFrogDonationRewards(): Promise<number> {
+  const content = await getWikiContent(supabase, 'researcher_ribery_donation_rewards')
+  const body = extractFirstWikitableBody(content)
+  if (!body) throw new Error('ribery_frog_donation_rewards: wikitable introuvable')
+  const rows = parseRowspanTable(body, 7)
+    .map(r => ({
+      frog_name: cleanRiberyCell(r[1]),
+      rarity: cleanRiberyCell(r[2]) || null,
+      lotus_bronze: cleanRiberyCell(r[3]) || null,
+      lotus_silver: cleanRiberyCell(r[4]) || null,
+      lotus_gold: cleanRiberyCell(r[5]) || null,
+      lotus_diamond: cleanRiberyCell(r[6]) || null,
+    }))
+    .filter(r => r.frog_name)
+
+  if (rows.length === 0) throw new Error('ribery_frog_donation_rewards: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('ribery_frog_donation_rewards').upsert(rows, { onConflict: 'frog_name' })
+  if (error) throw new Error('ribery_frog_donation_rewards upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -3818,6 +3856,7 @@ export async function runWikiReferentialSync() {
     starlyn_prize_shop: syncStarlynPrizeShop,
     upgrade_fragments: syncUpgradeFragments,
     odger_filleting_rewards: syncOdgerFilletingRewards,
+    ribery_frog_donation_rewards: syncRiberyFrogDonationRewards,
   })) {
     try {
       const rows = await fn()
