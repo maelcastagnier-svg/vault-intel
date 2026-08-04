@@ -4117,6 +4117,207 @@ async function syncHotfAbilityCooldowns(): Promise<number> {
 }
 
 // ============================================================
+// library_npc_shop -- boutique du Librarian (Library, Combat Settlement), jamais
+// mappée. Écarté une 1re fois pour valeur économique jugée trop faible (items
+// <50 coins) -- gardé sur demande explicite de l'utilisateur ("garde tout même la
+// low value, à moi de juger plus tard"). Format single-ligne `cell1 || cell2 ||
+// ...` (pas des lignes `|cell` séparées), même famille que `composter_organic_
+// matter`. 10 items réels. Vérifié en local (parse_library.js) : 3/3 lignes sur
+// l'échantillon testé, 0 markup résiduel.
+// ============================================================
+function cleanLibraryCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{Slot\|[^}]*\}\}/gi, '')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+async function syncLibraryNpcShop(): Promise<number> {
+  const content = await getWikiContent(supabase, 'library')
+  const tableStart = content.indexOf('{|')
+  const tableEnd = content.indexOf('|}', tableStart)
+  if (tableStart === -1 || tableEnd === -1) throw new Error('library_npc_shop: wikitable introuvable')
+  const table = content.slice(tableStart, tableEnd)
+  const blocks = table.split(/\n\|-\n?/)
+  const dataStart = blocks.findIndex(b => b.trim().startsWith('|') && !b.trim().startsWith('!'))
+  if (dataStart === -1) throw new Error('library_npc_shop: aucune ligne de donnée trouvée')
+  const rowBlocks = blocks.slice(dataStart).filter(b => b.trim().length > 0)
+  const rows: any[] = []
+  for (const block of rowBlocks) {
+    const lines = block.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('|}'))
+    if (lines.length === 0) continue
+    const cells = lines[0].replace(/^\|/, '').split('||').map(cleanLibraryCell)
+    if (cells.length < 4) continue
+    const itemName = cells[1]
+    if (!itemName) continue
+    const priceRaw = cells[2].replace(/,/g, '')
+    rows.push({
+      item_name: itemName,
+      price_coins: /^\d+$/.test(priceRaw) ? parseInt(priceRaw, 10) : null,
+      rarity: cells[3] || null,
+    })
+  }
+  if (rows.length === 0) throw new Error('library_npc_shop: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('library_npc_shop').upsert(rows, { onConflict: 'item_name' })
+  if (error) throw new Error('library_npc_shop upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
+// advent_calendar_rewards -- 25 jours de récompenses réelles (2022, seule année
+// documentée côté wiki), jamais mappé. Écarté une 1re fois pour valeur économique
+// jugée trop faible (majoritairement cosmétique, verrouillé par rang Hypixel
+// payant) -- gardé sur demande explicite de l'utilisateur. Cellule Day en style
+// `!` (comme trials_of_fire/starlyn_prize), un seul bloc d'en-tête à sauter --
+// extraction dédiée. Un vrai piège de source trouvé en testant : certaines lignes
+// concatènent `{{RL|...}}` et un texte de récompense supplémentaire SANS séparateur
+// dans le wikitext lui-même (`{{RL|2 White Gift|10,000 coins}}Snowball Fight
+// [[Spray]]`) -- séparateur `; ` inséré après chaque template RL pour ne jamais
+// coller deux vraies récompenses. Vérifié en local (parse_advent2.js) : 25/25
+// lignes, 0 markup résiduel.
+// ============================================================
+function cleanAdventCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{bc\}\}/gi, '')
+  s = s.replace(/\{\{RL\|([^{}]*)\}\}/gi, (_m, inner) => inner.split('|').join('; ') + '; ')
+  s = s.replace(/\{\{RN\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{ID\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/\n/g, ' ')
+  s = s.replace(/\s+/g, ' ').trim()
+  s = s.replace(/;\s*$/, '').trim()
+  return s.trim()
+}
+function splitAdventCellLines(block: string): string[] {
+  const lines = block.split('\n')
+  const cells: string[] = []
+  let current: string | null = null
+  for (const line of lines) {
+    if (/^\|\}/.test(line)) continue
+    if (/^[!|](?!-)/.test(line)) { if (current !== null) cells.push(current); current = line }
+    else if (current !== null) current += '\n' + line
+  }
+  if (current !== null) cells.push(current)
+  return cells
+}
+function parseAdventRowspanTable(tableBody: string, numCols: number): string[][] {
+  const rowBlocks = tableBody.split(/\n\|-\n?/).filter(b => b.trim().length > 0)
+  const rows: string[][] = []
+  const active: ({ value: string; remaining: number } | null)[] = new Array(numCols).fill(null)
+  for (const block of rowBlocks) {
+    const lines = splitAdventCellLines(block)
+    let cellIdx = 0
+    const resolved = new Array(numCols).fill('')
+    for (let col = 0; col < numCols; col++) {
+      const a = active[col]
+      if (a && a.remaining > 0) { resolved[col] = a.value; a.remaining -= 1; if (a.remaining === 0) active[col] = null; continue }
+      const raw = lines[cellIdx]; cellIdx += 1
+      if (raw === undefined) continue
+      let val = raw.replace(/^[!|]/, '')
+      let sp = 1
+      const fp = val.indexOf('|')
+      if (fp !== -1 && /rowspan\s*=|class\s*=|colspan\s*=|style\s*=|data-sort/.test(val.slice(0, fp))) {
+        const attrs = val.slice(0, fp)
+        val = val.slice(fp + 1)
+        const rs = attrs.match(/rowspan\s*=\s*"?(\d+)"?/)
+        if (rs) sp = parseInt(rs[1], 10)
+      }
+      resolved[col] = val.trim()
+      if (sp > 1) active[col] = { value: val.trim(), remaining: sp - 1 }
+    }
+    rows.push(resolved)
+  }
+  return rows
+}
+async function syncAdventCalendarRewards(): Promise<number> {
+  const content = await getWikiContent(supabase, 'advent_calendar_rewards')
+  const tabRe = /\|-\|([0-9]+)=/g
+  const tabMatches = [...content.matchAll(tabRe)]
+  if (tabMatches.length === 0) throw new Error('advent_calendar_rewards: aucun onglet trouvé')
+  const tabBounds = tabMatches.map((m, i) => ({
+    year: m[1],
+    start: m.index!,
+    end: i + 1 < tabMatches.length ? tabMatches[i + 1].index! : content.length,
+  }))
+  const rows: any[] = []
+  for (const tb of tabBounds) {
+    const chunk = content.slice(tb.start, tb.end)
+    const tableStart = chunk.indexOf('{|')
+    const tableEnd = chunk.indexOf('|}', tableStart)
+    if (tableStart === -1 || tableEnd === -1) continue
+    const table = chunk.slice(tableStart, tableEnd)
+    const blocks = table.split(/\n\|-\n?/)
+    const body = blocks.slice(1).join('\n|-\n')
+    for (const r of parseAdventRowspanTable(body, 3)) {
+      const dayText = cleanAdventCell(r[0])
+      if (!dayText || !/^\d+$/.test(dayText)) continue
+      rows.push({
+        year: tb.year,
+        day: parseInt(dayText, 10),
+        rewards: cleanAdventCell(r[1]) || null,
+        notes: cleanAdventCell(r[2]) || null,
+      })
+    }
+  }
+  if (rows.length === 0) throw new Error('advent_calendar_rewards: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('advent_calendar_rewards').upsert(rows, { onConflict: 'year,day' })
+  if (error) throw new Error('advent_calendar_rewards upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
+// star_upgrades -- table simple 4 lignes (Star Upgrades), condition de
+// déblocage par palier de star (défaut/Master Stars/6-10/11-15). Jamais
+// mappée, format single-line || identique à library_npc_shop.
+// ============================================================
+function cleanStarUpgradeCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, (_m, inner) => {
+    const parts = inner.split('|')
+    return parts[parts.length - 1]
+  })
+  s = s.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/\n\n/g, '; ')
+  s = s.replace(/\n/g, ' ')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+async function syncStarUpgrades(): Promise<number> {
+  const content = await getWikiContent(supabase, 'star_upgrades')
+  const tableStart = content.indexOf('{|')
+  const tableEnd = content.indexOf('|}', tableStart)
+  if (tableStart === -1 || tableEnd === -1) throw new Error('star_upgrades: wikitable introuvable')
+  const table = content.slice(tableStart, tableEnd)
+  const blocks = table.split(/\n\|-\n?/)
+  const dataStart = blocks.findIndex(b => b.trim().startsWith('|') && !b.trim().startsWith('!'))
+  if (dataStart === -1) throw new Error('star_upgrades: aucune ligne de donnée trouvée')
+  const rowBlocks = blocks.slice(dataStart).filter(b => b.trim().length > 0)
+  const rows: any[] = []
+  for (const block of rowBlocks) {
+    const lines = block.split('\n').filter(l => l.trim().startsWith('|') && !l.trim().startsWith('|}'))
+    if (lines.length === 0) continue
+    const joined = lines.join('\n')
+    const cells = joined.replace(/^\|/, '').split('||')
+    if (cells.length < 2) continue
+    const star = cleanStarUpgradeCell(cells[0])
+    const condition = cleanStarUpgradeCell(cells.slice(1).join('||'))
+    if (!star || !condition) continue
+    rows.push({ star_symbol: star, condition })
+  }
+  if (rows.length === 0) throw new Error('star_upgrades: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('star_upgrades').upsert(rows, { onConflict: 'star_symbol,condition' })
+  if (error) throw new Error('star_upgrades upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -4184,6 +4385,9 @@ export async function runWikiReferentialSync() {
     automated_shipping_hoppers: syncAutomatedShippingHoppers,
     city_projects: syncCityProjects,
     hotf_ability_cooldowns: syncHotfAbilityCooldowns,
+    library_npc_shop: syncLibraryNpcShop,
+    advent_calendar_rewards: syncAdventCalendarRewards,
+    star_upgrades: syncStarUpgrades,
   })) {
     try {
       const rows = await fn()
