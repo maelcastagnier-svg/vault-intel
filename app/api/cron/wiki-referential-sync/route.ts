@@ -3936,6 +3936,31 @@ async function syncCritters(): Promise<number> {
 }
 
 // ============================================================
+// automated_shipping_hoppers -- taux de vente réel des 3 hoppers Minion
+// (Budget/Enchanted/Perfect), jamais mappé -- mécanique économique passive
+// directement pertinente (déjà noté ailleurs dans ce projet qu'Automated Shipping
+// représentait jusqu'à 53% de la génération de coins via minions à un moment
+// donné). Perfect Hopper existe dans l'API mais confirmé inobtenable en jeu par
+// la page elle-même -- capturé avec `obtainable=false`, pas fabriqué. 3 lignes
+// transcrites directement depuis le wikitext vérifié, même pattern que
+// REFORGING_PRICES ci-dessus.
+// ============================================================
+const AUTOMATED_SHIPPING_HOPPERS: { item_name: string; sell_rate_pct: string; obtainable: boolean }[] = [
+  { item_name: 'Budget Hopper', sell_rate_pct: '50%', obtainable: true },
+  { item_name: 'Enchanted Hopper', sell_rate_pct: '70%', obtainable: true },
+  { item_name: 'Perfect Hopper', sell_rate_pct: '100%', obtainable: false },
+]
+async function syncAutomatedShippingHoppers(): Promise<number> {
+  const content = await getWikiContent(supabase, 'automated_shipping')
+  if (!content || !content.includes('Perfect Hopper') || !content.includes('70%')) {
+    throw new Error('automated_shipping_hoppers: page source introuvable ou changée (vérifier avant de continuer à upsert des valeurs figées)')
+  }
+  const { error } = await supabase.from('automated_shipping_hoppers').upsert(AUTOMATED_SHIPPING_HOPPERS, { onConflict: 'item_name' })
+  if (error) throw new Error('automated_shipping_hoppers upsert: ' + error.message)
+  return AUTOMATED_SHIPPING_HOPPERS.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -4000,6 +4025,7 @@ export async function runWikiReferentialSync() {
     npc_discounts: syncNpcDiscounts,
     reforging_prices: syncReforgingPrices,
     critters: syncCritters,
+    automated_shipping_hoppers: syncAutomatedShippingHoppers,
   })) {
     try {
       const rows = await fn()
