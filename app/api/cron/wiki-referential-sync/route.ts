@@ -2674,6 +2674,78 @@ async function syncMilestoneRewardTiers(): Promise<number> {
 }
 
 // ============================================================
+// tree_gift_drops -- table de drop des Tree Gifts (Foraging, HotF), jamais capturée.
+// 3 pages réelles (`tree_gifts_fig`/`tree_gifts_mangrove`/`tree_gifts_helix`, source
+// hypixelskyblock_wiki) -- une 4e page trouvée en screening, `tree_gifts_list`
+// (source fandom_wiki, 2 arbres seulement Fig/Mangrove, pas Helix), confirmée
+// périmée/incomplète face aux 3 pages actuelles, volontairement ignorée (même
+// discipline que le reste du projet : source abandonnée le 22 juillet). Wikitable
+// simple 5 colonnes (Drop/Drop Rarity/Chance/Notes/Bazaar-AH worth), cellules
+// commentées HTML (`<!--{{BZC|...}}-->`) sur la page Helix pour les items pas
+// encore pricés par les éditeurs wiki -- laissées vides plutôt que devinées.
+// Vérifié en local (parse_treegift3.js) : 57/57 lignes (19 Fig + 19 Mangrove +
+// 19 Helix), 0 markup résiduel.
+// ============================================================
+const TREE_GIFT_PAGES: { tree: string; wikiKey: string }[] = [
+  { tree: 'Fig', wikiKey: 'tree_gifts_fig' },
+  { tree: 'Mangrove', wikiKey: 'tree_gifts_mangrove' },
+  { tree: 'Helix', wikiKey: 'tree_gifts_helix' },
+]
+function cleanTreeGiftCell(s: string): string {
+  s = (s || '').trim()
+  s = s.replace(/<!--[\s\S]*?-->/g, '')
+  s = s.replace(/\{\{[Bb]c\}\}/gi, '')
+  s = s.replace(/\{\{RD\|([^{}]*)\}\}/gi, (_m, inner) => {
+    const parts = inner.split('!')
+    return parts[parts.length - 1]
+  })
+  s = s.replace(/\{\{Skill XP\|([^{}]*)\}\}/gi, '$1 XP')
+  s = s.replace(/\{\{Chance\|([^|{}]*)\|[^{}]*\}\}/gi, '$1')
+  s = s.replace(/\{\{Odds\|([^|{}]*)\|nameonly=yes\}\}/gi, '$1')
+  s = s.replace(/\{\{Green\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{MobSprite\|([^{}|;]*)[^{}]*\}\}/g, '$1')
+  s = s.replace(/\{\{Attr\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{BZC\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{AH\|([^{}|]*)\|?[^{}]*\}\}/gi, '$1')
+  s = s.replace(/\{\{ID\|([^{}]*)\}\}/gi, '$1')
+  s = s.replace(/\{\{Forest Whispers\|([^{}]*)\}\}/gi, '$1 Forest Whispers')
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/&([^&]+)&/g, '$1')
+  s = s.replace(/\$([a-zA-Z]+)\$/g, '$1')
+  s = s.replace(/'''/g, '')
+  s = s.replace(/\n/g, ' ')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s.trim()
+}
+async function syncTreeGiftDrops(): Promise<number> {
+  const rows: any[] = []
+  for (const { tree, wikiKey } of TREE_GIFT_PAGES) {
+    const content = await getWikiContent(supabase, wikiKey)
+    const body = extractFirstWikitableBody(content)
+    if (!body) continue
+    for (const r of parseRowspanTable(body, 5)) {
+      const drop = cleanTreeGiftCell(r[0])
+      if (!drop) continue
+      rows.push({
+        tree,
+        drop,
+        rarity_code: cleanTreeGiftCell(r[1]) || null,
+        chance: cleanTreeGiftCell(r[2]) || null,
+        notes: cleanTreeGiftCell(r[3]) || null,
+        market_value: cleanTreeGiftCell(r[4]) || null,
+      })
+    }
+  }
+  if (rows.length === 0) throw new Error('tree_gift_drops: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('tree_gift_drops').upsert(rows, { onConflict: 'tree,drop' })
+  if (error) throw new Error('tree_gift_drops upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -2719,6 +2791,7 @@ export async function runWikiReferentialSync() {
     rift_timecharms: syncRiftTimecharms,
     drop_chance_tiers: syncDropChanceTiers,
     milestone_reward_tiers: syncMilestoneRewardTiers,
+    tree_gift_drops: syncTreeGiftDrops,
   })) {
     try {
       const rows = await fn()
