@@ -246,11 +246,35 @@ passe s'étend sur plusieurs sessions) :
     individuelles (prose lore : Zealot/Scorpius/Storm/Livid/Bonzo/Goldor/Necron/etc.,
     déjà couverts mécaniquement par `dungeon_data`/le contenu narratif existant) et des
     `changelog_*` (hors scope, déjà couverts par `patch_notes`).
-- ⏳ **Reste du bucket générique** (~5600 titres au-delà des ~680 premiers par taille) —
-  pas commencé. Prochaine étape : lire les candidats forts ci-dessus (loot tables +
-  bits + reforging), puis continuer le criblage par lots de taille décroissante
-  (positions 681+). Piste `hotf_perks`/`hotm_perks` (formules Pluton) toujours en attente
-  d'une session dédiée si l'utilisateur la priorise.
+- ✅ **Lot 3 (suite, checkpoint 8)** — candidats forts du checkpoint précédent traités :
+  - **🔴 Bug réel corrigé sur `dungeon_chest_combo_chances`** (déjà en prod) : plusieurs
+    pages sont paginées côté wiki (`combo_chances_2`, `ultimate_jerry_chances_2`/`_3`,
+    `last_stand_chances_2`, `no_pain_no_gain_chances_2`, `ultimate_wise_chances_2`) --
+    la 1ère version ne lisait que la page de base, perdant les lignes des étages
+    supérieurs présentes uniquement sur la continuation (vérifié : `combo_chances_2`
+    contient Floor V/VI/VII absentes de `combo_chances`). Corrigé + 2 nouveaux types
+    ajoutés (`last_stand`, manqué au 1er passage ; `bank_enchantment`/
+    `wisdom_enchantment`, vrais nouveaux items). Table passée de 266 à 458 lignes.
+  - `treasure_fishing_loot` (177 lignes, 4 zones : Crimson Isle/Fairy Pond/Winter/Water)
+    — items obtenables en Treasure Fishing, jamais capturé.
+  - `zone_mob_stats` (10 zones : Barn/Caverns/Crimson/Crystal/Dwarven/End/Hub/Mining/
+    Park/Spider's Den) — stats de combat réelles par mob (HP/Damage/Behavior/Drops),
+    distinct de `bestiary_mobs` (uniquement cap/bracket de progression, vérifié avant
+    de construire).
+  - `bits_shop` (candidat repéré, pas encore construit -- shop Bits chez Elizabeth,
+    wikitable simple confirmée) et `ender_dragon_drop_tables`/`frozen_corpses_*`/
+    `power_scrolls`/`trophy_fish` (candidats forts confirmés réels, pas encore construits
+    faute de temps dans cette session) restent en liste d'attente pour la prochaine passe.
+- ⏳ **Reste du bucket générique** — **~5700 titres non encore screenés** sur les 6386
+  actuels (le chiffre total croît légèrement en continu via `wiki-auto-sync`). Les titres
+  déjà screenés (~680, les plus gros par taille) ont produit l'essentiel des systèmes
+  substantiels trouvés à ce jour — statistiquement, la densité de vrais systèmes devrait
+  continuer de baisser à mesure que la taille des pages diminue, mais rien n'est supposé
+  sans vérification. **Épuisement complet non atteint dans cette session** (volume
+  largement supérieur à ce qu'une seule session peut couvrir avec cette rigueur) --
+  reprise prévue en session(s) future(s), méthode et points de reprise déjà documentés
+  ci-dessus pour ne rien reperdre. Piste `hotf_perks`/`hotm_perks` (formules Pluton)
+  toujours en attente d'une session dédiée si l'utilisateur la priorise.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
