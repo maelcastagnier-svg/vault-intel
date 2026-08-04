@@ -2140,6 +2140,7 @@ const TREASURE_LOOT_KEYS: Record<string, string> = {
   'Fairy Pond': 'treasure_loot_fairy_pond',
   'Winter': 'treasure_loot_winter',
   'Water': 'treasure_loot_water',
+  'Lotus Atoll': 'treasure_loot_lotus_atoll',
 }
 async function syncTreasureFishingLoot(): Promise<number> {
   const rows: any[] = []
