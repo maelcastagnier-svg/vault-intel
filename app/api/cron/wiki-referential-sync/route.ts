@@ -3498,6 +3498,105 @@ async function syncWormholeFishingItems(): Promise<number> {
 }
 
 // ============================================================
+// museum_items -- catalogue complet des items donables au Museum, jamais mappé.
+// Distinct de `museum_milestones` (paliers de récompense par XP totale) : ici,
+// chaque ITEM individuel avec son XP propre et sa chaîne d'upgrade
+// (`upgrade=Next Item`). 8 pages réelles `Museum/Items/<Catégorie>` (Combat/
+// Dungeoneering/Farming/Fishing/Foraging/Hunting/Mining/Special), chacune une
+// wikitable dont les lignes sont des invocations `{{MuseumItemRow|Name|xp=N|
+// upgrade=X|category=Y|notes=Z}}` -- pas des cellules `|` classiques, donc aucun
+// des parseurs de table partagés/dédiés déjà écrits cette session ne s'applique.
+// **Piège de tokenisation réel identifié et géré avant tout code de production**
+// (testé en local, parse_museum2.js, contre des lignes réelles tirées de
+// `Museum/Items/Special`, la page la plus complexe) : certains arguments
+// contiennent des templates/liens imbriqués avec leurs propres `|` internes
+// (`image={{animate|A.png;B.png|40px|link=X}}`, `image=[[File:X.png|40px|
+// link=Y]]`) -- un split naïf sur `|` casserait ces arguments en plein milieu.
+// Tokenizer dédié qui ne split que les `|` à profondeur 0 (compte `{{`/`[[` et
+// `}}`/`]]`). Le nom d'item est parfois donné en positionnel APRÈS des arguments
+// nommés `link=`/`image=` (override d'affichage, ex: "Secret Bingo Card") --
+// pris comme le DERNIER argument positionnel plutôt que le premier, qui gère
+// aussi bien le cas simple à un seul positionnel que ces cas d'override.
+// Category "Special" n'a presque jamais de champ `xp` (nombreux items cosmétiques/
+// événementiels sans XP Museum) -- laissé `null` plutôt que supposé.
+// ============================================================
+const MUSEUM_ITEM_CATEGORIES: string[] = [
+  'museum_items_combat', 'museum_items_dungeoneering', 'museum_items_farming',
+  'museum_items_fishing', 'museum_items_foraging', 'museum_items_hunting',
+  'museum_items_mining', 'museum_items_special',
+]
+function splitMuseumTemplateArgs(inner: string): string[] {
+  const args: string[] = []
+  let depth = 0
+  let current = ''
+  for (let i = 0; i < inner.length; i++) {
+    const two = inner.slice(i, i + 2)
+    if (two === '{{' || two === '[[') { depth++; current += two; i++; continue }
+    if (two === '}}' || two === ']]') { depth--; current += two; i++; continue }
+    if (inner[i] === '|' && depth === 0) { args.push(current); current = ''; continue }
+    current += inner[i]
+  }
+  args.push(current)
+  return args
+}
+function cleanMuseumText(s: string | null | undefined): string | null {
+  s = (s || '').trim()
+  if (!s) return null
+  s = s.replace(/\{\{[A-Za-z][A-Za-z ]*\|([^{}]*)\}\}/g, '$1')
+  s = s.replace(/\{\{([A-Za-z ]+)\}\}/g, '$1')
+  s = s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
+  s = s.replace(/\[\[([^\]]+)\]\]/g, '$1')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s || null
+}
+function parseMuseumItemRow(line: string): { name: string | null; xp: number | null; upgrade: string | null; category: string | null; notes: string | null } | null {
+  const m = line.match(/^\{\{MuseumItemRow\|([\s\S]*)\}\}\s*$/)
+  if (!m) return null
+  const args = splitMuseumTemplateArgs(m[1])
+  const named: Record<string, string> = {}
+  const positional: string[] = []
+  for (const arg of args) {
+    const eq = arg.indexOf('=')
+    if (eq !== -1 && /^[a-zA-Z_]+$/.test(arg.slice(0, eq).trim())) {
+      named[arg.slice(0, eq).trim()] = arg.slice(eq + 1).trim()
+    } else if (arg.trim()) {
+      positional.push(arg.trim())
+    }
+  }
+  const rawName = positional.length > 0 ? positional[positional.length - 1] : named.link || null
+  return {
+    name: cleanMuseumText(rawName),
+    xp: named.xp ? parseInt(named.xp, 10) : null,
+    upgrade: cleanMuseumText(named.upgrade),
+    category: named.category || null,
+    notes: cleanMuseumText(named.notes),
+  }
+}
+async function syncMuseumItems(): Promise<number> {
+  const rows: any[] = []
+  for (const key of MUSEUM_ITEM_CATEGORIES) {
+    const content = await getWikiContent(supabase, key)
+    for (const rawLine of content.split('\n')) {
+      const line = rawLine.trim()
+      if (!line.startsWith('{{MuseumItemRow')) continue
+      const parsed = parseMuseumItemRow(line)
+      if (!parsed || !parsed.name || !parsed.category) continue
+      rows.push({
+        category: parsed.category,
+        item_name: parsed.name,
+        xp: parsed.xp,
+        upgrade: parsed.upgrade,
+        notes: parsed.notes,
+      })
+    }
+  }
+  if (rows.length === 0) throw new Error('museum_items: 0 lignes extraites, parsing probablement cassé')
+  const { error } = await supabase.from('museum_items').upsert(rows, { onConflict: 'category,item_name' })
+  if (error) throw new Error('museum_items upsert: ' + error.message)
+  return rows.length
+}
+
+// ============================================================
 export async function runWikiReferentialSync() {
   const logId = await startSync('wiki-referential-sync')
   const results: Record<string, any> = {}
@@ -3554,6 +3653,7 @@ export async function runWikiReferentialSync() {
     griffin_burrows_loot: syncGriffinBurrowsLoot,
     mythological_creatures: syncMythologicalCreatures,
     wormhole_fishing_items: syncWormholeFishingItems,
+    museum_items: syncMuseumItems,
   })) {
     try {
       const rows = await fn()
