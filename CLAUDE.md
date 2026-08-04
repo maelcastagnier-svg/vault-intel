@@ -22,6 +22,70 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ CLÔTURE FINALE — les 2 derniers points fermés, chantier de fondation clos (4 août)
+
+Suite directe de "CHANTIER FINAL clos" ci-dessous : l'utilisateur a demandé de fermer
+les 2 derniers points ouverts avant de considérer tout le chantier de cartographie
+(wiki + NEU-REPO + SkyHanni-REPO + collecte totale) vraiment terminé.
+
+**1. `skyblock/garden` — resté bloqué, raison confirmée** : testé en direct (clé API +
+profil Cucumber, même méthode que Museum), `403 Invalid API key` — `HYPIXEL_API_KEY`
+à nouveau expirée (cycle périodique déjà documenté). Aucune action possible sans
+renouvellement de clé côté utilisateur. Au passage, `extractBloc7Zones()` dans
+`player/sync/route.ts` confirme que `garden_copper`/`garden_greenhouse_crops`/
+`garden_chips` viennent déjà du PROFILE (`member.garden_player_data`), pas de cet
+endpoint séparé — ce dernier tiendrait un état différent (niveau garden, visiteur en
+file, milestones crop), toujours non capturé, à retenter une fois la clé renouvelée.
+
+**2. SkyHanni-REPO (Source 4) — 52 derniers fichiers criblés, source épuisée** —
+**10 nouvelles tables** (`garden_composter_items`, `garden_pest_rare_drops`,
+`garden_visitor_requests`, `anita_upgrade_costs`, `rift_effigy_locations`,
+`diana_sphinx_answers`, `mythological_ritual_mobs`, `skyblock_island_metadata`,
+`sea_creature_fishing_xp`, `kuudra_tier_prestige_costs`, `skyblock_bingo_ranks`,
+`dungeon_dance_room_sequence` — 12 en réalité, voir WIKI-MAPPING.md Checkpoint 29 pour
+le détail exact), ajoutées à `skyhanni-repo-sync` (même cron hebdo, aucun nouveau
+cron). Chaque fichier lu en entier avant décision (jamais jugé par nom) — 41/52
+explicitement exclus avec raison précise (mod-interne, cosmétique, contenu
+communautaire non-officiel, hors-sujet Skyblock, navigation pure façon
+`island_graphs`, ou listes blanches de "profit tracker" internes au mod, pas des
+données Hypixel faisant autorité). **113 fichiers `constants/` de SkyHanni-REPO
+au total, tous désormais inspectés** — Source 4 considérée épuisée. Bug de
+dédoublonnage trouvé et corrigé en testant en prod (`garden_visitor_requests` —
+"Pest Wrangler"/"Pest Wrangler?" collapsent au même slug, fusion avant upsert).
+
+**3. Contamination Slayer T4/T5 — régénérée et confirmée propre** : lot groupé
+exécuté (`money-making-agent` + `setup-generate-agent` filtrés sur mid/end/late,
+paramètre de filtre de tiers ajouté aux deux fonctions pour cette régénération
+ciblée sans toucher au comportement cron par défaut, puis `runEvolveSkills` pour
+Cucumber). **Incident opérationnel pendant l'exécution** : la boucle de sondage HTTP
+(curl, timeout client 280s) a relancé la route de debug avant que l'exécution
+précédente n'ait fini côté serveur (le run complet — 3 appels Sonnet + ~18 générations
+Haiku + 1 appel Sonnet evolve — dépassait le timeout client) — 3 exécutions complètes
+se sont chevauchées au lieu d'une seule prévue. Sans risque de corruption (upserts
+idempotents sur les mêmes clés), mais un vrai surcoût API évitable, noté ici pour ne
+pas reproduire l'erreur : pour toute route de debug chaînant plusieurs appels Claude
+séquentiels, vérifier `sync_log` (statut `running`/`success`) avant de relancer une
+requête, jamais un simple retry sur timeout client.
+
+Vérifié en base après la dernière exécution : `claude_analysis.money_making_{mid,end,late}`
+ne contiennent plus aucune trace de `spider_t4_slayer`/`blaze_t5_slayer_*` ni du
+label `"T4 Tarantula (max)"` ; `player_skill_cards` de Cucumber régénérée
+(`generated_at` 2026-08-04, plus aucun `"T4 Tarantula"`). Les 3 lignes
+`method_setups` orphelines (anciennes, jamais retouchées par la régénération car
+Claude ne réutilise plus ces `method_key`) supprimées manuellement en SQL.
+**Masquage retiré** : `SLAYER_BUG_CONTAMINATED_METHOD_IDS` (`market-data`,
+`setup/generate`) et `SLAYER_BUG_FIX_DEPLOYED_AT`/`stale_slayer_data`
+(`player/skills`, `SkillsTab.tsx`, `types.ts`) supprimés de `lib/money-making-constants.ts`
+et de leurs 4 consommateurs — le contenu servi est désormais propre à la source, plus
+besoin de filtrage en lecture.
+
+**Signal de clôture** : les 2 seuls vrais restes identifiés (`npc_locations` Bucket/HTML,
+`dungeon_classes` sans source) restent des gaps honnêtes et documentés, pas des
+blocages. Le chantier de fondation (cartographie wiki + NEU-REPO + SkyHanni-REPO +
+collecte totale + contamination Slayer) est maintenant considéré clos — **prêt à
+reprendre Pluton (Bloc 8)** dès que l'utilisateur le souhaite, sur une base
+entièrement vérifiée.
+
 ## ✅ CHANTIER FINAL clos — audit de fermeture (4 août)
 
 **Le criblage brut du wiki (`game_mechanics_misc`/`game_wiki`, ~6395 pages) est
