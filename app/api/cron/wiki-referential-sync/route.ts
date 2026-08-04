@@ -1502,6 +1502,125 @@ function parseLocationTable(tableBody: string, numCols: number): string[][] {
   }
   return rows
 }
+// --- Enrichissement (3 août) : 296 pages individuelles `Infobox/Location`
+// portent un détail (mobs, parfois resources/npcs) que la page résumé "Locations"
+// n'a pas -- jamais relié jusqu'ici. Fusionné DANS syncLocationDetails (pas une
+// fonction séparée) car le cron fait un delete+reinsert complet à chaque run --
+// un enrichissement à part se serait fait écraser au prochain passage.
+// Matching par nom (dernier segment du chemin sub_location), jamais par
+// coordonnées (location_details n'a pas de colonnes x/y/z) -- mais jamais un
+// simple nom unique non plus : deux vrais pièges trouvés en testant avant tout
+// déploiement :
+// 1. "Mondes miroirs" du Rift -- Colosseum/Wizard Tower/The Bastion existent à
+//    la fois au Hub (ou Crimson Isle) ET dans le Rift Dimension sous EXACTEMENT
+//    le même nom, ce sont deux lieux réellement distincts. Une page individuelle
+//    ne doit fusionner avec une ligne existante que si son propre champ
+//    `location=` est compatible avec la zone de cette ligne -- compatibilité
+//    vérifiée via un index sous-région->zone dérivé des vrais chemins déjà en
+//    base (ex: "Hub > Village > Bank" révèle que "Village" appartient au Hub),
+//    jamais deviné à la main.
+// 2. Le titre affiché ne peut pas toujours être extrait de la 1ère phrase en
+//    gras de la page (`'''X''' is/are/was...`) -- un `{{Quote|...}}` avant la
+//    vraie phrase, ou un "'''X''', also known as '''Y'''..." sans "is" direct,
+//    fait dériver un match non-greedy vers du texte sans rapport. Le slug de la
+//    clé wiki (convention déjà exploitée tout du long de ce chantier :
+//    underscore=espace, double-underscore=apostrophe) sert de source de secours
+//    fiable dès que le texte extrait dépasse 60 caractères ou 8 mots.
+function keyToLocationTitle(key: string): string {
+  return key.replace(/__/g, "'").split('_').filter(Boolean)
+    .map(w => w[0].toUpperCase() + w.slice(1)).join(' ')
+}
+function normLoc(s: string | null | undefined): string {
+  return (s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+function lastPathSegment(subLocation: string | null): string {
+  const parts = (subLocation || '').split('>').map(s => s.trim())
+  return parts[parts.length - 1]
+}
+async function fetchIndividualLocationPages(): Promise<{ key: string; content: string }[]> {
+  const { data, error } = await supabase
+    .from('game_mechanics_misc')
+    .select('key, value')
+    .eq('category', 'game_wiki')
+    .eq('value->>source', 'hypixelskyblock_wiki')
+    .ilike('value->>content', '%{{Infobox/Location%')
+  if (error) throw new Error('location_details (pages individuelles) fetch: ' + error.message)
+  return (data || [])
+    .map(row => ({ key: row.key as string, content: (row.value as any)?.content as string }))
+    .filter(r => !!r.content)
+}
+function enrichLocationRows(baseRows: any[], pages: { key: string; content: string }[]): any[] {
+  const byLastSegment = new Map<string, any[]>()
+  for (const r of baseRows) {
+    const k = normLoc(lastPathSegment(r.sub_location))
+    if (!byLastSegment.has(k)) byLastSegment.set(k, [])
+    byLastSegment.get(k)!.push(r)
+  }
+  const knownZones = new Set(baseRows.map(r => normLoc(r.zone)))
+  const subregionZones = new Map<string, Set<string>>()
+  for (const r of baseRows) {
+    const parts = (r.sub_location || '').split('>').map((s: string) => normLoc(s.trim())).filter(Boolean)
+    for (const p of parts) {
+      if (!subregionZones.has(p)) subregionZones.set(p, new Set())
+      subregionZones.get(p)!.add(normLoc(r.zone))
+    }
+  }
+  const zoneOverlaps = (a: string, b: string) => normLoc(a).includes(normLoc(b)) || normLoc(b).includes(normLoc(a))
+  const zoneCompatible = (locParam: string | null, zone: string): boolean => {
+    if (!locParam) return true
+    if (zoneOverlaps(locParam, zone)) return true
+    const known = subregionZones.get(normLoc(locParam))
+    if (known && known.has(normLoc(zone))) return true
+    const parenMatch = locParam.match(/\(([^)]+)\)/)
+    if (parenMatch) {
+      const alt = subregionZones.get(normLoc(parenMatch[1]))
+      if (alt && alt.has(normLoc(zone))) return true
+      if (zoneOverlaps(parenMatch[1], zone)) return true
+    }
+    return false
+  }
+  const parseListParam = (raw: string | undefined): string | null => {
+    if (!raw) return null
+    const items = raw.split('\n').map(l => l.replace(/^\*\s*/, '').trim()).filter(Boolean).map(cleanLocationCell)
+    return items.length ? items.join(', ') : null
+  }
+
+  const newRows: any[] = []
+  for (const { key, content } of pages) {
+    if (/\{\{Historical article/i.test(content)) continue
+    const idx = content.indexOf('{{Infobox/Location')
+    if (idx === -1) continue
+    const infobox = extractTemplateAt(content, idx)
+    if (!infobox) continue
+    const afterInfobox = content.slice(infobox.endIdx)
+    const sentenceMatch = afterInfobox.match(/'''(.+?)'''\s+(is|are|was|were)\b/)
+    const fromSentence = sentenceMatch ? cleanLocationCell(sentenceMatch[1]) : null
+    const title = (fromSentence && fromSentence.length <= 60 && fromSentence.split(' ').length <= 8) ? fromSentence : keyToLocationTitle(key)
+    if (knownZones.has(normLoc(title))) continue // la page EST une zone de haut niveau, pas une sous-location
+
+    const locationParam = infobox.params.get('location') ? cleanLocationCell(infobox.params.get('location') as string) : null
+    const mobs = parseListParam(infobox.params.get('mobs') as string | undefined)
+    const resources = parseListParam(infobox.params.get('resources') as string | undefined)
+    const npcsRaw = infobox.params.get('npcs') as string | undefined
+    const npcs = npcsRaw ? (cleanLocationCell(npcsRaw) || null) : null
+    if (!mobs && !resources && !npcs) continue // rien à apporter
+
+    const candidates = byLastSegment.get(normLoc(title)) || []
+    if (candidates.length === 1 && zoneCompatible(locationParam, candidates[0].zone)) {
+      const row = candidates[0]
+      row.mobs = mobs
+      if (!row.resources && resources) row.resources = resources
+      if (!row.npcs && npcs) row.npcs = npcs
+    } else if (candidates.length === 0 && locationParam) {
+      newRows.push({ zone: locationParam, sub_location: title, resources, npcs, special_requirements: null, mobs })
+    }
+    // candidates.length > 1 (nom dupliqué) ou candidates.length===1 mais zone
+    // incompatible (monde miroir) ou candidates.length===0 sans location= connu
+    // -- volontairement pas inséré, trop incertain pour fabriquer une ligne.
+  }
+  return [...baseRows, ...newRows]
+}
+
 async function syncLocationDetails(): Promise<number> {
   const content = await getWikiContent(supabase, 'locations')
   const sectionIdx = content.indexOf('== Locations ==')
@@ -1516,20 +1635,24 @@ async function syncLocationDetails(): Promise<number> {
   const body = allBlocks.slice(dataStart).join('\n|-\n')
 
   const parsedRows = parseLocationTable(body, 6)
-  const rows: any[] = []
+  const baseRows: any[] = []
   for (const r of parsedRows) {
     const pathParts = r.slice(0, 3).map(cleanLocationCell).filter(Boolean)
     if (pathParts.length === 0) continue
-    rows.push({
+    baseRows.push({
       zone: pathParts[0],
       sub_location: pathParts.slice(1).join(' > ') || null,
       resources: cleanLocationCell(r[3]) || null,
       npcs: cleanLocationCell(r[4]) || null,
       special_requirements: cleanLocationCell(r[5]) || null,
+      mobs: null,
     })
   }
+  if (baseRows.length === 0) throw new Error('location_details: 0 lignes extraites, parsing probablement cassé')
 
-  if (rows.length === 0) throw new Error('location_details: 0 lignes extraites, parsing probablement cassé')
+  const individualPages = await fetchIndividualLocationPages()
+  const rows = enrichLocationRows(baseRows, individualPages)
+
   const { error: delErr } = await supabase.from('location_details').delete().gte('id', 0)
   if (delErr) throw new Error('location_details delete: ' + delErr.message)
   const { error } = await supabase.from('location_details').insert(rows)
