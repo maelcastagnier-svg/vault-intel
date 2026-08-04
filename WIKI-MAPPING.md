@@ -802,6 +802,25 @@ passe s'étend sur plusieurs sessions) :
   changement de stratégie d'automatisation). Vérifié en prod : 274 lignes, count
   exact confirmé après insertion.
 
+- 🟡 **Candidat réel identifié, volontairement pas construit cette passe — enrichissement
+  `location_details`** : 296 pages individuelles `Infobox/Location` (une par lieu,
+  ex `goblin_burrows`/`south_wetlands`/`black_lagoon`/`einary_s_emporium`) contiennent
+  un détail plus riche que la table déjà réelle `location_details` (271 lignes,
+  sourcée d'une seule grosse page résumé "Locations") — notamment un champ `mobs=`
+  qui n'existe carrément pas dans le schéma actuel (seulement `npcs`/`resources`,
+  souvent `null` alors que la page individuelle a la vraie liste). **Pas construit
+  cette passe, pour une vraie raison technique, pas un jugement de valeur** :
+  `location_details` n'a aucune colonne x/y/z pour matcher fiablement contre ces 296
+  pages — un rapprochement par nom seul (`sub_location` texte) risque de mal fusionner
+  des lieux au nom proche mais distinct (`Goblin Burrows` vs `Goblin Holdout` observés
+  côte à côte, noms similaires mais deux vrais lieux différents). Une partie non
+  négligeable des 296 pages porte aussi `{{Historical article}}` (contenu retiré du
+  jeu, ex `snowball_fight_cave`/`the_people_s_voting`) — à exclure explicitement, pas
+  une simple page normale. Reprise recommandée pour une session dédiée : ajouter une
+  colonne `mobs` à `location_details`, matcher par x/y/z quand présent sur la page
+  individuelle (~la moitié des exemples vus en ont), filtrer `Historical article`,
+  fallback nom exact uniquement quand aucune coordonnée n'est disponible.
+
 **Bilan de cette session (3-4 août, méthode corrigée)** : nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
 `skyblock_level_xp_tasks`, `museum_milestones`, `crop_fortune_sources`,
