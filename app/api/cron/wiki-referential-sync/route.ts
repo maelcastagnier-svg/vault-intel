@@ -2718,6 +2718,7 @@ export async function runWikiReferentialSync() {
     skyblock_gems_pricing: syncSkyblockGemsPricing,
     rift_timecharms: syncRiftTimecharms,
     drop_chance_tiers: syncDropChanceTiers,
+    milestone_reward_tiers: syncMilestoneRewardTiers,
   })) {
     try {
       const rows = await fn()
