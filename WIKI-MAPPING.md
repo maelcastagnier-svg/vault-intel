@@ -261,10 +261,25 @@ passe s'étend sur plusieurs sessions) :
     Park/Spider's Den) — stats de combat réelles par mob (HP/Damage/Behavior/Drops),
     distinct de `bestiary_mobs` (uniquement cap/bracket de progression, vérifié avant
     de construire).
-  - `bits_shop` (candidat repéré, pas encore construit -- shop Bits chez Elizabeth,
-    wikitable simple confirmée) et `ender_dragon_drop_tables`/`frozen_corpses_*`/
-    `power_scrolls`/`trophy_fish` (candidats forts confirmés réels, pas encore construits
-    faute de temps dans cette session) restent en liste d'attente pour la prochaine passe.
+- ✅ **Lot 3 (suite, checkpoint 9)** :
+  - `bits_shop_items` (56 lignes, 8 catégories) — **bug réel trouvé et corrigé en
+    vérifiant le vrai résultat en prod après le 1er déploiement** : 12 lignes au lieu de
+    56 attendues, `extractFirstWikitableBody` ne prenait que la 1ère des 8 wikitables de
+    la page (Items + Kat Items/Upgrade Components/Sacks/Abiphone/Dyes/Stacking Enchants/
+    Enrichments) — corrigé en itérant toutes les tables, taguées par leur section.
+  - `power_scroll_recipes` (6 gemmes) — recette de craft, format Infobox/Item à onglets
+    numérotés (pas une wikitable) — extraction par regex de champ nommé plutôt que les
+    helpers de table. Opal a ses champs vides côté wiki source lui-même, capturé à NULL.
+  - `ender_dragon_drop_tables` — confirmé être une page de MAINTENANCE (bannière
+    explicite "this is a maintenance page... see Ender Dragon#Drops") pointant vers le
+    contenu réel ailleurs, pas une source à extraire directement. Non construit.
+  - `trophy_fish` — vérifié contre `trophy_fish_thresholds` (déjà réel, 18 lignes) :
+    la page wiki est majoritairement de la prose + un Infobox listant les IDs d'items
+    (pas de table de bonus par palier distincte trouvée) — couverture déjà suffisante,
+    pas de vrai gap identifié. Non construit.
+  - `frozen_corpses`/`frozen_corpses_lapis`/`_vanguard`/`_umber_and_tungsten` — repérés
+    réels (loot du Glacite Mineshaft) mais pas encore lus en détail — reste en liste
+    d'attente, pas fermé définitivement.
 - ⏳ **Reste du bucket générique** — **~5700 titres non encore screenés** sur les 6386
   actuels (le chiffre total croît légèrement en continu via `wiki-auto-sync`). Les titres
   déjà screenés (~680, les plus gros par taille) ont produit l'essentiel des systèmes
