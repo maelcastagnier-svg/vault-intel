@@ -945,6 +945,96 @@ FINAL — extraction brute du wiki") est considéré terminé.** Passage à l'au
 fermeture complet (chiffres bruts, couverture par système, checkup des
 automatisations, gaps honnêtes restants) — voir section dédiée plus bas.
 
+## ✅ Checkpoint 28 — Source 4 (SkyHanni-REPO) découverte + 17 tables (4 août)
+
+Suite à l'audit de fermeture (4 crons vérifiés, gaps SkyCofl/wiki documentés),
+chantier explicite de l'utilisateur : épuiser Source 3 (API Hypixel officielle,
+32 endpoints) et Source 4 (SkyHanni/Firmament/hypixel-api-reborn), jamais vraiment
+criblées malgré leur identification dès le 1er août.
+
+**Source 3 — quasi entièrement déjà couverte** : des 32 endpoints, 30 sont
+confirmés déjà synced (`skyblock-resources-sync`/`network-events-sync`/
+`ah-collect`/`bazaar-collect`/`player/sync`). `resources/vanity/pets` et
+`resources/vanity/companions` confirmés hors-scope (cosmétiques réseau Hypixel
+général, pas Skyblock). Seul `skyblock/garden` reste non-vérifié (nécessite une
+clé API + probablement un `profile`, comme `skyblock/museum` — testé sans clé,
+`success:false`).
+
+**Source 4 — découverte majeure** : le code source du mod SkyHanni
+(`features/*`, déjà listé Source 4 depuis le 1er août) est ~90% logique
+UI/interaction — la vraie donnée de jeu vit dans un **repo séparé**,
+`hannibal002/SkyHanni-REPO`, référencé via `data.jsonobjects.repo.*` dans le
+code du mod mais jamais identifié comme source distincte avant cette passe.
+113 fichiers JSON dans `constants/`, criblés un par un par contenu réel (~40
+fichiers inspectés cette passe, ~73 restent pour une session future).
+
+**17 tables construites** (`app/api/cron/skyhanni-repo-sync/route.ts`, cron
+hebdo lundi 6h) : `slayer_mob_combat_stats`/`slayer_gear_requirements`/
+`slayer_pet_scaling`/`slayer_tier_costs` (système Slayer entier jamais mappé —
+spawn costs et XP gains par tier, directement utile pour respecter la règle
+"jamais de constante reconstituée de mémoire"), `slayer_drop_items`,
+`rift_enigma_soul_locations` (équivalent Rift des fairy souls, 52 lieux),
+`minion_item_xp_values` (225 lignes, XP minion par item consommé),
+`inferno_minion_fuels`, `dojo_belts`, `rift_race_checkpoints`,
+`garden_special_armor_crops`, `rift_ghost_drops`,
+`rift_wilted_berberis_locations`, `rift_metal_detector_chests`,
+`rift_experimentation_table_rewards`, `starlyn_contest_tier_rewards`,
+`kuudra_faction_discounts` (résout les seuils de réputation 1000/3000/7000/12000
+documentés comme jamais sourcés dans CLAUDE.md, section Crimson Isle/Kuudra).
+
+**Dédoublonnage vérifié avant construction** : `DianaDrops.json` écarté (déjà
+couvert plus richement par `griffin_burrows_loot`, table à poids par tier de
+spade) ; `TrophyFish.json`/`FameRank.json`/`Warps.json`/`Enchants.json` vérifiés
+déjà couverts par `trophy_fish_thresholds`/`fame_ranks`/`island_warps`/
+`enchantments` existants, pas reconstruits.
+
+**Bug trouvé en testant, corrigé avant de considérer fiable** : `rift_race_checkpoints`
+échouait en prod (404) — chemin `RiftRace.json` sans le préfixe `rift/` requis.
+Corrigé, redéployé, revérifié : 14/14 fonctions `success`, 655 lignes au total.
+
+**Firmament confirmé sans donnée significative** — `legacy_data/*.json` (3
+fichiers) contient des données Minecraft **vanilla** (enchantements/items de
+base), aucun rapport avec Skyblock. Reconfirme la conclusion déjà notée le 2 août
+("Rien d'autre de significatif trouvé"). **hypixel-api-reborn** confirmé
+largement redondant avec Source 3 (types calqués sur l'API déjà vérifiée) et le
+chantier collecte totale déjà fait sur `member.*`.
+
+**Reste pour une session future** : ~73 fichiers `SkyHanni-REPO/constants/`
+non encore inspectés (dont les 19 `island_graphs/*.json`, probablement des
+maillages de pathfinding pour le mod plutôt que de la donnée de jeu, priorité
+basse) — chantier explicitement pas fermé, à reprendre avec la même méthode.
+
+## ✅ Vérification complétude import historique SkyCofl (4 août)
+
+Demandée en parallèle du chantier Source 3/4 : `historic_import_progress`
+(table de suivi jamais interrogée directement avant) donne la réponse exacte,
+plus fiable qu'une estimation externe.
+
+**AH** : 3798 items ciblés, tous `status='done'` (aucun `pending` restant).
+3617 (95,2%) confirmés `years_completed=3`. Sur les 181 échecs, **164 ont
+depuis récupéré des données** (collecte live ou réimport SkyCofl du 20-21
+juillet) — **17 items seulement restent réellement sans aucune donnée AH**,
+liste courte et plausible (variantes Diamond de trophy fish, objets
+starter/cosmétiques rares, 1 entrée `test` manifestement junk).
+
+**Bazaar** : 2448 items ciblés, tous `status='done'`. 2143 (87,5%) confirmés.
+Sur les 305 échecs, **0 récupérés** — mais **297/305 (97,4%) se sont révélés être
+des items AH mal classés `BAZAAR` dans la table de suivi elle-même** (vérifié
+contre `items_catalog.source`, la classification actuelle et sourcée en direct
+de l'API Hypixel — ex: "Angler Helmet"/"Ancestral Spade", des objets AH
+uniques, jamais du Bazaar). Ce n'est pas un trou de collecte, c'est une erreur
+d'étiquetage dans le seed d'origine de `historic_import_progress`. **8 items
+seulement sont de vrais items Bazaar jamais importés**, tous plausiblement à
+liquidité nulle (Rookie Pickaxe, biome sticks, skins).
+
+**Note de contexte, pas un gap** : seuls 870/3750 items AH (23%) ont une
+première ligne proche de 2019-2020 — attendu, la plupart des items Skyblock
+n'existaient simplement pas encore à cette date (ajoutés par des mises à jour
+de contenu ultérieures), pas un signe de collecte incomplète.
+
+Détail complet chiffré (Source 1-4, criblage wiki, audit SkyCofl) livré à
+l'utilisateur en rapport de session, pas dupliqué ici.
+
 **Bilan de cette session (3-4 août, méthode corrigée)** : nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
 `skyblock_level_xp_tasks`, `museum_milestones`, `crop_fortune_sources`,
