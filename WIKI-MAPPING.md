@@ -385,6 +385,37 @@ passe s'étend sur plusieurs sessions) :
     de code que de valeur pour ce volume, transcription vérifiée ligne à ligne contre
     le wikitext brut avant commit, garde-fou `content.includes(...)` dans chaque sync
     pour détecter si la page source change un jour sous nos pieds.
+- ✅ **Lot 5 (positions 1581-1980, checkpoint 13)** — 4 nouveaux systèmes réels
+  construits et vérifiés en prod :
+  - `tree_gift_drops` (57 lignes, 3 arbres) — table de drop des Tree Gifts
+    (Foraging/HotF), jamais capturée. 3 pages réelles `hypixelskyblock_wiki`
+    (`tree_gifts_fig`/`tree_gifts_mangrove`/`tree_gifts_helix`). **Dedup réel** :
+    `tree_gifts_list` (source `fandom_wiki`, trouvée dans le même lot) confirmée
+    périmée/incomplète (2 arbres seulement, pas Helix) face aux 3 pages actuelles —
+    ignorée, même discipline que "source abandonnée le 22 juillet".
+  - `trophy_frogs` (12 lignes) — système de pêche à la grenouille (Lotus Atoll/Rift),
+    distinct de `trophy_fish_thresholds` (Bronze→Diamond par poisson, pas par frog).
+  - `wormhole_locations` (21 lignes) — coordonnées réelles de wormholes (Rift, Lotus
+    Atoll/Tewtil Tunnel), connecté à `trophy_frogs` (Reality Hopper "Caught in
+    Wormholes"). Wikitable avec caption `|+` avant les en-têtes, gérée en filtrant.
+  - `mob_type_categories` (24 pages `Mob Types/List/<Catégorie>`) — **ferme un vrai
+    gap documenté dans CLAUDE.md** : les 5 tâches milestone `mobtype` (catégories
+    Bestiary larges type "Arthropod"/"Undead") étaient non calculables faute d'une
+    table mob→catégorie. Chaque page liste déjà TOUTES les catégories par mob (via
+    `{{mt|X}}<br>{{mt|Y}}`), upsert sur (mob_name, category) dédoublonne les 24 pages
+    qui se recoupent largement. **Bug de parsing réel trouvé et corrigé avant tout
+    déploiement** (testé en local contre `mob_types_list_animal`, 6277 caractères) :
+    des lignes désactivées via commentaire HTML englobent un `|-` de séparation à
+    l'intérieur du commentaire (`<!-- |-\n| {{MobSprite|Night Squid}}\n| ... -->`) —
+    un split naïf sur `\n|-\n?` avant d'avoir retiré les commentaires aurait cassé la
+    cellule précédente (Squid) et fabriqué une fausse ligne à partir du texte
+    commenté. Corrigé en retirant tous les commentaires HTML sur le texte brut ENTIER
+    avant toute extraction de table.
+  - `essence_shops_ice` et `mob_list_caverns` (Caverns) confirmés déjà couverts par
+    `essence_shop_upgrades`/`zone_mob_stats` respectivement — pas de nouvelle table,
+    juste vérifié en passant pendant le screening.
+  - `corrupted_mobs` confirmé prose pure (aucune vraie table, `{{InfoNeeded}}` sur la
+    seule vraie donnée numérique manquante côté wiki lui-même) — pas construit.
 
 **Bilan de cette session (3-4 août, méthode corrigée)** : 16 nouveaux systèmes réels
 construits et vérifiés en prod — `player_stats`, `attribute_milestones`, `necromancy_souls`,
