@@ -1,0 +1,375 @@
+// lib/pluton-mining.ts
+// Bloc 8 (audit 8 blocs), 31 juillet -- Pluton, calculateur Mining. 100%
+// déterministe (SQL/JS pur), zéro appel Claude à l'exécution -- voir
+// CLAUDE.md pour la contrainte explicite de l'utilisateur.
+//
+// Formules utilisées (toutes sourcées des pages wiki déjà en cache, voir
+// 8.2 -- jamais reconstituées de mémoire) :
+// - Mining Time (ticks) = round(Block Strength * 30 / Mining Speed)
+// - Softcap : "Softcap = floor((20/3) * Block Strength) + 1" -- bug réel
+//   trouvé en testant le cas concret Mithril MID (31 juillet) : cette
+//   formule est exprimée en unités de MINING SPEED (le seuil de vitesse
+//   minimum pour atteindre le plancher de 4 ticks), PAS un nombre de ticks
+//   -- confirmé par les exemples du wiki (colonne "Softcap" = 54/101/134/
+//   3334 pour Netherrack/Stone/Cobblestone/Obsidian, des ordres de grandeur
+//   de vitesse, pas de ticks). Comparer directement raw ticks à cette
+//   valeur (comme fait dans une 1re version) gonflait artificiellement le
+//   temps de minage à des centaines de secondes par bloc quelle que soit la
+//   vitesse réelle -- le vrai plancher est simplement 4 ticks, littéral,
+//   jamais recalculé par bloc.
+// - Mining Fortune : chaque 100 = +1 drop garanti, le reste = % de chance
+//
+// MVP volontairement simplifié (documenté, pas caché) :
+// - Bypass instamine (30x/60x Block Strength) PAS implémenté -- les deux
+//   pages wiki sourcées se contredisent sur le multiplicateur exact pour un
+//   minerai (30x vs 60x), et à MID tier la vitesse nécessaire pour l'atteindre
+//   (15-30k+) est de toute façon hors de portée -- non pertinent pour ce
+//   premier calcul, à trancher si un calcul LATE tier s'en approche un jour.
+// - Un seul palier d'investissement calculé ('optimal', prix blended de
+//   base -- pas de variation étoiles/reforge) -- les 3 paliers Budget/
+//   Optimal/Endgame validés en 8.1 seront ajoutés en généralisant, pas
+//   nécessaires pour valider le mécanisme sur un premier cas concret.
+// - Armure ne contribue jamais de Breaking Power (confirmé par la page
+//   wiki "Breaking Power" -- seuls les outils en donnent).
+//
+// coins_per_hour_raw_block_only (PAS coins_per_hour) -- champ nommé
+// explicitement ainsi (31 juillet) après un vrai caveat soulevé par
+// l'utilisateur : ce chiffre ne compte QUE la vente du bloc brut lui-même
+// au Bazaar, jamais les vrais à-côtés de valeur du minage réel (coffres au
+// trésor Crystal Hollows, Mithril/Gemstone/Glacite Powder, Mining Fiesta).
+// Recherché avant d'écarter (pas juste supposé hors scope) : le vrai
+// contenu des tables de loot des coffres existe déjà en cache
+// (game_mechanics_misc.crystal_hollows_mithril_deposits_loot -- table
+// pondérée réelle) mais le TAUX d'obtention d'un coffre par bloc miné
+// n'est sourcé nulle part dans le cache -- vérifié explicitement contre
+// 'treasure_chance', qui s'avère être un stat Fishing sans rapport avec
+// le minage. Sans ce taux, inclure la table de loot reviendrait à deviner
+// un nombre (interdit par la règle 7). Mining Fiesta (Refined Mineral/
+// Glossy Gemstone) est en plus un bonus d'event borné dans le temps
+// (~11h40 réelles par mandat de maire), pas un taux permanent -- l'inclure
+// dans un coins/h "à l'instant T" le représenterait à tort comme toujours
+// actif. Mithril Powder est une monnaie HotM non tradeable (plafond 2Md),
+// aucune valeur marché directe. Les trois écartés explicitement plutôt que
+// forcés -- vraie extension future (8.x), pas un chantier "rapide".
+import { createClient } from '@supabase/supabase-js'
+import { loadPricedItems, type PricedItem } from './gear-pricing'
+import { TIER_CONFIG, type TierKey } from './money-making-constants'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
+
+export type MiningRankingResult = {
+  target_block: string
+  target_block_id: number
+  tier: string
+  top_setup: {
+    armor_set: string
+    tool: string
+    tool_item_id: string
+    total_mining_speed: number
+    total_mining_fortune: number
+    total_breaking_power: number
+    real_cost: number
+    mining_time_seconds: number
+    actions_per_hour: number
+    yield_per_hour: number
+    coins_per_hour_raw_block_only: number
+    pet?: { source_id: string; rarity: string | null; mining_speed: number; mining_fortune: number } | null
+    pet_candidates_checked?: number
+    accessories?: { source_id: string; equip_slot: string; mining_speed: number; mining_fortune: number }[]
+  } | null
+  eligible_combos_count: number
+  total_combos_checked: number
+}
+
+export const MINING_TARGET_BLOCK_IDS = [
+  'COAL_ORE', 'IRON_ORE', 'GOLD_ORE', 'DIAMOND_ORE',
+  'MITHRIL_ORE', 'TITANIUM_ORE', 'RUBY_GEMSTONE', 'JADE_GEMSTONE', 'GLACITE',
+] as const
+
+export const MINING_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
+
+export async function computeMiningRanking(tier: TierKey, blockId: string): Promise<MiningRankingResult> {
+  const [{ data: block }, { data: toolStats }, { data: armorStats }, priced] = await Promise.all([
+    supabase.from('pluton_target_blocks').select('*').eq('activity_key', 'mining').eq('block_id', blockId).single(),
+    supabase.from('pluton_mining_tool_stats').select('*').eq('verified', true),
+    supabase.from('pluton_mining_armor_stats').select('*'),
+    loadPricedItems(),
+  ])
+
+  if (!block) throw new Error(`Unknown target block: ${blockId}`)
+
+  const priceById = new Map<string, PricedItem>(priced.map(p => [p.item_id, p]))
+  const tierConfig = TIER_CONFIG[tier]
+  const armorMax = tierConfig.max_gear_cost * 3
+  const toolMax  = tierConfig.max_gear_cost * 3
+  // Pas de plancher de prix sur l'armure (ni sur les outils, voir plus bas)
+  // -- seulement un plafond. Le plancher budget/25 hérité de Money Making
+  // (catalogue général dense à tous les paliers de prix) a produit un vrai
+  // bug en généralisant (31 juillet) : à LATE (plancher ~400M), même
+  // Divan's Armor (~368M, le set Mining le plus cher qui existe
+  // réellement) tombait sous le plancher -- 0/9 blocs éligibles, alors que
+  // Divan's est authentiquement le meilleur choix Mining endgame. Mining
+  // n'a que 11 sets de référence connus (catégorie clairsemée, pas un
+  // marché dense comme l'armure générale) -- un plancher y exclut le
+  // meilleur set réel au lieu de filtrer du gear sous-optimal. Même
+  // logique déjà appliquée aux outils ci-dessous, étendue à l'armure.
+
+  const combos: {
+    armor_set: string; tool: string; tool_item_id: string
+    total_mining_speed: number; total_mining_fortune: number; total_breaking_power: number
+    real_cost: number
+  }[] = []
+  let totalChecked = 0
+
+  for (const armor of armorStats || []) {
+    const pieces = [armor.helmet_item_id, armor.chestplate_item_id, armor.leggings_item_id, armor.boots_item_id]
+    const piecePrices = pieces.map(id => priceById.get(id)?.price)
+    if (piecePrices.some(p => p === undefined)) continue // un ou plusieurs items sans prix réel récent -- skip, jamais inventé
+    const armorCost = piecePrices.reduce((s, p) => s! + p!, 0)!
+    if (armorCost > armorMax) continue
+
+    for (const tool of toolStats || []) {
+      totalChecked++
+      const toolPrice = priceById.get(tool.item_id)?.price
+      if (toolPrice === undefined || toolPrice > toolMax) continue // pas de plancher pour les outils non plus, voir 8.3
+
+      const totalBP = tool.base_breaking_power
+      if (totalBP < block.required_breaking_power) continue // filtre d'éligibilité, 8.2
+
+      combos.push({
+        armor_set: armor.set_name,
+        tool: tool.display_name,
+        tool_item_id: tool.item_id,
+        total_mining_speed:   armor.set_mining_speed + tool.base_mining_speed,
+        total_mining_fortune: Number(armor.set_mining_fortune) + Number(tool.base_mining_fortune),
+        total_breaking_power: totalBP,
+        real_cost: armorCost + toolPrice,
+      })
+    }
+  }
+
+  // Le drop d'un bloc miné se vend au Bazaar (MITHRIL_ORE, GLACITE, gemmes
+  // brutes...), jamais sur l'AH -- bug réel trouvé en testant : loadPricedItems()
+  // ne lit que price_history_ah (armure/outils), donnant un sellPrice de 0
+  // silencieux et un coins_per_hour toujours nul. Prix Bazaar réel requis séparément.
+  const { data: bazaarPriceRow } = await supabase
+    .from('price_history')
+    .select('sell_price, bucket_date')
+    .eq('item_id', block.sell_item_id)
+    .gt('sell_price', 0)
+    .order('bucket_date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const sellPrice = Number(bazaarPriceRow?.sell_price) || 0
+
+  const scored = combos
+    .filter(c => c.total_mining_speed > 0)
+    .map(c => {
+      const miningTimeTicks = Math.round((block.block_strength * 30) / c.total_mining_speed)
+      // Plancher littéral de 4 ticks (0.2s) -- jamais plus rapide sans
+      // instamine (non implémenté cette passe, voir en-tête de fichier).
+      const effectiveTicks = Math.max(miningTimeTicks, 4)
+      const miningTimeSeconds = effectiveTicks / 20
+      const actionsPerHour = 3600 / miningTimeSeconds
+      const yieldPerHour = actionsPerHour * (1 + c.total_mining_fortune / 100)
+      const coinsPerHourRawBlockOnly = yieldPerHour * sellPrice
+      return { ...c, mining_time_seconds: miningTimeSeconds, actions_per_hour: actionsPerHour, yield_per_hour: yieldPerHour, coins_per_hour_raw_block_only: coinsPerHourRawBlockOnly }
+    })
+    .sort((a, b) => b.coins_per_hour_raw_block_only - a.coins_per_hour_raw_block_only)
+
+  let topSetup: any = scored[0] ?? null
+  if (topSetup) {
+    // Couche pets + accessoires (5 août, Pluton V2) -- appliquée sur le
+    // meilleur combo armure+outil, cross-catégorie via stat_bonus_sources.
+    const layer = await applyPetsAndAccessories(
+      topSetup.total_mining_speed, topSetup.total_mining_fortune, block.block_strength, sellPrice
+    )
+    const ticks = Math.max(Math.round((block.block_strength * 30) / layer.total_mining_speed), 4)
+    const miningTimeSeconds = ticks / 20
+    const actionsPerHour = 3600 / miningTimeSeconds
+    const yieldPerHour = actionsPerHour * (1 + layer.total_mining_fortune / 100)
+    topSetup = {
+      ...topSetup,
+      total_mining_speed: layer.total_mining_speed,
+      total_mining_fortune: layer.total_mining_fortune,
+      pet: layer.best_pet,
+      pet_candidates_checked: layer.pet_candidates_checked,
+      accessories: layer.accessories,
+      mining_time_seconds: miningTimeSeconds,
+      actions_per_hour: actionsPerHour,
+      yield_per_hour: yieldPerHour,
+      coins_per_hour_raw_block_only: yieldPerHour * sellPrice,
+    }
+  }
+
+  return {
+    target_block: block.block_name,
+    target_block_id: block.id,
+    tier,
+    top_setup: topSetup,
+    eligible_combos_count: combos.length,
+    total_combos_checked: totalChecked,
+  }
+}
+
+// Généralise computeMiningRanking() aux 9 blocs cibles x 4 tiers (31
+// juillet, Bloc 8 -- après validation du cas concret Mithril MID) et
+// persiste le résultat dans pluton_setups/pluton_rankings. Même limite de
+// scope que le MVP validé : un seul palier d'investissement ('optimal'),
+// et seul le TOP 1 setup par (tier, bloc) est retenu -- pluton_rankings
+// admet une colonne `rank` pour un futur top N, pas construit cette passe,
+// jamais fabriqué au-delà du setup réellement calculé comme meilleur.
+// Certaines combinaisons (bloc à forte Breaking Power requise à un tier
+// bas budget) produiront honnêtement top_setup:null / eligible_combos:0
+// -- pas persistées (rien à classer), pas un bug.
+export type PersistedMiningResult = {
+  tier: TierKey
+  block_id: string
+  target_block: string
+  has_setup: boolean
+  coins_per_hour_raw_block_only: number | null
+}
+
+// ============================================================
+// Extension Pluton V2 (5 août) -- couche pets + accessoires, pilotée par
+// stat_bonus_sources plutôt que par une liste présupposée. Généralise la
+// comparaison manuelle Scatha-vs-Mole faite dans la route de debug
+// pluton-gems-compact-validation (branche feat/bloc8-pluton-mining,
+// jamais mergée) : TOUS les pets ayant un vrai bonus mining_speed/
+// mining_fortune sont comparés (BEE et PRECURSOR_DRONE inclus, deux pets
+// non-"mining" par réputation qu'un filtre par catégorie aurait exclus à
+// tort), pas seulement ceux qu'on aurait devinés comme pertinents.
+// Les accessoires (Equipment 4 slots + Accessory Bag) ne sont pas en
+// compétition entre eux (slots simultanés/empilables, voir
+// equip_slot_capacity) -- ajoutés sans arbitrage nécessaire.
+export type PetAndAccessoryLayer = {
+  best_pet: { source_id: string; rarity: string | null; mining_speed: number; mining_fortune: number } | null
+  pet_candidates_checked: number
+  accessories: { source_id: string; equip_slot: string; mining_speed: number; mining_fortune: number }[]
+  total_mining_speed: number
+  total_mining_fortune: number
+}
+
+export async function applyPetsAndAccessories(
+  baseMiningSpeed: number,
+  baseMiningFortune: number,
+  blockStrength: number,
+  sellPrice: number
+): Promise<PetAndAccessoryLayer> {
+  const { data: sources } = await supabase
+    .from('stat_bonus_sources')
+    .select('source_id, source_type, equip_slot, stat_name, rarity, bonus_numeric')
+    .in('equip_slot', ['pet', 'necklace', 'cloak', 'belt', 'bracelet', 'accessory_bag'])
+
+  const rows = sources || []
+
+  // Accessoires -- slots non-compétitifs, prend un représentant par équip_slot
+  // (le meilleur si jamais plusieurs candidats existaient un jour dans le même
+  // slot ; aujourd'hui un seul item connu par slot).
+  const bySlot = new Map<string, typeof rows>()
+  for (const r of rows) {
+    if (r.equip_slot === 'pet') continue
+    const arr = bySlot.get(`${r.equip_slot}:${r.source_id}`) || []
+    arr.push(r)
+    bySlot.set(`${r.equip_slot}:${r.source_id}`, arr)
+  }
+  const accessories: PetAndAccessoryLayer['accessories'] = []
+  let accSpeed = 0, accFortune = 0
+  for (const [key, group] of bySlot) {
+    const speed = group.find(g => g.stat_name === 'mining_speed')?.bonus_numeric || 0
+    const fortune = group.find(g => g.stat_name === 'mining_fortune')?.bonus_numeric || 0
+    const [equip_slot, source_id] = key.split(':')
+    accessories.push({ source_id, equip_slot, mining_speed: Number(speed), mining_fortune: Number(fortune) })
+    accSpeed += Number(speed)
+    accFortune += Number(fortune)
+  }
+
+  // Pets -- compétitifs entre eux (un seul actif), comparés sur leur impact
+  // RÉEL en coins/h (pas juste la somme brute speed+fortune, qui n'est pas
+  // toujours le bon proxy à cause du plancher de 4 ticks et de la formule
+  // non-linéaire de fortune) -- cross-catégorie, aucun filtre par nom/type.
+  const petIds = new Set(rows.filter(r => r.equip_slot === 'pet').map(r => `${r.source_id}:${r.rarity}`))
+  let bestPet: PetAndAccessoryLayer['best_pet'] = null
+  let bestScore = -1
+  for (const key of petIds) {
+    const [source_id, rarity] = key.split(':')
+    const petRows = rows.filter(r => r.equip_slot === 'pet' && r.source_id === source_id && r.rarity === rarity)
+    const speed = Number(petRows.find(r => r.stat_name === 'mining_speed')?.bonus_numeric || 0)
+    const fortune = Number(petRows.find(r => r.stat_name === 'mining_fortune')?.bonus_numeric || 0)
+    const testSpeed = baseMiningSpeed + accSpeed + speed
+    const testFortune = baseMiningFortune + accFortune + fortune
+    const ticks = Math.max(Math.round((blockStrength * 30) / testSpeed), 4)
+    const yieldPerHour = (3600 / (ticks / 20)) * (1 + testFortune / 100)
+    const score = yieldPerHour * sellPrice
+    if (score > bestScore) {
+      bestScore = score
+      bestPet = { source_id, rarity: rarity === 'null' ? null : rarity, mining_speed: speed, mining_fortune: fortune }
+    }
+  }
+
+  return {
+    best_pet: bestPet,
+    pet_candidates_checked: petIds.size,
+    accessories,
+    total_mining_speed: baseMiningSpeed + accSpeed + (bestPet?.mining_speed || 0),
+    total_mining_fortune: baseMiningFortune + accFortune + (bestPet?.mining_fortune || 0),
+  }
+}
+
+export async function computeAndPersistAllMiningRankings(): Promise<PersistedMiningResult[]> {
+  const out: PersistedMiningResult[] = []
+
+  for (const tier of MINING_TIER_KEYS) {
+    for (const blockId of MINING_TARGET_BLOCK_IDS) {
+      const result = await computeMiningRanking(tier, blockId)
+
+      if (!result.top_setup) {
+        out.push({ tier, block_id: blockId, target_block: result.target_block, has_setup: false, coins_per_hour_raw_block_only: null })
+        continue
+      }
+
+      const s = result.top_setup
+      const { data: setupRow, error: setupErr } = await supabase
+        .from('pluton_setups')
+        .insert({
+          activity_key: 'mining',
+          tier,
+          investment_level: 'optimal',
+          armor_set_prefix: s.armor_set,
+          tool_item_id: s.tool_item_id,
+          total_mining_speed: s.total_mining_speed,
+          total_mining_fortune: s.total_mining_fortune,
+          total_breaking_power: s.total_breaking_power,
+          real_cost: s.real_cost,
+          pet_id: s.pet?.source_id ?? null,
+          pet_rarity: s.pet?.rarity ?? null,
+          accessories: s.accessories ?? [],
+        })
+        .select('id')
+        .single()
+      if (setupErr || !setupRow) throw new Error(`pluton_setups insert failed for ${tier}/${blockId}: ${setupErr?.message}`)
+
+      const { error: rankErr } = await supabase
+        .from('pluton_rankings')
+        .insert({
+          activity_key: 'mining',
+          tier,
+          target_block_id: result.target_block_id,
+          setup_id: setupRow.id,
+          rank: 1,
+          mining_time_seconds: s.mining_time_seconds,
+          actions_per_hour: s.actions_per_hour,
+          yield_per_hour: s.yield_per_hour,
+          coins_per_hour_raw_block_only: s.coins_per_hour_raw_block_only,
+        })
+      if (rankErr) throw new Error(`pluton_rankings insert failed for ${tier}/${blockId}: ${rankErr.message}`)
+
+      out.push({ tier, block_id: blockId, target_block: result.target_block, has_setup: true, coins_per_hour_raw_block_only: s.coins_per_hour_raw_block_only })
+    }
+  }
+
+  return out
+}
