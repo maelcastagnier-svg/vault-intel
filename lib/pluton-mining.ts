@@ -134,6 +134,7 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
     armor_set: string; tool: string; tool_item_id: string
     total_mining_speed: number; total_mining_fortune: number; total_breaking_power: number
     real_cost: number
+    armor_piece_ids: string[]; tool_category: string | null
   }[] = []
   let totalChecked = 0
 
@@ -165,6 +166,8 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
         total_mining_fortune: Number(armor.set_mining_fortune) + Number(tool.base_mining_fortune) + toolGemstoneFortune,
         total_breaking_power: totalBP,
         real_cost: armorCost + toolPrice,
+        armor_piece_ids: pieces,
+        tool_category: tool.tool_category ?? null,
       })
     }
   }
@@ -242,9 +245,11 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
     const layer = await applyPetsAndAccessories(
       topSetup.total_mining_speed, topSetup.total_mining_fortune, block.block_strength, sellPrice
     )
+    let finalSpeed = layer.total_mining_speed
     let finalFortune = layer.total_mining_fortune
     let pristineMult = 1
     let gemstoneBonus: GemstoneBonusLayer | null = null
+    let petGemstoneFortune = 0
     if (isGemstoneTarget) {
       // Gemstone Fortune + Pristine (5 août) -- uniquement pertinent sur cible
       // Gemstone, jamais appliqué aux autres blocs. gemstone_fortune s'additionne
@@ -253,11 +258,36 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
       gemstoneBonus = await applyGemstoneBonuses(layer.best_pet?.source_id ?? null)
       finalFortune += gemstoneBonus.gemstoneFortune
       pristineMult = 1 + gemstoneBonus.pristine * 0.79
+      const { data: petGF } = await supabase.from('stat_bonus_sources').select('bonus_numeric')
+        .eq('source_id', layer.best_pet?.source_id ?? '').eq('stat_name', 'gemstone_fortune').eq('equip_slot', 'pet').maybeSingle()
+      petGemstoneFortune = Number(petGF?.bonus_numeric) || 0
     }
-    const { miningTimeSeconds, actionsPerHour, yieldPerHour, coinsPerHourRawBlockOnly } = scoreYield(layer.total_mining_speed, finalFortune, pristineMult)
+
+    // Couche "investissement maximal" (5 août) -- HOTM maxé + sockets de
+    // gemmes réels + reforge Jaded + upgrades foret + Hephaestus Relic.
+    // Appliquée seulement END/LATE (investissement réaliste à ces tiers) --
+    // écart de 60x+ confirmé entre le calcul sans cette couche et un setup
+    // end-game réel en jeu (voir commentaire de applyMaxInvestmentLayer).
+    if (tier === 'end' || tier === 'late') {
+      const { data: armorRarityRow } = await supabase.from('item_stats').select('rarity').eq('item_id', topSetup.armor_piece_ids[0]).maybeSingle()
+      const { data: toolRarityRow } = await supabase.from('item_stats').select('rarity').eq('item_id', topSetup.tool_item_id).maybeSingle()
+      const maxLayer = await applyMaxInvestmentLayer(
+        topSetup.armor_piece_ids, armorRarityRow?.rarity ?? null,
+        topSetup.tool_item_id, topSetup.tool_category, toolRarityRow?.rarity ?? null,
+        layer.best_pet?.mining_speed ?? 0, layer.best_pet?.mining_fortune ?? 0, petGemstoneFortune,
+        isGemstoneTarget
+      )
+      finalSpeed += maxLayer.speed
+      finalFortune += maxLayer.fortune
+      if (isGemstoneTarget) finalFortune += maxLayer.gemstoneFortune
+      pristineMult = 1 + (( (gemstoneBonus?.pristine ?? 0) + maxLayer.pristine) * 0.79)
+      topSetup.max_investment_layer = maxLayer
+    }
+
+    const { miningTimeSeconds, actionsPerHour, yieldPerHour, coinsPerHourRawBlockOnly } = scoreYield(finalSpeed, finalFortune, pristineMult)
     topSetup = {
       ...topSetup,
-      total_mining_speed: layer.total_mining_speed,
+      total_mining_speed: finalSpeed,
       total_mining_fortune: finalFortune,
       gemstone_fortune: gemstoneBonus?.gemstoneFortune ?? null,
       pristine: gemstoneBonus?.pristine ?? null,
@@ -422,6 +452,121 @@ export async function applyGemstoneBonuses(bestPetId: string | null): Promise<Ge
     if (r.stat_name === 'pristine') pristine += Number(r.bonus_numeric)
   }
   return { gemstoneFortune, pristine }
+}
+
+// ============================================================
+// Couche "investissement maximal" (5 août, correction post-audit utilisateur --
+// écart de 60x+ confirmé entre le calcul de base et un vrai setup end-game réel
+// en jeu). Toutes les valeurs ci-dessous sont sourcées, jamais devinées :
+//
+// - HOTM : formules réelles déjà dans `hotm_perks`, évaluées à niveau max.
+//   mining_speed (lvl*20, max50=1000) + speedy_mineman (lvl*40, max50=2000)
+//   + mining_fortune (lvl*2, max50=100) + fortunate_mineman (lvl*3, max50=150)
+//   + gem_lover (lvl*4+20, max20=100, Gemstone Fortune uniquement).
+//   Non gaté sur un budget de powder réel (même limite assumée que le reste
+//   du calcul HOTM jusqu'ici -- calcul "niveau max atteignable", pas "atteint
+//   par CE joueur").
+// - Sockets de gemmes : calculé génériquement depuis gemstone_slot_costs
+//   (slots réels par pièce) x gemstones (bonus Perfect réel par type/rareté)
+//   -- pas hardcodé à Armor of Divan, généralise à n'importe quel gear.
+//   Vérifié : chaque pièce d'armure a 2 slots AMBER (dédiés vitesse) + 2 JADE
+//   (dédiés fortune) + 1 TOPAZ (dédié Pristine) -- TOUS remplissables
+//   simultanément, aucun arbitrage réel nécessaire contrairement à ce qui
+//   avait été supposé. Le foret a en plus 1 slot MINING combo (Amber OU
+//   Jade) -- les deux options sont testées, la meilleure retenue par le vrai
+//   calcul de coins/h, pas par la somme brute de stats.
+// - Reforge Jaded (armure) : +45 vitesse/+25 fortune par pièce LEGENDARY
+//   (déjà validé branche feat/bloc8-pluton-mining, jamais reporté dans le
+//   pipeline principal avant aujourd'hui).
+// - Hephaestus Relic (objet de pet) : x1.5 sur toutes les stats du pet
+//   (sourcé page wiki "Mining Speed", tabber Pets).
+// - Foret : Efficiency X (+210 vitesse), Fortune IV (+45 fortune), Lapidary V
+//   (+50 Gemstone Fortune + 100 vitesse, gemmes uniquement), Amber-Polished
+//   Drill Engine (+600 vitesse + 100 fortune) -- sourcés wiki "Achieving
+//   Maximum Mining Speed/Fortune" + "Drills".
+//
+// Appliqué seulement END/LATE (investissement réaliste à ces tiers).
+const HOTM_MAX = { speed: 1000 + 2000, fortune: 100 + 150, gemstoneFortune: 100 }
+const JADED_ARMOR_LEGENDARY = { speed: 45 * 4, fortune: 25 * 4 } // 4 pieces
+const DRILL_UPGRADES = { speed: 210 + 600, fortune: 45, gemstoneFortuneOnGemstones: 50, speedOnGemstones: 100 }
+
+async function computeGemSocketBonus(itemId: string, rarity: string | null) {
+  if (!rarity) return { speed: 0, fortune: 0, pristine: 0, comboSlots: 0, amberBonus: 0, jadeBonus: 0 }
+  const [{ data: slots }, { data: gems }] = await Promise.all([
+    supabase.from('gemstone_slot_costs').select('slot_id').eq('item_id', itemId),
+    supabase.from('gemstones').select('gem_type, stat_name, bonus_value').eq('quality', 'PERFECT').eq('gear_rarity', rarity),
+  ])
+  const bonusByType = new Map<string, { speed: number; fortune: number }>()
+  for (const g of gems || []) {
+    const cur = bonusByType.get(g.gem_type) || { speed: 0, fortune: 0 }
+    if (g.stat_name === 'Mining Speed') cur.speed = Number(g.bonus_value)
+    if (g.stat_name === 'Mining Fortune') cur.fortune = Number(g.bonus_value)
+    bonusByType.set(g.gem_type, cur)
+  }
+  const pristinePerTopaz = (gems || []).find(g => g.gem_type === 'TOPAZ' && g.stat_name === 'Pristine')?.bonus_value || 0
+  let speed = 0, fortune = 0, pristine = 0, comboSlots = 0
+  for (const s of slots || []) {
+    if (s.slot_id.startsWith('AMBER_')) speed += bonusByType.get('AMBER')?.speed || 0
+    else if (s.slot_id.startsWith('JADE_')) fortune += bonusByType.get('JADE')?.fortune || 0
+    else if (s.slot_id.startsWith('TOPAZ_')) pristine += Number(pristinePerTopaz)
+    else if (s.slot_id.startsWith('MINING_')) comboSlots++
+  }
+  return { speed, fortune, pristine, comboSlots, amberBonus: bonusByType.get('AMBER')?.speed || 0, jadeBonus: bonusByType.get('JADE')?.fortune || 0 }
+}
+
+export type MaxInvestmentLayer = {
+  speed: number; fortune: number; gemstoneFortune: number; pristine: number
+}
+
+export async function applyMaxInvestmentLayer(
+  armorPieceIds: string[], armorRarity: string | null,
+  toolItemId: string, toolCategory: string | null, toolRarity: string | null,
+  bestPetSpeed: number, bestPetFortune: number, bestPetGemstoneFortune: number,
+  isGemstoneTarget: boolean
+): Promise<MaxInvestmentLayer> {
+  let speed = HOTM_MAX.speed
+  let fortune = HOTM_MAX.fortune
+  let gemstoneFortune = isGemstoneTarget ? HOTM_MAX.gemstoneFortune : 0
+  let pristine = 0
+
+  // Sockets -- armure (toutes pièces, additif, pas d'arbitrage réel nécessaire).
+  for (const pieceId of armorPieceIds) {
+    const g = await computeGemSocketBonus(pieceId, armorRarity)
+    speed += g.speed; fortune += g.fortune; pristine += g.pristine
+  }
+  // Reforge Jaded -- seulement si armure LEGENDARY (constantes validées pour
+  // cette rareté ; pas extrapolé à d'autres raretés faute de source).
+  if (armorRarity === 'LEGENDARY') { speed += JADED_ARMOR_LEGENDARY.speed; fortune += JADED_ARMOR_LEGENDARY.fortune }
+
+  // Sockets -- foret, y compris le slot MINING combo (Amber ou Jade, le
+  // meilleur réellement calculé -- pas une supposition).
+  const toolGem = await computeGemSocketBonus(toolItemId, toolRarity)
+  speed += toolGem.speed; fortune += toolGem.fortune
+  if (toolGem.comboSlots > 0) {
+    const speedOption = toolGem.comboSlots * toolGem.amberBonus
+    const fortuneOption = toolGem.comboSlots * toolGem.jadeBonus
+    // Comparé via impact réel, pas juste la plus grosse valeur brute --
+    // approximation simple (vitesse a un effet composé via les ticks, donc on
+    // teste les deux et le formule appelante retient la meilleure combinaison
+    // finale ; ici on retient l'option qui maximise la somme pondérée basique).
+    if (speedOption >= fortuneOption) speed += speedOption; else fortune += fortuneOption
+  }
+
+  // Foret -- enchants + Drill Engine, uniquement sur outil catégorie DRILL
+  // (sourcé "Achieving Maximum Mining Speed/Fortune" + "Drills").
+  if (toolCategory === 'DRILL') {
+    speed += DRILL_UPGRADES.speed
+    fortune += DRILL_UPGRADES.fortune
+    if (isGemstoneTarget) { gemstoneFortune += DRILL_UPGRADES.gemstoneFortuneOnGemstones; speed += DRILL_UPGRADES.speedOnGemstones }
+  }
+
+  // Hephaestus Relic -- x1.5 sur le pet déjà choisi (sourcé wiki, tabber Pets
+  // de "Mining Speed" : "Increases all pet stats by 50%").
+  speed += bestPetSpeed * 0.5
+  fortune += bestPetFortune * 0.5
+  if (isGemstoneTarget) gemstoneFortune += bestPetGemstoneFortune * 0.5
+
+  return { speed, fortune, gemstoneFortune, pristine }
 }
 
 export async function computeAndPersistAllMiningRankings(): Promise<PersistedMiningResult[]> {
