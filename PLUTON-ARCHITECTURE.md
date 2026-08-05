@@ -289,3 +289,125 @@ pas chiffré ici, mérite sa propre discussion (coexistence vs remplacement).
 2 à 3 mois de chantier actif.** C'est une estimation de risque moyen, pas un
 engagement ferme — chaque phase peut révéler du travail non anticipé, comme
 systématiquement observé jusqu'ici sur ce projet.
+
+---
+
+## 2. Mining — validé de bout en bout, setup 100% maxé (5 août)
+
+Chantier "Phase 1 — Mining" ci-dessus effectivement mené en parallèle de la rédaction
+de ce document (pas séquentiel comme prévu) : `stat_bonus_sources`/
+`activity_stat_weights`/`equip_slot_capacity` construits et branchés sur Mining
+en premier pour valider l'architecture avant généralisation, sur demande explicite de
+l'utilisateur ("on valide MINING SEUL en premier"). Résultat final vérifié contre un
+repère en jeu réel fourni par l'utilisateur (setup Divan's maxé + DRX655 + Bal pet +
+Titanium accessoires + HOTM gemstone) : **Ruby 15-20M/h, Topaz 30M/h, Jasper 60M/h**.
+
+**Résultat final (late/end, setup 100% maxé, 5 août)** : Ruby 46.2M/h, Topaz 38.6M/h,
+Jasper 57.2M/h. Jasper (le repère le plus précis donné par l'utilisateur) tombe à
+-4.7% de la cible réelle — Topaz +29%, Ruby +2.3-3.1x. L'écart Ruby restant est cohérent
+avec une explication simple non modélisée : Pluton calcule un plafond théorique
+"route parfaite dédiée à ce gemme précis" (demandé explicitement par l'utilisateur,
+pas de pathfinding réel), alors qu'en jeu personne ne dédie une route à la Ruby (le
+gemme le moins cher des 12) — le repère utilisateur de 15-20M/h reflète probablement
+une collecte mixte incidente, pas un run Ruby optimisé. Jasper (le gemme le plus cher,
+donc le seul pour lequel une route dédiée existe réellement en pratique) sert de
+validation la plus fiable et concorde presque exactement.
+
+### Setup final (late/end, JASPER_GEMSTONE, cible du meilleur coins/h)
+
+- **Armure** : Armor of Divan (recombobulée, Jaded, 2 Perfect Jade + 2 Perfect Amber +
+  1 Perfect Topaz par pièce)
+- **Foret** : Divan's Drill (base 1800 vitesse / 150 fortune, Recombobulator 3000,
+  Fortune IV, Efficiency X, Amber-Polished Drill Engine, Divan's Powder Coating,
+  reforge Ambered vs Glacial arbitré par impact réel — Ambered gagne à ce niveau de
+  fortune déjà élevé)
+- **Pet** : Scatha RARE (choisi par impact réel coins/h parmi tous les pets ayant un
+  bonus mining, pas présupposé) + Hephaestus Relic (x1.5 sur les stats du pet)
+- **Accessoires** (10 slots Equipment + Accessory Bag, tous non-compétitifs) : Divan's
+  Pendant, Sapphire Cloak, Jade Belt, Dwarven Handwarmers, Titanium Relic, Jungle
+  Amulet, Dwarven Gemstone Grahams, Bal Shard, Haste Artifact, Relic of Power
+- **HOTM** : Mining Speed + Speedy Mineman + Mining Fortune + Fortunate Mineman +
+  Gem Lover + Mining Master + Professional, tous au niveau max (formules réelles
+  `hotm_perks`, vérifiées le 5 août contre le schema Lisp en base)
+- **Pickaxe Ability** : Mining Speed Boost niveau 3 (+300%/20s, cooldown 120s → 108s
+  avec Perfectly-Cut Fuel Tank), modélisé en **multiplicateur moyen pondéré par
+  temps d'activité réel** (×1.556), pas "actif en continu" comme dans une itération
+  précédente de ce chantier (l'hypothèse "always-on" surestimait de 2-3x, confirmé
+  par l'utilisateur avant correction)
+- **Totaux** : 14 257 Mining Speed, 2 196 Mining Fortune, 10 Breaking Power (max),
+  ~10 Pristine (×8.9 sur les drops Rough→Flawed)
+- **Coût du combo de base** (armure+outil, avant reforges/gemmes/upgrades non
+  re-pricées individuellement) : ~2.15Md de coins, prix AH réel par variante/palier
+  le plus proche disponible
+
+### 3 vrais bugs trouvés et corrigés en persistant ce run (pas seulement en calculant)
+
+1. **`computeAndPersistAllMiningRankings()` n'a jamais fait de DELETE avant insert**,
+   malgré son propre commentaire d'en-tête affirmant "clears and rebuilds" — chaque
+   exécution de route de debug (v2 à v11, plusieurs sessions) s'accumulait en base sans
+   jamais remplacer (126 lignes trouvées pour 72 combos maximum possibles). Corrigé :
+   DELETE explicite sur `pluton_rankings` puis `pluton_setups` en tête de fonction,
+   table entièrement vidée et rechargée proprement avant de considérer tout run fiable.
+2. **Colonnes entières, moyenne pondérée fractionnaire** : `total_mining_speed`/
+   `total_mining_fortune` sont des colonnes `integer` en base — le multiplicateur
+   Mining Speed Boost désormais fractionnaire (1.556 au lieu de l'ancien x4 entier)
+   produisait des valeurs comme `12934.444...`, rejetées par Postgres à l'insert
+   (crash `end`/`late`, tier `mid`/`early` non affectés car pas de couche max
+   investissement). Corrigé par arrondi au point d'insert uniquement, jamais dans le
+   calcul lui-même.
+3. **Reforge foret non arbitré** (Ambered vs Glacial) : remplacé un choix par défaut
+   documenté-mais-non-vérifié par une vraie comparaison coins/h (même méthode que la
+   sélection de pet et du slot combo Amber/Jade du foret).
+
+### Sources fermées cette passe (toutes vérifiées contre le wiki officiel, jamais
+recopiées de mémoire)
+
+- **Instamine** : seuil réel 30x (non-minerai)/60x (minerai, suffixe `_ORE`) block
+  strength — jamais atteint sur les 12 gemmes même avec Mining Speed Boost actif
+  (seuils réels 69 000-156 000, speed max ~22 000 avec le boost actif).
+- **Mining Speed Boost** : page wiki dédiée "Heart of the Mountain/List/HotM 2
+  Perks/Mining Speed Boost" — 3 niveaux réels (200%/10s, 250%/15s, 300%/20s,
+  cooldown 120s fixe aux 3 niveaux) ; Perfectly-Cut Fuel Tank -10% cooldown
+  (Changelog 2024/08/20 + page wiki dédiée), foret uniquement.
+- **3 sources Mining Fortune permanentes/consommable** trouvées sur la liste
+  officielle "Mining Fortune#Achieving Maximum Mining Fortune" : Collection bonuses
+  Glacite+Tungsten+Umber max (+8, permanent), Ultimate DNA niveau 10 de Galaxy Fish
+  Shard (+10, permanent), 5x Refined Dark Cacao Truffle (+5, consommable — inclus
+  sous l'hypothèse documentée "joueur qui maintient le buff", même traitement que le
+  reforge Glacial/Cold -99).
+- **Validation croisée réussie** : le pet Scatha LEGENDARY + Hephaestus Relic donne
+  125×1.5=187.5 Mining Fortune dans notre modèle générique (`stat_bonus_sources` +
+  x1.5 Hephaestus) — exactement la valeur listée par le wiki dans son propre
+  "setup maximal" de référence, sans avoir jamais copié ce chiffre en dur.
+
+### Gaps honnêtes restants, documentés mais pas fermés
+
+- **Les 4 forets spécialisés `GEMSTONE_DRILL_1-4`** (`gemstone_speed_override`/
+  `gemstone_fortune`) ont leurs colonnes dédiées vides depuis leur insertion (jamais
+  backfillées malgré une correction d'item_id faite plus tôt dans ce chantier) —
+  sans impact sur le résultat actuel car Divan's Drill (vitesse de base 1800) domine
+  largement leur vitesse de base (150-600), mais ces 4 lignes sont aujourd'hui
+  fonctionnellement mortes dans le classement.
+- **`DRILL_UPGRADES`** (Recombobulator/Efficiency/Amber-Polished Engine/Powder
+  Coating) sont des upgrades propres à Divan's Drill dans leur sourcing wiki, mais
+  le code les applique à tout `tool_category==='DRILL'` sans vérifier que c'est bien
+  Divan's Drill qui a gagné la recherche de combo — sans conséquence aujourd'hui
+  (Divan's Drill gagne systématiquement grâce à sa vitesse de base), mais latent si
+  un futur foret à vitesse de base plus haute était ajouté sans review.
+- **Reforge Blazing** (armure) jamais isolé (chiffre wiki toujours groupé avec
+  d'autres bonus, pas de valeur unitaire fiable trouvée) — non modélisé.
+- **Gemstone Spread** (Steady Hand HOTM, +10 max) exclue car conditionnée aux Glacite
+  Mineshafts spécifiquement, pas au Crystal Hollows général modélisé ici.
+- **`end` et `late` produisent des résultats identiques** — la couche
+  "investissement maximal" ne distingue pas encore les deux tiers (même plafond
+  "100% du jeu" appliqué aux deux), cohérent avec la demande de cette passe mais à
+  revisiter si une distinction end/late a un sens pour Mining spécifiquement.
+- Pristine sur le foret (le wiki liste +4.7 via Recombobulator+Prismatic+Topaz sur
+  Divan's Drill spécifiquement) non modélisé — notre calcul générique de sockets ne
+  trouve pas de slot Topaz dédié sur `DIVAN_DRILL` dans `gemstone_slot_costs`
+  (seulement Amber/Jade/combo) ; écart mineur (~4.7 pristine sur ~10 déjà comptés,
+  soit +0.79×4.7≈+3.7 points de multiplicateur sur un total déjà à ×8.9).
+
+**Décision suivante** : chantier Mining jugé suffisamment validé par l'utilisateur
+pour généraliser aux 5 autres activités (Combat/Slayer, Farming, Foraging, Fishing,
+Dungeons) — voir instruction explicite en tête de conversation, pas encore commencé.

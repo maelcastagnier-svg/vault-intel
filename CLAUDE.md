@@ -22,6 +22,23 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Pluton Mining — validé de bout en bout, setup 100% maxé (5 août)
+
+Reprise de Pluton (Bloc 8) sur demande explicite : Mining seul d'abord ("on valide
+MINING SEUL en premier"), architecture `stat_bonus_sources`/`activity_stat_weights`/
+`equip_slot_capacity` construite et validée contre un repère en jeu réel donné par
+l'utilisateur (setup Divan's maxé : Ruby 15-20M/h, Topaz 30M/h, Jasper 60M/h).
+Résultat final (setup 100% maxé, late/end) : **Ruby 46.2M/h, Topaz 38.6M/h, Jasper
+57.2M/h** — Jasper (le repère le plus fiable) à -4.7% de la cible réelle. Détail
+complet (setup exact, formules sourcées, 3 bugs de persistance trouvés et corrigés,
+gaps honnêtes restants) dans `PLUTON-ARCHITECTURE.md`, section 2. Point clé de
+méthode retenu : le Pickaxe Ability "Mining Speed Boost" doit être modélisé en
+moyenne pondérée par temps d'activité réel (durée/cooldown, ×1.556 au niveau max),
+pas "actif en continu" — une itération précédente avec l'hypothèse always-on (×4)
+surestimait de 2-3x, corrigé après que l'utilisateur a signalé l'écart avec son repère
+en jeu. **Prochaine étape actée** : généraliser la même architecture aux 5 autres
+activités (Combat/Slayer, Farming, Foraging, Fishing, Dungeons), pas encore commencé.
+
 ## ✅ CLÔTURE FINALE — les 2 derniers points fermés, chantier de fondation clos (4 août)
 
 Suite directe de "CHANTIER FINAL clos" ci-dessous : l'utilisateur a demandé de fermer
