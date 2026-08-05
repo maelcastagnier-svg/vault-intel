@@ -283,7 +283,7 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
         topSetup.armor_piece_ids, armorRarityRow?.rarity ?? null,
         topSetup.tool_item_id, topSetup.tool_category, toolRarityRow?.rarity ?? null,
         layer.best_pet?.mining_speed ?? 0, layer.best_pet?.mining_fortune ?? 0, petGemstoneFortune,
-        isGemstoneTarget
+        isGemstoneTarget, block.block_strength
       )
       finalSpeed += maxLayer.speed
       finalFortune += maxLayer.fortune
@@ -291,19 +291,18 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
       pristineMult = 1 + (( (gemstoneBonus?.pristine ?? 0) + maxLayer.pristine) * 0.79)
       topSetup.max_investment_layer = maxLayer
 
-      // Mining Speed Boost (5 août, demande explicite utilisateur) -- capacité
-      // de foret (Pickaxe Ability), sourcée wiki "Mining Speed" table HOTM :
-      // "+200-300% Mining Speed, Pickaxe Ability lasting 10-20 seconds". C'est
-      // un MULTIPLICATEUR sur la vitesse totale déjà cumulée, pas un ajout
-      // supplémentaire. Traité ici comme actif en continu (borne haute +300%
-      // = x4) sur demande explicite -- PAS une moyenne pondérée par temps de
-      // recharge réel (cooldown de la capacité non sourcé), donc c'est un
-      // plafond "si tu la maintiens active en permanence", pas garanti
-      // atteignable en jeu réel sans connaître le vrai ratio durée/cooldown.
-      if (isGemstoneTarget) {
-        topSetup.speed_before_mining_speed_boost = finalSpeed
-        finalSpeed *= MINING_SPEED_BOOST_MULT_MAX
-      }
+      // Mining Speed Boost -- capacité Pickaxe Ability HOTM 2, niveau max
+      // confirmé (Niveau 3 : +300%/20s, cooldown 120s, -10% avec Perfectly-Cut
+      // Fuel Tank sur foret -- voir constantes ci-dessus pour le détail des
+      // sources). Multiplicateur MOYEN pondéré par temps réel d'activité sur
+      // un cycle complet, pas un "actif en continu" -- corrige la surestimation
+      // 2-3x confirmée par l'utilisateur avec l'ancienne hypothèse x4 permanente.
+      // S'applique à toute cible END/LATE (pas seulement Gemstone).
+      const hasDrillFuelTank = topSetup.tool_category === 'DRILL'
+      const boostAvgMult = computeMiningSpeedBoostAvgMultiplier(hasDrillFuelTank)
+      topSetup.speed_before_mining_speed_boost = finalSpeed
+      topSetup.mining_speed_boost_avg_multiplier = boostAvgMult
+      finalSpeed *= boostAvgMult
     }
 
     const { miningTimeSeconds, actionsPerHour, yieldPerHour, coinsPerHourRawBlockOnly } = scoreYield(finalSpeed, finalFortune, pristineMult)
@@ -508,8 +507,45 @@ export async function applyGemstoneBonuses(bestPetId: string | null): Promise<Ge
 //   Maximum Mining Speed/Fortune" + "Drills".
 //
 // Appliqué seulement END/LATE (investissement réaliste à ces tiers).
-// +300% (borne haute du "+200-300%" sourcé) = x4 sur la vitesse totale.
-const MINING_SPEED_BOOST_MULT_MAX = 4
+//
+// Mining Speed Boost (Pickaxe Ability HOTM 2, source réelle : page wiki dédiée
+// "Heart of the Mountain/List/HotM 2 Perks/Mining Speed Boost", table par
+// niveau confirmée le 5 août -- PAS une supposition sur la fourchette "+200-300%"
+// de la description courte) : Niveau 1 = +200%/10s, Niveau 2 = +250%/15s,
+// Niveau 3 (max) = +300%/20s, Cooldown de base 120s (identique aux 3 niveaux,
+// confirmé aussi dans `hotm_perks.lore` déjà en base). Un changelog d'août 2024
+// mentionne des valeurs plus basses (150/200/250%) -- contredit par la page
+// wiki actuelle (fetchée en direct, pas depuis la mémoire) qui montre 200/250/300%;
+// possible revert ultérieur non documenté par un changelog séparé. La page
+// live fait foi ici, cohérent avec la doctrine "jamais de mémoire, toujours la
+// source la plus fraîche".
+//
+// C'est une capacité à COOLDOWN, pas un buff permanent -- l'ancien calcul
+// (x4 "actif en continu sur toute l'heure") surestimait le gain réel, confirmé
+// par l'utilisateur lui-même (chiffres 2-3x trop hauts vs son repère en jeu).
+// Corrigé en moyenne pondérée par le vrai temps d'activité sur un cycle complet
+// (cycle = cooldown, ré-activation immédiate dès la fin du cooldown -- hypothèse
+// "joueur optimal toujours attentif", documentée, pas un vrai log de usage réel) :
+//   multiplicateur_moyen = 1 + boost_fraction × (durée / cooldown_effectif)
+// Le Perfectly-Cut Fuel Tank (HOTM VIII, foret uniquement, sourcé wiki
+// "Perfectly-Cut Fuel Tank" + Changelog 2024/08/20 : "-10% Pickaxe Ability
+// Cooldown") réduit le cooldown à 108s pour un investissement maximal sur
+// foret -- appliqué seulement si l'outil retenu est une catégorie DRILL
+// (Fuel Tanks n'existent que sur les forets, pas les pioches).
+// S'applique à TOUTE cible (pas seulement Gemstone -- le texte de la capacité
+// ("+Mining Speed") ne restreint à aucun type de bloc, contrairement à
+// l'ancienne implémentation qui la limitait à tort aux blocs Gemstone).
+const MINING_SPEED_BOOST_LEVEL3 = { boostPct: 300, durationS: 20, baseCooldownS: 120 }
+const PERFECTLY_CUT_FUEL_TANK_COOLDOWN_REDUCTION_PCT = 10 // -10%, foret uniquement
+
+function computeMiningSpeedBoostAvgMultiplier(hasDrillFuelTank: boolean): number {
+  const cooldown = hasDrillFuelTank
+    ? MINING_SPEED_BOOST_LEVEL3.baseCooldownS * (1 - PERFECTLY_CUT_FUEL_TANK_COOLDOWN_REDUCTION_PCT / 100)
+    : MINING_SPEED_BOOST_LEVEL3.baseCooldownS
+  const boostFraction = MINING_SPEED_BOOST_LEVEL3.boostPct / 100
+  const uptime = MINING_SPEED_BOOST_LEVEL3.durationS / cooldown
+  return 1 + boostFraction * uptime
+}
 const HOTM_MAX = { speed: 1000 + 2000, fortune: 100 + 150, gemstoneFortune: 100 }
 // Professional (HOTM, powder GEMSTONE) -- perk manqué dans la 1ère passe :
 // formule réelle (niveau*5+50), niveau max 140 = +755, "while mining Gemstones"
@@ -566,7 +602,8 @@ export async function applyMaxInvestmentLayer(
   armorPieceIds: string[], armorRarity: string | null,
   toolItemId: string, toolCategory: string | null, toolRarity: string | null,
   bestPetSpeed: number, bestPetFortune: number, bestPetGemstoneFortune: number,
-  isGemstoneTarget: boolean
+  isGemstoneTarget: boolean,
+  blockStrength: number
 ): Promise<MaxInvestmentLayer> {
   let speed = HOTM_MAX.speed + EAGER_MINER_MAX.speed
   if (isGemstoneTarget) speed += PROFESSIONAL_MAX_SPEED_ON_GEMSTONES
@@ -603,12 +640,21 @@ export async function applyMaxInvestmentLayer(
     speed += DRILL_UPGRADES.speed
     fortune += DRILL_UPGRADES.fortune
     if (isGemstoneTarget) { gemstoneFortune += DRILL_UPGRADES.gemstoneFortuneOnGemstones; speed += DRILL_UPGRADES.speedOnGemstones }
-    // Reforge -- un seul choix par outil. Ambered retenu par défaut (permanent,
-    // sans condition) ; Glacial (+223 fortune) existe mais requiert de maintenir
-    // Cold -99 en continu -- condition plus fragile qu'un reforge permanent,
-    // délibérément pas substitué ici (pas d'arbitrage coins/h réel fait sur ce
-    // point précis, contrairement au socket combo -- documenté, pas caché).
-    speed += DRILL_REFORGE_AMBERED.speed
+    // Reforge -- un seul choix par outil, arbitré par impact réel sur le
+    // rendement (même méthode que le choix de pet/slot combo), pas par défaut
+    // arbitraire. Ambered (+200 vitesse, permanent, sans condition) vs Glacial
+    // (+223 fortune, condition Cold -99 maintenue en continu -- atteignable en
+    // jeu réel via de l'équipement Glacite dédié, donc pas exclu comme un bonus
+    // d'event). Comparé sur les totaux déjà accumulés à ce stade (avant
+    // Hephaestus Relic, qui s'applique égal aux deux options et ne changerait
+    // pas le classement) via la même formule proxy tick/fortune que la
+    // sélection de pet.
+    const ticksAmbered = Math.max(Math.round((blockStrength * 30) / (speed + DRILL_REFORGE_AMBERED.speed)), 4)
+    const yieldAmbered = (3600 / (ticksAmbered / 20)) * (1 + fortune / 100)
+    const ticksGlacial = Math.max(Math.round((blockStrength * 30) / speed), 4)
+    const yieldGlacial = (3600 / (ticksGlacial / 20)) * (1 + (fortune + DRILL_REFORGE_GLACIAL.fortune) / 100)
+    if (yieldAmbered >= yieldGlacial) speed += DRILL_REFORGE_AMBERED.speed
+    else fortune += DRILL_REFORGE_GLACIAL.fortune
   }
 
   // Hephaestus Relic -- x1.5 sur le pet déjà choisi (sourcé wiki, tabber Pets
