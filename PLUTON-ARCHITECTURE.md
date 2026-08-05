@@ -422,3 +422,108 @@ théorique) pour généraliser aux 5 autres activités (Combat/Slayer, Farming, 
 Fishing, Dungeons), avec la même exigence explicite de rigueur totale ("n'omet rien,
 n'invente rien, utilise toutes les sources extraites") — voir section 3 ci-dessous
 pour le début de ce chantier.
+
+---
+
+## 3. Farming — construit et validé (5 août, même session)
+
+Généralisation demandée explicitement après validation de Mining. Mécanique
+fondamentalement différente, découverte en cours de route via la page wiki
+"Farming" elle-même : **aucune stat de gear ne détermine la vitesse de cassage**
+en Farming (contrairement à Mining) — le vrai débit dépend soit d'une vitesse de
+déplacement plafonnée par culture (Rancher's Boots/Sundial), soit d'une ferme
+automatisée (redstone/dispenser), et **aucune des deux n'a de valeur chiffrée
+sourcée** (ni wiki officiel, ni SkyHanni-REPO — recherche faite avant de coder,
+pas supposée). Un fork a été soumis explicitement à l'utilisateur (3 options :
+farm AFK, vitesse manuelle optimale, ou les deux comparées) — réponse : "les
+deux, comparées" — puis un second fork après avoir confirmé qu'aucune des deux
+n'a de source chiffrée propre : l'utilisateur a donné le vrai plafond physique
+**"on ne peut casser que 20 blocs/seconde maximum dans Minecraft"** (mécanique
+de tick vanilla 20 TPS, un fait de moteur de jeu vérifiable, pas une estimation)
+— retenu comme débit universel pour un setup parfaitement optimisé, quelle que
+soit la méthode réelle (les deux sont plafonnées par ce même moteur).
+
+**Formule finale** : `actionsPerHour = 20 × 3600 = 72 000` (fixe, ne dépend
+d'aucun stat) ; `yield = actionsPerHour × 1 (baseDropCount, vanilla confirmé)
+× (1 + (FarmingFortune + CropFortune)/100)` (formule réelle, page wiki "Crop
+Fortune", identique au système Mining Fortune sous-jacent).
+
+**Source du plafond END/LATE** : contrairement à Mining (aucune synthèse
+officielle n'existait, reconstruite pièce par pièce), la page wiki "Farming
+Fortune" a sa PROPRE section "Theoretical Maximum" déjà calculée et
+vérifiée par la communauté — réutilisée telle quelle plutôt que reconstruite
+composant par composant (risque de diverger d'un total déjà consensuel) :
+**+2012.7 Farming Fortune** (permanent, générique à toute culture) + Crop
+Fortune spécifique par catégorie : **+472** (5 cultures hors liste Carrolyn :
+Potato/Melon Slice/Sugar Cane/Sunflower/Moonflower), **+484** (7 cultures sur
+la liste Carrolyn : Wheat/Carrot/Pumpkin/Cactus/Mushroom/Nether Wart/Wild
+Rose), **+509** (Cocoa Beans, Carrolyn + Chocolate Fortune perk en plus).
+Setup implicite : Farming LX + Helianthus recombobulé/reforgé/gemmé +
+Blossom Set @2500 visiteurs + Specialized Tool niveau 50 + Rose Dragon
+Lv200 (vérifié meilleur pet sur les 13 cultures : +336.7 générique bat même
+les pets crop-spécifiques Mosquito/Bee/Pig sur LEUR propre culture) + tous
+les talismans/attributs/chips listés. Sources temporaires (Hypercharge,
+Jacob's Contest only, saison-conditionnelles) explicitement exclues du
+plafond continu — documenté, pas oublié (jusqu'à +976.5 FF existent en jeu
+mais nécessitent un contexte ponctuel non modélisé ici).
+
+**Tier MID** : contrairement à Mining, les 13 outils spécialisés ne sont PAS
+achetables à l'AH (confirmé : aucun prix trouvé dans `price_history_ah`) —
+sourcé wikitext : "Purchased from the SkyMart... leveled up by farming crops
+and upgraded using... Jacob's Tickets", un investissement de temps, pas de
+coins. Niveau d'outil assumé = objectif de Farming skill du tier
+(`TIER_CONFIG.mid.target = 25` → +100 Crop Fortune, formule réelle +4/niveau).
+Armure : les 8 tiers réels (Farmhand→Helianthus, wikitext "Farming
+Fortune#Armor") sont eux bien vendus à l'AH — le meilleur tier affordable
+sous le budget du tier (`max_gear_cost`) est choisi automatiquement (Squash,
+~68.2M, sous le budget mid de 100M — Fermento à ~158.8M ne rentre pas).
+
+**Tier EARLY — honnêtement non éligible** : `TIER_CONFIG.early.forbidden`
+liste explicitement "Garden" (règle déjà existante dans ce projet, pas ajoutée
+pour l'occasion), et la page wiki "Farming Fortune" confirme elle-même
+qu'elle "has no effect while on one's Private Island" — sans Garden, pas de
+Farming Fortune, donc pas d'optimisation possible. `top_setup:null` pour les
+13 cultures à ce tier, même traitement honnête que les combos Mining
+structurellement impossibles à un tier donné.
+
+**Résultat final (late, triés par coins/h)** : Mushroom 9.41M/h, Pumpkin
+9.03M/h, Wheat 5.56M/h, Carrot 2.84M/h, Sugar Cane 2.32M/h, Cactus 1.91M/h,
+Nether Wart 1.71M/h, Potato 1.28M/h, Cocoa Beans 654K/h, Sunflower 595K/h,
+Melon Slice 480K/h, Moonflower 424K/h, Wild Rose 350K/h. Ordre de grandeur
+nettement plus bas que Mining (dizaines de millions) — cohérent une fois la
+formule décomposée : le débit est PLAFONNÉ (72 000 actions/h fixe, aucun
+équivalent de Mining Speed Boost pour le multiplier), `baseDropCount=1`
+(contre 4 pour les gemmes), et les prix Bazaar bruts des cultures (2-5
+coins/unité) sont modestes comparés aux gemmes. **Aucun repère en jeu fourni
+par l'utilisateur pour Farming** (contrairement à Mining) — ces chiffres sont
+sourcés et vérifiés mathématiquement contre la formule/le plafond wiki, mais
+pas encore confrontés à une performance réelle en jeu.
+
+**3 bugs de bonne hygiène évités dès la construction** (leçons directement
+appliquées depuis le chantier Mining, pas redécouvertes) : DELETE explicite
+avant rebuild dans `computeAndPersistAllFarmingRankings()` (le bug trouvé a
+posteriori sur Mining), route de debug avec try/catch retournant l'erreur
+réelle dès la première version (le bug qui avait coûté un aller-retour sur
+Mining), déclenchement unique vérifié par polling DB plutôt que retry sur la
+route elle-même.
+
+**Gaps honnêtes documentés, pas cachés** :
+- Vitesse manuelle optimale par culture (Rancher's Boots/Sundial) : aucune
+  source chiffrée trouvée, non modélisée — le plafond moteur 20/s remplace
+  les deux méthodes réelles (manuelle ET automatisée) sans trancher laquelle.
+- Tier MID : équipement (Peony/Blossom) et pet non inclus, faute d'un budget
+  cohérent une fois l'armure choisie (Squash consomme déjà 68.2M des 100M) —
+  plutôt que d'inventer une répartition budgétaire arbitraire entre
+  catégories, ces sources sont omises à ce tier (chiffre mid sous-estimé,
+  jamais sur-estimé).
+- Mushroom : Red Mushroom et Brown Mushroom partagent le même Mushroom
+  Fortune (un seul outil, Fungi Cutter) mais ont des prix Bazaar différents
+  (Brown 5.03 vs Red 4.67 le 5 août) — Brown retenu (le plus rentable),
+  cohérent avec le principe "choisir la meilleure option réelle" déjà
+  appliqué à Mining (Ambered/Glacial, socket Amber/Jade/Topaz).
+- Sources temporaires Farming Fortune (jusqu'à +976.5 FF) explicitement
+  exclues du plafond continu — voir détail dans la section END/LATE
+  ci-dessus.
+
+**Prochaine étape** : Foraging, Fishing, Slayer/Combat, Dungeons restent à
+construire — pas commencé.

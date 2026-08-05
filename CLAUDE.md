@@ -22,6 +22,27 @@ Vercel, basées sur données de marché collectées en continu + mécaniques de 
 URL prod : https://vault-intel-iota.vercel.app
 Repo : github.com/maelcastagnier-svg/vault-intel
 
+## ✅ Pluton Farming — construit et validé, même session (5 août)
+
+Généralisation demandée explicitement après validation de Mining ("fait la même
+chose avec la même rigueur pour le reste... n'omet rien, n'invente rien").
+Mécanique fondamentalement différente découverte en cours de route : Farming n'a
+AUCUNE stat de vitesse (contrairement à Mining) — 2 forks soumis à l'utilisateur
+(quelle méthode de farm modéliser, puis quelle base chiffrée utiliser faute de
+source écrite) ont abouti à un plafond moteur Minecraft réel (20 blocs/seconde,
+20 TPS) donné directement par l'utilisateur, appliqué comme débit fixe universel.
+Plafond Fortune END/LATE réutilise la propre section "Theoretical Maximum" déjà
+vérifiée par le wiki (+2012.7 Farming Fortune + 472/484/509 Crop Fortune selon
+catégorie de culture) plutôt que reconstruite à la main. **Résultat (late)** :
+Mushroom 9.41M/h, Pumpkin 9.03M/h, Wheat 5.56M/h — ordre de grandeur nettement
+sous Mining (dizaines de millions), cohérent une fois la formule décomposée
+(débit plafonné, aucun bonus type Mining Speed Boost, baseDropCount=1 contre 4).
+**Aucun repère en jeu utilisateur pour valider Farming** (contrairement à
+Mining) — chiffres vérifiés mathématiquement, pas confrontés au jeu réel. Detail
+complet (gaps honnêtes, sources exclues, méthode MID) dans
+`PLUTON-ARCHITECTURE.md`, section 3. **Prochaine étape actée** : Foraging,
+Fishing, Slayer/Combat, Dungeons restent à construire.
+
 ## ✅ Pluton Mining — validé de bout en bout, setup 100% maxé (5 août)
 
 Reprise de Pluton (Bloc 8) sur demande explicite : Mining seul d'abord ("on valide
