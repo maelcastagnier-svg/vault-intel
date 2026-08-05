@@ -302,16 +302,22 @@ l'utilisateur ("on valide MINING SEUL en premier"). Résultat final vérifié co
 repère en jeu réel fourni par l'utilisateur (setup Divan's maxé + DRX655 + Bal pet +
 Titanium accessoires + HOTM gemstone) : **Ruby 15-20M/h, Topaz 30M/h, Jasper 60M/h**.
 
-**Résultat final (late/end, setup 100% maxé, 5 août)** : Ruby 46.2M/h, Topaz 38.6M/h,
-Jasper 57.2M/h. Jasper (le repère le plus précis donné par l'utilisateur) tombe à
--4.7% de la cible réelle — Topaz +29%, Ruby +2.3-3.1x. L'écart Ruby restant est cohérent
-avec une explication simple non modélisée : Pluton calcule un plafond théorique
-"route parfaite dédiée à ce gemme précis" (demandé explicitement par l'utilisateur,
-pas de pathfinding réel), alors qu'en jeu personne ne dédie une route à la Ruby (le
-gemme le moins cher des 12) — le repère utilisateur de 15-20M/h reflète probablement
-une collecte mixte incidente, pas un run Ruby optimisé. Jasper (le gemme le plus cher,
-donc le seul pour lequel une route dédiée existe réellement en pratique) sert de
-validation la plus fiable et concorde presque exactement.
+**Résultat final (late/end, setup 100% maxé, 5 août, après fermeture du gap Topaz/
+Pristine sur le slot combo du foret -- voir plus bas)** : Ruby 54.4M/h, Topaz 45.5M/h,
+Jasper 67.3M/h -- **toutes les 3 au-dessus** du repère utilisateur (15-20M/30M/60M),
+Jasper le plus proche (+12%). C'est le bon sens d'écart pour un plafond théorique : un
+"setup 100% maxé, route parfaite, zéro temps mort" doit dépasser une performance réelle
+en jeu (qui perd du rendement au déplacement, à l'exécution imparfaite, au RNG des
+gemmes rencontrées) -- confirmé explicitement par l'utilisateur après l'ajout du fix
+Topaz ("mon repère ne sera jamais aussi précis que Pluton"). L'écart Ruby, le plus
+large des 3, reste cohérent avec une explication simple non modélisée : Pluton calcule
+un plafond "route dédiée à ce gemme précis" alors qu'en jeu personne ne dédie une
+route à la Ruby (le gemme le moins cher des 12) -- le repère utilisateur de 15-20M/h
+reflète probablement une collecte mixte incidente, pas un run Ruby optimisé.
+
+*(Chiffres avant le fix Topaz, pour mémoire : Ruby 46.2M/Topaz 38.6M/Jasper 57.2M --
+tous +17.8% plus bas, le slot combo du foret n'utilisant alors que 2 des 3 options
+réelles.)*
 
 ### Setup final (late/end, JASPER_GEMSTONE, cible du meilleur coins/h)
 
@@ -402,12 +408,17 @@ recopiées de mémoire)
   "investissement maximal" ne distingue pas encore les deux tiers (même plafond
   "100% du jeu" appliqué aux deux), cohérent avec la demande de cette passe mais à
   revisiter si une distinction end/late a un sens pour Mining spécifiquement.
-- Pristine sur le foret (le wiki liste +4.7 via Recombobulator+Prismatic+Topaz sur
-  Divan's Drill spécifiquement) non modélisé — notre calcul générique de sockets ne
-  trouve pas de slot Topaz dédié sur `DIVAN_DRILL` dans `gemstone_slot_costs`
-  (seulement Amber/Jade/combo) ; écart mineur (~4.7 pristine sur ~10 déjà comptés,
-  soit +0.79×4.7≈+3.7 points de multiplicateur sur un total déjà à ×8.9).
+- ~~Pristine sur le foret non modélisé~~ **fermé (5 août, 2e passe)** : confirmé wiki
+  "Divan's Drill" (section Tips) — le 5e slot du foret est un "universal mining slot"
+  acceptant Topaz, Jade OU Amber, pas seulement Amber/Jade comme codé initialement.
+  `computeGemSocketBonus` et l'arbitrage de `applyMaxInvestmentLayer` comparent
+  maintenant les 3 options par impact réel sur le rendement (incluant le
+  multiplicateur Pristine, omis par erreur dans la comparaison précédente) — Topaz
+  gagne sur ce setup, +17.8% sur les 3 gemmes revérifiées (Ruby/Topaz/Jasper).
 
 **Décision suivante** : chantier Mining jugé suffisamment validé par l'utilisateur
-pour généraliser aux 5 autres activités (Combat/Slayer, Farming, Foraging, Fishing,
-Dungeons) — voir instruction explicite en tête de conversation, pas encore commencé.
+(les 3 résultats dépassent maintenant le repère réel, dans le bon sens pour un plafond
+théorique) pour généraliser aux 5 autres activités (Combat/Slayer, Farming, Foraging,
+Fishing, Dungeons), avec la même exigence explicite de rigueur totale ("n'omet rien,
+n'invente rien, utilise toutes les sources extraites") — voir section 3 ci-dessous
+pour le début de ce chantier.
