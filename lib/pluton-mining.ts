@@ -487,6 +487,12 @@ export async function applyGemstoneBonuses(bestPetId: string | null): Promise<Ge
 //
 // Appliqué seulement END/LATE (investissement réaliste à ces tiers).
 const HOTM_MAX = { speed: 1000 + 2000, fortune: 100 + 150, gemstoneFortune: 100 }
+// Professional (HOTM, powder GEMSTONE) -- perk manqué dans la 1ère passe :
+// formule réelle (niveau*5+50), niveau max 140 = +755, "while mining Gemstones"
+// (wiki "Achieving Maximum Mining Speed", table Heart of the Mountain) -- pas
+// une variante de Gemstone Fortune, un vrai bonus de Mining Speed conditionnel
+// à la cible Gemstone, jusqu'ici totalement absent du calcul.
+const PROFESSIONAL_MAX_SPEED_ON_GEMSTONES = 140 * 5 + 50
 const JADED_ARMOR_LEGENDARY = { speed: 45 * 4, fortune: 25 * 4 } // 4 pieces
 // Efficiency X (+210) + Amber-Polished Drill Engine (+600) + Divan's Powder
 // Coating (+500) + 5x Polarvoid Books (+50) -- tous sourcés "Achieving Maximum
@@ -539,6 +545,7 @@ export async function applyMaxInvestmentLayer(
   isGemstoneTarget: boolean
 ): Promise<MaxInvestmentLayer> {
   let speed = HOTM_MAX.speed + EAGER_MINER_MAX.speed
+  if (isGemstoneTarget) speed += PROFESSIONAL_MAX_SPEED_ON_GEMSTONES
   let fortune = HOTM_MAX.fortune + MINING_SKILL_60_FORTUNE
   let gemstoneFortune = isGemstoneTarget ? HOTM_MAX.gemstoneFortune : 0
   let pristine = 0
