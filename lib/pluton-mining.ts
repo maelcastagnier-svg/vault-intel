@@ -290,6 +290,20 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
       if (isGemstoneTarget) finalFortune += maxLayer.gemstoneFortune
       pristineMult = 1 + (( (gemstoneBonus?.pristine ?? 0) + maxLayer.pristine) * 0.79)
       topSetup.max_investment_layer = maxLayer
+
+      // Mining Speed Boost (5 août, demande explicite utilisateur) -- capacité
+      // de foret (Pickaxe Ability), sourcée wiki "Mining Speed" table HOTM :
+      // "+200-300% Mining Speed, Pickaxe Ability lasting 10-20 seconds". C'est
+      // un MULTIPLICATEUR sur la vitesse totale déjà cumulée, pas un ajout
+      // supplémentaire. Traité ici comme actif en continu (borne haute +300%
+      // = x4) sur demande explicite -- PAS une moyenne pondérée par temps de
+      // recharge réel (cooldown de la capacité non sourcé), donc c'est un
+      // plafond "si tu la maintiens active en permanence", pas garanti
+      // atteignable en jeu réel sans connaître le vrai ratio durée/cooldown.
+      if (isGemstoneTarget) {
+        topSetup.speed_before_mining_speed_boost = finalSpeed
+        finalSpeed *= MINING_SPEED_BOOST_MULT_MAX
+      }
     }
 
     const { miningTimeSeconds, actionsPerHour, yieldPerHour, coinsPerHourRawBlockOnly } = scoreYield(finalSpeed, finalFortune, pristineMult)
@@ -494,6 +508,8 @@ export async function applyGemstoneBonuses(bestPetId: string | null): Promise<Ge
 //   Maximum Mining Speed/Fortune" + "Drills".
 //
 // Appliqué seulement END/LATE (investissement réaliste à ces tiers).
+// +300% (borne haute du "+200-300%" sourcé) = x4 sur la vitesse totale.
+const MINING_SPEED_BOOST_MULT_MAX = 4
 const HOTM_MAX = { speed: 1000 + 2000, fortune: 100 + 150, gemstoneFortune: 100 }
 // Professional (HOTM, powder GEMSTONE) -- perk manqué dans la 1ère passe :
 // formule réelle (niveau*5+50), niveau max 140 = +755, "while mining Gemstones"
