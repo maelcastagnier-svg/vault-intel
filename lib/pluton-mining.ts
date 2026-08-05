@@ -716,8 +716,13 @@ export async function computeAndPersistAllMiningRankings(): Promise<PersistedMin
           investment_level: 'optimal',
           armor_set_prefix: s.armor_set,
           tool_item_id: s.tool_item_id,
-          total_mining_speed: s.total_mining_speed,
-          total_mining_fortune: s.total_mining_fortune,
+          // Colonnes entières côté DB -- le multiplicateur moyen pondéré du
+          // Mining Speed Boost (uptime réel, pas x4 entier) produit une
+          // vitesse fractionnaire (ex: 12934.44) qui rejetait l'insert avant
+          // ce fix (trouvé en testant ce run, "invalid input syntax for type
+          // integer"). Arrondi ici seulement, jamais dans le calcul lui-même.
+          total_mining_speed: Math.round(s.total_mining_speed),
+          total_mining_fortune: Math.round(s.total_mining_fortune),
           total_breaking_power: s.total_breaking_power,
           real_cost: s.real_cost,
           pet_id: s.pet?.source_id ?? null,
