@@ -486,19 +486,73 @@ Farming Fortune, donc pas d'optimisation possible. `top_setup:null` pour les
 13 cultures à ce tier, même traitement honnête que les combos Mining
 structurellement impossibles à un tier donné.
 
-**Résultat final (late, triés par coins/h, après ajout du Fly Shard)** :
-Mushroom 9.51M/h, Pumpkin 9.19M/h, Wheat 5.63M/h, Carrot 2.86M/h, Sugar Cane
-2.34M/h, Cactus 1.93M/h, Nether Wart 1.70M/h, Potato 1.32M/h, Cocoa Beans
-661K/h, Sunflower 594K/h, Melon Slice 485K/h, Moonflower 427K/h, Wild Rose
-350K/h. Ordre de grandeur
-nettement plus bas que Mining (dizaines de millions) — cohérent une fois la
-formule décomposée : le débit est PLAFONNÉ (72 000 actions/h fixe, aucun
-équivalent de Mining Speed Boost pour le multiplier), `baseDropCount=1`
-(contre 4 pour les gemmes), et les prix Bazaar bruts des cultures (2-5
-coins/unité) sont modestes comparés aux gemmes. **Aucun repère en jeu fourni
-par l'utilisateur pour Farming** (contrairement à Mining) — ces chiffres sont
+**Résultat final (late, triés par coins/h, après Fly Shard + Pest Farming)** :
+Mushroom 11.88M/h, Pumpkin 11.63M/h, Wheat 7.90M/h, Carrot 5.05M/h, Sugar
+Cane 4.53M/h, Nether Wart 3.84M/h, Potato 3.49M/h, Cactus 4.10M/h, Cocoa
+Beans 2.80M/h, Sunflower 2.74M/h, Melon Slice 2.62M/h, Moonflower 2.57M/h,
+Wild Rose 2.48M/h. Ordre de grandeur toujours plus bas que Mining (dizaines
+de millions) mais nettement resserré depuis l'ajout du Pest Farming (voir
+section dédiée ci-dessous) — cohérent une fois la formule décomposée : le
+débit de cassage reste PLAFONNÉ (72 000 actions/h fixe, aucun équivalent de
+Mining Speed Boost pour le multiplier), `baseDropCount=1` (contre 4 pour les
+gemmes), et les prix Bazaar bruts des cultures (2-5 coins/unité) sont
+modestes comparés aux gemmes — mais le Pest Farming (~2.1-2.4M/h additif,
+identique sur les 13 cultures) réduit fortement l'écart relatif entre la
+culture la plus chère et la moins chère. **Aucun repère en jeu fourni par
+l'utilisateur pour Farming** (contrairement à Mining) — ces chiffres sont
 sourcés et vérifiés mathématiquement contre la formule/le plafond wiki, mais
 pas encore confrontés à une performance réelle en jeu.
+
+### Pest Farming — méthode manquante trouvée, signalée explicitement par l'utilisateur (5 août, 3e passe)
+
+Après le 2e livrable, l'utilisateur a directement demandé : "tu omés des
+méthodes, le pest farm par exemple". Vérification faite : les Pests ne sont
+**pas une méthode concurrente** (on ne choisit pas "farmer des cultures" OU
+"farmer des pests") — un Pest a une chance de spawn à chaque culture cassée
+en Garden (dès Garden V), donc c'est un revenu **additif** qui accompagne
+n'importe quelle culture déjà en train d'être farmée. Le vrai facteur
+limitant n'est PAS le taux de casse de culture mais un **cooldown de spawn**
+(sourcé page wiki "Pest#Spawn Cooldown") : 5 min par défaut, réductions
+réelles listées (gear Pesthunter, reforge Squeaky, Moth Shard, perk Mayor
+Finnegan "Pest Eradicator") jusqu'à un plancher de 2min10s SANS Finnegan
+(mayor-conditionnel, exclu par cohérence avec le reste du projet) ou 1min10s
+avec.
+
+**Bug de données trouvé en vérifiant** : la table `garden_pest_rare_drops`
+(déjà en base, chargée lors d'une session antérieure) donnait des taux de
+drop rare erronés (ex : 33% pour le Slug) — les 13 pages wiki individuelles
+de chaque Pest (Fly/Cricket/Locust/Rat/Mosquito/Earthworm/Mite/Moth/Slug/
+Beetle/Dragonfly/Firefly/Praying Mantis, toutes fetchées et lues le 5 août)
+donnent le vrai chiffre uniforme : **0.75%** pour le drop rare, sur une vraie
+"Mob Drops Table" bien plus riche que ce qui avait été capturé : 1 000 coins
+fixes par kill + un drop GARANTI (100%) d'un item Enchanted de la culture
+associée dont la quantité scale avec la vraie Farming Fortune du joueur
+(`base + floor(FarmingFortune / diviseur)`) + le drop rare à 0.75%. Cette
+ancienne table n'a pas été corrigée en base (hors scope immédiat) mais n'est
+plus utilisée par `lib/pluton-farming.ts` -- valeurs recalculées directement
+depuis les pages sources, à corriger dans `garden_pest_rare_drops` dans une
+passe dédiée si besoin.
+
+**Meilleur Pest confirmé par calcul réel, pas deviné** : les 13 pests
+comparés par valeur espérée par kill (prix Bazaar réels du 5 août) — Beetle
+(associé à Nether Wart) gagne avec ~76 800 coins/kill (dominé par son drop
+garanti, Enchanted Nether Wart, à un prix Bazaar élevé ×116 exemplaires à
+Farming Fortune max). Confirmé sourcé wiki : "The Pest spawned is not
+affected by the crop broken" — le meilleur Pest (Beetle) peut être ciblé
+via Sprayonator + vinyle dédiée quelle que soit la culture activement
+farmée, donc ce revenu s'applique identiquement aux 13 cultures.
+
+**Bonus secondaire trouvé au passage** : Pesthunter Phillip donne +5 Farming
+Fortune par pest reçu au vacuum, buff 30 min, plafond +200 à 40 pests
+(sourcé page wiki dédiée) — modélisé en régime permanent (masse moyenne de
+buff actif = taux d'arrivée × durée du buff, même famille de calcul que le
+multiplicateur moyen pondéré de Mining Speed Boost) plutôt qu'ignoré comme
+"non modélisable" dans la 2e passe — ~69 FF en continu au taux de spawn
+retenu, jamais au plafond de 200 (le taux d'arrivée réel est trop faible).
+
+**Appliqué uniquement END/LATE** (même logique que le reste de la couche
+investissement maximal) — MID n'a pas Sprayonator/vinyle modélisé, cohérent
+avec l'omission déjà documentée d'équipement/pet à ce tier.
 
 **3 bugs de bonne hygiène évités dès la construction** (leçons directement
 appliquées depuis le chantier Mining, pas redécouvertes) : DELETE explicite

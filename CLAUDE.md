@@ -36,17 +36,24 @@ vérifiée par le wiki, PUIS corrigé après un audit explicitement demandé par
 l'utilisateur ("as-tu vraiment tout maxé ?") qui a trouvé 1 vrai trou (Fly
 Shard, attribut "Fortunate Farmer", +25 Farming Fortune absent du build de
 référence de la page elle-même) : **+2037.7 Farming Fortune** + 472/484/509
-Crop Fortune selon catégorie de culture. **Résultat final (late)** : Mushroom
-9.51M/h, Pumpkin 9.19M/h, Wheat 5.63M/h — ordre de grandeur nettement sous
-Mining (dizaines de millions), cohérent une fois la formule décomposée (débit
-plafonné, aucun bonus type Mining Speed Boost, baseDropCount=1 contre 4).
-Dépendance cross-activité réelle documentée et non fermée : le Mooshroom Cow
-Pet peut dépasser Rose Dragon (le pet retenu) si le joueur a >6 762 Strength
-(scaling réel sourcé), mais vérifier ce seuil demande le calculateur
-Combat/Slayer, pas encore construit. **Aucun repère en jeu utilisateur pour
-valider Farming** (contrairement à Mining) — chiffres vérifiés
-mathématiquement, pas confrontés au jeu réel. Detail complet (gaps honnêtes,
-sources exclues, méthode MID) dans
+Crop Fortune selon catégorie de culture. **3e passe** : l'utilisateur a
+signalé une vraie méthode manquante ("le pest farm par exemple") — les Pests
+ne sont pas une méthode concurrente mais un revenu ADDITIF qui accompagne
+n'importe quelle culture (spawn à chaque casse, plafonné par un cooldown, pas
+par le débit de casse). Bug de données trouvé au passage :
+`garden_pest_rare_drops` (chargée en base une session antérieure) donnait
+33% pour le Slug là où les 13 pages wiki individuelles de chaque Pest disent
+0.75% — recalculé depuis les vraies pages, Beetle (Nether Wart) gagne
+(~76.8K coins/kill). **Résultat final (late)** : Mushroom 11.88M/h, Pumpkin
+11.63M/h, Wheat 7.90M/h — écart entre cultures nettement resserré par le
+Pest Farming (~2.1-2.4M/h additif identique sur les 13). Dépendance
+cross-activité réelle documentée et non fermée : le Mooshroom Cow Pet peut
+dépasser Rose Dragon (le pet retenu) si le joueur a >6 762 Strength (scaling
+réel sourcé), mais vérifier ce seuil demande le calculateur Combat/Slayer,
+pas encore construit. **Aucun repère en jeu utilisateur pour valider
+Farming** (contrairement à Mining) — chiffres vérifiés mathématiquement, pas
+confrontés au jeu réel. Detail complet (gaps honnêtes, sources exclues,
+méthode MID, mécanique Pest Farming) dans
 `PLUTON-ARCHITECTURE.md`, section 3. **Prochaine étape actée** : Foraging,
 Fishing, Slayer/Combat, Dungeons restent à construire.
 
