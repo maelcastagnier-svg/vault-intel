@@ -228,6 +228,51 @@ function pesthunterSteadyStateFF(pestsPerHour: number): number {
   return Math.min(PESTHUNTER_FF_CAP, arrivalPerSecond * PESTHUNTER_BUFF_DURATION_SECONDS * PESTHUNTER_FF_PER_PEST)
 }
 
+// Correction post-audit (5 août, 4e passe -- l'utilisateur a directement
+// challengé le chiffre : "pest farming peut rapporter 40M+/h en vrai, pourquoi
+// ton calcul est si bas ?"). Le vrai trou : "Bonus Pest Chance" (stat dédiée,
+// page wiki propre) -- "By default, only one Pest will spawn at a time. This
+// can be increased via Bonus Pest Chance... up to 8". Le modèle précédent
+// supposait 1 seul Pest par cycle de spawn (130s), alors qu'un vrai build
+// maxé fait spawn PLUSIEURS Pests par cycle. Formule réelle (même page) :
+// chaque 100 BPC = +1 Pest garanti par spawn, le reste = % de chance d'un
+// Pest supplémentaire.
+//
+// Plafond officiel déjà calculé et vérifié par le wiki (section "Theoretical
+// Maximum" de la page "Bonus Pest Chance", réutilisé tel quel comme pour le
+// plafond Farming Fortune, même méthodologie) : 551.5 BPC → 5 Pests garantis
+// en plus du 1 par défaut (6 total) + 51.5% de chance d'un 7e = 6.515 Pests
+// attendus par cycle de spawn, EN ÉVITANT la pénalité Farming Fortune (le
+// seuil "avant pénalité" suit aussi le BPC, 4+floor(551.5/100)=9, au-dessus
+// du max possible de 8 -- donc jamais déclenchée à ce niveau de BPC, pas
+// besoin de la modéliser).
+//
+// Coût réel, pas caché : ce plafond BPC suppose l'Équipement Pesthunter's Set
+// (Necklace/Cloak/Belt/Gloves, vérifié via leurs 4 pages wiki individuelles :
+// 0 Farming Fortune, seulement BPC + réduction de cooldown) À LA PLACE du
+// Blossom Set utilisé dans le plafond Farming Fortune ci-dessus (+330 FF).
+// Comparaison réelle faite avant de trancher : perdre 330 FF sur un total
+// d'environ 2000+ ne réduit le multiplicateur de rendement des cultures que
+// d'environ 15% (~(1+total-330)/100) / (1+total/100)), alors que le gain en
+// revenu de Pest Farming (×6.5 sur le taux, voir ci-dessous) est d'un ordre
+// de grandeur supérieur en valeur absolue -- le swap est donc retenu. Note
+// honnête : l'allocation précise pièce-par-pièce (quel Pesthunter exact
+// remplace quelle pièce Blossom, arbitrage fin non refait ici) n'est pas
+// vérifiée dans le détail comme l'a été le reforge Ambered/Glacial de
+// Mining -- approximation par comparaison de totaux, pas un vrai calcul
+// combinatoire. Documenté comme limite, pas caché.
+const BLOSSOM_SET_FF = 118 + 72 + 140 // Blossom Set @2500 visiteurs + reforge Rooted + Green Thumb V @140 visiteurs (déjà dans FARMING_FORTUNE_MAX_PERMANENT)
+const BONUS_PEST_CHANCE_MAX = 551.5
+const PESTS_PER_SPAWN_EVENT = 1 + Math.floor(BONUS_PEST_CHANCE_MAX / 100) + (BONUS_PEST_CHANCE_MAX % 100) / 100
+
+// Pièges (Pest Trap/Mouse Trap/Vermin Trap) -- source additionnelle,
+// indépendante du cooldown de spawn organique, fonctionne même hors-ligne.
+// Sourcé page wiki "Pest Trap" : max 3 pièges posés simultanément, ~15 min
+// par Pest et par piège (indépendant du taux organique ci-dessus).
+const TRAP_COUNT_MAX = 3
+const TRAP_MINUTES_PER_PEST = 15
+const TRAPS_PESTS_PER_HOUR = TRAP_COUNT_MAX * (60 / TRAP_MINUTES_PER_PEST)
+
 export type FarmingMaxLayer = {
   farmingFortune: number
   cropFortune: number
@@ -380,22 +425,29 @@ export async function computeFarmingRanking(tier: FarmingTierKey, blockId: strin
 
   if (tier === 'end' || tier === 'late') {
     const maxLayer = farmingMaxLayerFor(blockId)
-    farmingFortune = maxLayer.farmingFortune
+    // Équipement swappé de Blossom Set vers Pesthunter's Set pour maximiser
+    // le Bonus Pest Chance -- perte des +330 FF de Blossom (voir doc
+    // BONUS_PEST_CHANCE_MAX ci-dessus), compensée très largement par le
+    // revenu de Pest Farming.
+    farmingFortune = maxLayer.farmingFortune - BLOSSOM_SET_FF
     cropFortune = maxLayer.cropFortune
     armorSetPrefix = 'Helianthus'
     toolLevel = SPECIALIZED_TOOL_MAX_LEVEL
     realCost = TIER_CONFIG[tier].max_gear_cost // plafond du tier, pas un total pièce par pièce (voir doc)
 
-    // Pest Farming (5 août, 3e passe) -- bonus additif, identique pour toute
-    // culture (voir doc PESTS ci-dessus). Le meilleur Pest est calculé à la
-    // Farming Fortune de base (avant le bonus Pesthunter lui-même, qui ne
-    // dépend pas du choix de Pest) puis le bonus Pesthunter Phillip est
-    // ajouté à la Fortune totale -- appliqué à END/LATE seulement, même
-    // logique que le reste de la couche max investissement.
+    // Pest Farming (5 août, 3e et 4e passes) -- bonus additif, identique pour
+    // toute culture (voir doc PESTS/BONUS_PEST_CHANCE ci-dessus). Taux réel =
+    // (cycles de spawn/heure) × (Pests par cycle, via Bonus Pest Chance) +
+    // pièges (indépendants, voir TRAPS_PESTS_PER_HOUR). Le meilleur Pest est
+    // calculé à la Farming Fortune de base (avant le bonus Pesthunter
+    // lui-même, qui ne dépend pas du choix de Pest) puis le bonus Pesthunter
+    // Phillip est ajouté à la Fortune totale -- appliqué à END/LATE
+    // seulement, même logique que le reste de la couche max investissement.
+    const pestsPerHourTotal = PESTS_PER_HOUR * PESTS_PER_SPAWN_EVENT + TRAPS_PESTS_PER_HOUR
     const best = await bestPestKillEV(farmingFortune)
     pestName = best.name
-    pestCoinsPerHour = PESTS_PER_HOUR * best.evPerKill
-    farmingFortune += pesthunterSteadyStateFF(PESTS_PER_HOUR)
+    pestCoinsPerHour = pestsPerHourTotal * best.evPerKill
+    farmingFortune += pesthunterSteadyStateFF(pestsPerHourTotal)
   } else if (tier === 'mid') {
     const cfg = TIER_CONFIG.mid
     const armor = await bestAffordableArmorTier(cfg.max_gear_cost)
