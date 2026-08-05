@@ -6,6 +6,146 @@
 > ici n'est construit à la date de rédaction, sauf ce qui est explicitement marqué
 > "existant".
 
+## 0. Vision d'ensemble — architecture cible finale (5 août, révision demandée)
+
+> Réponse directe à la question posée : "quelle architecture optimale pour que
+> Pluton soit un moteur de calcul qui permette une complétion totale des
+> objectifs du dashboard, sans omettre aucun détail, avec précision
+> chirurgicale, automatisé et auto-améliorant ?" Ce qui suit synthétise et
+> complète les sections détaillées ci-dessous (1.3-1.7 pour le détail technique)
+> -- à lire comme la vue d'ensemble, pas un doublon.
+
+### Les 6 couches, leur rôle, et où elles pointent
+
+```
+0. SOURCES         -- wiki + NEU-REPO + SkyHanni-REPO + API Hypixel, plusieurs
+                       sources INDÉPENDANTES par mécanique quand possible
+1. CARTOGRAPHIE     -- cache brut + content_hash (détecte un vrai changement,
+                       pas un re-fetch cosmétique) -- déjà largement fait,
+                       fraîcheur pas encore garantie (trouvé cette session :
+                       cache à 5 jours de retard sur le live)
+2. EXTRACTION       -- parseStatSourceTabber : CHAQUE wikitable réelle de
+                       CHAQUE page cartographiée → une ligne par item/stat/
+                       rareté dans des tables précises, jamais un résumé
+                       éditorial (voir section 1.7, corrigé cette session)
+3. AUDIT DE         -- couche NOUVELLE, répond directement à "aucun détail
+   COUVERTURE           omis" : rend la complétude vérifiable par requête SQL
+                       plutôt que par relecture humaine (détail ci-dessous)
+4. MOTEUR DE CALCUL -- un solveur générique par contrainte de slot, pas des
+                       arbitrages écrits à la main activité par activité
+                       (détail ci-dessous)
+5. MÉMOIRE          -- run_id versionné, comparaison automatique run(t) vs
+   VERSIONNÉE          run(t-1), delta visible (section 1.6)
+6. CONSOMMATION     -- Money Making / Evolve Skills / Milestones lisent
+                       Pluton -- migration réelle, phasée (détail ci-dessous)
+```
+
+### Couche 3 (nouvelle) — Audit de couverture : rendre "aucun détail omis" vérifiable
+
+Le vrai problème de cette session n'était pas un manque de rigueur ponctuel --
+c'est que la complétude n'était vérifiable que par relecture humaine (moi qui
+recherche à la main si une source manque, à chaque fois qu'un chiffre est
+challengé). Ça ne scale pas et ça ne s'auto-améliore pas. La couche 2 fixe la
+collecte ; celle-ci fixe la **vérification**.
+
+```sql
+extraction_coverage (
+  activity_key text, equip_slot text, stat_name text,
+  candidate_count integer,        -- combien de lignes stat_bonus_sources
+                                    -- alimentent réellement ce (slot, stat)
+  pages_covered text[],            -- quelles pages ont été extraites pour ça
+  pages_pending text[],            -- pages cartographiées mais PAS ENCORE extraites
+  last_audited_at timestamptz
+)
+```
+Une requête simple ("quel `equip_slot` a `candidate_count = 0` pour telle
+activité ?") remplace un audit manuel de plusieurs heures. **Triangulation
+multi-source** : quand une même stat existe sur 2+ sources indépendantes (wiki
+ET NEU-REPO ET SkyHanni-REPO), les valeurs sont comparées automatiquement --
+un désaccord passe `confidence` à `UNKNOWN` et remonte dans `discovery_queue`
+(déjà existant, réutilisé) au lieu d'être tranché silencieusement. C'est la
+mécanisation de la doctrine déjà en place dans ce projet depuis le bug Slayer
+T4/T5 ("jamais tranché sur une seule source").
+
+**Limite honnête, non automatisable** : ça détecte "cette page cartographiée
+n'est pas encore extraite" et "ces 2 sources ne sont pas d'accord" -- ça ne
+détecte PAS "cette mécanique existe en jeu mais n'est documentée nulle part"
+(c'est arrivé zéro fois cette session, mais rien ne garantit que ça n'arrivera
+jamais -- seul un vrai repère en jeu, comme celui donné pour Mining, peut
+attraper ce cas-là, et ça reste un apport humain périodique, pas automatisable).
+
+### Couche 4 (généralisée) — Le moteur de calcul, un seul solveur pas 6 arbitrages écrits à la main
+
+Cette session, chaque arbitrage (Ambered vs Glacial, socket Amber/Jade/Topaz,
+meilleur pet, meilleur Pest) a été **codé à la main, séparément, par cas**.
+Ça marche mais ça ne généralise pas -- la 3e activité redemanderait le même
+travail de zéro. La cible : un seul moteur générique, piloté par les données
+(pas par du code spécifique), qui prend en entrée :
+- `equip_slot_capacity` (combien de slots de quel type),
+- `stat_bonus_sources` (candidats réels par slot, extraits en Couche 2),
+- `activity_stat_weights` (formule de rendement C propre à l'activité --
+  c'est le SEUL endroit où la mécanique spécifique à une activité vit),
+
+et qui résout : pour chaque slot, quel candidat (ou quelle combinaison de
+candidats pour les slots multi-items comme l'Accessory Bag) maximise le
+rendement final calculé par la formule C -- exactement ce que fait déjà
+`applyPetsAndAccessories`/`applyMaxInvestmentLayer` pour Mining, mais
+généralisé pour ne plus être réécrit à chaque activité.
+
+**Deux régimes de résolution, choisis honnêtement selon la taille de l'espace** :
+- **Petits espaces** (1 pet, 1 armure, 1 outil, quelques reforges) → énumération
+  complète, garantie optimale, déjà ce qui est fait.
+- **Grands espaces** (8 slots Accessory Bag avec des dizaines de candidats
+  réels) → algorithme glouton par valeur marginale (ajoute le meilleur candidat
+  restant tant qu'il reste un slot libre) -- **heuristique documentée comme
+  telle, pas garantie globalement optimale**, mais bornée en temps et déjà la
+  méthode implicitement utilisée à la main cette session pour les accessoires
+  Mining/Farming (jamais un vrai calcul combinatoire complet sur 8 slots).
+
+### Couche 6 — Consommation : la vraie "complétion des objectifs du dashboard"
+
+C'est le point final de la question posée -- Pluton n'existe pas pour lui-même,
+il doit *alimenter* Money Making/Evolve Skills/Milestones. Aujourd'hui ces 3
+fonctionnalités tournent sur génération Claude (`money-making-agent`,
+`setup-generate-agent`), pas sur du calcul déterministe. **C'est un changement
+de paradigme pour des fonctionnalités déjà en prod, pas un simple branchement**
+-- proposition de migration phasée, honnête sur le risque :
+1. **Phase QA silencieuse** : Pluton tourne en parallèle, ses résultats sont
+   loggés mais pas servis -- sert à comparer against les sorties Claude
+   existantes, remonte les divergences sans rien casser en prod.
+2. **Phase cross-check visible** : le dashboard affiche toujours la sortie
+   Claude, mais un signal discret indique quand Pluton diverge fortement (ex:
+   Claude propose un gear hors-budget que Pluton aurait rejeté).
+3. **Phase remplacement, activité par activité** : une fois qu'une activité a
+   un historique de runs stable (Couche 5) sans divergence non expliquée,
+   bascule effective -- décidée au cas par cas, jamais un big-bang sur les 6
+   activités en même temps.
+
+### Ce que "précision chirurgicale + auto-amélioration" veut dire concrètement, et où ça s'arrête
+
+**Ce que le système fait vraiment tout seul, une fois construit** : détecte
+qu'une page source a changé (Couche 1) → ré-extrait uniquement ce qui a changé
+(Couche 2) → l'audit de couverture confirme qu'aucun slot n'est resté vide
+(Couche 3) → recalcule uniquement l'activité affectée (Couche 4) → verse un
+nouveau run comparé au précédent, delta visible (Couche 5). Zéro intervention
+humaine pour ce cycle-là.
+
+**Ce qui reste, honnêtement, une dépendance humaine périodique, pas un défaut
+de conception** :
+- Un repère de jeu réel (comme les chiffres Mining donnés par l'utilisateur)
+  pour attraper un écart que même une extraction parfaite ne peut pas voir
+  (mécanique non documentée nulle part).
+- La toute première construction d'un parseur pour un type de page jamais vu
+  (l'automatisation entretient un parseur existant, elle n'en invente pas un
+  nouveau face à un format inédit).
+- La décision de migration Couche 6 (remplacer une génération Claude par du
+  déterministe) reste un choix produit, pas un calcul.
+
+Rien de tout ça n'est construit à ce stade -- ce document décrit la cible,
+section 4 donne l'ordre de construction et l'estimation honnête.
+
+---
+
 ## Contexte — pourquoi ce document
 
 Le chantier de fondation (cartographie wiki + NEU-REPO + SkyHanni-REPO + collecte
