@@ -32,14 +32,21 @@ AUCUNE stat de vitesse (contrairement à Mining) — 2 forks soumis à l'utilisa
 source écrite) ont abouti à un plafond moteur Minecraft réel (20 blocs/seconde,
 20 TPS) donné directement par l'utilisateur, appliqué comme débit fixe universel.
 Plafond Fortune END/LATE réutilise la propre section "Theoretical Maximum" déjà
-vérifiée par le wiki (+2012.7 Farming Fortune + 472/484/509 Crop Fortune selon
-catégorie de culture) plutôt que reconstruite à la main. **Résultat (late)** :
-Mushroom 9.41M/h, Pumpkin 9.03M/h, Wheat 5.56M/h — ordre de grandeur nettement
-sous Mining (dizaines de millions), cohérent une fois la formule décomposée
-(débit plafonné, aucun bonus type Mining Speed Boost, baseDropCount=1 contre 4).
-**Aucun repère en jeu utilisateur pour valider Farming** (contrairement à
-Mining) — chiffres vérifiés mathématiquement, pas confrontés au jeu réel. Detail
-complet (gaps honnêtes, sources exclues, méthode MID) dans
+vérifiée par le wiki, PUIS corrigé après un audit explicitement demandé par
+l'utilisateur ("as-tu vraiment tout maxé ?") qui a trouvé 1 vrai trou (Fly
+Shard, attribut "Fortunate Farmer", +25 Farming Fortune absent du build de
+référence de la page elle-même) : **+2037.7 Farming Fortune** + 472/484/509
+Crop Fortune selon catégorie de culture. **Résultat final (late)** : Mushroom
+9.51M/h, Pumpkin 9.19M/h, Wheat 5.63M/h — ordre de grandeur nettement sous
+Mining (dizaines de millions), cohérent une fois la formule décomposée (débit
+plafonné, aucun bonus type Mining Speed Boost, baseDropCount=1 contre 4).
+Dépendance cross-activité réelle documentée et non fermée : le Mooshroom Cow
+Pet peut dépasser Rose Dragon (le pet retenu) si le joueur a >6 762 Strength
+(scaling réel sourcé), mais vérifier ce seuil demande le calculateur
+Combat/Slayer, pas encore construit. **Aucun repère en jeu utilisateur pour
+valider Farming** (contrairement à Mining) — chiffres vérifiés
+mathématiquement, pas confrontés au jeu réel. Detail complet (gaps honnêtes,
+sources exclues, méthode MID) dans
 `PLUTON-ARCHITECTURE.md`, section 3. **Prochaine étape actée** : Foraging,
 Fishing, Slayer/Combat, Dungeons restent à construire.
 

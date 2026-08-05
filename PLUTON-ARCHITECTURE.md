@@ -486,10 +486,11 @@ Farming Fortune, donc pas d'optimisation possible. `top_setup:null` pour les
 13 cultures à ce tier, même traitement honnête que les combos Mining
 structurellement impossibles à un tier donné.
 
-**Résultat final (late, triés par coins/h)** : Mushroom 9.41M/h, Pumpkin
-9.03M/h, Wheat 5.56M/h, Carrot 2.84M/h, Sugar Cane 2.32M/h, Cactus 1.91M/h,
-Nether Wart 1.71M/h, Potato 1.28M/h, Cocoa Beans 654K/h, Sunflower 595K/h,
-Melon Slice 480K/h, Moonflower 424K/h, Wild Rose 350K/h. Ordre de grandeur
+**Résultat final (late, triés par coins/h, après ajout du Fly Shard)** :
+Mushroom 9.51M/h, Pumpkin 9.19M/h, Wheat 5.63M/h, Carrot 2.86M/h, Sugar Cane
+2.34M/h, Cactus 1.93M/h, Nether Wart 1.70M/h, Potato 1.32M/h, Cocoa Beans
+661K/h, Sunflower 594K/h, Melon Slice 485K/h, Moonflower 427K/h, Wild Rose
+350K/h. Ordre de grandeur
 nettement plus bas que Mining (dizaines de millions) — cohérent une fois la
 formule décomposée : le débit est PLAFONNÉ (72 000 actions/h fixe, aucun
 équivalent de Mining Speed Boost pour le multiplier), `baseDropCount=1`
@@ -545,6 +546,20 @@ route elle-même.
   Farming (5 pages de rareté). Golden Dragon Pet vérifié et écarté (pet
   Combat, pas Farming). Nouveau plafond : **+2037.7 FF** (au lieu de
   +2012.7).
+- **Mooshroom Cow Pet — dépendance cross-activité réelle, non fermée** :
+  sourcé dans la même page wiki, ce pet donne +0.7 Farming Fortune par
+  tranche de 20 Strength du joueur (perk "Farming Strength"), en plus de son
+  propre +100 fixe. La page elle-même donne le point de comparaison : à
+  6 762.86 Strength, il égale exactement Rose Dragon (+336.7) ; au-delà, il
+  le dépasse. Un personnage Combat 100% maxé (le même standard "fin de jeu"
+  que le reste de ce chantier) peut réellement dépasser ce seuil de Strength
+  en jeu — mais vérifier un vrai plafond de Strength demanderait de
+  construire le calculateur Combat/Slayer (pas encore commencé, table
+  `item_stats` par ailleurs connue incomplète sur les stats des items
+  endgame, voir CLAUDE.md). Rose Dragon reste le choix retenu ici
+  (autonome, ne dépend d'aucune autre activité) — dépendance documentée
+  explicitement plutôt que devinée, à réévaluer une fois Combat/Slayer
+  construit.
 
 **Prochaine étape** : Foraging, Fishing, Slayer/Combat, Dungeons restent à
 construire — pas commencé.
