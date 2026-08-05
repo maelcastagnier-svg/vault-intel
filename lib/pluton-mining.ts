@@ -122,6 +122,14 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
   // meilleur set réel au lieu de filtrer du gear sous-optimal. Même
   // logique déjà appliquée aux outils ci-dessous, étendue à l'armure.
 
+  // Cible Gemstone (5 août, correction post-audit utilisateur) -- les 4 forets
+  // spécialisées (Ruby/Gemstone/Topaz/Jasper Drill) passent à 800 Mining Speed
+  // FIXE sur Gemstone (pas additif, mécanique réelle sourcée wiki "Drills") et
+  // portent un vrai bonus Gemstone Fortune (stat séparée de Mining Fortune,
+  // confirmée additive avec elle -- wiki "Mining Fortune" : "Variants... are
+  // added to regular Mining Fortune when mining their respective block types").
+  const isGemstoneTarget = block.block_id.endsWith('_GEMSTONE')
+
   const combos: {
     armor_set: string; tool: string; tool_item_id: string
     total_mining_speed: number; total_mining_fortune: number; total_breaking_power: number
@@ -144,12 +152,17 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
       const totalBP = tool.base_breaking_power
       if (totalBP < block.required_breaking_power) continue // filtre d'éligibilité, 8.2
 
+      const toolSpeed = isGemstoneTarget && tool.gemstone_speed_override != null
+        ? Number(tool.gemstone_speed_override)
+        : tool.base_mining_speed
+      const toolGemstoneFortune = isGemstoneTarget ? Number(tool.gemstone_fortune || 0) : 0
+
       combos.push({
         armor_set: armor.set_name,
         tool: tool.display_name,
         tool_item_id: tool.item_id,
-        total_mining_speed:   armor.set_mining_speed + tool.base_mining_speed,
-        total_mining_fortune: Number(armor.set_mining_fortune) + Number(tool.base_mining_fortune),
+        total_mining_speed:   armor.set_mining_speed + toolSpeed,
+        total_mining_fortune: Number(armor.set_mining_fortune) + Number(tool.base_mining_fortune) + toolGemstoneFortune,
         total_breaking_power: totalBP,
         real_cost: armorCost + toolPrice,
       })
@@ -199,18 +212,18 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
   }
   const baseDropCount = Number(block.base_drop_count) || 1
 
-  function scoreYield(speed: number, fortune: number) {
+  function scoreYield(speed: number, fortune: number, pristineMult = 1) {
     const miningTimeTicks = Math.round((block.block_strength * 30) / speed)
     // Plancher littéral de 4 ticks (0.2s) -- jamais plus rapide sans
     // instamine (non implémenté cette passe, voir en-tête de fichier).
     const effectiveTicks = Math.max(miningTimeTicks, 4)
     const miningTimeSeconds = effectiveTicks / 20
     const actionsPerHour = 3600 / miningTimeSeconds
-    const fortuneMult = 1 + fortune / 100
+    const fortuneMult = (1 + fortune / 100) * pristineMult
     const yieldPerHour = actionsPerHour * baseDropCount * fortuneMult
     let coinsPerHourRawBlockOnly = yieldPerHour * sellPrice
     if (block.bonus_material_id) {
-      const bonusYieldPerHour = actionsPerHour * Number(block.bonus_chance) * Number(block.bonus_drop_count) * fortuneMult
+      const bonusYieldPerHour = actionsPerHour * Number(block.bonus_chance) * Number(block.bonus_drop_count) * (1 + fortune / 100)
       coinsPerHourRawBlockOnly += bonusYieldPerHour * bonusPrice
     }
     return { miningTimeSeconds, actionsPerHour, yieldPerHour, coinsPerHourRawBlockOnly }
@@ -229,11 +242,25 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
     const layer = await applyPetsAndAccessories(
       topSetup.total_mining_speed, topSetup.total_mining_fortune, block.block_strength, sellPrice
     )
-    const { miningTimeSeconds, actionsPerHour, yieldPerHour, coinsPerHourRawBlockOnly } = scoreYield(layer.total_mining_speed, layer.total_mining_fortune)
+    let finalFortune = layer.total_mining_fortune
+    let pristineMult = 1
+    let gemstoneBonus: GemstoneBonusLayer | null = null
+    if (isGemstoneTarget) {
+      // Gemstone Fortune + Pristine (5 août) -- uniquement pertinent sur cible
+      // Gemstone, jamais appliqué aux autres blocs. gemstone_fortune s'additionne
+      // à mining_fortune (confirmé wiki "Mining Fortune"), pristine multiplie le
+      // rendement séparément (formule wiki "Pristine" : ×(1+Pristine×0.79)).
+      gemstoneBonus = await applyGemstoneBonuses(layer.best_pet?.source_id ?? null)
+      finalFortune += gemstoneBonus.gemstoneFortune
+      pristineMult = 1 + gemstoneBonus.pristine * 0.79
+    }
+    const { miningTimeSeconds, actionsPerHour, yieldPerHour, coinsPerHourRawBlockOnly } = scoreYield(layer.total_mining_speed, finalFortune, pristineMult)
     topSetup = {
       ...topSetup,
       total_mining_speed: layer.total_mining_speed,
-      total_mining_fortune: layer.total_mining_fortune,
+      total_mining_fortune: finalFortune,
+      gemstone_fortune: gemstoneBonus?.gemstoneFortune ?? null,
+      pristine: gemstoneBonus?.pristine ?? null,
       pet: layer.best_pet,
       pet_candidates_checked: layer.pet_candidates_checked,
       accessories: layer.accessories,
@@ -356,6 +383,45 @@ export async function applyPetsAndAccessories(
     total_mining_speed: baseMiningSpeed + accSpeed + (bestPet?.mining_speed || 0),
     total_mining_fortune: baseMiningFortune + accFortune + (bestPet?.mining_fortune || 0),
   }
+}
+
+// ============================================================
+// Gemstone Fortune + Pristine (5 août) -- deux stats confirmées distinctes de
+// Mining Fortune (page wiki dédiée "Gemstone Fortune", max_value=589) et
+// jamais modélisées avant la remarque de l'utilisateur. Sources retenues :
+// permanentes/fiables uniquement (socket gemme via la table `gemstones`
+// existante, HOTM Mining Master maxé, Bal Shard, accessoires, Scatha pet déjà
+// choisi comme meilleur pet générique) -- volontairement PAS les bonus
+// situationnels listés sur la page wiki (Chilled Pristine Potato "en Glacite
+// Mineshafts", bonus de pet "4 corpses looted", HOTM Front Loaded "2500
+// premières gemmes du jour") : ceux-ci dépendent d'un contexte de jeu qu'on ne
+// modélise pas encore (Glacite Mineshafts, cycle journalier), les inclure
+// présenterait un plafond ponctuel comme un régime permanent.
+export type GemstoneBonusLayer = { gemstoneFortune: number; pristine: number }
+
+export async function applyGemstoneBonuses(bestPetId: string | null): Promise<GemstoneBonusLayer> {
+  const { data: sources } = await supabase
+    .from('stat_bonus_sources')
+    .select('source_id, equip_slot, stat_name, bonus_numeric')
+    .in('stat_name', ['gemstone_fortune', 'pristine'])
+
+  let gemstoneFortune = 0
+  let pristine = 0
+  for (const r of sources || []) {
+    if (r.equip_slot === 'pet') {
+      // Bonus de pet -- seulement si c'est effectivement le pet déjà retenu
+      // (compétitif, un seul actif à la fois).
+      if (r.source_id === bestPetId) {
+        if (r.stat_name === 'gemstone_fortune') gemstoneFortune += Number(r.bonus_numeric)
+        if (r.stat_name === 'pristine') pristine += Number(r.bonus_numeric)
+      }
+      continue
+    }
+    // Accessoires/HOTM/consommables -- non compétitifs, toujours ajoutés.
+    if (r.stat_name === 'gemstone_fortune') gemstoneFortune += Number(r.bonus_numeric)
+    if (r.stat_name === 'pristine') pristine += Number(r.bonus_numeric)
+  }
+  return { gemstoneFortune, pristine }
 }
 
 export async function computeAndPersistAllMiningRankings(): Promise<PersistedMiningResult[]> {
