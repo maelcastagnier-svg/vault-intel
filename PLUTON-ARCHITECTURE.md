@@ -268,35 +268,61 @@ mais **aucun des deux ne suit ce pipeline** -- toutes leurs constantes
 en dur dans `lib/pluton-mining.ts`/`lib/pluton-farming.ts`, jamais lues depuis
 `stat_bonus_sources`. Deux options, à trancher avec l'utilisateur avant de
 construire une 3e activité :
-- **(A) Rétrofit avant d'avancer** -- réextraire Mining Speed/Mining Fortune et
-  Farming Fortune/Crop Fortune/Bonus Pest Chance en vraies lignes
-  `stat_bonus_sources` (le parseur générique `parseTheoreticalMaximumList` décrit
-  ci-dessous couvre déjà leur format), remplacer les constantes par des requêtes,
-  brancher la Couche 5. Bénéfice : les 2 activités déjà livrées deviennent aussi
-  auto-maintenues que les futures, plus de dérive à chasser à la main.
+- **(A) Rétrofit avant d'avancer** -- réextraire Mining et Farming en vraies lignes
+  de tables structurées (voir parseur corrigé ci-dessous), remplacer les
+  constantes par des requêtes, brancher la Couche 5. Bénéfice : les 2 activités
+  déjà livrées deviennent aussi auto-maintenues que les futures, plus de dérive
+  à chasser à la main.
 - **(B) Nouvelles activités sur le nouveau pipeline, rétrofit plus tard** -- accepte
   la dette sur Mining/Farming (déjà vérifiés manuellement, donc pas faux
   aujourd'hui, juste pas auto-actualisables), avance plus vite sur
   Foraging/Fishing/Slayer/Dungeons directement avec la bonne architecture.
 
-**Parseur générique proposé pour la Couche 2** -- format confirmé identique sur
-TOUTES les pages "Achieving Maximum X"/"Theoretical Maximum" rencontrées cette
-session (Mining Speed, Mining Fortune, Farming Fortune, Bonus Pest Chance) :
+**Correction de méthode (5 août, relecture demandée par l'utilisateur)** : la
+première version de cette section ciblait le parsing de la section éditoriale
+"Theoretical Maximum"/"Achieving Maximum X" de chaque page -- **erreur de
+conception**, pointée directement par l'utilisateur. Cette section est l'avis
+d'un contributeur wiki sur "le meilleur build", pas une donnée brute -- c'est
+exactement la pièce qui s'est révélée non fiable deux fois cette session (Fly
+Shard absent du résumé Farming Fortune, chiffres divergents entre le cache et le
+live pour le même résumé). Parser un résumé, c'est retomber sur le même problème
+qu'un magic number en dur : ça hérite de toutes les omissions de son auteur.
+
+**Principe corrigé** : extraction BRUTE de toutes les données de chaque page/
+sous-page (Tools/Armor/Equipment/Enchantments/Reforges/Pets/Pet Items/
+Attributes/Accessories/Consumables/Misc -- chaque tabber de chaque page "Stat"
+est déjà une vraie wikitable structurée, Icon/Name/Rarity/Stat/Notes), stockée
+dans des tables précises et ordonnées par type de source -- **jamais** la
+conclusion résumée d'un tiers. Pluton lit ces ingrédients bruts et calcule
+lui-même la meilleure combinaison (même logique déjà validée pour Mining :
+`applyPetsAndAccessories`/`applyMaxInvestmentLayer` ne font confiance à aucune
+phrase du wiki disant "le meilleur pet est X" -- ils testent tous les pets réels
+et gardent celui qui donne le meilleur rendement calculé). Ça ferme le trou Fly
+Shard structurellement : le shard aurait été une ligne parmi toutes les lignes
+`Attributes/List/*` extraites, jamais dépendant de sa présence ou non dans le
+résumé d'une page tierce.
+
+**Parseur générique proposé pour la Couche 2** -- réutilise `parseRowspanTable`
+(`lib/wiki-table-parse.ts`, déjà construit et validé sur les crons
+`wiki-*-sync`), pas un nouveau parseur de liste à puces :
 ```
-* {{Description/Item}} ({{stat|xx|+N}})
-** {{Sous-condition}} ({{stat|xx|+N}})     -- niveau 2 = condition_note du parent
+parseStatSourceTabber(wikitext, sourceType) :   -- même nom que section 1.4, jamais réinventé
+  pour chaque bloc {| ... |} du wikitext (chaque tabber/section est une vraie
+  wikitable Icon/Name/Rarity/Stat/Notes) :
+    parseRowspanTable() → une ligne par item réel
+    → 1 ligne stat_bonus_sources par (item, stat_name, rarity) trouvé,
+      source_type = la section d'origine (tool/armor/equipment/enchant/
+      reforge/pet/pet_item/attribute/accessory/consumable/misc),
+      condition_note = colonne "Notes" telle quelle (jamais résumée)
 ```
-`parseTheoreticalMaximumList(wikitext, sectionHeading)` -- isole la section par son
-`==` heading, découpe par ligne `*`/`**`, extrait le dernier `{{stat|...|+N}}` (ou
-`(+N )`) de chaque ligne comme `bonus_numeric`, le texte restant nettoyé comme
-`source_id`, la profondeur `*` vs `**` comme signal de `condition_note` (une
-sous-puce qualifie toujours la puce parente juste au-dessus). Couvre directement
-les 2 gaps trouvés cette session (Fly Shard aurait été capturé s'il avait été dans
-la section listée -- **limite honnête** : ce parseur trouve tout ce qu'une page
-liste dans SA PROPRE section Theoretical Maximum, il ne trouve pas les sources
-qu'une page a oublié de lister elle-même, comme Fly Shard ci-dessus. La couverture
-inter-pages -- croiser Attribute Shards contre le build de référence -- reste un
-audit périodique, pas automatisable par ce seul parseur).
+Appliqué à TOUTES les pages "Stat" (Mining Speed, Mining Fortune, Farming
+Fortune, Bonus Pest Chance, Sea Creature Chance, Foraging Fortune...) avec le
+même parseur -- et aux pages `Attributes/List/<Rarity>` (5 pages, déjà lues à la
+main cette session pour trouver Fly Shard) pour couvrir les Attribute Shards
+exhaustivement, plus jamais un audit manuel ponctuel. **Limite honnête
+restante** : un item qui existe en jeu mais n'a jamais été documenté dans AUCUNE
+wikitable (aucune page ne le liste) resterait invisible -- mais c'est une vraie
+lacune de la source elle-même, pas une simplification de notre parseur.
 
 ---
 
