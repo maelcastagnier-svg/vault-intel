@@ -215,11 +215,19 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
   }
   const baseDropCount = Number(block.base_drop_count) || 1
 
+  // Instamine (5 août, ancien blocage "ambigu" résolu) -- wiki "Mining Speed",
+  // section "Bypassing soft cap" : "mining speed needs to be 30x higher than a
+  // block's strength, or 60x if it's an ore" -- règle précise par catégorie,
+  // pas une ambiguïté entre 2 sources concurrentes comme supposé le 31 juillet.
+  // Gemmes/Glacite = non-ore (30x) ; blocs *_ORE = ore (60x), déduit du nom du
+  // bloc (convention déjà cohérente dans pluton_target_blocks.block_id).
+  const instamineMultiplier = block.block_id.endsWith('_ORE') ? 60 : 30
+  const instamineThreshold = block.block_strength * instamineMultiplier
+
   function scoreYield(speed: number, fortune: number, pristineMult = 1) {
-    const miningTimeTicks = Math.round((block.block_strength * 30) / speed)
-    // Plancher littéral de 4 ticks (0.2s) -- jamais plus rapide sans
-    // instamine (non implémenté cette passe, voir en-tête de fichier).
-    const effectiveTicks = Math.max(miningTimeTicks, 4)
+    const miningTimeTicks = speed >= instamineThreshold ? 1 : Math.round((block.block_strength * 30) / speed)
+    // Plancher littéral de 4 ticks (0.2s) sauf instamine réel (1 tick, 0.05s).
+    const effectiveTicks = Math.max(miningTimeTicks, speed >= instamineThreshold ? 1 : 4)
     const miningTimeSeconds = effectiveTicks / 20
     const actionsPerHour = 3600 / miningTimeSeconds
     const fortuneMult = (1 + fortune / 100) * pristineMult
