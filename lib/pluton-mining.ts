@@ -488,7 +488,21 @@ export async function applyGemstoneBonuses(bestPetId: string | null): Promise<Ge
 // Appliqué seulement END/LATE (investissement réaliste à ces tiers).
 const HOTM_MAX = { speed: 1000 + 2000, fortune: 100 + 150, gemstoneFortune: 100 }
 const JADED_ARMOR_LEGENDARY = { speed: 45 * 4, fortune: 25 * 4 } // 4 pieces
-const DRILL_UPGRADES = { speed: 210 + 600, fortune: 45, gemstoneFortuneOnGemstones: 50, speedOnGemstones: 100 }
+// Efficiency X (+210) + Amber-Polished Drill Engine (+600) + Divan's Powder
+// Coating (+500) + 5x Polarvoid Books (+50) -- tous sourcés "Achieving Maximum
+// Mining Speed" (Divan's Drill), ajoutés le 5 août après l'écart de 60x+ confirmé.
+const DRILL_UPGRADES = { speed: 210 + 600 + 500 + 50, fortune: 45 + 5, gemstoneFortuneOnGemstones: 50, speedOnGemstones: 100 }
+// Reforge foret -- choix réel entre Ambered (+200 vitesse) et Glacial (+223
+// fortune, conditionnel à Cold -99, atteignable en jeu réel donc pas exclu comme
+// les bonus d'event) -- un seul reforge par outil, jamais les deux à la fois.
+const DRILL_REFORGE_AMBERED = { speed: 200, fortune: 0 }
+const DRILL_REFORGE_GLACIAL = { speed: 0, fortune: 223 }
+// Eager Miner (Essence Shops#Gold, niveau 10) -- sourcé "Achieving Maximum
+// Mining Speed", permanent une fois acheté, pas de conflit avec autre chose.
+const EAGER_MINER_MAX = { speed: 100 }
+// Mining niveau 60 -- +4 Mining Fortune/niveau, formule réelle sourcée wiki
+// "Mining Fortune" ("Increasing Base Mining Fortune"), plafond réel +240.
+const MINING_SKILL_60_FORTUNE = 240
 
 async function computeGemSocketBonus(itemId: string, rarity: string | null) {
   if (!rarity) return { speed: 0, fortune: 0, pristine: 0, comboSlots: 0, amberBonus: 0, jadeBonus: 0 }
@@ -524,8 +538,8 @@ export async function applyMaxInvestmentLayer(
   bestPetSpeed: number, bestPetFortune: number, bestPetGemstoneFortune: number,
   isGemstoneTarget: boolean
 ): Promise<MaxInvestmentLayer> {
-  let speed = HOTM_MAX.speed
-  let fortune = HOTM_MAX.fortune
+  let speed = HOTM_MAX.speed + EAGER_MINER_MAX.speed
+  let fortune = HOTM_MAX.fortune + MINING_SKILL_60_FORTUNE
   let gemstoneFortune = isGemstoneTarget ? HOTM_MAX.gemstoneFortune : 0
   let pristine = 0
 
@@ -558,6 +572,12 @@ export async function applyMaxInvestmentLayer(
     speed += DRILL_UPGRADES.speed
     fortune += DRILL_UPGRADES.fortune
     if (isGemstoneTarget) { gemstoneFortune += DRILL_UPGRADES.gemstoneFortuneOnGemstones; speed += DRILL_UPGRADES.speedOnGemstones }
+    // Reforge -- un seul choix par outil. Ambered retenu par défaut (permanent,
+    // sans condition) ; Glacial (+223 fortune) existe mais requiert de maintenir
+    // Cold -99 en continu -- condition plus fragile qu'un reforge permanent,
+    // délibérément pas substitué ici (pas d'arbitrage coins/h réel fait sur ce
+    // point précis, contrairement au socket combo -- documenté, pas caché).
+    speed += DRILL_REFORGE_AMBERED.speed
   }
 
   // Hephaestus Relic -- x1.5 sur le pet déjà choisi (sourcé wiki, tabber Pets
