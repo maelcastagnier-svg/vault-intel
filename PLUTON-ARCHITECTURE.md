@@ -486,19 +486,17 @@ Farming Fortune, donc pas d'optimisation possible. `top_setup:null` pour les
 13 cultures à ce tier, même traitement honnête que les combos Mining
 structurellement impossibles à un tier donné.
 
-**Résultat final (late, triés par coins/h, après Fly Shard + Pest Farming)** :
-Mushroom 11.88M/h, Pumpkin 11.63M/h, Wheat 7.90M/h, Carrot 5.05M/h, Sugar
-Cane 4.53M/h, Nether Wart 3.84M/h, Potato 3.49M/h, Cactus 4.10M/h, Cocoa
-Beans 2.80M/h, Sunflower 2.74M/h, Melon Slice 2.62M/h, Moonflower 2.57M/h,
-Wild Rose 2.48M/h. Ordre de grandeur toujours plus bas que Mining (dizaines
-de millions) mais nettement resserré depuis l'ajout du Pest Farming (voir
-section dédiée ci-dessous) — cohérent une fois la formule décomposée : le
-débit de cassage reste PLAFONNÉ (72 000 actions/h fixe, aucun équivalent de
-Mining Speed Boost pour le multiplier), `baseDropCount=1` (contre 4 pour les
-gemmes), et les prix Bazaar bruts des cultures (2-5 coins/unité) sont
-modestes comparés aux gemmes — mais le Pest Farming (~2.1-2.4M/h additif,
-identique sur les 13 cultures) réduit fortement l'écart relatif entre la
-culture la plus chère et la moins chère. **Aucun repère en jeu fourni par
+**Résultat final (late, triés par coins/h, après Fly Shard + Pest Farming +
+Bonus Pest Chance, 4e passe)** : Mushroom 21.65M/h, Pumpkin 21.50M/h, Wheat
+17.94M/h, Sugar Cane 14.83M/h, Carrot 15.30M/h, Nether Wart 14.15M/h, Potato
+13.87M/h, Cactus 14.44M/h, Cocoa Beans 13.23M/h, Sunflower 13.18M/h, Melon
+Slice 13.07M/h, Moonflower 13.02M/h, Wild Rose 12.94M/h. Toujours sous le
+repère "40M+/h" cité par l'utilisateur pour du Pest Farming (voir raisons
+possibles dans la section dédiée) mais un ordre de grandeur cohérent avec
+Mining cette fois (dizaines de millions, plus le resserrement quasi total
+de l'écart entre cultures — le Pest Farming domine largement le revenu total
+à ce stade, ~12-13M/h identiques sur les 13 cultures contre 480K-9.5M/h de
+variation côté cultures seules). **Aucun repère en jeu fourni par
 l'utilisateur pour Farming** (contrairement à Mining) — ces chiffres sont
 sourcés et vérifiés mathématiquement contre la formule/le plafond wiki, mais
 pas encore confrontés à une performance réelle en jeu.
@@ -553,6 +551,50 @@ retenu, jamais au plafond de 200 (le taux d'arrivée réel est trop faible).
 **Appliqué uniquement END/LATE** (même logique que le reste de la couche
 investissement maximal) — MID n'a pas Sprayonator/vinyle modélisé, cohérent
 avec l'omission déjà documentée d'équipement/pet à ce tier.
+
+### Bonus Pest Chance — 2e trou trouvé sur le même sujet (5 août, 4e passe)
+
+Le premier chiffre livré (Pest Farming ~2.1-2.4M/h additif) a été directement
+challengé par l'utilisateur : "le pest farming peut rapporter 40M+/h en vrai,
+pourquoi ton calcul est si bas ?". Vérification faite plutôt que de défendre
+le chiffre : la page "Pest#Spawning" dit explicitement **"By default, only
+one Pest will spawn at a time. This can be increased via Bonus Pest Chance"**
+— le modèle précédent supposait 1 seul Pest par cycle de spawn (130s), alors
+qu'un vrai stat dédié ("Bonus Pest Chance", page wiki propre avec sa propre
+section "Theoretical Maximum", même format que Mining/Farming Fortune)
+permet jusqu'à 8 Pests simultanés par cycle.
+
+**Plafond officiel réutilisé tel quel** (même méthodologie que pour Farming
+Fortune) : 551.5 Bonus Pest Chance max → 6 Pests garantis + 51.5% de chance
+d'un 7e = 6.515 Pests attendus par cycle de spawn (au lieu de 1). Un 2e
+mécanisme trouvé au passage : les **Pièges** (Pest Trap/Mouse Trap/Vermin
+Trap, page wiki dédiée) fonctionnent en parallèle du cycle organique,
+indépendamment, même hors-ligne — max 3 pièges posés simultanément, ~15 min
+par Pest et par piège, +12 Pests/h supplémentaires.
+
+**Coût réel identifié et accepté, pas caché** : atteindre 551.5 BPC suppose
+l'Équipement Pesthunter's Set (Necklace/Cloak/Belt/Gloves — vérifié via leurs
+4 pages wiki individuelles : 0 Farming Fortune, seulement BPC + réduction de
+cooldown) à la place du Blossom Set utilisé dans le plafond Farming Fortune
+(perte de 330 FF). Comparaison faite avant de trancher : la perte de rendement
+sur les cultures (~15% du multiplicateur de fortune) est très largement
+compensée par le gain de revenu Pest Farming (le swap est donc retenu).
+**Limite honnête, pas cachée** : l'arbitrage précis pièce-par-pièce (quel
+Pesthunter exact remplace quelle pièce Blossom) n'a pas été refait au niveau
+de détail du reforge Ambered/Glacial de Mining — approximation par
+comparaison de totaux, pas un vrai calcul combinatoire pièce par pièce.
+
+**Résultat après ce 2e fix** : Mushroom late 11.88M/h → 21.65M/h (le Pest
+Farming total passe de ~2.1M/h à ~12.9-13.7M/h selon la culture, dominant
+maintenant largement le revenu). **Toujours en dessous du repère "40M+/h"**
+cité par l'utilisateur — écart non résolu, raisons possibles non vérifiées
+plus loin faute de source chiffrée supplémentaire trouvée à ce stade :
+arbitrage pièce-par-pièce Pesthunter plus favorable qu'estimé, mécanisme
+Vermin Vaporizer Chip (mentionné dans le plafond BPC mais pas creusé en
+détail — pourrait avoir un effet multiplicatif propre non capturé), ou le
+repère "40M+" décrit un pic/une fenêtre courte plutôt qu'une moyenne
+soutenue sur l'heure. Documenté comme écart honnête restant, pas résolu par
+une supposition.
 
 **3 bugs de bonne hygiène évités dès la construction** (leçons directement
 appliquées depuis le chantier Mining, pas redécouvertes) : DELETE explicite

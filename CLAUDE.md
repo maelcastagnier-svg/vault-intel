@@ -39,21 +39,30 @@ référence de la page elle-même) : **+2037.7 Farming Fortune** + 472/484/509
 Crop Fortune selon catégorie de culture. **3e passe** : l'utilisateur a
 signalé une vraie méthode manquante ("le pest farm par exemple") — les Pests
 ne sont pas une méthode concurrente mais un revenu ADDITIF qui accompagne
-n'importe quelle culture (spawn à chaque casse, plafonné par un cooldown, pas
-par le débit de casse). Bug de données trouvé au passage :
+n'importe quelle culture. Bug de données trouvé au passage :
 `garden_pest_rare_drops` (chargée en base une session antérieure) donnait
 33% pour le Slug là où les 13 pages wiki individuelles de chaque Pest disent
 0.75% — recalculé depuis les vraies pages, Beetle (Nether Wart) gagne
-(~76.8K coins/kill). **Résultat final (late)** : Mushroom 11.88M/h, Pumpkin
-11.63M/h, Wheat 7.90M/h — écart entre cultures nettement resserré par le
-Pest Farming (~2.1-2.4M/h additif identique sur les 13). Dépendance
+(~76.8K coins/kill). **4e passe** : l'utilisateur a challengé le chiffre
+obtenu ("le pest farming peut rapporter 40M+/h, pourquoi si bas ?") — a fait
+remonter un 2e vrai trou, "Bonus Pest Chance" (jusqu'à 8 Pests simultanés par
+spawn au lieu d'1 seul, plafond officiel wiki 551.5 BPC → 6.515 Pests/cycle),
+qui nécessite de swapper l'équipement Blossom (Farming Fortune) vers
+Pesthunter's Set (0 FF mais BPC + cooldown réduit) — arbitrage fait par
+comparaison de totaux (le gain Pest Farming compense largement la perte de
+330 FF), pas un calcul combinatoire pièce par pièce complet. **Résultat final
+(late)** : Mushroom 21.65M/h, Pumpkin 21.50M/h, Wheat 17.94M/h — **toujours
+sous le repère 40M+/h cité par l'utilisateur**, écart non résolu et documenté
+comme tel (hypothèses non vérifiées : arbitrage Pesthunter plus favorable
+qu'estimé, ou "40M+" décrit un pic plutôt qu'une moyenne soutenue). Dépendance
 cross-activité réelle documentée et non fermée : le Mooshroom Cow Pet peut
 dépasser Rose Dragon (le pet retenu) si le joueur a >6 762 Strength (scaling
 réel sourcé), mais vérifier ce seuil demande le calculateur Combat/Slayer,
-pas encore construit. **Aucun repère en jeu utilisateur pour valider
-Farming** (contrairement à Mining) — chiffres vérifiés mathématiquement, pas
-confrontés au jeu réel. Detail complet (gaps honnêtes, sources exclues,
-méthode MID, mécanique Pest Farming) dans
+pas encore construit. **Aucun repère en jeu utilisateur pour valider les
+cultures seules** (contrairement à Mining) — chiffres sourcés et vérifiés
+mathématiquement, gap Pest Farming documenté honnêtement plutôt que masqué.
+Detail complet (gaps honnêtes, sources exclues, méthode MID, mécanique Pest
+Farming + Bonus Pest Chance) dans
 `PLUTON-ARCHITECTURE.md`, section 3. **Prochaine étape actée** : Foraging,
 Fishing, Slayer/Combat, Dungeons restent à construire.
 
