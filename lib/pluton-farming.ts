@@ -149,14 +149,84 @@ const CROP_FORTUNE_MAX_COCOA_BEANS = 509   // Cocoa Beans (Carrolyn + Chocolate 
 // réservées au Jacob's Farming Contest (Anita's Artifact/Overdrive Chip
 // doublés, Zorro's Cape doublé pendant le concours -- hors scope "ferme
 // continue en Garden"), soit basées sur du RNG à très faible taux (Crop
-// Fever, 0.001%/niveau) ou une ressource à farmer activement (Pesthunter
-// Phillip turn-in) plutôt qu'un vrai buff à entretenir passivement comme le
-// Refined Dark Cacao Truffle/Rosewater Flask déjà comptés ci-dessus (ceux-là
-// SONT inclus car leur effet permanent, +5 chacun après 5x consommés, est
-// explicitement listé dans "Permanent & Unchangeable" par le wiki lui-même,
-// distinct de leur buff temporaire 60 min qui lui n'est pas compté).
-// Documenté ici comme gap honnête, pas oublié : jusqu'à +976.5 FF
-// supplémentaires existent en jeu mais nécessitent un contexte non-continu.
+// Fever, 0.001%/niveau). Le "Pesthunter Phillip pest turn-in" (+200 FF max)
+// N'EST PLUS exclu -- voir PEST_KILL_ECONOMY ci-dessous, reclassé et modélisé
+// correctement (5 août, 3e passe) après avoir réalisé que c'est un vrai
+// buff à taux d'arrivée constant (même famille de calcul que Mining Speed
+// Boost), pas une ressource ponctuelle comme supposé à tort en 2e passe.
+// Refined Dark Cacao Truffle/Rosewater Flask restent comptés séparément
+// (effet permanent après 5x consommés, explicitement listé dans "Permanent
+// & Unchangeable" par le wiki lui-même, distinct de leur buff 60 min).
+// Documenté ici comme gap honnête, pas oublié : jusqu'à +776.5 FF restants
+// (hors Pesthunter Phillip, désormais modélisé) existent en jeu mais
+// nécessitent un contexte non-continu (saison, Jacob's Contest).
+
+// ============================================================
+// Pest Farming (5 août, 3e passe -- trouvé omis, signalé explicitement par
+// l'utilisateur : "tu omés des méthodes, le pest farm par exemple"). Un Pest
+// a une chance de spawn à chaque culture cassée en Garden (dès Garden V),
+// MAIS le vrai débit est plafonné par un cooldown entre spawns (pas par le
+// taux de casse de culture) -- sourcé page wiki "Pest#Spawn Cooldown" :
+// cooldown de base 5 min, réductions réelles listées (Finnegan/Pesthunter
+// gear/reforge Squeaky/Moth Shard), plancher réel 2min10s SANS le perk
+// Mayor "Pest Eradicator" (Finnegan), 1min10s AVEC. Le perk Mayor est
+// conditionnel à une élection (même famille que Mining Fiesta de Cole,
+// jamais compté comme actif en continu dans ce projet) -- baseline retenue :
+// 2min10s (130s), SANS Finnegan, cohérence avec le reste du calculateur.
+// "The Pest spawned is not affected by the crop broken" (même page) --
+// confirmé : le meilleur Pest peut être ciblé (Sprayonator + vinyle dédié)
+// quelle que soit la culture activement farmée, donc ce bonus s'additionne
+// à TOUTES les cultures de façon identique, pas seulement à sa "culture
+// associée".
+//
+// Chaque page wiki dédiée par Pest (13 pages individuelles fetchées et
+// lues le 5 août, PAS le résumé "Rare Drops" pré-existant en base qui
+// s'est révélé faux -- garden_pest_rare_drops donnait 33% pour le Slug là
+// où la vraie page indique 0.75%, erreur de données trouvée et non
+// utilisée ici) donne un "Mob Drops Table" uniforme :
+// - 1 000 coins fixes par kill
+// - 1 drop GARANTI (100%) d'un item Enchanted de la culture associée,
+//   quantité = base + floor(FarmingFortune / diviseur) -- scale avec la
+//   VRAIE Farming Fortune générique du joueur, pas la Crop Fortune
+// - 1 drop rare (0.75%, uniforme sur les 13 pests) d'un item en gros lot
+// - le reste (vinyles, cosmétiques, Pest Bait, Dung Dye 1/250k) exclu :
+//   valeur négligible ou non-monétaire
+type PestEntry = {
+  name: string; commonItemId: string; commonBase: number; commonDivisor: number
+  rareItemId: string; rareCount: number
+}
+const PESTS: PestEntry[] = [
+  { name: 'Fly', commonItemId: 'ENCHANTED_WHEAT', commonBase: 1, commonDivisor: 52.5, rareItemId: 'ENCHANTED_HAY_BALE', rareCount: 3 },
+  { name: 'Cricket', commonItemId: 'ENCHANTED_CARROT', commonBase: 3, commonDivisor: 15.75, rareItemId: 'ENCHANTED_GOLDEN_CARROT', rareCount: 10 },
+  { name: 'Locust', commonItemId: 'ENCHANTED_POTATO', commonBase: 3, commonDivisor: 15.75, rareItemId: 'ENCHANTED_BAKED_POTATO', rareCount: 10 },
+  { name: 'Rat', commonItemId: 'ENCHANTED_PUMPKIN', commonBase: 1, commonDivisor: 52.5, rareItemId: 'POLISHED_PUMPKIN', rareCount: 3 },
+  { name: 'Mosquito', commonItemId: 'ENCHANTED_SUGAR', commonBase: 3, commonDivisor: 26.25, rareItemId: 'ENCHANTED_SUGAR_CANE', rareCount: 10 },
+  { name: 'Earthworm', commonItemId: 'ENCHANTED_MELON', commonBase: 5, commonDivisor: 10.5, rareItemId: 'ENCHANTED_MELON_BLOCK', rareCount: 15 },
+  { name: 'Mite', commonItemId: 'ENCHANTED_CACTUS_GREEN', commonBase: 2, commonDivisor: 26.25, rareItemId: 'ENCHANTED_CACTUS', rareCount: 6 },
+  { name: 'Moth', commonItemId: 'ENCHANTED_COCOA', commonBase: 3, commonDivisor: 18, rareItemId: 'ENCHANTED_COOKIE', rareCount: 9 },
+  { name: 'Slug', commonItemId: 'ENCHANTED_BROWN_MUSHROOM', commonBase: 1, commonDivisor: 52.5, rareItemId: 'ENCHANTED_HUGE_MUSHROOM_1', rareCount: 3 },
+  { name: 'Beetle', commonItemId: 'ENCHANTED_NETHER_STALK', commonBase: 3, commonDivisor: 18, rareItemId: 'MUTANT_NETHER_STALK', rareCount: 9 },
+  { name: 'Dragonfly', commonItemId: 'ENCHANTED_SUNFLOWER', commonBase: 2, commonDivisor: 26.25, rareItemId: 'COMPACTED_SUNFLOWER', rareCount: 6 },
+  { name: 'Firefly', commonItemId: 'ENCHANTED_MOONFLOWER', commonBase: 2, commonDivisor: 26.25, rareItemId: 'COMPACTED_MOONFLOWER', rareCount: 6 },
+  { name: 'Praying Mantis', commonItemId: 'ENCHANTED_WILD_ROSE', commonBase: 2, commonDivisor: 26.25, rareItemId: 'COMPACTED_WILD_ROSE', rareCount: 6 },
+]
+const PEST_RARE_DROP_CHANCE = 0.0075 // 0.75%, uniforme sur les 13 pests, sourcé page individuelle de chaque pest
+const PEST_BASE_COINS_PER_KILL = 1000
+const PEST_SPAWN_COOLDOWN_SECONDS = 130 // 2min10s, plancher réel SANS Finnegan (Pest Eradicator exclu, mayor-conditionnel)
+const PESTS_PER_HOUR = 3600 / PEST_SPAWN_COOLDOWN_SECONDS
+
+// Pesthunter Phillip -- +5 FF par pest tué, buff 30 min, plafond 40 pests
+// (+200 FF). Calcul en régime permanent (Little's Law) : masse moyenne de
+// buff actif = taux d'arrivée × durée du buff -- même famille de calcul que
+// le multiplicateur moyen pondéré de Mining Speed Boost, pas un "actif en
+// continu" naïf. Sourcé page wiki "Pesthunter Phillip#Bonus Farming Fortune".
+const PESTHUNTER_FF_PER_PEST = 5
+const PESTHUNTER_FF_CAP = 200
+const PESTHUNTER_BUFF_DURATION_SECONDS = 30 * 60
+function pesthunterSteadyStateFF(pestsPerHour: number): number {
+  const arrivalPerSecond = pestsPerHour / 3600
+  return Math.min(PESTHUNTER_FF_CAP, arrivalPerSecond * PESTHUNTER_BUFF_DURATION_SECONDS * PESTHUNTER_FF_PER_PEST)
+}
 
 export type FarmingMaxLayer = {
   farmingFortune: number
@@ -176,6 +246,36 @@ function farmingMaxLayerFor(blockId: string): FarmingMaxLayer {
     : category === 'carrolyn' ? CROP_FORTUNE_MAX_CARROLYN
     : CROP_FORTUNE_MAX_GENERIC
   return { farmingFortune: FARMING_FORTUNE_MAX_PERMANENT, cropFortune, cropFortuneCategory: category }
+}
+
+// Valeur espérée par kill = coins fixes + drop garanti (scale avec la vraie
+// Farming Fortune du joueur) + drop rare (0.75%). Le meilleur Pest ciblé via
+// Sprayonator/vinyle est identique pour toutes les cultures (voir doc plus
+// haut) -- calculé une fois avec le prix réel le plus récent de chaque item,
+// jamais moyenné ni deviné.
+async function bestPestKillEV(farmingFortune: number): Promise<{ name: string; evPerKill: number }> {
+  const itemIds = Array.from(new Set(PESTS.flatMap(p => [p.commonItemId, p.rareItemId])))
+  const { data: prices } = await supabase
+    .from('price_history')
+    .select('item_id, sell_price, bucket_date')
+    .in('item_id', itemIds)
+    .gt('sell_price', 0)
+    .order('bucket_date', { ascending: false })
+
+  const latest = new Map<string, number>()
+  for (const p of prices || []) {
+    if (!latest.has(p.item_id)) latest.set(p.item_id, Number(p.sell_price))
+  }
+
+  let best = { name: '', evPerKill: -1 }
+  for (const pest of PESTS) {
+    const commonCount = pest.commonBase + Math.floor(farmingFortune / pest.commonDivisor)
+    const commonValue = commonCount * (latest.get(pest.commonItemId) || 0)
+    const rareValue = pest.rareCount * (latest.get(pest.rareItemId) || 0) * PEST_RARE_DROP_CHANCE
+    const evPerKill = PEST_BASE_COINS_PER_KILL + commonValue + rareValue
+    if (evPerKill > best.evPerKill) best = { name: pest.name, evPerKill }
+  }
+  return best
 }
 
 // ============================================================
@@ -275,6 +375,8 @@ export async function computeFarmingRanking(tier: FarmingTierKey, blockId: strin
   let armorSetPrefix: string | null = null
   let toolLevel = 0
   let realCost = 0
+  let pestCoinsPerHour = 0
+  let pestName: string | null = null
 
   if (tier === 'end' || tier === 'late') {
     const maxLayer = farmingMaxLayerFor(blockId)
@@ -283,6 +385,17 @@ export async function computeFarmingRanking(tier: FarmingTierKey, blockId: strin
     armorSetPrefix = 'Helianthus'
     toolLevel = SPECIALIZED_TOOL_MAX_LEVEL
     realCost = TIER_CONFIG[tier].max_gear_cost // plafond du tier, pas un total pièce par pièce (voir doc)
+
+    // Pest Farming (5 août, 3e passe) -- bonus additif, identique pour toute
+    // culture (voir doc PESTS ci-dessus). Le meilleur Pest est calculé à la
+    // Farming Fortune de base (avant le bonus Pesthunter lui-même, qui ne
+    // dépend pas du choix de Pest) puis le bonus Pesthunter Phillip est
+    // ajouté à la Fortune totale -- appliqué à END/LATE seulement, même
+    // logique que le reste de la couche max investissement.
+    const best = await bestPestKillEV(farmingFortune)
+    pestName = best.name
+    pestCoinsPerHour = PESTS_PER_HOUR * best.evPerKill
+    farmingFortune += pesthunterSteadyStateFF(PESTS_PER_HOUR)
   } else if (tier === 'mid') {
     const cfg = TIER_CONFIG.mid
     const armor = await bestAffordableArmorTier(cfg.max_gear_cost)
@@ -305,7 +418,10 @@ export async function computeFarmingRanking(tier: FarmingTierKey, blockId: strin
 
   const totalFortune = farmingFortune + cropFortune
   const yieldPerHour = ACTIONS_PER_HOUR_FIXED * baseDropCount * (1 + totalFortune / 100)
-  const coinsPerHourRawBlockOnly = yieldPerHour * sellPrice
+  // Pest income additionné directement (même convention que le bonus
+  // Titanium de Mining sur Mithril Ore -- un revenu secondaire réel qui
+  // accompagne la boucle principale, pas une méthode concurrente).
+  const coinsPerHourRawBlockOnly = yieldPerHour * sellPrice + pestCoinsPerHour
 
   return {
     target_block: block.block_name,
@@ -320,6 +436,8 @@ export async function computeFarmingRanking(tier: FarmingTierKey, blockId: strin
       actions_per_hour: ACTIONS_PER_HOUR_FIXED,
       yield_per_hour: yieldPerHour,
       coins_per_hour_raw_block_only: coinsPerHourRawBlockOnly,
+      pest_name: pestName,
+      pest_coins_per_hour: pestCoinsPerHour,
       real_cost: realCost,
       sell_item_id: block.sell_item_id,
       sell_price: sellPrice,
