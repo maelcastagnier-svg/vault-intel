@@ -118,7 +118,25 @@ const CARROLYN_EXPORT_CROPS = new Set([
 // divergence d'arrondi) : +2012.7 Farming Fortune générique, +472 Crop
 // Fortune (cultures hors liste Carrolyn), +484 Crop Fortune (les 7 autres
 // cultures Carrolyn), +509 Cocoa Beans Fortune (Carrolyn + Chocolate perk).
-const FARMING_FORTUNE_MAX_PERMANENT = 2012.7
+//
+// Correction post-audit (5 août, 2e passe demandée explicitement par
+// l'utilisateur : "es-tu sûr d'avoir tout maxé") -- la page wiki
+// "Farming Fortune" s'annonce elle-même partiellement obsolète depuis la
+// mise à jour Greenhouse ("A lot of the information on this page is
+// currently outdated"). Vérification faite en croisant TOUS les Attribute
+// Shards taggés skill=Farming (5 pages de rareté, wikitext brut) contre le
+// build de référence de la page -- 1 vrai trou trouvé : le shard Fly
+// (Common, attribut "Fortunate Farmer") donne +2.5 à +25 Farming Fortune,
+// inconditionnel, jamais mentionné dans le build de référence de la page
+// elle-même. Les autres shards Farming trouvés dans le même audit sont soit
+// déjà comptés (Lunar Moth/Firefly/Galaxy Fish, déjà dans le build
+// d'origine), soit conditionnels à un Pest présent dans la parcelle
+// (Cricket/Earthworm -- même famille que Termite Shard déjà exclu comme
+// situationnel, cohérent). Golden Dragon Pet vérifié et écarté : c'est un
+// pet de type Combat (confirmé page wiki dédiée), aucun Farming Fortune,
+// Rose Dragon reste le meilleur pet réel.
+const FLY_SHARD_FORTUNATE_FARMER_MAX = 25
+const FARMING_FORTUNE_MAX_PERMANENT = 2012.7 + FLY_SHARD_FORTUNATE_FARMER_MAX
 const CROP_FORTUNE_MAX_GENERIC = 472       // Potato, Melon Slice, Sugar Cane, Sunflower, Moonflower
 const CROP_FORTUNE_MAX_CARROLYN = 484      // Wheat, Carrot, Pumpkin, Cactus, Mushroom, Nether Wart, Wild Rose
 const CROP_FORTUNE_MAX_COCOA_BEANS = 509   // Cocoa Beans (Carrolyn + Chocolate Fortune perk)

@@ -524,6 +524,27 @@ route elle-même.
 - Sources temporaires Farming Fortune (jusqu'à +976.5 FF) explicitement
   exclues du plafond continu — voir détail dans la section END/LATE
   ci-dessus.
+- **Mutations (Greenhouse)** : système entier vérifié (page wiki dédiée,
+  wikitext complet lu) — chaque Mutation (Dustgrain, Choconut, Gloomgourd,
+  Lonelily, etc.) est récoltée en GROS lots d'une des 13 cultures déjà
+  modélisées (ex : Dustgrain donne 100x Wheat, Choconut 200x Cocoa Beans),
+  pas un nouvel item vendable distinct. Le mécanisme de spawn/croissance est
+  probabiliste et conditionné à un agencement spécifique de cultures dans le
+  Greenhouse (pas un simple "casser en continu") — traité comme hors du
+  scope "raw crop only" de ce calculateur, même principe que Powder/coffres
+  de trésor exclus du ceiling Mining. Un vrai bonus Greenhouse trouvé au
+  passage (+3% Yield/+2.5% Growth Speed par culture unique plantée, jusqu'à
+  12 fois) n'est PAS inclus — mécanique de jardin passive distincte de la
+  formule de rendement actuelle, pas modélisée.
+- **Audit "as-tu vraiment tout maxé" (5 août, 2e passe)** : demandé
+  explicitement par l'utilisateur après le premier livrable. A fait remonter
+  1 vrai trou fermé (Fly Shard, attribut "Fortunate Farmer", +25 Farming
+  Fortune inconditionnel, absent du build de référence de la page wiki
+  elle-même — qui s'annonce elle-même partiellement obsolète depuis la mise
+  à jour Greenhouse) via un audit croisé de tous les Attribute Shards taggés
+  Farming (5 pages de rareté). Golden Dragon Pet vérifié et écarté (pet
+  Combat, pas Farming). Nouveau plafond : **+2037.7 FF** (au lieu de
+  +2012.7).
 
 **Prochaine étape** : Foraging, Fishing, Slayer/Combat, Dungeons restent à
 construire — pas commencé.
