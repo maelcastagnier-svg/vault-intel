@@ -569,6 +569,23 @@ const EAGER_MINER_MAX = { speed: 100 }
 // Mining niveau 60 -- +4 Mining Fortune/niveau, formule réelle sourcée wiki
 // "Mining Fortune" ("Increasing Base Mining Fortune"), plafond réel +240.
 const MINING_SKILL_60_FORTUNE = 240
+// 3 petites sources permanentes trouvées le 5 août en lisant la liste
+// officielle wiki "Mining Fortune#Achieving Maximum Mining Fortune" (source
+// canonique, pas une estimation) -- omises jusqu'ici, closent le dernier
+// écart documenté comme "pending" de ce chantier :
+// - Collection bonuses Glacite+Tungsten+Umber au max : +8 (permanent, une
+//   fois les paliers de collection atteints -- pas de condition d'entretien).
+// - Ultimate DNA niveau 10 (item de pet issu de Galaxy Fish Shard) : +10
+//   (permanent une fois équipé sur le pet).
+const COLLECTION_BONUS_FORTUNE = 8
+const ULTIMATE_DNA_FORTUNE = 10
+// Refined Dark Cacao Truffle x5 : +5 Mining Fortune -- CONSOMMABLE (buff
+// alimentaire à ré-appliquer), pas un bonus permanent comme les 2 ci-dessus.
+// Inclus quand même dans la couche "investissement maximal" sous l'hypothèse
+// documentée "joueur qui maintient le buff en continu" (même traitement que
+// le reforge Glacial qui exige de maintenir Cold -99) -- pas un oubli, un
+// choix explicite cohérent avec le reste du fichier.
+const REFINED_DARK_CACAO_TRUFFLE_FORTUNE = 5
 
 async function computeGemSocketBonus(itemId: string, rarity: string | null) {
   if (!rarity) return { speed: 0, fortune: 0, pristine: 0, comboSlots: 0, amberBonus: 0, jadeBonus: 0 }
@@ -608,6 +625,7 @@ export async function applyMaxInvestmentLayer(
   let speed = HOTM_MAX.speed + EAGER_MINER_MAX.speed
   if (isGemstoneTarget) speed += PROFESSIONAL_MAX_SPEED_ON_GEMSTONES
   let fortune = HOTM_MAX.fortune + MINING_SKILL_60_FORTUNE
+    + COLLECTION_BONUS_FORTUNE + ULTIMATE_DNA_FORTUNE + REFINED_DARK_CACAO_TRUFFLE_FORTUNE
   let gemstoneFortune = isGemstoneTarget ? HOTM_MAX.gemstoneFortune : 0
   let pristine = 0
 
@@ -668,6 +686,17 @@ export async function applyMaxInvestmentLayer(
 
 export async function computeAndPersistAllMiningRankings(): Promise<PersistedMiningResult[]> {
   const out: PersistedMiningResult[] = []
+
+  // Bug réel trouvé le 5 août en vérifiant l'état de la table après ce run
+  // (126 lignes pour 72 combos tier x bloc maximum possibles) : cette fonction
+  // a toujours fait un simple INSERT, jamais de DELETE préalable malgré son
+  // propre commentaire d'en-tête affirmant "clears and rebuilds" -- chaque
+  // exécution de la route de debug (v2 à v11, plusieurs sessions) s'est
+  // silencieusement accumulée au lieu de remplacer. pluton_rankings référence
+  // pluton_setups par setup_id (FK) donc les 2 tables doivent être vidées
+  // ensemble, rankings d'abord (dépend de setups).
+  await supabase.from('pluton_rankings').delete().eq('activity_key', 'mining')
+  await supabase.from('pluton_setups').delete().eq('activity_key', 'mining')
 
   for (const tier of MINING_TIER_KEYS) {
     for (const blockId of MINING_TARGET_BLOCK_IDS) {
