@@ -146,7 +146,192 @@ section 4 donne l'ordre de construction et l'estimation honnête.
 
 ---
 
-## Contexte — pourquoi ce document
+## 0bis. Validation finale et plan de construction définitif (5 août)
+
+> Récapitulatif fait par l'utilisateur en 3 étapes (Cartographie → Extraction et
+> organisation → Utilisation live), avec une structure de tables proposée
+> (hiérarchie 7 tiers × activité) et une question sur le rôle de Claude dans le
+> dashboard. Réponse point par point ci-dessous, puis le plan de construction
+> final -- plus de remise en question après cette section, c'est la version
+> qu'on construit.
+
+### 1. La synthèse en 3 étapes correspond-elle à ce qu'on a construit/discuté ?
+
+**Oui pour les 3 étapes, avec une clarification importante sur l'étape 2.**
+
+- **Cartographie** : confirmé, largement fait (wiki ~6400+ pages, NEU-REPO 40/40,
+  SkyHanni-REPO 113/113, API Hypixel). Rien à ajouter.
+- **Extraction et organisation** : confirmé que c'est mon travail (Claude Code)
+  d'apporter l'intelligence de catégorisation -- **mais avec une précision** :
+  cette intelligence s'exerce une fois par PAGE/TYPE DE CONTENU (décider que la
+  table "Armor" d'une page Stat devient des lignes `stat_bonus_sources`
+  `source_type='armor'`), pas une fois par SOURCE INDIVIDUELLE (je ne relis pas
+  chaque ligne à la main indéfiniment). Une fois ce mapping posé pour un type de
+  page, le parseur (`parseStatSourceTabber`) le rejoue mécaniquement à chaque
+  actualisation -- c'est exactement la distinction déjà posée section 3 :
+  "l'automatisation entretient, elle ne découvre pas toute seule". Le travail
+  fait à la main cette session (Mining, Farming) EST cette phase de
+  catégorisation initiale, juste pas encore reportée dans un parseur réutilisable.
+- **Utilisation live** : confirmé et ça précise la Couche 6 -- le point clé
+  ajouté par l'utilisateur est que Claude ne doit **jamais** être dans le
+  chemin de lecture live pour une question déjà connue à l'avance. Ni au sens
+  "calculer", ni même au sens "router" -- une vue Supabase directe suffit
+  quand la forme de la question est fixe. Voir point 3 ci-dessous.
+
+**Écart réel trouvé en vérifiant, pas caché** : la hiérarchie "7 tiers" proposée
+par l'utilisateur ne correspond PAS à ce que Mining et Farming utilisent
+aujourd'hui -- les deux tournent sur les **4 tiers** de `TIER_CONFIG`
+(early/mid/end/late), pas les 7 de `milestone_tier_totals`
+(Starter→Master). Ce n'est pas juste un renommage : `milestone_tier_totals`
+donne un vrai `networth_min`/`networth_max` **par tier réel**, avec un statut
+de confiance déjà documenté par ligne (vérifié en base à l'instant) --
+Starter/Amateur/Expert/Master ont leurs bornes réelles (ancrées sur
+`TIER_CONFIG` ou un vrai profil de test), mais Intermediate/Skilled/
+Professional ont un `networth_min` ou `networth_max` **interpolé**, pas
+vérifié sur un vrai profil (`calibration_note` de chaque ligne le dit
+explicitement : "no real test profile lands in this band yet"). Basculer
+Pluton sur 7 tiers, c'est hériter de cette précision inégale -- acceptable
+(c'est déjà le meilleur référentiel qu'on a, et le pont `money_making_tier_key`
+existe déjà pour ne pas perdre la correspondance vers les 4 tiers), mais à
+savoir, pas à ignorer.
+
+### 2. Structure exacte des tables tier × activité
+
+**Pas de nouvelle table pour le stockage des setups** -- `pluton_setups`/
+`pluton_rankings` existent déjà et sont déjà génériques par `activity_key`.
+Le changement est la valeur que prend `tier` (7 valeurs au lieu de 4) plus le
+versionnement (Couche 5, `run_id`) déjà conçu :
+
+```sql
+pluton_setups (
+  id, run_id,                     -- FK → pluton_computation_runs (Couche 5)
+  activity_key text,              -- 'mining' | 'farming' | 'foraging' | 'fishing' | 'slayer' | 'dungeons'
+  tier text,                      -- FK logique → milestone_tier_totals.tier (7 valeurs, PAS les 4 TIER_CONFIG)
+  target_id text,                 -- sous-cible propre à l'activité (bloc Mining / culture Farming / boss Slayer...)
+  armor_set_prefix text, tool_item_id text,
+  pet_id text, pet_rarity text, accessories jsonb,
+  primary_stat_total numeric,     -- sens propre à l'activité (mining_speed / farming_fortune / ...)
+  secondary_stat_total numeric,
+  real_cost numeric,              -- dérivé de milestone_tier_totals.networth_min/max POUR CE TIER, pas TIER_CONFIG
+  computed_at timestamptz
+)
+
+pluton_rankings (
+  id, run_id, activity_key, tier, target_id, setup_id,  -- FK → pluton_setups
+  rank integer,
+  coins_per_hour numeric, yield_per_hour numeric, cycle_time_seconds numeric,
+  confidence text                 -- VERIFIED | SINGLE_SOURCE | DERIVED | UNKNOWN, hérité de stat_bonus_sources
+)
+```
+
+**Le volet "progression" (pas juste Money Making) existe déjà ailleurs, pas de
+duplication** : vérifié en base -- `milestone_tasks` (tier, requirement jsonb,
+task_key...) EST déjà le système "qu'est-ce qu'il faut pour être considéré
+complet à ce tier", construit et branché (`computeMilestones()`). Créer une
+nouvelle table "pluton_tier_requirements" ferait doublon. La bonne coupure :
+**Milestones possède l'axe progression** (skills/collections/bosses/etc.),
+**Pluton possède l'axe Money Making** (quel setup rapporte le plus à ce tier),
+**les deux se rejoignent déjà** via `milestone_tier_totals.money_making_tier_key`
+(le pont vérifié le 29 juillet). Rien à construire ici, juste à brancher
+Evolve Skills sur les deux sources au lieu d'une génération Claude.
+
+**Comparaison joueur** (consommée par Evolve Skills) -- une vue, pas une table :
+```sql
+create view player_tier_gap as
+select
+  pd.profile_id, pd.networth,
+  mtt.tier as current_tier,
+  s.activity_key, s.tier as target_tier, s.armor_set_prefix, s.tool_item_id,
+  s.pet_id, s.accessories, r.coins_per_hour
+from player_data pd
+join milestone_tier_totals mtt
+  on pd.networth between mtt.networth_min and coalesce(mtt.networth_max, pd.networth)
+join pluton_setups_current s on s.tier = mtt.tier   -- ou le tier suivant, pour "ce qu'il te manque"
+join pluton_rankings_current r on r.setup_id = s.id;
+```
+Compare le gear RÉEL du joueur (déjà collecté, `player_data`) au setup Pluton
+de son tier -- exactement le mécanisme déjà construit pour Evolve Skills
+(`skill-setup-adapter.ts`, current vs target), juste avec `target` qui vient
+de Pluton au lieu d'une génération Claude.
+
+### 3. Rôle de Claude dans le dashboard -- confirmé, avec une frontière précise
+
+**Confirmé : jamais calculer, et le routage lui-même n'est nécessaire QUE pour
+les vraies questions ouvertes.** Concrètement, pour les 5 onglets du dashboard
+existant :
+
+- **Money Making, Evolve Skills** -- domaine Pluton. Une fois les tables
+  peuplées, ce sont des **vues Supabase directes**, zéro appel Claude au
+  moment de la lecture. La forme de la question est toujours la même ("quel
+  est le meilleur setup pour ce joueur, ce tier, cette activité ?") -- pas
+  besoin de router quoi que ce soit, la vue `player_tier_gap` ci-dessus
+  répond directement.
+- **Patch Analysis, Radar** -- **restent Claude en permanence, et c'est
+  correct, pas une dette** : ces deux fonctionnalités traitent du texte
+  libre imprévisible (notes de patch, signaux de marché) qui demande une
+  vraie compréhension du langage, pas un calcul déterministe. Rien dans
+  l'architecture Pluton ne les concerne.
+- **Le "routage Claude"** décrit par l'utilisateur (indiquer où chercher)
+  n'a donc de vraie utilité que pour une **future fonctionnalité de question
+  ouverte** (un chat libre sur le profil du joueur, pas encore construit) --
+  pour les 5 onglets actuels, la question est déjà connue à l'avance et n'a
+  jamais besoin d'être routée dynamiquement.
+
+### 4. Plan de construction définitif
+
+**Principe d'ordonnancement** : chaque phase est vérifiée en conditions
+réelles avant de passer à la suivante (même discipline que Mining/Farming
+cette session) -- l'ordre minimise le risque de découvrir un problème
+structurel après avoir déjà généralisé sur plusieurs activités.
+
+**Phase A — Fondations de version et de tier (avant toute nouvelle activité)**
+1. `pluton_computation_runs` + `run_id` sur `pluton_setups`/`pluton_rankings`
+   (append-only, fin du DELETE-then-rebuild) + vues `_current`.
+2. Migration du `tier` de Mining et Farming : 4 valeurs TIER_CONFIG → 7 valeurs
+   `milestone_tier_totals` (mêmes formules de calcul, juste rejouées à 7
+   granularités de budget au lieu de 4 -- PAS une réécriture des formules).
+3. Vérification : les 2 activités déjà livrées tournent sur la nouvelle
+   structure, chiffres revérifiés cohérents avec les runs précédents (même
+   méthode de contrôle qu'à chaque étape de cette session).
+
+**Phase B — Extraction générique (ferme la dette Mining/Farming)**
+4. `parseStatSourceTabber` (réutilise `parseRowspanTable` existant) construit
+   et testé sur les pages déjà identifiées cette session (Mining Speed/
+   Fortune, Farming Fortune/Crop Fortune/Bonus Pest Chance, les 5 pages
+   `Attributes/List/<Rareté>`).
+5. `extraction_coverage` (audit de complétude, Couche 3) construit, exécuté
+   contre le résultat de l'étape 4 -- confirme qu'aucun slot n'est resté vide
+   pour Mining/Farming (preuve automatisée de ce qui a été vérifié à la main
+   cette session).
+6. `lib/pluton-mining.ts`/`lib/pluton-farming.ts` : constantes en dur
+   remplacées par des requêtes sur `stat_bonus_sources`. Revalidation complète
+   (mêmes chiffres, ou delta expliqué si l'extraction trouve mieux que ce qui
+   a été fait à la main).
+
+**Phase C — Moteur de calcul générique**
+7. Extraction du solveur générique (Couche 4) depuis le code déjà écrit à la
+   main pour Mining/Farming (`applyPetsAndAccessories`, arbitrage reforge,
+   sockets) -- Mining et Farming deviennent les 2 premiers appelants du
+   moteur partagé, preuve de généralisation avant la Phase D.
+
+**Phase D — Activités restantes sur le pipeline fini**
+8. Foraging → Fishing → Slayer/Combat → Dungeons, dans cet ordre (proximité
+   mécanique décroissante avec ce qui existe déjà, même logique que la
+   section 4 d'origine) -- chacune : cartographie déjà faite → extraction via
+   parseur générique → audit de couverture automatique → calcul via moteur
+   partagé → versionné. Devrait être notablement plus rapide par activité
+   que Mining/Farming (infrastructure réutilisée, pas reconstruite).
+
+**Phase E — Branchement dashboard (Couche 6)**
+9. `player_tier_gap` (vue ci-dessus) construite et testée sur les profils de
+   test réels déjà utilisés tout du long (Cucumber, Orange).
+10. Migration Money Making/Evolve Skills en 3 phases déjà décrites (QA
+    silencieuse → cross-check visible → remplacement activité par activité).
+
+**Ce qui ne change pas** : Patch Analysis et Radar restent hors de ce chantier
+en permanence (voir point 3). Le rythme reste "vérifié en conditions réelles à
+chaque étape", pas un calendrier figé à l'avance -- cohérent avec absolument
+tout le reste de ce projet.
 
 Le chantier de fondation (cartographie wiki + NEU-REPO + SkyHanni-REPO + collecte
 totale) est clos (voir CLAUDE.md, section "CLÔTURE FINALE"). Avant de reprendre Pluton
