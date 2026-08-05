@@ -588,7 +588,7 @@ const ULTIMATE_DNA_FORTUNE = 10
 const REFINED_DARK_CACAO_TRUFFLE_FORTUNE = 5
 
 async function computeGemSocketBonus(itemId: string, rarity: string | null) {
-  if (!rarity) return { speed: 0, fortune: 0, pristine: 0, comboSlots: 0, amberBonus: 0, jadeBonus: 0 }
+  if (!rarity) return { speed: 0, fortune: 0, pristine: 0, comboSlots: 0, amberBonus: 0, jadeBonus: 0, topazPristineBonus: 0 }
   const [{ data: slots }, { data: gems }] = await Promise.all([
     supabase.from('gemstone_slot_costs').select('slot_id').eq('item_id', itemId),
     supabase.from('gemstones').select('gem_type, stat_name, bonus_value').eq('quality', 'PERFECT').eq('gear_rarity', rarity),
@@ -600,15 +600,27 @@ async function computeGemSocketBonus(itemId: string, rarity: string | null) {
     if (g.stat_name === 'Mining Fortune') cur.fortune = Number(g.bonus_value)
     bonusByType.set(g.gem_type, cur)
   }
-  const pristinePerTopaz = (gems || []).find(g => g.gem_type === 'TOPAZ' && g.stat_name === 'Pristine')?.bonus_value || 0
+  const pristinePerTopaz = Number((gems || []).find(g => g.gem_type === 'TOPAZ' && g.stat_name === 'Pristine')?.bonus_value || 0)
   let speed = 0, fortune = 0, pristine = 0, comboSlots = 0
   for (const s of slots || []) {
     if (s.slot_id.startsWith('AMBER_')) speed += bonusByType.get('AMBER')?.speed || 0
     else if (s.slot_id.startsWith('JADE_')) fortune += bonusByType.get('JADE')?.fortune || 0
-    else if (s.slot_id.startsWith('TOPAZ_')) pristine += Number(pristinePerTopaz)
+    else if (s.slot_id.startsWith('TOPAZ_')) pristine += pristinePerTopaz
+    // Slot "MINING_" -- confirmé par la page wiki "Divan's Drill" ("The 5th
+    // slot of the drill is a universal mining slot, and can have either
+    // Topaz, Jade or Amber applied to it") : c'est un choix à 3 options, pas
+    // seulement Amber/Jade comme codé avant le 5 août -- Topaz (Pristine) y
+    // est tout aussi légal et souvent le meilleur choix réel (impact
+    // multiplicatif de Pristine sur les gemmes, voir arbitrage dans
+    // applyMaxInvestmentLayer).
     else if (s.slot_id.startsWith('MINING_')) comboSlots++
   }
-  return { speed, fortune, pristine, comboSlots, amberBonus: bonusByType.get('AMBER')?.speed || 0, jadeBonus: bonusByType.get('JADE')?.fortune || 0 }
+  return {
+    speed, fortune, pristine, comboSlots,
+    amberBonus: bonusByType.get('AMBER')?.speed || 0,
+    jadeBonus: bonusByType.get('JADE')?.fortune || 0,
+    topazPristineBonus: pristinePerTopaz,
+  }
 }
 
 export type MaxInvestmentLayer = {
@@ -638,18 +650,39 @@ export async function applyMaxInvestmentLayer(
   // cette rareté ; pas extrapolé à d'autres raretés faute de source).
   if (armorRarity === 'LEGENDARY') { speed += JADED_ARMOR_LEGENDARY.speed; fortune += JADED_ARMOR_LEGENDARY.fortune }
 
-  // Sockets -- foret, y compris le slot MINING combo (Amber ou Jade, le
-  // meilleur réellement calculé -- pas une supposition).
+  // Sockets -- foret, y compris le slot MINING combo. Confirmé wiki "Divan's
+  // Drill" (tips) : "The 5th slot of the drill is a universal mining slot,
+  // and can have either Topaz, Jade or Amber applied to it" -- 3 options
+  // réelles, pas 2 (Amber/Jade seulement, comme codé avant le 5 août -- gap
+  // trouvé en fermant les derniers écarts documentés du chantier Mining).
+  // Arbitré par impact RÉEL sur le rendement final, y compris le multiplicateur
+  // Pristine (omis par erreur dans la version précédente qui ne comparait que
+  // vitesse/fortune) -- Pristine a un effet multiplicatif sur les gemmes
+  // (×(1+Pristine×0.79)) donc peut dominer même un gain de vitesse/fortune plus
+  // gros en valeur brute.
   const toolGem = await computeGemSocketBonus(toolItemId, toolRarity)
   speed += toolGem.speed; fortune += toolGem.fortune
   if (toolGem.comboSlots > 0) {
     const speedOption = toolGem.comboSlots * toolGem.amberBonus
     const fortuneOption = toolGem.comboSlots * toolGem.jadeBonus
-    // Comparé via impact réel, pas juste la plus grosse valeur brute --
-    // approximation simple (vitesse a un effet composé via les ticks, donc on
-    // teste les deux et le formule appelante retient la meilleure combinaison
-    // finale ; ici on retient l'option qui maximise la somme pondérée basique).
-    if (speedOption >= fortuneOption) speed += speedOption; else fortune += fortuneOption
+    const pristineOption = toolGem.comboSlots * toolGem.topazPristineBonus
+    const yieldFor = (extraSpeed: number, extraFortune: number, extraPristine: number) => {
+      const s = speed + extraSpeed
+      const f = fortune + extraFortune
+      const pMult = isGemstoneTarget ? 1 + (pristine + extraPristine) * 0.79 : 1
+      const ticks = Math.max(Math.round((blockStrength * 30) / s), 4)
+      return (3600 / (ticks / 20)) * (1 + f / 100) * pMult
+    }
+    const options: Array<{ kind: 'speed' | 'fortune' | 'pristine'; y: number }> = [
+      { kind: 'speed', y: yieldFor(speedOption, 0, 0) },
+      { kind: 'fortune', y: yieldFor(0, fortuneOption, 0) },
+    ]
+    if (isGemstoneTarget) options.push({ kind: 'pristine', y: yieldFor(0, 0, pristineOption) })
+    options.sort((a, b) => b.y - a.y)
+    const best = options[0].kind
+    if (best === 'speed') speed += speedOption
+    else if (best === 'fortune') fortune += fortuneOption
+    else pristine += pristineOption
   }
 
   // Foret -- enchants + Drill Engine, uniquement sur outil catégorie DRILL
