@@ -84,9 +84,14 @@ export type MiningRankingResult = {
   total_combos_checked: number
 }
 
+// TITANIUM_ORE retiré (5 août) -- pas une cible autonome, remplacement rare
+// modélisé comme bonus sur MITHRIL_ORE (voir pluton_target_blocks.bonus_material_id).
+// 12 types de gemmes désormais représentés (contre 2 avant le 5 août).
 export const MINING_TARGET_BLOCK_IDS = [
-  'COAL_ORE', 'IRON_ORE', 'GOLD_ORE', 'DIAMOND_ORE',
-  'MITHRIL_ORE', 'TITANIUM_ORE', 'RUBY_GEMSTONE', 'JADE_GEMSTONE', 'GLACITE',
+  'COAL_ORE', 'IRON_ORE', 'GOLD_ORE', 'DIAMOND_ORE', 'MITHRIL_ORE', 'GLACITE',
+  'RUBY_GEMSTONE', 'AMBER_GEMSTONE', 'SAPPHIRE_GEMSTONE', 'JADE_GEMSTONE',
+  'AMETHYST_GEMSTONE', 'OPAL_GEMSTONE', 'TOPAZ_GEMSTONE', 'JASPER_GEMSTONE',
+  'AQUAMARINE_GEMSTONE', 'ONYX_GEMSTONE', 'CITRINE_GEMSTONE', 'PERIDOT_GEMSTONE',
 ] as const
 
 export const MINING_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
@@ -155,30 +160,67 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
   // brutes...), jamais sur l'AH -- bug réel trouvé en testant : loadPricedItems()
   // ne lit que price_history_ah (armure/outils), donnant un sellPrice de 0
   // silencieux et un coins_per_hour toujours nul. Prix Bazaar réel requis séparément.
-  const { data: bazaarPriceRow } = await supabase
-    .from('price_history')
-    .select('sell_price, bucket_date')
-    .eq('item_id', block.sell_item_id)
-    .gt('sell_price', 0)
-    .order('bucket_date', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  const sellPrice = Number(bazaarPriceRow?.sell_price) || 0
+  //
+  // effective_sell_price (5 août, correction post-audit utilisateur) -- pour les
+  // gemmes, vendre le tier ROUGH brut (souvent <1 coin) n'est jamais ce qu'un joueur
+  // fait réellement : la vraie valeur vient de la chaîne de craft Rough->Flawed->
+  // Fine->Flawless (80:1 par palier). effective_sell_price, quand renseigné sur
+  // pluton_target_blocks, est déjà le meilleur point de cette chaîne (calculé une
+  // fois contre les vrais prix Bazaar, pas recalculé à la volée ici) -- prioritaire
+  // sur le lookup live à item unique.
+  let sellPrice: number
+  if (block.effective_sell_price != null) {
+    sellPrice = Number(block.effective_sell_price)
+  } else {
+    const { data: bazaarPriceRow } = await supabase
+      .from('price_history')
+      .select('sell_price, bucket_date')
+      .eq('item_id', block.sell_item_id)
+      .gt('sell_price', 0)
+      .order('bucket_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    sellPrice = Number(bazaarPriceRow?.sell_price) || 0
+  }
+
+  // Bonus material (ex: Titanium Ore -- remplacement rare 0.5% en minant du
+  // Mithril, jamais une cible directe -- voir pluton_target_blocks.pricing_note).
+  let bonusPrice = 0
+  if (block.bonus_material_id) {
+    const { data: bonusRow } = await supabase
+      .from('price_history')
+      .select('sell_price')
+      .eq('item_id', block.bonus_material_id)
+      .gt('sell_price', 0)
+      .order('bucket_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    bonusPrice = Number(bonusRow?.sell_price) || 0
+  }
+  const baseDropCount = Number(block.base_drop_count) || 1
+
+  function scoreYield(speed: number, fortune: number) {
+    const miningTimeTicks = Math.round((block.block_strength * 30) / speed)
+    // Plancher littéral de 4 ticks (0.2s) -- jamais plus rapide sans
+    // instamine (non implémenté cette passe, voir en-tête de fichier).
+    const effectiveTicks = Math.max(miningTimeTicks, 4)
+    const miningTimeSeconds = effectiveTicks / 20
+    const actionsPerHour = 3600 / miningTimeSeconds
+    const fortuneMult = 1 + fortune / 100
+    const yieldPerHour = actionsPerHour * baseDropCount * fortuneMult
+    let coinsPerHourRawBlockOnly = yieldPerHour * sellPrice
+    if (block.bonus_material_id) {
+      const bonusYieldPerHour = actionsPerHour * Number(block.bonus_chance) * Number(block.bonus_drop_count) * fortuneMult
+      coinsPerHourRawBlockOnly += bonusYieldPerHour * bonusPrice
+    }
+    return { miningTimeSeconds, actionsPerHour, yieldPerHour, coinsPerHourRawBlockOnly }
+  }
 
   const scored = combos
     .filter(c => c.total_mining_speed > 0)
-    .map(c => {
-      const miningTimeTicks = Math.round((block.block_strength * 30) / c.total_mining_speed)
-      // Plancher littéral de 4 ticks (0.2s) -- jamais plus rapide sans
-      // instamine (non implémenté cette passe, voir en-tête de fichier).
-      const effectiveTicks = Math.max(miningTimeTicks, 4)
-      const miningTimeSeconds = effectiveTicks / 20
-      const actionsPerHour = 3600 / miningTimeSeconds
-      const yieldPerHour = actionsPerHour * (1 + c.total_mining_fortune / 100)
-      const coinsPerHourRawBlockOnly = yieldPerHour * sellPrice
-      return { ...c, mining_time_seconds: miningTimeSeconds, actions_per_hour: actionsPerHour, yield_per_hour: yieldPerHour, coins_per_hour_raw_block_only: coinsPerHourRawBlockOnly }
-    })
-    .sort((a, b) => b.coins_per_hour_raw_block_only - a.coins_per_hour_raw_block_only)
+    .map(c => ({ ...c, ...scoreYield(c.total_mining_speed, c.total_mining_fortune) }))
+    .sort((a, b) => b.coinsPerHourRawBlockOnly - a.coinsPerHourRawBlockOnly)
+    .map(c => ({ ...c, coins_per_hour_raw_block_only: c.coinsPerHourRawBlockOnly, mining_time_seconds: c.miningTimeSeconds, actions_per_hour: c.actionsPerHour, yield_per_hour: c.yieldPerHour }))
 
   let topSetup: any = scored[0] ?? null
   if (topSetup) {
@@ -187,10 +229,7 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
     const layer = await applyPetsAndAccessories(
       topSetup.total_mining_speed, topSetup.total_mining_fortune, block.block_strength, sellPrice
     )
-    const ticks = Math.max(Math.round((block.block_strength * 30) / layer.total_mining_speed), 4)
-    const miningTimeSeconds = ticks / 20
-    const actionsPerHour = 3600 / miningTimeSeconds
-    const yieldPerHour = actionsPerHour * (1 + layer.total_mining_fortune / 100)
+    const { miningTimeSeconds, actionsPerHour, yieldPerHour, coinsPerHourRawBlockOnly } = scoreYield(layer.total_mining_speed, layer.total_mining_fortune)
     topSetup = {
       ...topSetup,
       total_mining_speed: layer.total_mining_speed,
@@ -201,7 +240,7 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
       mining_time_seconds: miningTimeSeconds,
       actions_per_hour: actionsPerHour,
       yield_per_hour: yieldPerHour,
-      coins_per_hour_raw_block_only: yieldPerHour * sellPrice,
+      coins_per_hour_raw_block_only: coinsPerHourRawBlockOnly,
     }
   }
 
