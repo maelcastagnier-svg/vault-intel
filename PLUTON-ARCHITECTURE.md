@@ -163,9 +163,18 @@ partir de maintenant.
 
          │
          ▼
+         │
+         ▼
+[MÉMOIRE VERSIONNÉE]  ← nouvelle couche (5 août, 4e passe Farming -- voir 1.6)
+  Chaque recalcul est un run horodaté, jamais un remplacement destructif.
+  pluton_setups/pluton_rankings gagnent run_id (append-only) ; une vue
+  "current" sert le dashboard, l'historique sert la comparaison.
+
+         │
+         ▼
 [CONSOMMATION]
-  Money Making  ← classement INTER-activités = pluton_rankings SANS filtre activity_key
-  Evolve Skills ← meilleur setup par activité/tier = pluton_setups
+  Money Making  ← classement INTER-activités = pluton_rankings_current SANS filtre activity_key
+  Evolve Skills ← meilleur setup par activité/tier = pluton_setups_current
   Milestones    ← pont déjà existant et vérifié : milestone_tier_totals.money_making_tier_key
                    (7 tiers Milestones → 4 tiers Money Making, many-to-one, pas un miroir parfait)
 
@@ -175,10 +184,119 @@ partir de maintenant.
   wiki-auto-sync : hash de contenu avant upsert → content_changed_at si vraiment différent
   extraction-refresh (nouveau cron) : compare content_changed_at au dernier run réussi
     de la fonction concernée (extraction_registry) → rappelle le parseur si nécessaire
-  → recalcul CIBLÉ de pluton_rankings (uniquement l'activity_key affecté)
+  → recalcul CIBLÉ de pluton_rankings (uniquement l'activity_key affecté), nouveau run_id
   → test de ranking flip (Hyperion/Astraea) : compare l'ordre avant/après, loggé si
     changé — visible et audité, jamais silencieux
 ```
+
+### 1.6 Couche 5 — Mémoire versionnée (ajoutée le 5 août, demande explicite)
+
+**Pourquoi cette couche manquait** : le chantier Mining puis Farming (5 août) a montré
+en pratique le vrai problème que ce document anticipait en théorie section 3
+("pas d'auto-extraction universelle par magie") -- à chaque nouvelle question de
+l'utilisateur ("as-tu tout maxé ?", "pourquoi le pest farming est si bas ?"), une
+vraie source manquante a été trouvée (Fly Shard, Bonus Pest Chance...) via des
+fetchs wiki live, alors qu'une partie de ce contenu était **déjà caché en base**
+(`game_mechanics_misc`, catégorie `farming_wiki`, 92 pages) mais jamais consulté --
+la Couche 2 (Extraction) décrite ci-dessus n'a jamais été construite, Mining et
+Farming ont été codés avec des **constantes en dur** (`FARMING_FORTUNE_MAX_PERMANENT
+= 2012.7 + 25`) au lieu de lire une vraie table. Pire : en vérifiant le cache pour
+la 1ère fois, le contenu trouvé datait de 5 jours et divergeait déjà de la version
+live du même jour -- preuve concrète que la fraîcheur (Couche 1) n'est pas non plus
+garantie aujourd'hui.
+
+**Ce que l'utilisateur a demandé, reformulé en 3 couches** :
+1. **Auto-alimentation des sources** (Couche 1, déjà conçue ci-dessus, jamais
+   vraiment mise en œuvre avec des garanties de fraîcheur) -- la cartographie se
+   met à jour toute seule, sans dérive silencieuse.
+2. **Auto-alimentation de l'extraction** (Couche 2, idem) -- chaque page/sous-page
+   est vidée de tout son contenu structurable dans des tables choisies pour
+   l'usage, jusqu'à épuisement, jamais cherry-pické à la main comme cette session.
+3. **Mémoire versionnée du calcul** (nouveau, absent du document d'origine) --
+   Pluton ne doit pas juste calculer et écraser son résultat précédent : chaque
+   recalcul doit être un point dans le temps comparable au précédent, pour que le
+   système puisse littéralement dire "hier c'était bien, aujourd'hui c'est mieux".
+
+**Schéma proposé** :
+```sql
+pluton_computation_runs (
+  id bigint primary key generated always as identity,
+  activity_key text not null,
+  tier text,                         -- null si le run couvre tous les tiers
+  started_at timestamptz not null default now(),
+  completed_at timestamptz,
+  status text not null default 'running',   -- running | success | partial | failed
+  trigger_reason text not null,             -- manual | source_changed | scheduled
+  source_content_hashes jsonb,       -- {page_key: content_hash} des sources lues à ce run -- traçabilité complète
+  error_note text
+)
+```
+`pluton_setups`/`pluton_rankings` gagnent une colonne `run_id` (FK) et deviennent
+**append-only** -- plus jamais de `DELETE` avant insert (élimine au passage la
+classe de bug rencontrée deux fois cette session : runs qui se chevauchent à cause
+d'un déclenchement en double, aujourd'hui dangereux car le DELETE d'un run
+concurrent efface le travail d'un autre en cours).
+
+**Vue "current"** (ce que consomme le dashboard, jamais l'historique brut) :
+```sql
+create view pluton_rankings_current as
+select distinct on (activity_key, tier, target_block_id) r.*
+from pluton_rankings r
+join pluton_computation_runs run on run.id = r.run_id
+where run.status = 'success'
+order by activity_key, tier, target_block_id, run.completed_at desc;
+```
+
+**Comparaison automatique** (le "hier vs aujourd'hui" demandé) -- une vue/fonction
+`pluton_ranking_deltas(activity_key)` qui prend les deux runs `success` les plus
+récents et calcule, par `(tier, target_block_id)` : `Δcoins_per_hour`,
+`Δcoins_per_hour_pct`, et un flag `rank_changed` (le meilleur candidat a changé --
+c'est le test "flip Hyperion/Astraea" déjà prévu section 1.5, généralisé). Ce delta
+est ce qui permettrait à terme un message auto-généré du type "Jasper Gemstone
++4.2% depuis hier (nouvelle source : Fly Shard corrigé)" plutôt qu'un utilisateur
+qui doit re-challenger chaque chiffre pour qu'une correction sorte.
+
+**Rétention** : garder tous les runs `success` des 90 derniers jours (purge au-delà,
+pas de croissance non bornée), jamais purger le run `current` même s'il a plus de
+90 jours (toujours au moins un point de comparaison disponible).
+
+### 1.7 Rétrofit Mining + Farming (dette reconnue, pas de nouveau chantier séparé)
+
+Mining et Farming existent déjà et fonctionnent (chiffres vérifiés, persistés),
+mais **aucun des deux ne suit ce pipeline** -- toutes leurs constantes
+(`HOTM_MAX`, `FARMING_FORTUNE_MAX_PERMANENT`, la liste `PESTS[]`...) sont câblées
+en dur dans `lib/pluton-mining.ts`/`lib/pluton-farming.ts`, jamais lues depuis
+`stat_bonus_sources`. Deux options, à trancher avec l'utilisateur avant de
+construire une 3e activité :
+- **(A) Rétrofit avant d'avancer** -- réextraire Mining Speed/Mining Fortune et
+  Farming Fortune/Crop Fortune/Bonus Pest Chance en vraies lignes
+  `stat_bonus_sources` (le parseur générique `parseTheoreticalMaximumList` décrit
+  ci-dessous couvre déjà leur format), remplacer les constantes par des requêtes,
+  brancher la Couche 5. Bénéfice : les 2 activités déjà livrées deviennent aussi
+  auto-maintenues que les futures, plus de dérive à chasser à la main.
+- **(B) Nouvelles activités sur le nouveau pipeline, rétrofit plus tard** -- accepte
+  la dette sur Mining/Farming (déjà vérifiés manuellement, donc pas faux
+  aujourd'hui, juste pas auto-actualisables), avance plus vite sur
+  Foraging/Fishing/Slayer/Dungeons directement avec la bonne architecture.
+
+**Parseur générique proposé pour la Couche 2** -- format confirmé identique sur
+TOUTES les pages "Achieving Maximum X"/"Theoretical Maximum" rencontrées cette
+session (Mining Speed, Mining Fortune, Farming Fortune, Bonus Pest Chance) :
+```
+* {{Description/Item}} ({{stat|xx|+N}})
+** {{Sous-condition}} ({{stat|xx|+N}})     -- niveau 2 = condition_note du parent
+```
+`parseTheoreticalMaximumList(wikitext, sectionHeading)` -- isole la section par son
+`==` heading, découpe par ligne `*`/`**`, extrait le dernier `{{stat|...|+N}}` (ou
+`(+N )`) de chaque ligne comme `bonus_numeric`, le texte restant nettoyé comme
+`source_id`, la profondeur `*` vs `**` comme signal de `condition_note` (une
+sous-puce qualifie toujours la puce parente juste au-dessus). Couvre directement
+les 2 gaps trouvés cette session (Fly Shard aurait été capturé s'il avait été dans
+la section listée -- **limite honnête** : ce parseur trouve tout ce qu'une page
+liste dans SA PROPRE section Theoretical Maximum, il ne trouve pas les sources
+qu'une page a oublié de lister elle-même, comme Fly Shard ci-dessus. La couverture
+inter-pages -- croiser Attribute Shards contre le build de référence -- reste un
+audit périodique, pas automatisable par ce seul parseur).
 
 ---
 
