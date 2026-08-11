@@ -78,6 +78,12 @@ type HaikuResult = {
   entries: Array<{ source_label: string; stat_name_guess: string; bonus_raw: string; condition_note: string; confidence: string }>
 }
 
+// max_tokens 1024 -> 4096 : bug réel trouvé sur le 1er lot test (50 pages, 11 août) --
+// 2 pages ("Changelog/2022/September 28", "Hunting Fortune") ont un nombre légitimement
+// élevé d'entrées réelles (Hunting Fortune : plusieurs vraies sources de Hunter
+// Fortune) et le JSON s'est tronqué en plein milieu avant la fin du tableau "entries".
+// 4096 reste très bon marché (~$0,02 même si intégralement consommé, à $5/MTok) et
+// laisse largement la marge pour la page la plus riche vue jusqu'ici (17 entrées).
 async function callHaiku(content: string): Promise<{ parsed: HaikuResult; inputTokens: number; outputTokens: number; raw: string }> {
   const truncated = content.length > CONTENT_CHAR_CAP ? content.slice(0, CONTENT_CHAR_CAP) : content
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -89,7 +95,7 @@ async function callHaiku(content: string): Promise<{ parsed: HaikuResult; inputT
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5',
-      max_tokens: 1024,
+      max_tokens: 4096,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: truncated }],
       output_config: { format: { type: 'json_schema', schema: HAIKU_EXTRACT_SCHEMA } },
@@ -120,6 +126,7 @@ export async function runB2HaikuTest() {
 
   let extractableCount = 0
   let notExtractableCount = 0
+  let skippedChangelogCount = 0
   let totalEntries = 0
   let totalInputTokens = 0
   let totalOutputTokens = 0
@@ -129,6 +136,33 @@ export async function runB2HaikuTest() {
   for (const page of pages ?? []) {
     const title = (page.value as any)?.title ?? ''
     const content = (page.value as any)?.content ?? ''
+
+    // Exclusion déterministe des pages Changelog/* -- vrai problème de design trouvé
+    // sur le 1er lot test (11 août), pas juste un bug de prompt : "Changelog/2025/August
+    // 8" a été extrait extractable=true avec 17 entrées, toutes réelles et bien sourcées
+    // (ex "Sting: dégâts aux Araignées 250%->300%") -- mais ce sont des DELTAS
+    // historiques ponctuels à une date donnée, jamais l'état courant du jeu (principe
+    // déjà établi tout du long de ce chantier : préférer une source qui reflète l'état
+    // actuel, comme les wikitables de B1, plutôt qu'un instantané de patch qui peut être
+    // périmé par un changement ultérieur non documenté ici). Un filtre par TITRE en code
+    // est plus fiable qu'une règle de prompt seule (jamais garanti suivie à 100% par un
+    // modèle) -- 457/3952 pages (~11,6%) sont concernées, exclues avant même d'appeler
+    // Haiku (économise aussi le coût de l'appel).
+    if (title.startsWith('Changelog/')) {
+      skippedChangelogCount++
+      notExtractableCount++
+      results.push({ id: page.id, title, extractable: false, entries_count: 0 })
+      await supabase.from('wiki_haiku_extract').upsert({
+        game_mechanics_misc_id: page.id,
+        page_title: title,
+        extractable: false,
+        entries: [],
+        model: 'skip_changelog_title_filter',
+        error: null,
+      }, { onConflict: 'game_mechanics_misc_id' })
+      continue
+    }
+
     try {
       const { parsed, inputTokens, outputTokens, raw } = await callHaiku(content)
       totalInputTokens += inputTokens
@@ -163,6 +197,7 @@ export async function runB2HaikuTest() {
   return {
     pages_requested: TEST_PAGE_IDS.length,
     pages_found: (pages ?? []).length,
+    skipped_changelog_count: skippedChangelogCount,
     extractable_count: extractableCount,
     not_extractable_count: notExtractableCount,
     total_entries: totalEntries,
