@@ -162,7 +162,13 @@ export async function runB2HaikuFull() {
   // travail déjà correct (upsert idempotent mais lent, même risque de re-timeout
   // avant la fin). Comme upsert écrase sans distinguer "déjà bon" de "à refaire",
   // sauter les IDs déjà présents est la seule façon de finir le reste dans le budget.
-  const { data: existingRows } = await supabase.from('wiki_haiku_extract').select('game_mechanics_misc_id')
+  // error is null uniquement -- 2e bug de reprise trouvé en vérifiant après le run
+  // épuisé par manque de crédit API (11 août) : sans ce filtre, les 2064 pages
+  // enregistrées en erreur (credit balance too low) auraient été traitées comme
+  // "déjà faites" pour toujours -- jamais retentées une fois le crédit rechargé.
+  // Seules les vraies réussites (error is null, y compris le skip Changelog qui a
+  // error=null par construction) comptent comme "done".
+  const { data: existingRows } = await supabase.from('wiki_haiku_extract').select('game_mechanics_misc_id').is('error', null)
   const alreadyDone = new Set((existingRows ?? []).map(r => r.game_mechanics_misc_id))
   const pendingPages = allPages.filter(p => !alreadyDone.has(p.id))
 
