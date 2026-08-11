@@ -156,20 +156,33 @@ export async function runB2HaikuFull() {
   const started = Date.now()
   const allPages = await fetchNoTablePages()
 
-  const changelogPages = allPages.filter(p => p.title.startsWith('Changelog/'))
-  const haikuPages = allPages.filter(p => !p.title.startsWith('Changelog/'))
+  // Reprise : ignore les pages déjà présentes en base -- bug de timeout réel trouvé
+  // en déployant (11 août, même piège que B1) : le run précédent a été tué par
+  // maxDuration=300 à 3462/3938 pages (88%). Sans reprise, relancer refait tout le
+  // travail déjà correct (upsert idempotent mais lent, même risque de re-timeout
+  // avant la fin). Comme upsert écrase sans distinguer "déjà bon" de "à refaire",
+  // sauter les IDs déjà présents est la seule façon de finir le reste dans le budget.
+  const { data: existingRows } = await supabase.from('wiki_haiku_extract').select('game_mechanics_misc_id')
+  const alreadyDone = new Set((existingRows ?? []).map(r => r.game_mechanics_misc_id))
+  const pendingPages = allPages.filter(p => !alreadyDone.has(p.id))
 
-  // Changelog : exclusion déterministe, aucun appel Haiku (voir trigger-b2-haiku-test
-  // pour le raisonnement complet -- deltas historiques ponctuels, pas l'état courant).
-  for (const p of changelogPages) {
-    await supabase.from('wiki_haiku_extract').upsert({
+  const changelogPages = pendingPages.filter(p => p.title.startsWith('Changelog/'))
+  const haikuPages = pendingPages.filter(p => !p.title.startsWith('Changelog/'))
+
+  // Changelog : exclusion déterministe, aucun appel Haiku (voir commit précédent pour
+  // le raisonnement complet -- deltas historiques ponctuels, pas l'état courant).
+  // Un seul insert en lot -- bug de perf réel trouvé sur le run précédent : 457 upserts
+  // séquentiels (1 page = 1 aller-retour DB attendu) avant même de commencer Haiku,
+  // du temps perdu pour un travail qui devrait être quasi instantané.
+  if (changelogPages.length > 0) {
+    await supabase.from('wiki_haiku_extract').insert(changelogPages.map(p => ({
       game_mechanics_misc_id: p.id,
       page_title: p.title,
       extractable: false,
       entries: [],
       model: 'skip_changelog_title_filter',
       error: null,
-    }, { onConflict: 'game_mechanics_misc_id' })
+    })))
   }
 
   const stats = {
