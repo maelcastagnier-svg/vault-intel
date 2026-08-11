@@ -347,6 +347,173 @@ tout seul — avec une estimation réaliste de l'ampleur du chantier.
 
 ---
 
+## 0ter. Architecture finale — bi-parsing mécanique + Haiku, version définitive (11 août)
+
+> Dernière proposition de l'utilisateur avant construction : schéma en 5 phases
+> (Cartographie / Extraction bi-parsing mécanique+Haiku / Classification 0-100% /
+> Calcul par activité / Livrable frontend zéro IA), avec demande de (1) confirmer
+> que ce schéma correspond à l'architecture déjà validée section 0bis, préciser les
+> ajustements nécessaires ; (2) chiffrer réellement le coût Phase 2 (répartition
+> parseur gratuit vs Haiku, tokens/euros, dans le respect de la contrainte budget
+> déjà établie) ; (3) proposer l'ordre de construction concret, phase par phase,
+> avec points de validation à chaque étape (même discipline que Mining). Cette
+> section EST la réponse aux 3 points, et devient la version de référence — plus
+> de remise en question après elle, cohérent avec 0bis.
+
+### 1. Confirmation du schéma — un seul ajustement réel nécessaire
+
+Le schéma en 5 phases correspond à l'architecture déjà validée en 0bis. Un seul
+point de conception à corriger avant de chiffrer :
+
+**🔴 Phase 2 (extraction) ne doit PAS classer par tier — seulement par
+activité/stat.** `stat_bonus_sources` reste, comme conçu en 0bis point 2, une
+table **tier-agnostique** : chaque ligne dit "cette page/cette source donne +X à
+la stat Y, sous telle condition" — rien de plus. La classification "ce candidat
+est-il abordable/pertinent au tier N" n'est pas une propriété de la source, c'est
+une propriété du **calcul** (Phase 4), qui compare `real_cost` du candidat aux
+bornes `milestone_tier_totals.networth_min/max` de chaque tier au moment de
+construire `pluton_setups`/`pluton_rankings`. Mélanger les deux à l'extraction
+créerait exactement le problème que la Couche 4 généralisée (0bis, section 4
+Phase C) est censée résoudre une seule fois : si l'extraction pré-filtre par
+tier, il faut ré-extraire (ou au moins re-taguer) à chaque fois qu'un seuil de
+tier change — alors qu'une seule extraction, tier-agnostique, sert les 7 tiers
+pour toujours, exactement comme Mining/Farming réutilisent déjà le même
+`stat_bonus_sources` pour mid/end/late aujourd'hui (constantes en dur, mais le
+principe est déjà là). **Correction concrète** : la Phase 2 (extraction) produit
+`stat_bonus_sources` classée par `activity_key` + `source_type` (armor/pet/
+accessoire/enchant/...) uniquement ; la Phase 3 (classification 0-100%) et la
+Phase 4 (calcul par activité, 7 tiers) restent les seules à raisonner en tier.
+
+Le reste du schéma (bi-parsing mécanique+Haiku, classification 0-100% par
+rétroaction depuis Master, calcul par activité réutilisant le moteur générique
+de 0bis Phase C, livrable frontend zéro IA = Couche 6 déjà décrite) est cohérent
+avec tout ce qui a été validé jusqu'ici — aucun autre ajustement.
+
+### 2. Coût réel Phase 2 — chiffré, pas estimé à l'optimisme
+
+**Répartition des 6545 pages `game_wiki`** (fingerprint SQL réel, pas un
+échantillon) :
+- **2605 pages (40%) — parseur mécanique, coût $0** : 1856 wikitable simple +
+  343 tabber+wikitable + 406 Mob Drops Table. Réutilise `parseRowspanTable` déjà
+  en prod.
+- **3938 pages (60%) — Haiku, coût réel ci-dessous** : confirmé par
+  échantillonnage réel (25+20 titres tirés au hasard) comme très majoritairement
+  du contenu non structuré (changelogs, lore, captures d'UI, pages item
+  redondantes) — mais certaines contiennent quand même une donnée numérique
+  utile en prose, d'où le passage Haiku plutôt qu'un rejet en bloc.
+
+**Données réelles utilisées pour le chiffrage** (requête SQL directe sur
+`game_mechanics_misc`, catégorie `game_wiki`) :
+- Longueur moyenne des 3938 pages sans wikitable : **2372,71 caractères**
+  (médiane 1140 — la moyenne est tirée vers le haut par une vraie queue longue,
+  ex. une page calendrier d'événement à ~98K caractères ; la moyenne est le bon
+  chiffre pour estimer un total, pas la médiane).
+- Tarification Haiku 4.5 réelle (skill `claude-api`, table de prix à jour) :
+  **$1,00 / MTok input, $5,00 / MTok output**.
+
+**Méthode de conversion caractères→tokens** : approximation standard ~4
+caractères/token pour du texte anglais/wikitexte — **pas une constante de jeu,
+un ratio de tokenizer connu**, mais à vérifier avec un vrai appel
+`count_tokens()` sur un échantillon avant de committer un budget final (règle
+"jamais de nombre inventé", appliquée ici au chiffrage plutôt qu'à une mécanique
+de jeu). Chiffrage ci-dessous volontairement conservateur (arrondi vers le haut)
+plutôt qu'optimiste.
+
+**Design de l'appel Haiku par page** : 1 prompt système fixe (règles
+d'extraction + schéma JSON `stat_bonus_sources`, ~700 tokens, **caché** via
+`cache_control` — il est strictement identique à chaque appel) + contenu brut
+de la page (~700 tokens en arrondi conservateur, contre ~593 tokens calculés
+depuis la moyenne réelle). Sortie : soit `{"extractable": false}` (~25 tokens)
+pour la majorité confirmée non structurée, soit un vrai tableau
+`stat_bonus_sources` structuré (~250 tokens) pour la minorité qui contient une
+donnée réelle — hypothèse conservatrice : 700 pages avec donnée réelle (18%),
+3238 sans (82%), cohérente avec le taux observé sur l'échantillonnage de 45
+titres.
+
+| | Sans cache | Avec cache (`cache_control` sur le prompt système) |
+|---|---:|---:|
+| Tokens input (3938 appels) | ~5,51M | ~3,03M (portion cachée à ~10% du prix) |
+| Coût input | ~$5,51 | ~$3,03 |
+| Tokens output (3938 appels) | ~256K | ~256K |
+| Coût output | ~$1,28 | ~$1,28 |
+| **Total Phase 2 (Haiku)** | **~$6,79** | **~$4,31** |
+
+**Chiffre unique honnête, avec marge d'incertitude** : **entre $4 et $10** pour
+l'intégralité des 3938 pages restantes (la fourchette absorbe l'incertitude sur
+le ratio caractères/token réel et sur le taux réel de pages "avec donnée" —
+même en doublant cette dernière hypothèse à 36%, le total reste sous $12). Les
+2605 pages mécaniques restent à $0.
+
+**Conclusion sur la contrainte budget** : à ce niveau (quelques dollars, pas des
+dizaines), la "contrainte budget déjà établie" mentionnée n'est structurellement
+pas un facteur limitant pour la Phase 2 elle-même — le vrai coût de ce chantier
+reste le temps de construction/vérification (2-3 sessions déjà estimé pour les 3
+formats de parseur + le passage Haiku), pas l'appel API. Vérification recommandée
+avant lancement en masse : `count_tokens()` réel sur un échantillon de 20-30
+pages pour confirmer le ratio caractères/token avant de lancer les 3938 appels
+d'un coup — 5 minutes, élimine toute incertitude résiduelle sur ce chiffrage.
+
+### 3. Ordre de construction concret, avec points de validation à chaque étape
+
+Reprend et détaille la Phase B de 0bis (qui restait un peu abstraite —
+"`parseStatSourceTabber` construit et testé") avec le découpage bi-parsing
+réel et un point de validation explicite à chaque étape, même discipline que
+Mining (jamais généraliser avant d'avoir vérifié un cas réel).
+
+**B1 — Parseur mécanique, sur les 2605 pages structurées ($0)**
+1. `parseStatSourceTabber` (wrapper autour de `parseRowspanTable` existant, isole
+   les sections `<tabber>` puis rejoue le parseur par section) — construit
+   contre les pages déjà identifiées cette session (Mining Speed/Fortune,
+   Farming Fortune/Crop Fortune/Bonus Pest Chance, les 5 pages `Attributes/List/
+   <Rareté>`).
+2. Extension "Mob Drops Table" (format différent, déjà rencontré pour les 13
+   pages Pest de Farming) — même wrapper, template de table différent.
+3. **Point de validation** : rejoue les 2605 pages, compare le résultat sur les
+   ~10 pages déjà connues à la main (Mining/Farming) — doit retrouver
+   exactement les mêmes valeurs déjà validées (Farming Fortune max 2037,7
+   post-Fly Shard, etc.). Tout écart = bug de parseur à corriger avant de
+   continuer, pas une "amélioration" à accepter sans vérifier pourquoi.
+
+**B2 — Passage Haiku, sur les 3938 pages non structurées (~$4-10)**
+4. Prompt système + schéma JSON figés, `cache_control` posé (voir chiffrage
+   ci-dessus).
+5. **Point de validation avant le lancement en masse** : `count_tokens()` réel
+   sur 20-30 pages échantillonnées pour confirmer le chiffrage ; puis un lot
+   test de ~50 pages (mélange volontaire de pages confirmées vides et de pages
+   suspectées riches) avant les 3938 — vérifier à la main que les
+   `{"extractable": false}` sont corrects (pas de faux négatif sur une vraie
+   donnée) et que les extractions positives sont réellement sourcées (pas
+   inventées).
+6. Lancement complet sur les 3938 pages, résultat versionné dans
+   `stat_bonus_sources` (même table que B1, `source_method` distingue
+   `mechanical`/`haiku` pour audit futur).
+
+**B3 — Audit de couverture (Couche 3, 0bis)**
+7. `extraction_coverage` exécuté contre l'ensemble des 6545 pages (B1+B2) —
+   confirme qu'aucune page cartographiée n'est restée hors de
+   `stat_bonus_sources` sans raison explicite (soit extraite, soit marquée
+   `extractable: false` avec justification).
+
+**B4 — Retrofit Mining/Farming (ferme la dette déjà actée en 0bis)**
+8. `lib/pluton-mining.ts`/`lib/pluton-farming.ts` : constantes en dur remplacées
+   par des requêtes sur `stat_bonus_sources`.
+9. **Point de validation final de cette phase** : revalidation complète des
+   chiffres déjà publiés (Ruby 54,2M/Topaz 45,5M/Jasper 67,3M ; Mushroom
+   21,65M/h late...) — mêmes chiffres à l'arrondi près, ou delta expliqué
+   explicitement si l'extraction trouve une source que la construction manuelle
+   avait manquée (jamais un delta silencieux).
+
+**Puis, reprend exactement l'ordre déjà acté en 0bis** : Phase C (moteur de
+calcul générique, extrait du code Mining/Farming une fois que B4 confirme que
+les deux tournent sur la même extraction) → Phase D (Foraging → Fishing →
+Slayer/Combat → Dungeons) → Phase E (branchement dashboard). Rien ne change
+côté Classification 0-100%/rétroaction 7-tiers (Phase 3/4 du schéma utilisateur)
+— ce chantier reste explicitement après B1-B4+C, comme acté dans la
+"CORRECTION D'ORDRE" (extraction complète d'abord, définition du 100% ensuite,
+rétroaction des 7 tiers en dernier).
+
+---
+
 ## 1. Architecture complète
 
 ### 1.1 Les deux piliers (rappel)
