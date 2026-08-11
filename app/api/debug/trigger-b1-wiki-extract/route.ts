@@ -116,21 +116,10 @@ export async function runB1WikiExtract() {
   let duplicateRowsDropped = 0
   const errors: Array<{ id: number; title: string; error: string }> = []
 
-  // Un flush PAR PAGE, jamais accumulé entre plusieurs pages -- bug réel trouvé en
-  // vérifiant après le premier run déployé (11 août) : le batching global (jusqu'à 1000
-  // lignes de PLUSIEURS pages consécutives par flush) fait que si UNE ligne d'UNE page
-  // viole la contrainte unique, tout le lot entier (potentiellement des centaines de
-  // lignes de pages parfaitement correctes) échoue -- et le catch, placé au niveau de
-  // la boucle par page, attribue l'erreur à la page en cours de traitement au moment du
-  // flush, pas à la vraie page fautive. Résultat mesuré : la route rapportait
-  // "39137 lignes insérées" mais la table n'en contenait réellement que 37117 (2020
-  // perdues), et les 2 pages "en erreur" rapportées (Melancholic Viking, White Gift)
-  // se sont révélées, en retestant isolément, ne contenir AUCUN doublon -- confirmant
-  // l'attribution erronée. Comme game_mechanics_misc_id fait partie de la contrainte
-  // unique, un doublon ne peut structurellement survenir qu'AU SEIN d'une même page --
-  // flush isolé par page garantit donc une attribution exacte de toute erreur future.
-  async function insertPageRows(pageId: number, title: string, rows: any[]) {
-    if (rows.length === 0) return
+  // Dédoublonnage AU SEIN d'une page avant tout insert -- comme game_mechanics_misc_id
+  // fait partie de la contrainte unique, un doublon ne peut structurellement survenir
+  // qu'à l'intérieur d'une même page, jamais entre deux pages différentes.
+  function dedupePageRows(pageId: number, rows: any[]): any[] {
     const seenKeys = new Set<string>()
     const deduped: any[] = []
     for (const r of rows) {
@@ -139,19 +128,53 @@ export async function runB1WikiExtract() {
       seenKeys.add(key)
       deduped.push(r)
     }
-    const { error } = await supabase.from('wiki_table_extract').insert(deduped)
-    if (error) throw new Error(`insert failed (page ${pageId} "${title}", ${deduped.length} rows): ${error.message}`)
+    return deduped
+  }
+
+  // Flush par LOT de plusieurs pages (débit correct), avec repli page-par-page en cas
+  // d'échec -- 2 vrais bugs trouvés en déployant coup sur coup (11 août) :
+  // 1) Un flush global par lot de 1000 lignes de PLUSIEURS pages faisait échouer tout
+  //    le lot dès qu'UNE ligne d'UNE page violait la contrainte unique -- perte
+  //    silencieuse de 2020 lignes (39137 rapportées vs 37117 réellement en base), et
+  //    l'erreur attribuée à la mauvaise page (les 2 pages "en erreur" rapportées,
+  //    retestées isolément, ne contenaient en réalité aucun doublon).
+  // 2) Le repli "1 insert par page" qui a suivi (2599 requêtes séparées) s'est révélé
+  //    trop lent : timeout client à 290s après seulement 2040/2599 pages, execution
+  //    tuée côté serveur par maxDuration=300 (confirmé : le compte de lignes en base
+  //    a cessé de progresser après l'expiration du timeout, pas juste le client qui a
+  //    abandonné).
+  // Solution : lot de plusieurs pages (débit) + dédoublonnage déjà fait AVANT insert
+  // (élimine la cause räcine du bug 1) + repli page-par-page UNIQUEMENT si le lot
+  // échoue malgré tout (isolation exacte sans perte, coût du repli seulement sur la
+  // page réellement fautive, pas sur les ~2600).
+  const PAGES_PER_BATCH = 25
+  let pendingBatch: Array<{ pageId: number; title: string; rows: any[] }> = []
+
+  async function flushBatch() {
+    if (pendingBatch.length === 0) return
+    const batch = pendingBatch
+    pendingBatch = []
+    const allRows = batch.flatMap(p => p.rows)
+    const { error } = await supabase.from('wiki_table_extract').insert(allRows)
+    if (!error) return
+    // Repli : réinsère page par page pour isoler la vraie fautive sans perdre les
+    // autres pages de ce lot.
+    for (const p of batch) {
+      const { error: pageError } = await supabase.from('wiki_table_extract').insert(p.rows)
+      if (pageError) errors.push({ id: p.pageId, title: p.title, error: `insert failed (${p.rows.length} rows): ${pageError.message}` })
+    }
   }
 
   for (const page of allPages) {
     try {
       const structured = extractStructuredTables(page.content)
       const mobDrops = page.content.includes('Mob Drops Table') ? mobDropsToInsert(page.id, page.title)(page.content) : []
-      const toInsert = [...rowsToInsert(page.id, page.title, structured), ...mobDrops]
+      const toInsert = dedupePageRows(page.id, [...rowsToInsert(page.id, page.title, structured), ...mobDrops])
       if (toInsert.length > 0) {
         pagesWithRows++
         totalRowsToInsert += toInsert.length
-        await insertPageRows(page.id, page.title, toInsert)
+        pendingBatch.push({ pageId: page.id, title: page.title, rows: toInsert })
+        if (pendingBatch.length >= PAGES_PER_BATCH) await flushBatch()
       } else {
         pagesWithNoRows++
       }
@@ -159,6 +182,7 @@ export async function runB1WikiExtract() {
       errors.push({ id: page.id, title: page.title, error: String(e?.message ?? e) })
     }
   }
+  await flushBatch()
 
   return {
     pages_scanned: allPages.length,
