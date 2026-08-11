@@ -512,6 +512,60 @@ côté Classification 0-100%/rétroaction 7-tiers (Phase 3/4 du schéma utilisat
 "CORRECTION D'ORDRE" (extraction complète d'abord, définition du 100% ensuite,
 rétroaction des 7 tiers en dernier).
 
+### B1 — fermé et vérifié (11 août)
+
+**Parseur mécanique construit et validé, `wiki_table_extract` peuplée en
+prod.** 4 formats réels gérés (pas 3 comme prévu dans le chiffrage 0ter —
+un 4e format trouvé en testant) : wikitable simple, tabber+wikitable,
+Mob Drops Table (template `{{Mob Drops Table|...}}`, syntaxe de paramètres
+nommés, pas une `{|...|}`), et **lignes générées par template répété**
+(`{{Attribute Table Entry|...}}` sur les pages `Attributes/List/*` — un
+appel de template par ligne, concaténés sans aucun `|-` entre eux, jamais
+anticipé avant de lire le wikitext réel).
+
+**4 vrais bugs de parseur trouvés et corrigés en testant localement contre
+le contenu réel des pages de référence, avant tout déploiement** :
+contamination d'une cellule par une ligne d'en-tête apparue mi-table sans
+séparateur ; ligne fantôme 100% vide insérée au même endroit ; ligne de
+légende `|+Blocks` cassant la détection du début des données ; régression
+de détection du format "templated_row" (trop large au premier essai,
+capturait des templates inline anodins du type `{{Stat|X|icononly=true|+Y}}`
+dans une vraie wikitable normale — corrigé par un signal plus précis,
+absence réelle de tout séparateur `|-` dans le corps de la table).
+
+**3 bugs supplémentaires trouvés en déployant à l'échelle** (jamais
+visibles sur un test à une seule page) : (1) un flush par lot de 1000
+lignes de plusieurs pages faisait perdre silencieusement tout le lot dès
+qu'une page violait la contrainte unique, avec attribution d'erreur à la
+mauvaise page — 2020 lignes perdues sur le premier run réel ; (2) le repli
+"1 insert par page" qui a suivi était trop lent, timeout après 2040/2599
+pages ; (3) `fetchGameWikiPages` paginait sans `.order()` explicite —
+PostgREST ne garantit aucun ordre stable entre deux appels `.range()`
+successifs sans tri, causant des pages traitées deux fois (faux "doublons")
+et d'autres jamais scannées du tout. Chacun trouvé en vérifiant l'écart
+entre ce que la route rapportait et le compte réel en base après coup —
+jamais pris pour argent comptant.
+
+**Résultat final, vérifié directement en base (pas seulement via le retour
+de la route)** : 2598 pages scannées (2593 `game_wiki` structurées + 5
+pages de référence `mining_wiki`/`farming_wiki`, catégorisées hors du
+périmètre `game_wiki` — trouvé en cherchant Mining Speed/Mining Fortune/
+Farming Fortune, absentes de `game_wiki`), **2439 pages avec au moins une
+ligne extraite, 39 080 lignes dans `wiki_table_extract`** (27 539 wikitable
+simple, 9364 tabber+wikitable, 1866 Mob Drops Table — utilisé bien au-delà
+des 13 pages Pest de Farming, par de nombreuses pages de mob génériques —,
+311 templated_row), 0 erreur sur le run final. 3 valeurs déjà documentées
+revalidées directement en base après le run : Mole Pet Mining Speed +150,
+Beetle Mutant Nether Wart 0,75%, Fly Shard/Fortunate Farmer +25 Farming
+Fortune — toutes exactes. Route de debug supprimée après vérification.
+
+**N'écrit à aucun moment dans `stat_bonus_sources`** (46 lignes déjà en
+prod, lues par `pluton-mining.ts`) — `wiki_table_extract` est une table de
+staging séparée, tier-agnostique et sémantiquement brute (headers/cells de
+la table source, pas encore `stat_name`/`bonus_numeric`/`rarity` typés).
+Le mapping sémantique vers `stat_bonus_sources` reste, comme prévu, une
+décision distincte (B3/B4), pas faite ici.
+
 ---
 
 ## 1. Architecture complète
