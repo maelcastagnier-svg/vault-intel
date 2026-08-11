@@ -41,10 +41,19 @@ async function fetchGameWikiPages(): Promise<PageRow[]> {
   const pageSize = 500
   let from = 0
   while (true) {
+    // .order('id') explicite -- bug réel trouvé en vérifiant après le 3e run déployé
+    // (11 août) : sans tri explicite, PostgREST ne garantit aucun ordre stable entre
+    // deux appels .range() successifs, donc des lignes peuvent apparaître dans DEUX
+    // fenêtres de pagination consécutives (traitées 2 fois -> conflit de clé unique à
+    // l'insertion, faussement pris pour un vrai doublon d'extraction -- vérifié
+    // isolément : la page réellement testée n'avait aucun doublon) OU dans AUCUNE
+    // (silencieusement absentes du scan -- explique un écart de ~387 pages entre
+    // "pages_with_rows" rapporté et le nombre de pages réellement présentes en base).
     const { data, error } = await supabase
       .from('game_mechanics_misc')
       .select('id, value')
       .eq('category', 'game_wiki')
+      .order('id', { ascending: true })
       .range(from, from + pageSize - 1)
     if (error) throw new Error(`fetchGameWikiPages: ${error.message}`)
     if (!data || data.length === 0) break
