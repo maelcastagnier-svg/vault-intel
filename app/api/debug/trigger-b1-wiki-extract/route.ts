@@ -113,15 +113,34 @@ export async function runB1WikiExtract() {
   let totalRowsToInsert = 0
   let pagesWithRows = 0
   let pagesWithNoRows = 0
+  let duplicateRowsDropped = 0
   const errors: Array<{ id: number; title: string; error: string }> = []
-  const batch: any[] = []
-  const BATCH_SIZE = 1000
 
-  async function flush() {
-    if (batch.length === 0) return
-    const chunk = batch.splice(0, batch.length)
-    const { error } = await supabase.from('wiki_table_extract').insert(chunk)
-    if (error) throw new Error(`insert failed: ${error.message}`)
+  // Un flush PAR PAGE, jamais accumulé entre plusieurs pages -- bug réel trouvé en
+  // vérifiant après le premier run déployé (11 août) : le batching global (jusqu'à 1000
+  // lignes de PLUSIEURS pages consécutives par flush) fait que si UNE ligne d'UNE page
+  // viole la contrainte unique, tout le lot entier (potentiellement des centaines de
+  // lignes de pages parfaitement correctes) échoue -- et le catch, placé au niveau de
+  // la boucle par page, attribue l'erreur à la page en cours de traitement au moment du
+  // flush, pas à la vraie page fautive. Résultat mesuré : la route rapportait
+  // "39137 lignes insérées" mais la table n'en contenait réellement que 37117 (2020
+  // perdues), et les 2 pages "en erreur" rapportées (Melancholic Viking, White Gift)
+  // se sont révélées, en retestant isolément, ne contenir AUCUN doublon -- confirmant
+  // l'attribution erronée. Comme game_mechanics_misc_id fait partie de la contrainte
+  // unique, un doublon ne peut structurellement survenir qu'AU SEIN d'une même page --
+  // flush isolé par page garantit donc une attribution exacte de toute erreur future.
+  async function insertPageRows(pageId: number, title: string, rows: any[]) {
+    if (rows.length === 0) return
+    const seenKeys = new Set<string>()
+    const deduped: any[] = []
+    for (const r of rows) {
+      const key = `${r.section_heading}::${r.tab_name}::${r.table_index}::${r.row_index}`
+      if (seenKeys.has(key)) { duplicateRowsDropped++; continue }
+      seenKeys.add(key)
+      deduped.push(r)
+    }
+    const { error } = await supabase.from('wiki_table_extract').insert(deduped)
+    if (error) throw new Error(`insert failed (page ${pageId} "${title}", ${deduped.length} rows): ${error.message}`)
   }
 
   for (const page of allPages) {
@@ -132,8 +151,7 @@ export async function runB1WikiExtract() {
       if (toInsert.length > 0) {
         pagesWithRows++
         totalRowsToInsert += toInsert.length
-        batch.push(...toInsert)
-        if (batch.length >= BATCH_SIZE) await flush()
+        await insertPageRows(page.id, page.title, toInsert)
       } else {
         pagesWithNoRows++
       }
@@ -141,7 +159,6 @@ export async function runB1WikiExtract() {
       errors.push({ id: page.id, title: page.title, error: String(e?.message ?? e) })
     }
   }
-  await flush()
 
   return {
     pages_scanned: allPages.length,
@@ -149,7 +166,8 @@ export async function runB1WikiExtract() {
     reference_pages: referencePages.length,
     pages_with_rows: pagesWithRows,
     pages_with_no_rows: pagesWithNoRows,
-    total_rows_inserted: totalRowsToInsert,
+    total_rows_inserted: totalRowsToInsert - duplicateRowsDropped,
+    duplicate_rows_dropped: duplicateRowsDropped,
     errors: errors.slice(0, 20),
     error_count: errors.length,
     duration_ms: Date.now() - started,
