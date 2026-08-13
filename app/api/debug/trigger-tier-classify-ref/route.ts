@@ -145,10 +145,27 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Pour chaque table candidate, fetch toutes ses lignes (la plupart sont petites).
+    // Etape rapide (metadata seule, count() -- pas de select * couteux) : combien de
+    // lignes deja faites par table (via doneKeys, deja en memoire) vs le total reel.
+    const doneCountByTable = new Map<string, number>()
+    for (const key of doneKeys) {
+      const t = key.split('::')[0]
+      doneCountByTable.set(t, (doneCountByTable.get(t) ?? 0) + 1)
+    }
+    const notFullyDone: Array<[string, string]> = []
+    for (const [table, idCol] of REF_TABLES) {
+      const { count, error } = await supabase.from(table).select('*', { count: 'exact', head: true })
+      if (error) { console.error(`count ${table}: ${error.message}`); continue }
+      const total = count ?? 0
+      const done = doneCountByTable.get(table) ?? 0
+      if (total > 0 && done < total) notFullyDone.push([table, idCol])
+    }
+
+    // Fetch complet UNIQUEMENT pour les tables du lot traite ce run (evite de charger
+    // le contenu de ~150 tables a chaque invocation alors qu'on n'en traite que `limit`).
     type TableInfo = { table: string; idCol: string; rows: any[]; sampleText: string }
     const tablesInfo: TableInfo[] = []
-    for (const [table, idCol] of REF_TABLES) {
+    for (const [table, idCol] of notFullyDone.slice(0, limit)) {
       const allRows: any[] = []
       for (let offset = 0; ; offset += 1000) {
         const { data, error } = await supabase.from(table).select('*').range(offset, offset + 999)
@@ -164,7 +181,7 @@ export async function GET(req: NextRequest) {
       tablesInfo.push({ table, idCol, rows: residual, sampleText: `Table "${table}" -- colonnes: ${cols.join(', ')} -- echantillon: ${sample} (${residual.length} lignes au total)` })
     }
 
-    const toProcess = tablesInfo.slice(0, limit)
+    const toProcess = tablesInfo
     let totalInputTokens = 0, totalOutputTokens = 0, classifiedRows = 0, classifiedTables = 0, nullCount = 0
     const errors: Array<{ table: string; error: string }> = []
     const results: Array<{ table: string; tier_min: number | null; tier_max: number | null; rows: number }> = []
@@ -213,9 +230,9 @@ export async function GET(req: NextRequest) {
     const costUsd = (totalInputTokens / 1_000_000) * 1.0 + (totalOutputTokens / 1_000_000) * 5.0
     return NextResponse.json({
       success: true,
-      residual_tables_total: tablesInfo.length,
+      residual_tables_total: notFullyDone.length,
       processed_this_run: toProcess.length,
-      remaining_after_this_run: tablesInfo.length - toProcess.length,
+      remaining_after_this_run: notFullyDone.length - toProcess.length,
       classified_tables: classifiedTables,
       classified_rows: classifiedRows,
       null_count: nullCount,
