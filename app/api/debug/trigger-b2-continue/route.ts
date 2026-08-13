@@ -153,29 +153,32 @@ export async function GET(req: NextRequest) {
     const errors: Array<{ id: number; title: string; error: string }> = []
     const results: Array<{ id: number; title: string; extractable: boolean; entries_count: number }> = []
 
-    for (const page of toProcess) {
-      try {
-        const { parsed, inputTokens, outputTokens, raw } = await callHaiku(page.content)
-        totalInputTokens += inputTokens
-        totalOutputTokens += outputTokens
-        if (parsed.extractable) { extractableCount++; totalEntries += parsed.entries.length }
-        results.push({ id: page.id, title: page.title, extractable: parsed.extractable, entries_count: parsed.entries.length })
-        const { error } = await supabase.from('wiki_haiku_extract').upsert(
-          { game_mechanics_misc_id: page.id, page_title: page.title, extractable: parsed.extractable, entries: parsed.entries, model: 'claude-haiku-4-5', input_tokens: inputTokens, output_tokens: outputTokens, raw_response: raw, error: null },
-          { onConflict: 'game_mechanics_misc_id' }
-        )
-        if (error) throw new Error(`upsert: ${error.message}`)
-      } catch (e: any) {
-        errors.push({ id: page.id, title: page.title, error: String(e?.message ?? e) })
-        await supabase.from('wiki_haiku_extract').upsert(
-          { game_mechanics_misc_id: page.id, page_title: page.title, extractable: false, entries: [], model: 'claude-haiku-4-5', error: String(e?.message ?? e) },
-          { onConflict: 'game_mechanics_misc_id' }
-        )
-      }
+    // Lots de 25 appels Haiku en parallele -- meme pattern que le run B2 original (evite
+    // de depasser maxDuration=300 sur un traitement sequentiel, ~1.8s/appel mesure).
+    const PARALLEL_BATCH = 25
+    for (let i = 0; i < toProcess.length; i += PARALLEL_BATCH) {
+      const batch = toProcess.slice(i, i + PARALLEL_BATCH)
+      await Promise.all(batch.map(async page => {
+        try {
+          const { parsed, inputTokens, outputTokens, raw } = await callHaiku(page.content)
+          totalInputTokens += inputTokens
+          totalOutputTokens += outputTokens
+          if (parsed.extractable) { extractableCount++; totalEntries += parsed.entries.length }
+          results.push({ id: page.id, title: page.title, extractable: parsed.extractable, entries_count: parsed.entries.length })
+          const { error } = await supabase.from('wiki_haiku_extract').upsert(
+            { game_mechanics_misc_id: page.id, page_title: page.title, extractable: parsed.extractable, entries: parsed.entries, model: 'claude-haiku-4-5', input_tokens: inputTokens, output_tokens: outputTokens, raw_response: raw, error: null },
+            { onConflict: 'game_mechanics_misc_id' }
+          )
+          if (error) throw new Error(`upsert: ${error.message}`)
+        } catch (e: any) {
+          errors.push({ id: page.id, title: page.title, error: String(e?.message ?? e) })
+          await supabase.from('wiki_haiku_extract').upsert(
+            { game_mechanics_misc_id: page.id, page_title: page.title, extractable: false, entries: [], model: 'claude-haiku-4-5', error: String(e?.message ?? e) },
+            { onConflict: 'game_mechanics_misc_id' }
+          )
+        }
+      }))
     }
-
-    const costUsd = (totalInputTokens / 1_000_000) * 1.0 + (totalOutputTokens / 1_000_000) * 5.0
-
     return NextResponse.json({
       success: true,
       pending_total: pending.length,
@@ -188,8 +191,8 @@ export async function GET(req: NextRequest) {
       total_entries: totalEntries,
       total_input_tokens: totalInputTokens,
       total_output_tokens: totalOutputTokens,
-      real_cost_usd: costUsd,
-      real_cost_per_page_usd: toProcess.length > 0 ? costUsd / toProcess.length : 0,
+      real_cost_usd: (totalInputTokens / 1_000_000) * 1.0 + (totalOutputTokens / 1_000_000) * 5.0,
+      real_cost_per_page_usd: toProcess.length > 0 ? ((totalInputTokens / 1_000_000) * 1.0 + (totalOutputTokens / 1_000_000) * 5.0) / toProcess.length : 0,
       errors,
       error_count: errors.length,
       results,
