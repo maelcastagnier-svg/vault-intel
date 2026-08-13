@@ -32,7 +32,80 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
-## ✅ Pluton — architecture 7-tiers de classification, clôturée (13 août)
+## 🚧 Pluton — architecture v2 (element_type + gating), EN COURS, reprise ici (13-14 août)
+
+**Remplace l'architecture 7-tiers ci-dessous** — l'utilisateur a jugé le modèle "tier
+seul" trop mélangé (items/mécaniques/XP/mob data tous dans la même table, impossible
+de naviguer pour un calcul Pluton précis). Nouvelle architecture validée par
+l'utilisateur après plusieurs itérations de discussion :
+
+**Principe** : deux axes orthogonaux au lieu d'un seul.
+- `element_type` (navigation) : `item` | `progression_milestone` | `mechanic_formula` |
+  `mob_zone_data` | `cosmetic` | `event_seasonal` | `admin_excluded` | `general_mechanic`.
+- `tier` (progression, un seul champ, sémantique CUMULATIVE) : `NULL` si l'élément n'est
+  **pas réellement débloquable** (règle universelle vraie pour tout joueur dès le début,
+  ex: vitesse de cassage de bloc vanilla, définition d'une stat — **jamais** un tier par
+  défaut pour ce genre de contenu). Sinon 1-7, où `tier=N` veut dire "présent dans le
+  profil du joueur à partir du tier N, jusqu'au 100%". Tier 7 = l'ancrage absolu = tout
+  ce qui est gated par construction (pas un jugement à part) — profil Master =
+  `WHERE tier <= 7` (= tout), profil Amateur = `WHERE tier <= 2`, etc.
+- Paramètres de gating par type, cascade priorisée : `item` → prix réel AH/Bazaar mappé
+  sur les bornes `milestone_tier_totals` (jamais la rareté seule, testée et rejetée —
+  un Legendary peut être early game, un Rare peut être endgame) → sinon prérequis
+  documenté → sinon hérité d'une source déjà classée → sinon Haiku dernier recours.
+  `progression_milestone` → ratio XP réel cumulé (`cumulative_xp/xp_total_max`, pas le
+  ratio de niveau brut). `mechanic_formula`/`cosmetic`/`event_seasonal`/`admin_excluded`
+  → `tier=NULL` structurel, pas de jugement.
+
+**Schéma créé et déployé** : `pluton_elements` (migration `create_pluton_elements_v2`) —
+une seule table (remplace les 7 `pluton_tier_*`), colonnes `element_type`/`activity`/
+`tier`/`gate_type`/`gate_reference`/+ mêmes colonnes de traçabilité qu'avant
+(`source_table`/`source_row_id`/`raw_data`/`classification_method`/
+`classification_confidence`/`classification_reason`), `unique(source_table,
+source_row_id)`, RLS + policy lecture publique. Élimine structurellement la classe de
+bug de doublon cross-table d'hier — une seule table de destination.
+
+**Route de classification** : `app/api/debug/trigger-elements-classify-ref/route.ts`,
+même pattern que la veille (jugement Haiku par table de référence NEU-REPO/API, batch de
+15, upsert dès le départ, invoquer avec `curl -m 310` strictement supérieur à
+`maxDuration=300`). **2 vrais bugs de schéma trouvés et corrigés en route** : Anthropic
+structured output rejette un `enum` combiné à un `type` nullable (`['string','null']`),
+peu importe si `null` est dans l'enum ou non — contourné avec une valeur sentinelle
+`'none'` (mappée vers `null` côté code, jamais écrite en base) plutôt qu'un type nullable.
+
+**État exact au moment de la pause (14 août, ~2h du matin)** : **15 504 lignes classées,
+49/~150 tables de référence traitées**, `gated_rows: 8264`, `ungated_rows: 7240` (donc le
+test de gating fonctionne bien, pas tout ne tombe pas en tier par défaut). 0 erreur, 0
+doublon (upsert dès le départ). Qualité spot-checkée avant la pause : `accessory_powers`
+→ item/prerequisite (Combat level), `fairy_soul_locations` → general_mechanic/ungated
+(raisonnement correct : la table documente des coordonnées, pas un accès),
+`garden_crop_milestones` → progression_milestone/xp_ratio — cohérent avec le modèle.
+
+**Pour reprendre demain, dans l'ordre** :
+1. Relancer la boucle : `curl -sS -m 310 "https://vault-intel-iota.vercel.app/api/debug/trigger-elements-classify-ref?limit=200"`,
+   vérifier `select count(*), count(distinct source_table) from pluton_elements;` après
+   chaque appel, jusqu'à `remaining_after_this_run: 0` dans la réponse JSON (la route est
+   idempotente et resumable, aucun risque à la relancer directement).
+2. Une fois les tables de référence terminées : construire le même double-jugement
+   (element_type + gating) pour le contenu wiki (`wiki_table_extract`/
+   `wiki_haiku_extract`, ~148k lignes, même grouping par page que l'architecture v1)
+   — pas encore commencé.
+3. Migrer/re-tagger `skills` (612 lignes, déjà classées avec un vrai ratio niveau/niveau_max
+   en v1 — à re-vérifier en ratio XP réel comme discuté) et `game_drops` (203 lignes
+   réellement inédites après exclusion des doublons — déjà en v1) vers `pluton_elements`
+   avec le bon `element_type` (`progression_milestone` et `mob_zone_data` respectivement).
+4. Vérifier l'ensemble (0 doublon, cohérence element_type/tier), **supprimer les 7
+   anciennes tables `pluton_tier_1_starter`..`_7_master`** (gardées pour l'instant, ne
+   rien casser en attendant la migration complète), supprimer la route de debug.
+5. Rapport final à l'utilisateur — pas encore fait, ce chantier n'est PAS terminé.
+
+**Prochaine étape après ça, actée par l'utilisateur** : Pluton consomme `pluton_elements`
+pour Money Making (`WHERE tier<=N AND element_type='item'/'mechanic_formula'` + prix
+LIVE de `price_history_ah` recroisé au moment du calcul, jamais le prix figé dans
+`gate_reference`) et pour Evolve (diff données réelles joueur vs profil théorique
+`WHERE tier <= tier_joueur+1` → gap analysis).
+
+## ✅ Pluton — architecture 7-tiers de classification, SUPERSÉDÉE par l'architecture v2 ci-dessus (13 août)
 
 Classification de toutes les sources référentielles (wiki + NEU-REPO/API) en 7 tables
 `pluton_tier_1_starter` → `pluton_tier_7_master`, mêmes bornes networth que
