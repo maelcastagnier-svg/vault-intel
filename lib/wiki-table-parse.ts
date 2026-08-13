@@ -516,11 +516,20 @@ export function extractStructuredTables(content: string): ExtractedTableRow[] {
     for (const sec of splitTabberSections(tb.inner)) {
       let tableIndex = 0
       for (const t of findAllWikitables(sec.body)) {
+        // rowOffset (pas l'index local du groupe) -- bug réel trouvé en déployant (11 août) :
+        // une table peut produire PLUSIEURS groupes template (rowsForLocatedTable groupe par
+        // forme d'en-tête, ex un appel de template avec paramètre optionnel présent vs absent
+        // sur la même page) partageant le même tableIndex. Sans décalage cumulé, le 2e groupe
+        // repartait de rowIndex=0 comme le 1er -> même clé unique (section, tab, tableIndex,
+        // rowIndex) que sa 1re ligne -> conflit d'insertion, 77 pages perdues sur le run de
+        // reprise B1 avant ce fix.
+        let rowOffset = 0
         for (const group of rowsForLocatedTable(t)) {
-          group.rows.forEach((cells, rowIndex) => {
+          group.rows.forEach((cells, localIdx) => {
             const method = group.method === 'templated_row' ? 'templated_row' : 'tabber_wikitable'
-            out.push({ sectionHeading: heading, tabName: sec.tabName, tableIndex, rowIndex, headers: group.headers, cells, extractionMethod: method })
+            out.push({ sectionHeading: heading, tabName: sec.tabName, tableIndex, rowIndex: rowOffset + localIdx, headers: group.headers, cells, extractionMethod: method })
           })
+          rowOffset += group.rows.length
         }
         tableIndex++
       }
@@ -536,10 +545,13 @@ export function extractStructuredTables(content: string): ExtractedTableRow[] {
   for (const t of findAllWikitables(content)) {
     if (isInsideTabber(t.startIndex)) continue
     const heading = headingAt(breakpoints, t.startIndex)
+    // Même fix de décalage cumulé que la boucle tabber ci-dessus -- même bug, même raison.
+    let rowOffset = 0
     for (const group of rowsForLocatedTable(t)) {
-      group.rows.forEach((cells, rowIndex) => {
-        out.push({ sectionHeading: heading, tabName: null, tableIndex, rowIndex, headers: group.headers, cells, extractionMethod: group.method })
+      group.rows.forEach((cells, localIdx) => {
+        out.push({ sectionHeading: heading, tabName: null, tableIndex, rowIndex: rowOffset + localIdx, headers: group.headers, cells, extractionMethod: group.method })
       })
+      rowOffset += group.rows.length
     }
     tableIndex++
   }
