@@ -196,9 +196,18 @@ export function buildWikiContext(ctx: any): string {
     (ctx?.enchantments || []).map((e: any) =>
       `${e.name}[${(e.item_types || []).join(',')}]max=${e.max_level}`
     ).join(' | '),
-    '\n=== REFORGES ===',
+    '\n=== REFORGES (basic, random Blacksmith roll) ===',
     (ctx?.reforges || []).map((r: any) =>
       `${r.reforge_name}(${r.item_types}):${JSON.stringify(r.stats)}`
+    ).join(' | '),
+    // Trou reel trouve en auditant get_full_context() (13 aout) : ces 84 reforges
+    // speciaux (Reforge Stones -- Ancient/Fabled/Renowned/Necrotic/Warped/Spiritual/
+    // etc.) etaient deja en base, deja renvoyes par get_full_context(), mais jamais
+    // affiches dans ce contexte -- invisibles pour Claude alors que ce sont les vrais
+    // reforges endgame (END/LATE tiers).
+    '\n=== REFORGE STONES (special, obtained via Reforge Stone item, endgame) ===',
+    (ctx?.reforge_stones || []).map((r: any) =>
+      `${r.reforge_name}(${r.item_types}):${JSON.stringify(r.stats)}${r.ability ? ` ability=${r.ability}` : ''}`
     ).join(' | '),
   ].join('\n')
 }
@@ -207,7 +216,7 @@ export const GROUNDING_RULES = `
 === GROUNDING RULES (mandatory) ===
 - armor_set, weapon_name, tool, rod, and accessories MUST be picked from the REAL GEAR CATALOG below when a matching item exists there for that slot/activity. The catalog is already filtered to this tier's real budget band using actual current AH prices — never override it with a cheaper or more expensive item from memory (e.g. never suggest an old low-tier armor set for a tier whose budget clearly reaches the catalog's top entries, and never suggest a BiS item priced far above this tier's budget).
 - The catalog has NO stat columns (health/defense/etc are unreliable for endgame gear in our data and were deliberately removed) — never invent specific numbers for armor_stats/weapon_stats/target_stats either; keep those fields qualitative (e.g. "High DEF, moderate STR") or omit precise numbers you cannot source from the WIKI text above.
-- armor_reforge/weapon_reforge must be copied verbatim from the REFORGES list below — never invent a reforge name, never leave it as a vague word like "Epic" (that's a rarity, not a reforge). armor_ultimate_enchant/weapon_ultimate_enchant must be one of the exact IDs listed in the user prompt, or null.
+- armor_reforge/weapon_reforge must be copied verbatim from the REFORGES or REFORGE STONES lists below (both are valid — REFORGE STONES are the real endgame choice for END/LATE tiers, never limit yourself to the basic REFORGES list when a Reforge Stone option better serves this tier's target stat) — never invent a reforge name, never leave it as a vague word like "Epic" (that's a rarity, not a reforge). armor_ultimate_enchant/weapon_ultimate_enchant must be one of the exact IDs listed in the user prompt, or null.
 - cost_budget / cost_optimal / cost_endgame are computed in code from the exact spec you give (stars/reforge/hot potato/ultimate enchant), not by you — do not try to compute a number for these fields yourself, any value you write here will be overwritten.
 - pet_name and gemstones are not in this catalog — use the WIKI sections above for those, and if still uncertain, mark confidence implicitly by keeping the recommendation generic rather than naming an ultra-specific variant you're not sure exists.
 - If the catalog says "No priced item found in this budget band", do not invent a specific item — describe the setup at the archetype level (e.g. "best available T4 mining armor") instead of naming an unverified item.
@@ -233,7 +242,7 @@ ${method.why_best  ? 'WHY: '   + method.why_best  : ''}
 SLAYER MAX TIERS: Zombie T5 | Spider T5 | Wolf T4 | Enderman T4 (T5 DOES NOT EXIST) | Blaze T4 (T5 DOES NOT EXIST) | Vampire T5
 
 You must pick a PRECISE, JUSTIFIED spec for the armor and the weapon — not just a name.
-armor_reforge/weapon_reforge MUST be copied verbatim (exact spelling) from the REFORGES list in the system context — never invent a reforge name.
+armor_reforge/weapon_reforge MUST be copied verbatim (exact spelling) from the REFORGES or REFORGE STONES list in the system context — never invent a reforge name. For END/LATE tiers, prefer a Reforge Stone reforge (e.g. Ancient, Fabled, Renowned, Necrotic, Warped) when it better serves the target stat — these are the real endgame choice, not the basic list.
 armor_ultimate_enchant/weapon_ultimate_enchant MUST be exactly one of: ${ULTIMATE_ENCHANT_LIST} — or null if none fits. Only recommend an ultimate enchant when it clearly serves this tier's target stat and stays within budget; most setups should leave this null.
 armor_hot_potato_count/weapon_hot_potato_count: 0, 5, or 10 — 10 (fuming) only for END/LATE tiers where the budget supports it.
 gear_justification explains WHY these specific stars/reforge/enchant choices serve this method's actual target stat (e.g. "5-star Pure for max DEF/HP survivability" or "Ancient reforge for the STR breakpoint needed at this tier") — never a generic restatement of the item name.
