@@ -214,7 +214,7 @@ export async function GET(req: NextRequest) {
             const tier = tMax > tMin ? Math.min(tMax, tMin + Math.floor((ri / Math.max(1, t.rows.length - 1)) * (tMax - tMin))) : tMin
             const tierTbl = tierTableName(tier)
             const elementName = String(row.display_name ?? row.name ?? row.item_name ?? row.reward_name ?? row.perk_name ?? row.title ?? row.mob_name ?? row[t.idCol] ?? t.table).slice(0, 250)
-            const { error } = await supabase.from(tierTbl).insert({
+            const { error } = await supabase.from(tierTbl).upsert({
               element_name: elementName,
               element_type: 'reference_data',
               source_table: t.table,
@@ -223,7 +223,7 @@ export async function GET(req: NextRequest) {
               classification_method: 'haiku_table_level',
               classification_confidence: c.confidence,
               classification_reason: `${c.reason} (table "${t.table}", plage tier ${tMin}-${tMax})`,
-            })
+            }, { onConflict: 'source_table,source_row_id', ignoreDuplicates: true })
             if (error) errors.push({ table: t.table, error: error.message })
             else classifiedRows++
           }
