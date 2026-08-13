@@ -193,7 +193,12 @@ export async function runAhCollect() {
         soldGroups.get(key)!.prices.push(auc.price)
       }
 
-      // Update avg_sold_price dans ah_scan_buffer
+      // Update avg_sold_price dans ah_scan_buffer -- batch RPC (11 aout,
+      // optimisation cout Vercel) au lieu d'un .update() sequentiel par
+      // variante. Meme semantique UPDATE-only qu'avant (jamais d'INSERT,
+      // une ligne sans match dans ah_scan_buffer est un no-op silencieux),
+      // juste 1 aller-retour DB au lieu de potentiellement des centaines
+      // chaque minute. Voir update_sold_prices_batch_rpc.sql.
       if (soldGroups.size > 0) {
         const soldRows = Array.from(soldGroups.entries()).map(([, { prices, decoded }]) => ({
           base_item_id:   decoded.item_id,
@@ -202,15 +207,10 @@ export async function runAhCollect() {
           sold_count:     prices.length,
         }))
 
-        // Update sold prices dans le buffer
-        for (const row of soldRows) {
-          await supabase.from('ah_scan_buffer')
-            .update({
-              avg_sold_price: row.avg_sold_price,
-              sold_count:     row.sold_count,
-            })
-            .eq('base_item_id', row.base_item_id)
-            .eq('variant_key', row.variant_key)
+        for (let i = 0; i < soldRows.length; i += 500) {
+          const batch = soldRows.slice(i, i + 500)
+          const { error } = await supabase.rpc('update_sold_prices_batch', { p_rows: batch })
+          if (error) console.error('Sold prices batch update error', i, error)
         }
       }
     } catch (e) {
@@ -295,25 +295,16 @@ export async function runAhCollect() {
       histBase.get(k)!.push(Number(h.avg_price))
     }
 
-    const historicalBlended: { base_item_id: string; avg_price: number }[] = []
-    for (let i = 0; i < baseItemIds.length; i += 200) {
-      const batch = baseItemIds.slice(i, i + 200)
-      const { data, error } = await supabase
-        .from('price_history_ah')
-        .select('base_item_id, avg_price')
-        .in('base_item_id', batch)
-        .eq('variant_key', '__all_variants_blended__')
-        .eq('granularity', 'DAILY')
-        .gte('bucket_date', sevenDaysAgo)
-      if (error) { console.error('historicalBlended fetch batch error', i, error.message); continue }
-      if (data) historicalBlended.push(...data)
-    }
-    const histBlended = new Map<string, number[]>()
-    for (const h of historicalBlended) {
-      if (!histBlended.has(h.base_item_id)) histBlended.set(h.base_item_id, [])
-      histBlended.get(h.base_item_id)!.push(Number(h.avg_price))
-    }
-
+    // Palier "blended" retire (11 aout, optimisation cout Vercel) : son
+    // resultat n'etait jamais utilise -- le filtre `relevant` plus bas
+    // exclut deja explicitement tout item avec hist_precision === 'blended'
+    // (voir commentaire Bloc 3.2 ci-dessus, decision du 31 juillet). Ce
+    // calcul faisait ~12 requetes Supabase batchees pour rien, chaque
+    // minute -- ~17 000 requetes/jour gaspillees. hist_precision retombe
+    // desormais directement sur 'none' au lieu de 'blended' quand ni exact
+    // ni base ne matchent (seul effet observable : le compteur de
+    // diagnostic precisionCounts.blended reste a 0 au lieu de compter ces
+    // items -- aucun impact sur `relevant`/`ah_live`, qui les excluait deja).
     const avg = (arr: number[]) => arr.reduce((s, p) => s + p, 0) / arr.length
 
     // Seuils de pertinence — un flip n'est proposé que s'il est réellement
@@ -376,9 +367,6 @@ export async function runAhCollect() {
       } else if (histBase.has(baseKey)) {
         histPrice = avg(histBase.get(baseKey)!)
         precision = 'base'
-      } else if (histBlended.has(d.item_id)) {
-        histPrice = avg(histBlended.get(d.item_id)!)
-        precision = 'blended'
       }
 
       const discountPct = histPrice > 0 ? Math.round(((histPrice - bestPrice) / histPrice) * 100) : 0
