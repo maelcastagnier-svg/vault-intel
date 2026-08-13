@@ -71,6 +71,22 @@ function buildRowsForPage(p: PendingRow): ExtractRow[] {
 
 export async function GET(req: NextRequest) {
   try {
+    const debugId = req.nextUrl.searchParams.get('debugId')
+    if (debugId) {
+      const { data, error } = await supabase.from('game_mechanics_misc').select('id, value').eq('id', Number(debugId)).single()
+      if (error || !data) return NextResponse.json({ error: 'not found' }, { status: 404 })
+      const p: PendingRow = { id: data.id, title: (data.value as any)?.title ?? '', content: (data.value as any)?.content ?? '' }
+      const rows = buildRowsForPage(p)
+      const seen = new Map<string, ExtractRow>()
+      const dups: Array<{ key: string; a: ExtractRow; b: ExtractRow }> = []
+      for (const r of rows) {
+        const key = `${r.section_heading}::${r.tab_name}::${r.table_index}::${r.row_index}`
+        if (seen.has(key)) dups.push({ key, a: seen.get(key)!, b: r })
+        seen.set(key, r)
+      }
+      const { data: existing } = await supabase.from('wiki_table_extract').select('*').eq('game_mechanics_misc_id', Number(debugId))
+      return NextResponse.json({ computed_rows: rows.length, dups, existing_rows_in_db: existing?.length ?? 0, existing_sample: existing?.slice(0, 3) })
+    }
     // Fetch en JS (pas de filtre ilike sur jsonb côté PostgREST -- trop fragile/risqué de
     // deviner la syntaxe exacte sans la route d'origine sous les yeux) : pagine tout
     // game_wiki (6546 lignes, 7 pages de 1000) et filtre le prédicat structurel en JS.
