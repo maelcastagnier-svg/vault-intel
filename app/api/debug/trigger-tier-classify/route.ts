@@ -34,7 +34,7 @@ const SCHEMA = {
         type: 'object',
         properties: {
           index: { type: 'integer' },
-          tier: { type: ['integer', 'null'], minimum: 1, maximum: 7 },
+          tier: { type: ['integer', 'null'] },
           confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
           reason: { type: 'string' },
         },
