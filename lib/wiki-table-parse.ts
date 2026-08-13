@@ -198,13 +198,35 @@ export type LocatedWikitable = {
 // laissant bodyText vide et 0 ligne extraite. Scanner ligne par ligne et arrêter la
 // zone d'en-tête dès la première ligne qui n'est ni "!...", ni "|-", ni vide (que cette
 // ligne commence par "|" ou par "{{...}}") résout ce cas sans casser le cas normal.
+// Trouve la vraie fermeture "|}" d'une table en suivant la profondeur d'accolades --
+// jamais un simple indexOf('|}', ...). Bug réel trouvé en testant "Reforging/Equipment
+// (Basic)" (11 août) : sa ligne d'ouverture contient `{{#if:{{{collapsed|}}}|...}}` --
+// la syntaxe MediaWiki "paramètre avec valeur par défaut vide" {{{collapsed|}}} produit
+// littéralement le texte "|}" avant même la fin de la ligne d'ouverture. indexOf('|}',
+// tableStart) s'arrêtait donc à ce faux positif, tronquant toute la vraie table (des
+// dizaines de lignes) à quasiment rien. Suit chaque caractère '{'/'}' individuellement
+// (pas par paire "{{"/"}}") pour rester correct aussi bien sur les templates {{X}} que
+// sur la syntaxe triple-accolade {{{X|Y}}} -- même principe de suivi de profondeur déjà
+// utilisé par parseMobDropsTable plus bas dans ce fichier pour la même classe de piège.
+// "|}" n'est la vraie fermeture que lorsque la profondeur est revenue à 0.
+function findTableEnd(text: string, tableStart: number): number {
+  let depth = 0
+  for (let i = tableStart + 2; i < text.length - 1; i++) {
+    const c = text[i]
+    if (c === '{') { depth++; continue }
+    if (c === '}') { if (depth > 0) depth--; continue }
+    if (depth === 0 && c === '|' && text[i + 1] === '}') return i
+  }
+  return -1
+}
+
 export function findAllWikitables(text: string): LocatedWikitable[] {
   const results: LocatedWikitable[] = []
   let searchFrom = 0
   while (true) {
     const tableStart = text.indexOf('{|', searchFrom)
     if (tableStart === -1) break
-    const tableEnd = text.indexOf('|}', tableStart)
+    const tableEnd = findTableEnd(text, tableStart)
     if (tableEnd === -1) break
     const table = text.slice(tableStart, tableEnd)
     const lines = table.split('\n')
@@ -441,6 +463,19 @@ export type ExtractedTableRow = {
 // comptage de templates, qui distingue fiablement les deux cas. Un vrai wikitable à
 // cellules "|" ne contient jamais 2+ blocs de template multi-lignes utilisés comme
 // MÉCANISME de ligne SANS le moindre "|-" du tout entre eux.
+// Regroupe des lignes générées par template par nom+forme d'en-tête (en-têtes
+// potentiellement différents d'un appel à l'autre -- paramètres optionnels -- donc un
+// groupe logique par forme d'en-tête, pas une seule table forcée à une largeur fixe).
+function groupTemplatedRows(templatedRows: Array<{ templateName: string; headers: string[]; cells: string[] }>): { headers: string[]; rows: string[][]; method: 'templated_row' }[] {
+  const byShape = new Map<string, { headers: string[]; rows: string[][] }>()
+  for (const r of templatedRows) {
+    const key = r.templateName + '::' + r.headers.join(',')
+    if (!byShape.has(key)) byShape.set(key, { headers: r.headers, rows: [] })
+    byShape.get(key)!.rows.push(r.cells)
+  }
+  return Array.from(byShape.values()).map(v => ({ headers: v.headers, rows: v.rows, method: 'templated_row' as const }))
+}
+
 function rowsForLocatedTable(t: LocatedWikitable): { headers: string[]; rows: string[][]; method: 'wikitable' | 'templated_row' }[] {
   const realRowBlockCount = t.bodyText.split(/\n\|-\n?/).filter(b => b.trim().length > 0).length
   const templatedFirst = realRowBlockCount <= 1 && t.bodyText.includes('{{') ? parseGenericTemplateRows(t.bodyText) : []
@@ -448,19 +483,22 @@ function rowsForLocatedTable(t: LocatedWikitable): { headers: string[]; rows: st
   if (templatedFirst.length < 2 && headers.length > 0) {
     const rows = parseWikitableRows(t.bodyText, headers.length)
     if (rows.length > 0) return [{ headers, rows, method: 'wikitable' }]
-  }
-  if (templatedFirst.length > 0) {
-    // Regroupe par nom de template (en-têtes potentiellement différents d'un appel à
-    // l'autre -- paramètres optionnels -- donc un groupe logique par forme d'en-tête,
-    // pas une seule table forcée à une largeur fixe).
-    const byShape = new Map<string, { headers: string[]; rows: string[][] }>()
-    for (const r of templatedFirst) {
-      const key = r.templateName + '::' + r.headers.join(',')
-      if (!byShape.has(key)) byShape.set(key, { headers: r.headers, rows: [] })
-      byShape.get(key)!.rows.push(r.cells)
+    // 5e format réel trouvé en testant "Fairy Souls/List/Safari Zone" et "Museum/Items/
+    // Hunting" (11 août) : de VRAIS séparateurs "|-" existent entre chaque ligne (donc
+    // realRowBlockCount est grand, pas <=1 -- le chemin templatedFirst ci-dessus ne se
+    // déclenche jamais pour ce cas), mais CHAQUE corps de ligne est un seul appel de
+    // template ({{FairySoulRow|...}}, {{MuseumItemRow|...}}) plutôt que des cellules
+    // "|"-séparées -- parseWikitableRows ne trouve alors aucune cellule "|" réelle et
+    // retourne 0 ligne à chaque bloc. Essayé UNIQUEMENT en dernier recours (rows vide
+    // malgré des en-têtes présents) -- zéro risque de régression sur les pages qui
+    // fonctionnent déjà via le chemin normal ci-dessus.
+    if (t.bodyText.includes('{{')) {
+      const fallback = groupTemplatedRows(parseGenericTemplateRows(t.bodyText))
+      if (fallback.length > 0) return fallback
     }
-    return Array.from(byShape.values()).map(v => ({ headers: v.headers, rows: v.rows, method: 'templated_row' as const }))
+    return []
   }
+  if (templatedFirst.length > 0) return groupTemplatedRows(templatedFirst)
   return []
 }
 
