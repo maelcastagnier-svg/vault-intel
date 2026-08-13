@@ -92,7 +92,7 @@ const SYSTEM_PROMPT = `Tu classes des TABLES de donnees de reference du jeu Hypi
    - general_mechanic = mecanique reelle mais qui ne rentre dans aucune des 7 autres
 
 2. is_gated -- CETTE TABLE represente-t-elle du contenu DEBLOQUABLE (un vrai palier de progression existe : networth necessaire, niveau XP requis, prerequis de zone/quete documente) ? Une regle UNIVERSELLE, vraie pour tout joueur des le debut independamment de sa progression (ex: la vitesse de cassage de bloc vanilla, la definition de ce que fait une stat) n'est PAS gated -- reponds is_gated=false, tier_min=null.
-   Si is_gated=true : donne gate_type (networth|xp_ratio|prerequisite|inherited) et tier_min/tier_max (1-7, plage si la table couvre plusieurs paliers de progression, sinon tier_min=tier_max).
+   Si is_gated=true : donne gate_type (networth|xp_ratio|prerequisite|inherited) et tier_min/tier_max (1-7, plage si la table couvre plusieurs paliers de progression, sinon tier_min=tier_max). Si is_gated=false : gate_type="none", tier_min=null, tier_max=null.
 
 Regles :
 - N'invente aucune valeur numerique, base-toi sur le contenu fourni.
@@ -110,7 +110,7 @@ const SCHEMA = {
           index: { type: 'integer' },
           element_type: { type: 'string', enum: ELEMENT_TYPES },
           is_gated: { type: 'boolean' },
-          gate_type: { type: ['string', 'null'], enum: ['networth', 'xp_ratio', 'prerequisite', 'inherited'] },
+          gate_type: { type: 'string', enum: ['networth', 'xp_ratio', 'prerequisite', 'inherited', 'none'] },
           tier_min: { type: ['integer', 'null'] },
           tier_max: { type: ['integer', 'null'] },
           confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
