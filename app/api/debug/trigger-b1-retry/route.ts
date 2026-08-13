@@ -107,8 +107,25 @@ export async function GET(req: NextRequest) {
     const structuralPredicate = (content: string) =>
       content.includes('{|') || content.includes('<tabber>') || content.includes('Mob Drops Table')
 
-    const { data: alreadyDone } = await supabase.from('wiki_table_extract').select('game_mechanics_misc_id')
-    const doneIds = new Set((alreadyDone ?? []).map(r => r.game_mechanics_misc_id))
+    // Meme piege de troncature deja rencontre plusieurs fois aujourd'hui (defaut
+    // PostgREST ~1000 lignes) : wiki_table_extract a >39000 lignes, un .select() sans
+    // .range() ne renvoyait qu'une fraction des page_id deja traites -- "Ferocity"
+    // (id 6484, 34 lignes deja reelles depuis le run B1 original) et 78 autres pages
+    // deja completes se retrouvaient donc a tort dans `pending`, retentees, et
+    // entraient en collision avec leurs propres lignes deja existantes (collision
+    // garantie, pas aleatoire -- meme table_index/row_index reproduits a l'identique).
+    const doneIds = new Set<number>()
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await supabase
+        .from('wiki_table_extract')
+        .select('game_mechanics_misc_id')
+        .order('game_mechanics_misc_id', { ascending: true })
+        .range(offset, offset + 999)
+      if (error) throw new Error(`fetch doneIds: ${error.message}`)
+      if (!data || data.length === 0) break
+      for (const r of data) doneIds.add(r.game_mechanics_misc_id)
+      if (data.length < 1000) break
+    }
 
     const pending: PendingRow[] = allPages.filter(p => structuralPredicate(p.content) && !doneIds.has(p.id))
 
