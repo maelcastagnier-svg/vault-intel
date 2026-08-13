@@ -152,20 +152,26 @@ export async function GET(req: NextRequest) {
       const t = key.split('::')[0]
       doneCountByTable.set(t, (doneCountByTable.get(t) ?? 0) + 1)
     }
-    const notFullyDone: Array<[string, string]> = []
-    for (const [table, idCol] of REF_TABLES) {
+    // Parallelise (Promise.all) -- ~150 count() sequentiels epuisaient a eux seuls la
+    // majorite du budget maxDuration a chaque invocation, avant meme de classifier quoi
+    // que ce soit. Bug reel trouve en observant une progression anormalement lente
+    // (3 tables/round alors que chaque classification est quasi instantanee).
+    const counts = await Promise.all(REF_TABLES.map(async ([table, idCol]) => {
       const { count, error } = await supabase.from(table).select('*', { count: 'exact', head: true })
-      if (error) { console.error(`count ${table}: ${error.message}`); continue }
-      const total = count ?? 0
-      const done = doneCountByTable.get(table) ?? 0
-      if (total > 0 && done < total) notFullyDone.push([table, idCol])
+      if (error) { console.error(`count ${table}: ${error.message}`); return null }
+      return { table, idCol, total: count ?? 0 }
+    }))
+    const notFullyDone: Array<[string, string]> = []
+    for (const c of counts) {
+      if (!c) continue
+      const done = doneCountByTable.get(c.table) ?? 0
+      if (c.total > 0 && done < c.total) notFullyDone.push([c.table, c.idCol])
     }
 
     // Fetch complet UNIQUEMENT pour les tables du lot traite ce run (evite de charger
     // le contenu de ~150 tables a chaque invocation alors qu'on n'en traite que `limit`).
     type TableInfo = { table: string; idCol: string; rows: any[]; sampleText: string }
-    const tablesInfo: TableInfo[] = []
-    for (const [table, idCol] of notFullyDone.slice(0, limit)) {
+    const fetched = await Promise.all(notFullyDone.slice(0, limit).map(async ([table, idCol]) => {
       const allRows: any[] = []
       for (let offset = 0; ; offset += 1000) {
         const { data, error } = await supabase.from(table).select('*').range(offset, offset + 999)
@@ -175,11 +181,12 @@ export async function GET(req: NextRequest) {
         if (data.length < 1000) break
       }
       const residual = allRows.filter(r => !doneKeys.has(`${table}::${String(r[idCol])}`))
-      if (residual.length === 0) continue
+      if (residual.length === 0) return null
       const cols = residual.length > 0 ? Object.keys(residual[0]) : []
       const sample = residual.slice(0, 4).map(r => JSON.stringify(r)).join(' | ')
-      tablesInfo.push({ table, idCol, rows: residual, sampleText: `Table "${table}" -- colonnes: ${cols.join(', ')} -- echantillon: ${sample} (${residual.length} lignes au total)` })
-    }
+      return { table, idCol, rows: residual, sampleText: `Table "${table}" -- colonnes: ${cols.join(', ')} -- echantillon: ${sample} (${residual.length} lignes au total)` } as TableInfo
+    }))
+    const tablesInfo: TableInfo[] = fetched.filter((t): t is TableInfo => t !== null)
 
     const toProcess = tablesInfo
     let totalInputTokens = 0, totalOutputTokens = 0, classifiedRows = 0, classifiedTables = 0, nullCount = 0
