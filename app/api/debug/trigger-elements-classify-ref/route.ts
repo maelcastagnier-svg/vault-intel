@@ -110,7 +110,7 @@ const SCHEMA = {
           index: { type: 'integer' },
           element_type: { type: 'string', enum: ELEMENT_TYPES },
           is_gated: { type: 'boolean' },
-          gate_type: { type: ['string', 'null'], enum: ['networth', 'xp_ratio', 'prerequisite', 'inherited', null] },
+          gate_type: { type: ['string', 'null'], enum: ['networth', 'xp_ratio', 'prerequisite', 'inherited'] },
           tier_min: { type: ['integer', 'null'] },
           tier_max: { type: ['integer', 'null'] },
           confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
