@@ -73,31 +73,47 @@ structured output rejette un `enum` combiné à un `type` nullable (`['string','
 peu importe si `null` est dans l'enum ou non — contourné avec une valeur sentinelle
 `'none'` (mappée vers `null` côté code, jamais écrite en base) plutôt qu'un type nullable.
 
-**État exact au moment de la pause (14 août, ~2h du matin)** : **15 504 lignes classées,
-49/~150 tables de référence traitées**, `gated_rows: 8264`, `ungated_rows: 7240` (donc le
-test de gating fonctionne bien, pas tout ne tombe pas en tier par défaut). 0 erreur, 0
-doublon (upsert dès le départ). Qualité spot-checkée avant la pause : `accessory_powers`
-→ item/prerequisite (Combat level), `fairy_soul_locations` → general_mechanic/ungated
-(raisonnement correct : la table documente des coordonnées, pas un accès),
-`garden_crop_milestones` → progression_milestone/xp_ratio — cohérent avec le modèle.
+**✅ Tables de référence NEU-REPO/API terminées (14 août)** : 150/150 tables classées,
+35 783 lignes, 0 doublon, 0 erreur. Distribution `element_type` cohérente
+(`mechanic_formula` 12 712 dont 46% gated, `item` 12 711 dont 34% gated — taux bas
+justifié, les tables de type "relation"/"upgrade path" documentent des liens entre items
+déjà classés ailleurs plutôt que des items autonomes, pas un bug —, `progression_milestone`
+3 565 = 100% gated par définition, `mob_zone_data` 3 324, `general_mechanic` 1 881,
+`cosmetic` 1 180, `event_seasonal` 410). `skills` (612 lignes, migrées avec le vrai ratio
+XP cumulé `cumulative_xp/xp_total_max`, pas le ratio niveau brut utilisé par erreur en v1)
+et `game_drops` (203 lignes, zone-based) migrées aussi — total post-référence : 36 598
+lignes, 152 source_table distinctes, 0 doublon.
 
-**Pour reprendre demain, dans l'ordre** :
-1. Relancer la boucle : `curl -sS -m 310 "https://vault-intel-iota.vercel.app/api/debug/trigger-elements-classify-ref?limit=200"`,
-   vérifier `select count(*), count(distinct source_table) from pluton_elements;` après
-   chaque appel, jusqu'à `remaining_after_this_run: 0` dans la réponse JSON (la route est
-   idempotente et resumable, aucun risque à la relancer directement).
-2. Une fois les tables de référence terminées : construire le même double-jugement
-   (element_type + gating) pour le contenu wiki (`wiki_table_extract`/
-   `wiki_haiku_extract`, ~148k lignes, même grouping par page que l'architecture v1)
-   — pas encore commencé.
-3. Migrer/re-tagger `skills` (612 lignes, déjà classées avec un vrai ratio niveau/niveau_max
-   en v1 — à re-vérifier en ratio XP réel comme discuté) et `game_drops` (203 lignes
-   réellement inédites après exclusion des doublons — déjà en v1) vers `pluton_elements`
-   avec le bon `element_type` (`progression_milestone` et `mob_zone_data` respectivement).
-4. Vérifier l'ensemble (0 doublon, cohérence element_type/tier), **supprimer les 7
-   anciennes tables `pluton_tier_1_starter`..`_7_master`** (gardées pour l'instant, ne
-   rien casser en attendant la migration complète), supprimer la route de debug.
-5. Rapport final à l'utilisateur — pas encore fait, ce chantier n'est PAS terminé.
+**🚧 Contenu wiki EN COURS (`wiki_table_extract`, pause le 17 août)** — route
+`app/api/debug/trigger-elements-classify-wte/route.ts` créée et déployée, même
+double-jugement (element_type + gating) mais au niveau PAGE (un jugement Haiku par page,
+appliqué à toutes ses lignes résiduelles). **1 vrai bug de perf trouvé et corrigé en
+route** : la boucle faisait un `upsert()` individuel par ligne (potentiellement des
+centaines de round-trips DB par page) — sur 137 641 lignes au total ça aurait pris des
+dizaines d'heures cumulées. Corrigé en upsert par lots de 500 (même garantie
+`ON CONFLICT ignoreDuplicates`), gain de vitesse énorme confirmé (de ~1700-1900
+lignes/round à 200 pages traitées sans même toucher le timeout de 300s).
+
+**État exact au moment de la pause (17 août)** : **99 233 lignes dans `pluton_elements`
+au total** (36 598 référence+skills+game_drops + 62 635 wiki_table_extract),
+**1615/3040 pages `wiki_table_extract` traitées (53%)**, 0 doublon (`distinct_keys` =
+`total`, vérifié), 0 erreur sur tous les runs.
+
+**Pour reprendre, dans l'ordre** :
+1. Continuer `wiki_table_extract` : `curl -sS -m 310 "https://vault-intel-iota.vercel.app/api/debug/trigger-elements-classify-wte?limit=400"`,
+   vérifier progression via
+   `select count(*) from pluton_elements where source_table='wiki_table_extract';`
+   après chaque appel, jusqu'à `remaining_after_this_run: 0`. `limit=400` est le point
+   d'équilibre trouvé (600 timeout, 200 laisse du temps inutilisé).
+2. Une fois `wiki_table_extract` fini : construire la même route pour `wiki_haiku_extract`
+   (~5207 pages, entrées déjà structurées par B2 — `source_label`/`stat_name_guess`/
+   `bonus_raw`/`condition_note` — classification moins chère, pas besoin de relire la
+   page). Pas encore commencé.
+3. Vérifier l'ensemble (0 doublon global, cohérence element_type/tier, spot-check
+   qualité), **supprimer les 7 anciennes tables `pluton_tier_1_starter`..`_7_master`**
+   (gardées pour l'instant, ne rien casser en attendant la migration complète), supprimer
+   les 2 routes de debug (`trigger-elements-classify-ref`, `trigger-elements-classify-wte`).
+4. Rapport final à l'utilisateur — pas encore fait, ce chantier n'est PAS terminé.
 
 **Prochaine étape après ça, actée par l'utilisateur** : Pluton consomme `pluton_elements`
 pour Money Making (`WHERE tier<=N AND element_type='item'/'mechanic_formula'` + prix
