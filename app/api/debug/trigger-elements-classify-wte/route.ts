@@ -147,6 +147,7 @@ export async function GET(req: NextRequest) {
         const { classifications, inputTokens, outputTokens } = await callHaiku(items)
         totalInputTokens += inputTokens
         totalOutputTokens += outputTokens
+        const batchInserts: any[] = []
         for (const c of classifications) {
           const p = batch[c.index]
           if (!p) continue
@@ -160,7 +161,7 @@ export async function GET(req: NextRequest) {
               ? Math.min(tMax, tMin + Math.floor((ri / Math.max(1, p.rows.length - 1)) * (tMax - tMin)))
               : tMin
             const elementName = `${p.title} / ${row.section_heading ?? ''}: ${(row.cells ?? []).slice(0, 2).join(', ')}`.slice(0, 250)
-            const { error } = await supabase.from('pluton_elements').upsert({
+            batchInserts.push({
               element_type: c.element_type,
               element_name: elementName,
               tier,
@@ -172,11 +173,18 @@ export async function GET(req: NextRequest) {
               classification_method: 'haiku_page_level_v2',
               classification_confidence: c.confidence,
               classification_reason: c.reason,
-            }, { onConflict: 'source_table,source_row_id', ignoreDuplicates: true })
-            if (error) errors.push({ page: p.title, error: error.message })
-            else classifiedRows++
+            })
           }
           classifiedPages++
+        }
+        // Upsert en lot (une seule requete pour tout le batch de pages) au lieu d'un
+        // aller-retour DB par ligne -- goulot d'etranglement reel observe (137k lignes
+        // au total, un upsert par ligne aurait pris des dizaines d'heures cumulees).
+        for (let bi = 0; bi < batchInserts.length; bi += 500) {
+          const chunk = batchInserts.slice(bi, bi + 500)
+          const { error } = await supabase.from('pluton_elements').upsert(chunk, { onConflict: 'source_table,source_row_id', ignoreDuplicates: true })
+          if (error) errors.push({ page: 'batch-insert', error: error.message })
+          else classifiedRows += chunk.length
         }
       } catch (e: any) {
         for (const p of batch) errors.push({ page: p.title, error: String(e?.message ?? e) })
