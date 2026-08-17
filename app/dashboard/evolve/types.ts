@@ -95,6 +95,10 @@ export interface MilestoneTier {
   tasks_announced: number | null
   tasks_computable: number
   tasks_completed: number
+  // Ajoutés le 17 août (vision V1) : un tier requiert >=70% de completion_pct
+  // du tier précédent pour être unlocked -- Starter toujours unlocked.
+  completion_pct: number
+  unlocked: boolean
 }
 
 export interface MilestonesResponse {

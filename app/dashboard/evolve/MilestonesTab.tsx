@@ -74,9 +74,9 @@ export default function MilestonesTab({ profileId }: { profileId: string }) {
         if (!res.ok) { setError(json.error || 'Failed to load Milestones'); setData(null) }
         else {
           setData(json)
-          // Ouvre par defaut le premier tier pas encore fini (memes regles que Daily Missions)
-          const current = json.tiers.find((t: MilestoneTier) => t.tasks_computable > 0 && t.tasks_completed < t.tasks_computable)
-          setExpandedTier((current || json.tiers[0])?.tier || null)
+          // Ouvre par defaut le premier tier unlocked pas encore fini (jamais un tier locked)
+          const current = json.tiers.find((t: MilestoneTier) => t.unlocked && t.tasks_computable > 0 && t.tasks_completed < t.tasks_computable)
+          setExpandedTier((current || json.tiers.find((t: MilestoneTier) => t.unlocked) || json.tiers[0])?.tier || null)
         }
       } catch {
         if (!cancelled) setError('Connection failed')
@@ -94,17 +94,25 @@ export default function MilestonesTab({ profileId }: { profileId: string }) {
   return (
     <div>
       <div className="section-label" style={{ color: '#c9a84c' }}>🗺️ Milestones — the 7-tier completion guide</div>
-      {data.tiers.map(tier => {
-        const isOpen = expandedTier === tier.tier
+      {data.tiers.map((tier, i) => {
+        const isOpen = tier.unlocked && expandedTier === tier.tier
+        const prevPct = i > 0 ? Math.round(data.tiers[i - 1].completion_pct * 100) : null
         return (
-          <div key={tier.tier} style={{ background: '#111110', border: `1px solid rgba(201,168,76,${isOpen?0.4:0.15})`, boxShadow: isOpen?'0 0 20px rgba(201,168,76,0.1)':'none', borderRadius: 10, padding: 14, marginBottom: 10, transition:'all 0.2s' }}>
+          <div key={tier.tier} style={{ background: '#111110', border: `1px solid rgba(201,168,76,${isOpen?0.4:0.15})`, boxShadow: isOpen?'0 0 20px rgba(201,168,76,0.1)':'none', borderRadius: 10, padding: 14, marginBottom: 10, transition:'all 0.2s', opacity: tier.unlocked ? 1 : 0.5 }}>
             <div
-              onClick={() => setExpandedTier(isOpen ? null : tier.tier)}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+              onClick={() => tier.unlocked && setExpandedTier(isOpen ? null : tier.tier)}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: tier.unlocked ? 'pointer' : 'default' }}
             >
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#e8e6df', fontFamily: "'Press Start 2P', monospace", letterSpacing: '0.02em', textShadow: isOpen?'0 0 10px rgba(201,168,76,0.35)':'none' }}>{tier.tier.toUpperCase()}</span>
-              <span style={{ fontSize: 11, color: '#6b6960' }}>{isOpen ? '▲' : '▼'}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#e8e6df', fontFamily: "'Press Start 2P', monospace", letterSpacing: '0.02em', textShadow: isOpen?'0 0 10px rgba(201,168,76,0.35)':'none' }}>
+                {tier.unlocked ? '' : '🔒 '}{tier.tier.toUpperCase()}
+              </span>
+              <span style={{ fontSize: 11, color: '#6b6960' }}>{tier.unlocked ? (isOpen ? '▲' : '▼') : ''}</span>
             </div>
+            {!tier.unlocked && (
+              <div style={{ marginTop: 8, fontSize: 11, color: '#6b6960' }}>
+                Locked — complete 70% of the previous tier to unlock ({prevPct}% done so far).
+              </div>
+            )}
             {isOpen && <div style={{ marginTop: 12 }}><TierPanel tier={tier} /></div>}
           </div>
         )

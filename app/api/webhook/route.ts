@@ -50,5 +50,35 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Ajoutes le 17 aout (audit V1) -- avant ce fix, seul checkout.session.completed
+  // etait gere : un echec de renouvellement ou une annulation faite depuis le
+  // dashboard Stripe (au lieu du bouton de l'app) ne redescendait jamais le
+  // statut/plan dans `subscriptions`, laissant un client en 'active' indefiniment.
+  if (event.type === 'customer.subscription.updated' || event.type === 'customer.subscription.deleted') {
+    const sub = event.data.object as Stripe.Subscription
+    const priceId = sub.items.data[0]?.price?.id || ''
+    const plan = PLAN_MAP[priceId]
+    const status = event.type === 'customer.subscription.deleted' || sub.status === 'canceled'
+      ? 'canceled'
+      : (sub.status === 'active' || sub.status === 'trialing') ? 'active' : 'past_due'
+
+    const update: Record<string, string> = { status }
+    if (plan) update.plan = plan // ne touche jamais au plan si le price_id est inconnu (evite d'ecraser silencieusement)
+
+    await supabase.from('subscriptions')
+      .update(update)
+      .eq('stripe_subscription_id', sub.id)
+  }
+
+  if (event.type === 'invoice.payment_failed') {
+    const invoice = event.data.object as Stripe.Invoice
+    const subscriptionId = (invoice as any).subscription as string | null
+    if (subscriptionId) {
+      await supabase.from('subscriptions')
+        .update({ status: 'past_due' })
+        .eq('stripe_subscription_id', subscriptionId)
+    }
+  }
+
   return NextResponse.json({ received: true })
 }

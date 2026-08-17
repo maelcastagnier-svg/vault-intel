@@ -302,11 +302,23 @@ export async function computeMilestones(uuid: string, profileId: string) {
     else bucket.wiki_tasks.push(evaluated)
   }
 
+  // completion_pct/unlocked ajoutés le 17 août (vision V1) : un palier requiert
+  // au moins 70% de ses tâches vérifiables complétées pour débloquer le suivant.
+  // Basé sur tasks_completed/tasks_computable (jamais tasks_known/tasks_announced,
+  // qui incluent des tâches non vérifiables — un seuil sur du non-vérifiable
+  // bloquerait injustement un joueur sur une donnée qu'on ne sait pas mesurer).
+  const TIER_UNLOCK_THRESHOLD = 0.7
+  let previousUnlocked = true
+  let previousPct = 1
   const tiers = TIER_ORDER.map(tier => {
     const { wiki_tasks, vault_tasks } = byTier.get(tier)!
     const all = [...wiki_tasks, ...vault_tasks]
     const computable = all.filter(t => t.data_available)
     const completed  = computable.filter(t => t.met)
+    const completion_pct = computable.length > 0 ? completed.length / computable.length : 0
+    const unlocked = previousUnlocked && previousPct >= TIER_UNLOCK_THRESHOLD
+    previousUnlocked = unlocked
+    previousPct = completion_pct
     return {
       tier,
       wiki_tasks,
@@ -315,6 +327,8 @@ export async function computeMilestones(uuid: string, profileId: string) {
       tasks_announced:  announcedByTier.get(tier) ?? null, // total annonce par le wiki lui-meme
       tasks_computable: computable.length,
       tasks_completed:  completed.length,
+      completion_pct,
+      unlocked,
     }
   })
 
