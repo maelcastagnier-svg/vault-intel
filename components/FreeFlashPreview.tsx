@@ -52,7 +52,7 @@ export default function FreeFlashPreview() {
             FREE PREVIEW
           </div>
           <div style={{ fontSize: 10.5, color: '#6b6960', marginTop: 4 }}>
-            Top 5 only, no live auction links. <a href="/#pricing" style={{ color: '#c9a84c' }}>Upgrade to Alert+</a> for the full 25-per-category live feed.
+            Top 5 only, no live auction links. <a href="/hypixel-skyblock#pricing" style={{ color: '#c9a84c' }}>Upgrade to Alert+</a> for the full 25-per-category live feed.
           </div>
         </div>
       </div>

@@ -7,7 +7,7 @@ export default function SiteNav() {
       <div className="nav-links">
         <Link href="/features">Features</Link>
         <Link href="/about">About</Link>
-        <Link href="/#pricing">Pricing</Link>
+        <Link href="/hypixel-skyblock#pricing">Pricing</Link>
         <Link href="/login" className="nav-cta">Sign in</Link>
       </div>
     </nav>

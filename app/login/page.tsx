@@ -84,7 +84,7 @@ export default function Login() {
         <div className="divider" />
         <div className="private-note">
           No account yet?<br />
-          <a href="/#pricing">Choose a plan to get access →</a>
+          <a href="/hypixel-skyblock#pricing">Choose a plan to get access →</a>
         </div>
         <Link href="/" className="back">← Back to home</Link>
       </div>

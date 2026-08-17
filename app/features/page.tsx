@@ -87,7 +87,7 @@ export default function Features() {
         </div>
 
         <p style={{ marginTop: '2.5rem' }}>
-          Ready to see it live? <Link href="/#pricing">Check pricing and get started →</Link>
+          Ready to see it live? <Link href="/hypixel-skyblock#pricing">Check pricing and get started →</Link>
         </p>
 
         <Link href="/" className="page-back">← Back to home</Link>

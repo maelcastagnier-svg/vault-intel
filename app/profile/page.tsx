@@ -194,7 +194,7 @@ export default function Profile() {
               {canceling ? 'Canceling...' : 'Cancel subscription'}
             </button>
           ) : (
-            <a href="/#pricing" className="btn-upgrade">Upgrade plan</a>
+            <a href="/hypixel-skyblock#pricing" className="btn-upgrade">Upgrade plan</a>
           )}
         </div>
 

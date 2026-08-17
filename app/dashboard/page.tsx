@@ -313,7 +313,7 @@ export default function Dashboard() {
             <div style={{ fontSize:24, marginBottom:12 }}>🔒</div>
             <div className="pixel" style={{ color:'#e8c063', fontSize:12, marginBottom:12 }}>UPGRADE REQUIRED</div>
             <div style={{ color:'#4a4a45', fontSize:12, marginBottom:20 }}>This section requires a higher plan.</div>
-            <a href="/#pricing" className="upgrade-btn">View plans</a>
+            <a href="/hypixel-skyblock#pricing" className="upgrade-btn">View plans</a>
           </div>
         ) : (
           <>

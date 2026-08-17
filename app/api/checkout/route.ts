@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${req.headers.get('origin')}/setup-account?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${req.headers.get('origin')}/#pricing`,
+      cancel_url: `${req.headers.get('origin')}/hypixel-skyblock#pricing`,
     })
     return NextResponse.json({ url: session.url })
   } catch (error: any) {
