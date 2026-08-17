@@ -73,6 +73,54 @@ gain pour l'instant, décision utilisateur) : `decodeItemBytes` utilise
 toucherait plusieurs points d'appel partagés — laissé en dette technique
 documentée plutôt que tenté à la légère sur le chemin le plus chaud du projet.
 
+## ✅ Audit général — volet sécurité/performance Supabase (17 août, Pluton clos)
+
+Première tranche de "audit général Vault+Pluton" (étape 4 de la séquence du 17
+août) : advisors Supabase (`security`+`performance`) réels, pas devinés.
+
+**Sécurité — 1 vraie faille corrigée** : `method_feedback_summary` (vue
+`SECURITY DEFINER`, gap connu documenté depuis le 22 juillet) bypassait
+toujours le RLS de `method_feedback` (0 policy dessus) — exploitable en direct
+via l'API REST publique (clé anon) en contournant entièrement le gating
+`requirePlan('pro')` de l'app Next.js, indépendamment de celle-ci. Sans impact
+réel tant que la table reste vide (vérifié : toujours 0 ligne), mais aurait
+fuité tout commentaire libre cross-user dès le premier vrai feedback. Corrigé
+par `ALTER VIEW ... SET (security_invoker = true)` — les 2 vrais consommateurs
+(`money-making-agent`, `/api/method/vote`) utilisent la service-role key donc
+aucune régression (RLS toujours bypassé pour eux), seul l'accès direct anon
+est maintenant bloqué comme prévu. Revérifié : `select * from
+method_feedback_summary` toujours fonctionnel côté service-role.
+
+**Vérifié et laissé tel quel (faux positifs / design intentionnel)** :
+`ah_live_free_preview`/`bazaar_1h_free_preview` (`SECURITY DEFINER`
+délibéré — c'est le mécanisme même du tier Free, exposent volontairement
+top-5/colonnes réduites en bypassant le RLS des tables payantes) ;
+`distinct_items` (expose seulement des `item_id`, déjà publics ailleurs,
+aucun risque réel) ; `has_plan()` (scopé `auth.email()`, jamais de fuite
+cross-user) ; `rls_auto_enable()` (event trigger — Postgres ne permet
+structurellement pas de l'invoquer via RPC malgré la permission EXECUTE
+listée par le linter).
+
+**28 fonctions durcies** (`search_path` fixé, même pattern que
+`pluton_rarity_to_tier`/`pluton_networth_to_tier` du 13 août) — migration
+`harden_function_search_paths`, liste complète dans l'historique de
+migrations Supabase.
+
+**Performance — 2 fixes réels** : doublon d'index sur `price_history_ah`
+(`idx_pah_bucket_date`, table à fort trafic — `ah-collect`/`ah-aggregate`
+écrivent dessus quotidiennement) supprimé. RLS `auth.email()`/`auth.uid()`
+non wrappés dans `(select ...)` sur `subscriptions`/`hypixel_account_links`
+(réévalués ligne par ligne) corrigés en initplan. **Laissé tel quel** :
+doublons d'index sur `kuudra_data`/`slayer_data` — tables stub Phase-0 déjà
+mortes (voir audit de clôture du 4 août), pas de bénéfice réel à toucher
+leurs contraintes UNIQUE ; 4 FK non indexées + 5 index jamais utilisés,
+niveau INFO seulement, pas de signal de problème réel constaté.
+
+**Reste hors SQL, action manuelle utilisateur** : `auth_leaked_password_
+protection` (protection HaveIBeenPwned) désactivée — se règle dans le
+dashboard Supabase (Authentication → Providers → Password), pas via
+migration.
+
 ## ✅ Pluton — architecture v2 (element_type + gating), TERMINÉE (13-17 août)
 
 **Remplace l'architecture 7-tiers ci-dessous** — l'utilisateur a jugé le modèle "tier
