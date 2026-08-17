@@ -32,6 +32,91 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
+## 🚧 Audit général — nettoyage pont pricing/mécanique (17 août, en cours)
+
+Suite du volet sécurité/performance Supabase (section dédiée plus bas). Étape
+4 de la séquence du 17 août, poussée par la demande explicite : deux "ponts"
+logiques Supabase — **pricing** (collecte+buffer+historique, alimente Flash
+Alert/Radar/historique) et **mécanique** (base de Pluton+Haiku pour tout
+calcul dashboard) — doivent être automatisés dans toute leur forme, sans
+faille, sans table/route inutile.
+
+**Audit A/B/C/D/E mené via 3 agents Explore en parallèle (lecture seule)** +
+vérification directe de chaque trouvaille avant toute correction.
+
+**🔴 Corrections de sécurité appliquées** :
+- `test-skycofl-token` — fuite réelle des 10 premiers caractères de
+  `SKYCOFL_ACCOUNT_TOKEN` sans authentification, route de debug oubliée en
+  prod. **Supprimée.**
+- `item-history`/`item-search` — bypass total du gating Pro+ (clé
+  service-role, aucune vérification de plan) malgré 0 appelant frontend
+  actuel. Font partie du pont pricing (alimentent "l'historique de prix" —
+  confirmé nécessaire par l'utilisateur), donc **gatées `requirePlan('pro')`**
+  plutôt que supprimées. `item-history` étend au passage la variante "base"
+  (`price_history_ah_variant_base`), jamais exposée jusqu'ici alors que
+  exact/blended l'étaient déjà.
+- `skycofl-ah-import`/`skycofl-import` — aucune vérification d'accès
+  (contrairement aux routes sœurs `init-ah-import`/`admin/build-id-mapping`
+  qui vérifient `Bearer CRON_SECRET`) — même garde ajoutée.
+
+**🔴 2 bugs "status=success" trompeurs corrigés (même cause racine : `error`
+jamais vérifiée sur un appel Supabase)** :
+- `update-catalog` — `supabase.rpc('get_all_catalog_items')` échouait
+  silencieusement, `items_catalog.updated_at` figé depuis le 30 juillet
+  malgré un "success" chaque nuit. `error` désormais vérifiée + catalogue
+  vide = échec explicite.
+- `data-retention` — DELETE monolithique sur `price_history_ah` (1,5M lignes
+  en retard de purge, 45% de la table) et `price_history` (296 lignes)
+  retombait en erreur PostgREST jamais lue. Remplacé par un DELETE par lots
+  via 2 nouvelles fonctions SQL (`delete_old_price_history_ah`,
+  `delete_old_price_history_by_bucket_date`, même pattern LIMIT+boucle que
+  `delete_old_price_history` déjà existante).
+
+**🟡 Nettoyage code mort** : `debug-boss-kills` (reliquat de debug),
+`refresh-variant-stats`/`backfill-variant-stats` (référencent une
+RPC/table — `item_variant_price_stats` — qui n'existe plus, ancienne
+architecture) — **3 routes supprimées**. Table `accessories` (0 ligne,
+doublon structurel d'`accessory_powers`) — **supprimée**. 6 tables 0-ligne/
+0-référence/0-cron remplacées par une architecture plus récente et réelle —
+**supprimées** : `bazaar_5min`/`bazaar_aggregates` (→ `bazaar_1h`+agrégation
+réelle), `game_context` (→ `get_full_context()`), `loot_tables` (→
+`crystal_hollows_loot`/`sea_creature_pools`/etc.), `bestiary_milestones`
+(→ `bestiary_mobs`/`bestiary_brackets`), `events_calendar` (→
+`skyblock_news`/`skyblock_mayor_election`/`skyblock_bingo_events`).
+**Gardées, décision explicite de l'utilisateur** : `claude_insights`,
+`claude_predictions`, `craft_arbitrage`, `market_anomalies`, `player_builds`,
+`reddit_signals` — 0 ligne aussi mais aucune remplaçante identifiée,
+traitées comme des idées de roadmap jamais tranchées plutôt que du legacy.
+`app/api/player/money-making` (route complète, jamais appelée par le
+frontend, contredit la note "remplacé par Evolve Skills") — **gardée**,
+décision explicite de l'utilisateur, redevient un vrai manque frontend à
+documenter plutôt qu'à supprimer.
+
+**✅ Pont mécanique — trou d'automatisation trouvé et fermé** :
+`lib/pluton-mining.ts` (formules Ruby/Topaz/Jasper validées le 5 août)
+n'était importé par AUCUNE route — le calcul initial avait été fait une fois
+via une route de debug puis jamais rebranché. `pluton_setups`/
+`pluton_rankings` (`activity_key='mining'`) n'avaient plus été recalculées
+depuis 12 jours, `real_cost`/`coins_per_hour` figés sur des prix d'il y a
+12 jours. Nouveau cron `pluton-mining-refresh` (quotidien 4h30) — rejoue
+exactement `computeAndPersistAllMiningRankings()` déjà validée
+(DELETE-puis-rebuild scopé à `activity_key='mining'`, aucune formule
+modifiée). La généralisation complète du moteur de calcul (Phase C,
+`PLUTON-ARCHITECTURE.md`) et les 5 autres activités (Farming/Foraging/
+Fishing/Slayer/Dungeons) restent un chantier séparé, pas fait ici — ce
+cron ferme uniquement le trou d'automatisation trouvé par l'audit.
+
+**⚠️ Incident externe pendant cette phase** : panne partielle GitHub
+(`githubstatus.com`, composants Webhooks/API Requests en `degraded_
+performance`) le 17 août après-midi — les push `git` vers `master`
+continuent de réussir mais le webhook GitHub→Vercel ne déclenche plus les
+builds automatiquement. Commits `769b90d` (nettoyage pont pricing) et
+`8af3894` (cron `pluton-mining-refresh`) poussés mais pas encore déployés
+au moment de la rédaction — **routes de debug temporaires déjà en place**
+(`trigger-update-catalog`, `trigger-data-retention`,
+`trigger-pluton-mining-refresh`) pour vérifier les 3 fixes dès que le
+déploiement reprend, à supprimer après vérification comme d'habitude.
+
 ## ✅ Calibrage crons + optimisation coûts (17 août, après Pluton)
 
 Étapes 2 et 3 de la séquence actée par l'utilisateur le 17 août.
