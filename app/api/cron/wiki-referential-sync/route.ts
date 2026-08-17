@@ -535,7 +535,7 @@ async function syncSackTiers(): Promise<number> {
   return rows.length
 }
 
-async function syncTrapperPelts(): Promise<number> {
+export async function syncTrapperPelts(): Promise<number> {
   const content = await getWikiContent(supabase, 'pelts')
 
   const modIdx = content.indexOf('|+Modifiers')
@@ -545,7 +545,13 @@ async function syncTrapperPelts(): Promise<number> {
   if (!modBody) throw new Error('pelts: wikitable "Modifiers" introuvable')
   const modRows = parseRowspanTable(modBody, 2)
     .map(r => {
-      const nameMatch = r[0].match(/\{\{ID\|([^}]+)\}\}/)
+      // Page "Pelts" du wiki passee de {{ID|...}} a {{Item|...}} entre le 10 et
+      // le 15 aout (regression reelle trouvee via sync_log -- trapper_pelts en
+      // echec, "0 modificateurs extraits" alors que la table existe toujours).
+      // Accepte les deux gabarits, ce n'est pas un renommage global (verifie --
+      // les ~60 autres sous-syncs de ce cron utilisant {{ID|...}} ce meme run
+      // sont tous restes en succes).
+      const nameMatch = r[0].match(/\{\{(?:ID|Item)\|([^}|]+)\}\}/)
       return { item_name: nameMatch ? nameMatch[1].trim() : '', effect: stripColorTemplate(r[1]) }
     })
     .filter(r => r.item_name && r.effect)
