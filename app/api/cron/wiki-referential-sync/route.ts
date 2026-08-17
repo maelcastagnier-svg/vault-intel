@@ -535,7 +535,7 @@ async function syncSackTiers(): Promise<number> {
   return rows.length
 }
 
-export async function syncTrapperPelts(): Promise<number> {
+async function syncTrapperPelts(): Promise<number> {
   const content = await getWikiContent(supabase, 'pelts')
 
   const modIdx = content.indexOf('|+Modifiers')
