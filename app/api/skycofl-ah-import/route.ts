@@ -10,6 +10,9 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
+  if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   try {
     const { tag, accountToken, startUnix, endUnix } = await req.json();
 

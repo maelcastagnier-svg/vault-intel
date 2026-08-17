@@ -1,7 +1,10 @@
 // app/api/item-search/route.ts
+// Autocomplete pour l'historique de prix (pont pricing) -- gated Pro+, meme
+// plan que item-history/price_history/price_history_ah.
 // 2 queries seulement : starts-with (priorité) + contains (secondaire)
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requirePlan } from '../../../lib/get-plan'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,6 +15,9 @@ const toLabel = (id: string) =>
   id.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
 
 export async function GET(req: NextRequest) {
+  const gate = await requirePlan('pro')
+  if (!gate.ok) return gate.response
+
   const { searchParams } = new URL(req.url)
   const q     = searchParams.get('q') || ''
   const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 50)

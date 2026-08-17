@@ -1,10 +1,14 @@
 // app/api/item-history/route.ts
-// Historique de prix :
-// Bazaar  → price_history (DAILY)
-// AH row  → price_history_ah (DAILY, prix moyen toutes variantes)
-// AH vars → price_history_ah_variants (DAILY_EXACT, prix par variante NBT)
+// Historique de prix -- fait partie du pont pricing (collecte -> buffer ->
+// agregation -> Flash Alert/Radar/historique), gated Pro+ comme le reste de
+// ce pont (meme plan que la RLS has_plan('pro') sur price_history/price_history_ah).
+// Bazaar   → price_history (DAILY)
+// AH blend → price_history_ah (DAILY, prix moyen toutes variantes)
+// AH exact → price_history_ah_variants (DAILY_EXACT, prix par variante NBT complete)
+// AH base  → price_history_ah_variant_base (DAILY, prix par variante etoiles+recomb sans reforge)
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requirePlan } from '../../../lib/get-plan'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,11 +20,15 @@ const PERIOD_DAYS: Record<string, number> = {
 }
 
 export async function GET(req: NextRequest) {
+  const gate = await requirePlan('pro')
+  if (!gate.ok) return gate.response
+
   const { searchParams } = new URL(req.url)
   const item_id = searchParams.get('item_id')
   const source  = searchParams.get('source') || 'bazaar'
   const period  = searchParams.get('period')  || '1M'
   const variant = searchParams.get('variant') || null
+  const tier    = searchParams.get('tier')    || 'exact' // 'exact' | 'base'
 
   if (!item_id) return NextResponse.json({ error: 'item_id required' }, { status: 400 })
 
@@ -50,7 +58,30 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  // ── AH avec variante spécifique ───────────────────────────────
+  // ── AH variante "base" (étoiles+recomb, sans reforge) ──────────
+  if (variant && variant !== 'all' && tier === 'base') {
+    const { data } = await supabase
+      .from('price_history_ah_variant_base')
+      .select('bucket_date, avg_price, min_price, max_price, volume, data_points')
+      .eq('base_item_id', item_id)
+      .eq('variant_key_base', variant)
+      .gt('avg_price', 0)
+      .gte('bucket_date', startDate)
+      .order('bucket_date', { ascending: true })
+
+    return NextResponse.json({
+      item_id, source: 'ah', period, variant, tier: 'base',
+      data: (data || []).map(d => ({
+        date:      d.bucket_date,
+        avg_price: Number(d.avg_price),
+        min_price: Number(d.min_price),
+        max_price: Number(d.max_price),
+        volume:    Number(d.volume),
+      }))
+    })
+  }
+
+  // ── AH avec variante spécifique (exact) ────────────────────────
   if (variant && variant !== 'all') {
     // Cherche dans price_history_ah_variants
     let q = supabase
@@ -70,7 +101,7 @@ export async function GET(req: NextRequest) {
         .eq('variant_key', variant)
 
       return NextResponse.json({
-        item_id, source: 'ah', period, variant,
+        item_id, source: 'ah', period, variant, tier: 'exact',
         data: (scanData || []).map(d => ({
           date:      d.last_scan_at,
           avg_price: Number(d.avg_price),
@@ -85,7 +116,7 @@ export async function GET(req: NextRequest) {
     const { data } = await q
 
     return NextResponse.json({
-      item_id, source: 'ah', period, variant,
+      item_id, source: 'ah', period, variant, tier: 'exact',
       data: (data || []).map(d => ({
         date:      d.bucket_date,
         avg_price: Number(d.avg_price),
@@ -108,16 +139,26 @@ export async function GET(req: NextRequest) {
     .gt('avg_price', 0)
     .order('bucket_date', { ascending: true })
 
-  // Variantes disponibles depuis price_history_ah_variants
-  const { data: variantRows } = await supabase
-    .from('price_history_ah_variants')
-    .select('variant_key, data_points')
-    .eq('base_item_id', item_id)
-    .gt('avg_price', 0)
+  // Variantes disponibles -- exact (price_history_ah_variants) ET base
+  // (price_history_ah_variant_base), les deux exposées ensemble.
+  const [{ data: variantRows }, { data: baseRows }] = await Promise.all([
+    supabase.from('price_history_ah_variants')
+      .select('variant_key, data_points')
+      .eq('base_item_id', item_id)
+      .gt('avg_price', 0),
+    supabase.from('price_history_ah_variant_base')
+      .select('variant_key_base, data_points')
+      .eq('base_item_id', item_id)
+      .gt('avg_price', 0),
+  ])
 
   const variantMap = new Map<string, number>()
   for (const r of variantRows || []) {
     variantMap.set(r.variant_key, (variantMap.get(r.variant_key) || 0) + r.data_points)
+  }
+  const baseMap = new Map<string, number>()
+  for (const r of baseRows || []) {
+    baseMap.set(r.variant_key_base, (baseMap.get(r.variant_key_base) || 0) + r.data_points)
   }
 
   const variants = Array.from(variantMap.entries())
@@ -128,12 +169,17 @@ export async function GET(req: NextRequest) {
     })
     .map(([key, points]) => ({ key, data_points: points }))
 
+  const baseVariants = Array.from(baseMap.entries())
+    .sort(([, av], [, bv]) => bv - av)
+    .map(([key, points]) => ({ key, data_points: points }))
+
   return NextResponse.json({
     item_id,
     source: 'ah',
     period,
     variant: 'all',
     available_variants: variants,
+    available_base_variants: baseVariants,
     data: (rowData || []).map(d => ({
       date:      d.bucket_date,
       avg_price: Number(d.avg_price),
