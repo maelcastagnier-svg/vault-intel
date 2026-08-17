@@ -106,10 +106,32 @@ async function runExtractionPhase() {
     .limit(2000)
   if (error) throw new Error('extraction: fetch new pages: ' + error.message)
 
+  // Resumabilite reelle independante du watermark : maxDuration=300 tue
+  // l'invocation avant finishSync des qu'un run depasse le budget (deja observe
+  // en testant), donc le watermark (qui n'avance que sur un succes complet) ne
+  // suffit pas seul a eviter un rescan du meme residu. Skip explicite de toute
+  // page deja presente dans wiki_table_extract OU wiki_haiku_extract, comme
+  // filet de securite systematique (meme doctrine "doneKeys" que partout
+  // ailleurs dans ce projet).
+  const alreadyExtracted = new Set<number>()
+  for (let offset = 0; ; offset += 1000) {
+    const { data } = await supabase.from('wiki_table_extract').select('game_mechanics_misc_id').range(offset, offset + 999)
+    if (!data || data.length === 0) break
+    for (const r of data) alreadyExtracted.add(r.game_mechanics_misc_id)
+    if (data.length < 1000) break
+  }
+  for (let offset = 0; ; offset += 1000) {
+    const { data } = await supabase.from('wiki_haiku_extract').select('game_mechanics_misc_id').range(offset, offset + 999)
+    if (!data || data.length === 0) break
+    for (const r of data) alreadyExtracted.add(r.game_mechanics_misc_id)
+    if (data.length < 1000) break
+  }
+
   let b1Pages = 0, b1Rows = 0, b2Pages = 0, b2Cost = 0
   const errors: Array<{ page: string; error: string }> = []
 
   for (const page of newPages ?? []) {
+    if (alreadyExtracted.has(page.id)) continue
     const title = (page.value as any)?.title ?? page.key
     const content = (page.value as any)?.content ?? ''
     if (!content || content.length < 500) continue // meme seuil que B1/B2 d'origine
@@ -129,7 +151,18 @@ async function runExtractionPhase() {
           extraction_method: r.extractionMethod,
         }))
         for (let i = 0; i < insertRows.length; i += 500) {
-          const { error: insErr } = await supabase.from('wiki_table_extract').insert(insertRows.slice(i, i + 500))
+          // upsert(ignoreDuplicates) plutot qu'insert() nu -- une invocation qui
+          // n'avance pas le watermark (ex: retest hors du vrai handler cron, qui
+          // seul appelle startSync/finishSync) ne doit jamais faire remonter des
+          // erreurs 23505 en boucle sur un rescan du meme residu. Meme contrainte
+          // unique (game_mechanics_misc_id, section_heading, tab_name, table_index,
+          // row_index) protegeait deja contre une vraie duplication en base, mais
+          // gaspillait du calcul/du bruit de log a chaque retry avant ce fix.
+          const { error: insErr } = await supabase.from('wiki_table_extract')
+            .upsert(insertRows.slice(i, i + 500), {
+              onConflict: 'game_mechanics_misc_id,section_heading,tab_name,table_index,row_index',
+              ignoreDuplicates: true,
+            })
           if (insErr) errors.push({ page: title, error: insErr.message })
         }
         b1Pages++
@@ -138,7 +171,7 @@ async function runExtractionPhase() {
         // B1 n'a rien trouve -- dernier recours Haiku (B2)
         const { parsed, inputTokens, outputTokens } = await callHaikuB2(title, content)
         b2Cost += (inputTokens / 1_000_000) * 1.0 + (outputTokens / 1_000_000) * 5.0
-        await supabase.from('wiki_haiku_extract').insert({
+        await supabase.from('wiki_haiku_extract').upsert({
           game_mechanics_misc_id: page.id,
           page_title: title,
           extractable: !!parsed.extractable,
@@ -146,7 +179,7 @@ async function runExtractionPhase() {
           model: 'claude-haiku-4-5',
           input_tokens: inputTokens,
           output_tokens: outputTokens,
-        })
+        }, { onConflict: 'game_mechanics_misc_id', ignoreDuplicates: true })
         b2Pages++
       }
     } catch (e: any) {
