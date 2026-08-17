@@ -19,6 +19,7 @@
     { "path": "/api/cron/discovery-scan",        "schedule": "0 4 * * *"   },
     { "path": "/api/cron/wiki-referential-sync", "schedule": "45 5 * * 1" },
     { "path": "/api/cron/skyhanni-repo-sync",    "schedule": "0 6 * * 1"  },
-    { "path": "/api/cron/pluton-weekly-sync",    "schedule": "15 5 * * 1" }
+    { "path": "/api/cron/pluton-weekly-sync",    "schedule": "15 5 * * 1" },
+    { "path": "/api/cron/pluton-mining-refresh", "schedule": "30 4 * * *"  }
   ]
 }
