@@ -2,7 +2,7 @@
 // Lundi 6h UTC — analyse comparative + bibliothèque + feedback communautaire
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { TIER_CONFIG, GAME_TRUTHS, type TierConfig } from '../../../../lib/money-making-constants'
+import { GAME_TRUTHS, buildSevenTierConfig, type SevenTierConfig, type MilestoneTierRow } from '../../../../lib/money-making-constants'
 import { startSync, finishSync } from '../../../../lib/sync-log'
 
 export const maxDuration = 120
@@ -56,7 +56,7 @@ function formatContext(ctx: any, existingMethods: any[], feedbackData: any[]): s
 }
 
 // ─── Prompt ──────────────────────────────────────────────────
-function buildPrompt(tier: string, config: TierConfig): string {
+function buildPrompt(tier: string, config: SevenTierConfig): string {
   const gearBudget = config.max_gear_cost >= 1_000_000_000
     ? (config.max_gear_cost / 1_000_000_000).toFixed(0) + 'B'
     : (config.max_gear_cost / 1_000_000).toFixed(0) + 'M'
@@ -176,12 +176,16 @@ async function saveToLibrary(methods: any[], tier: string, bazaarSnapshot: any[]
 export async function runMoneyMakingAgent(tiersFilter?: string[]) {
   const logId = await startSync('money-making-agent')
   try {
-    // Charge contexte + bibliothèque + feedback
-    const [{ data: ctx }, { data: existingMethods }, { data: feedbackData }] = await Promise.all([
+    // Charge contexte + bibliothèque + feedback + les 7 tiers réels
+    // (milestone_tier_totals -- même référentiel que Milestones, plus les 4
+    // bandes TIER_CONFIG codées en dur -- voir buildSevenTierConfig).
+    const [{ data: ctx }, { data: existingMethods }, { data: feedbackData }, { data: tierRows }] = await Promise.all([
       supabase.rpc('get_full_context'),
       supabase.from('money_making_methods').select('*').eq('status', 'active').order('last_validated_at', { ascending: false }),
       supabase.from('method_feedback_summary').select('*'),
+      supabase.from('milestone_tier_totals').select('tier, tier_order, networth_min, networth_max, money_making_tier_key').order('tier_order'),
     ])
+    if (!tierRows || tierRows.length === 0) throw new Error('milestone_tier_totals vide -- impossible de construire les 7 tiers')
 
     const context = formatContext(
       ctx,
@@ -189,9 +193,10 @@ export async function runMoneyMakingAgent(tiersFilter?: string[]) {
       feedbackData    || []
     )
 
+    const sevenTiers = buildSevenTierConfig(tierRows as MilestoneTierRow[])
     const tierEntries = tiersFilter
-      ? Object.entries(TIER_CONFIG).filter(([tier]) => tiersFilter.includes(tier))
-      : Object.entries(TIER_CONFIG)
+      ? Object.entries(sevenTiers).filter(([tier]) => tiersFilter.includes(tier))
+      : Object.entries(sevenTiers)
 
     const results = await Promise.all(
       tierEntries.map(async ([tier, config]) => {

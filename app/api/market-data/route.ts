@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getUserPlan } from '../../../lib/get-plan'
 import { filterMoneyMaking, filterPatchAnalysisContent, filterPatchInsight } from '../../../lib/gate-content'
+import { SEVEN_TIER_KEYS } from '../../../lib/money-making-constants'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,8 +21,7 @@ export async function GET() {
 
   const sections = [
     'flash_alerts', 'ah_sniper', 'patch_analysis', 'radar',
-    'money_making_early', 'money_making_mid',
-    'money_making_end', 'money_making_late'
+    ...SEVEN_TIER_KEYS.map(t => `money_making_${t}`),
   ]
   const raw: Record<string, string> = {}
 
@@ -58,7 +58,7 @@ export async function GET() {
   }
 
   // Money Making — reserve Pro+, Vault Exclusive en plus reserve Elite
-  for (const tier of ['early', 'mid', 'end', 'late']) {
+  for (const tier of SEVEN_TIER_KEYS) {
     const key = `money_making_${tier}`
     if (!isPro) { result[key] = ''; continue }
     try {

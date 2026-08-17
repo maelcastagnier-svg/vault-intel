@@ -8,24 +8,34 @@ type AnyMethod = Record<string, any>
 type Setup = Record<string, any>
 type FeedbackData = { positive: number; negative: number; total: number; approval_pct: number | null }
 
-// Gemstone identity per tier — early->late reads as Emerald -> Amethyst -> Ruby -> the
-// site's own Gold, so reaching Late "becomes" the Vault's own color instead of a 5th
-// arbitrary hue. `bright` is the glint/glow variant (same base+bright pattern as
-// --gold/--gold-bright in globals.css).
+// Gemstone identity per tier — 7 tiers réels (vision V1, 17 août), remplace les 4
+// bandes early/mid/end/late. Chaque paire adjacente qui partage la même bande de
+// mécaniques réelle (Starter+Amateur=early, Intermediate+Skilled=mid,
+// Expert+Professional=end) garde la même famille de couleur/gemme — teinte plus
+// claire pour le premier de la paire — pour que la couleur communique visuellement
+// la vraie structure (même accès mécaniques, budget différent), pas un arc-en-ciel
+// arbitraire. Master reste seul sur l'or, la couleur du site lui-même, comme avant.
 const TIERS = [
-  { key:'early', label:'Early', emoji:'🌱', target:'10M/h', color:'#0e8f5c', bright:'#2ecc8f', desc:'0-50M networth' },
-  { key:'mid',   label:'Mid',   emoji:'⚔️', target:'25M/h', color:'#7d4fb0', bright:'#b47eea', desc:'50-500M networth' },
-  { key:'end',   label:'End',   emoji:'🔥', target:'50M/h', color:'#a5222e', bright:'#e0485a', desc:'500M-5B networth' },
-  { key:'late',  label:'Late',  emoji:'👑', target:'70M+/h',color:'#8a6e2f', bright:'#e8c063', desc:'5B+ networth' },
+  { key:'starter',      label:'Starter',      emoji:'🌱', target:'1M/h',   color:'#3fae7c', bright:'#7be0b0', desc:'0-5M networth' },
+  { key:'amateur',      label:'Amateur',      emoji:'🌿', target:'10M/h',  color:'#0e8f5c', bright:'#2ecc8f', desc:'5-50M networth' },
+  { key:'intermediate', label:'Intermediate', emoji:'⚜️', target:'8M/h',   color:'#9a72c9', bright:'#c7a3ef', desc:'50-150M networth' },
+  { key:'skilled',      label:'Skilled',      emoji:'⚔️', target:'25M/h',  color:'#7d4fb0', bright:'#b47eea', desc:'150-500M networth' },
+  { key:'expert',       label:'Expert',       emoji:'🔺', target:'15M/h',  color:'#c2515c', bright:'#ea7885', desc:'500M-1.5B networth' },
+  { key:'professional', label:'Professional', emoji:'🔥', target:'50M/h',  color:'#a5222e', bright:'#e0485a', desc:'1.5B-5B networth' },
+  { key:'master',       label:'Master',       emoji:'👑', target:'70M+/h', color:'#8a6e2f', bright:'#e8c063', desc:'5B+ networth' },
 ]
 
-// One faceted silhouette per tier via clip-path, so the four buttons read as distinct
-// gem/ingot cuts instead of four identical rectangles with a swapped border color.
+// Une silhouette par famille de gemme (partagée par paire, voir ci-dessus) via
+// clip-path, pour que les boutons lisent comme de vraies coupes de gemme/lingot
+// plutôt que 7 rectangles identiques avec juste la couleur qui change.
 const TIER_CLIP: Record<string,string> = {
-  early: 'polygon(10% 0, 90% 0, 100% 10%, 100% 90%, 90% 100%, 10% 100%, 0 90%, 0 10%)', // emerald cut — all 4 corners trimmed
-  mid:   'polygon(50% 0%, 100% 9%, 100% 100%, 0% 100%, 0% 9%)',                          // amethyst crystal point
-  end:   'polygon(0 0, 100% 0, 100% 80%, 80% 100%, 0 100%)',                              // ruby — single sliced corner, asymmetric
-  late:  'polygon(7% 0, 93% 0, 100% 12%, 100% 100%, 0% 100%, 0% 12%)',                    // gold ingot — beveled top corners
+  starter:      'polygon(10% 0, 90% 0, 100% 10%, 100% 90%, 90% 100%, 10% 100%, 0 90%, 0 10%)', // emerald cut — all 4 corners trimmed
+  amateur:      'polygon(10% 0, 90% 0, 100% 10%, 100% 90%, 90% 100%, 10% 100%, 0 90%, 0 10%)',
+  intermediate: 'polygon(50% 0%, 100% 9%, 100% 100%, 0% 100%, 0% 9%)',                          // amethyst crystal point
+  skilled:      'polygon(50% 0%, 100% 9%, 100% 100%, 0% 100%, 0% 9%)',
+  expert:       'polygon(0 0, 100% 0, 100% 80%, 80% 100%, 0 100%)',                              // ruby — single sliced corner, asymmetric
+  professional: 'polygon(0 0, 100% 0, 100% 80%, 80% 100%, 0 100%)',
+  master:       'polygon(7% 0, 93% 0, 100% 12%, 100% 100%, 0% 100%, 0% 12%)',                    // gold ingot — beveled top corners
 }
 
 const SKILL_ICONS: Record<string, string> = {
@@ -307,7 +317,7 @@ function MethodCard({ method, tier, accentColor, type }: {
 export default function MoneyMakingSection({ marketData, dataLoading }: {
   marketData: Record<string,string>; dataLoading: boolean
 }) {
-  const [mmTier, setMmTier] = useState('early')
+  const [mmTier, setMmTier] = useState('starter')
   const tier = TIERS.find(t=>t.key===mmTier)||TIERS[0]
 
   let active: AnyMethod[] = [], vault: AnyMethod[] = [], summary = ''

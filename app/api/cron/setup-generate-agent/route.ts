@@ -4,7 +4,7 @@
 // Claude fournit du TEXTE uniquement — le visuel est géré par React
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { TIER_CONFIG } from '../../../../lib/money-making-constants'
+import { buildSevenTierConfig, type MilestoneTierRow, type SevenTierConfig } from '../../../../lib/money-making-constants'
 import { ULTIMATE_ENCHANTS } from '../../../../lib/skyblock-item-decoder'
 import {
   type PricedItem, loadPricedItems, matchesExact, bestArmorPiecesForSet, formatCoins,
@@ -356,12 +356,17 @@ export async function runSetupGenerateAgent(tiersFilter?: string[]) {
       return { error: msg }
     }
 
-    const [{ data: ctx }, pricedItems, activityGear] = await Promise.all([
+    const [{ data: ctx }, pricedItems, activityGear, { data: tierRows }] = await Promise.all([
       supabase.rpc('get_full_context'),
       loadPricedItems(),
       loadActivityGearCategories(),
+      supabase.from('milestone_tier_totals').select('tier, tier_order, networth_min, networth_max, money_making_tier_key').order('tier_order'),
     ])
     const baseWikiContext = buildWikiContext(ctx) + '\n' + GROUNDING_RULES
+    // 7 tiers reels (meme construction que money-making-agent) -- necessaire ici
+    // pour retrouver max_gear_cost par tier, TIER_CONFIG seul n'a que les 4
+    // bandes early/mid/end/late, pas les cles starter/amateur/etc.
+    const sevenTiers: Record<string, SevenTierConfig> = tierRows ? buildSevenTierConfig(tierRows as MilestoneTierRow[]) : {}
 
     // Tiers traités en parallèle (comme money-making-agent) -- l'ancienne boucle
     // séquentielle (4 tiers x ~8 batches de 3 méthodes chacun, avec plusieurs
@@ -374,13 +379,13 @@ export async function runSetupGenerateAgent(tiersFilter?: string[]) {
     // sûr à paralléliser -- même pattern que money-making-agent. maxDuration
     // relevé à 300 (plafond Vercel Pro) en filet de sécurité supplémentaire.
     const tierResults = await Promise.all(analyses.map(async (analysis) => {
-      const tier = analysis.section.replace('money_making_', '') as keyof typeof TIER_CONFIG
+      const tier = analysis.section.replace('money_making_', '')
       let tierData: any
       try { tierData = JSON.parse(analysis.content) } catch { return { ok: 0, fail: 0 } }
 
       const methods: any[] = [...(tierData.active || []), ...(tierData.vault || [])]
 
-      const tierConfig = TIER_CONFIG[tier]
+      const tierConfig = sevenTiers[tier]
       // Contexte système spécifique au tier (wiki partagé + catalogue budgé) —
       // cache actif dès le 2e appel du MÊME tier, pas across-tier (le catalogue
       // change de bande de prix par tier, donc le cache ne peut pas être partagé
