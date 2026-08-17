@@ -32,7 +32,7 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
-## 🚧 Pluton — architecture v2 (element_type + gating), EN COURS, reprise ici (13-14 août)
+## ✅ Pluton — architecture v2 (element_type + gating), TERMINÉE (13-17 août)
 
 **Remplace l'architecture 7-tiers ci-dessous** — l'utilisateur a jugé le modèle "tier
 seul" trop mélangé (items/mécaniques/XP/mob data tous dans la même table, impossible
@@ -84,44 +84,46 @@ XP cumulé `cumulative_xp/xp_total_max`, pas le ratio niveau brut utilisé par e
 et `game_drops` (203 lignes, zone-based) migrées aussi — total post-référence : 36 598
 lignes, 152 source_table distinctes, 0 doublon.
 
-**🚧 Contenu wiki EN COURS (`wiki_table_extract`, pause le 17 août)** — route
-`app/api/debug/trigger-elements-classify-wte/route.ts` créée et déployée, même
-double-jugement (element_type + gating) mais au niveau PAGE (un jugement Haiku par page,
-appliqué à toutes ses lignes résiduelles). **1 vrai bug de perf trouvé et corrigé en
-route** : la boucle faisait un `upsert()` individuel par ligne (potentiellement des
-centaines de round-trips DB par page) — sur 137 641 lignes au total ça aurait pris des
-dizaines d'heures cumulées. Corrigé en upsert par lots de 500 (même garantie
-`ON CONFLICT ignoreDuplicates`), gain de vitesse énorme confirmé (de ~1700-1900
-lignes/round à 200 pages traitées sans même toucher le timeout de 300s).
+**✅ Contenu wiki terminé (17 août)** — `wiki_table_extract` : route
+`trigger-elements-classify-wte` (jugement Haiku par PAGE, appliqué à toutes ses lignes
+résiduelles). **1 vrai bug de perf trouvé et corrigé en route** : la boucle faisait un
+`upsert()` individuel par ligne (potentiellement des centaines de round-trips DB par
+page) — sur 137 641 lignes au total ça aurait pris des dizaines d'heures cumulées.
+Corrigé en upsert par lots de 500 (même garantie `ON CONFLICT ignoreDuplicates`), gain de
+vitesse énorme confirmé (de ~1700-1900 lignes/round à 400 pages/round sans timeout).
+**Terminé à 137 641/137 641 lignes (100%)** — 2 pages géantes (`Necromancy/List of Souls`
+3216 lignes, `SkyBlock Levels/Tasks` 3120 lignes) bloquaient le fetch par lot Haiku
+(`.in()` avec 3000+ ids) : classées manuellement en SQL direct plutôt que forcées dans le
+pipeline (raisonnement transparent, `classification_method='manual_v2'`).
 
-**État exact au moment de la pause (17 août)** : **99 233 lignes dans `pluton_elements`
-au total** (36 598 référence+skills+game_drops + 62 635 wiki_table_extract),
-**1615/3040 pages `wiki_table_extract` traitées (53%)**, 0 doublon (`distinct_keys` =
-`total`, vérifié), 0 erreur sur tous les runs.
+`wiki_haiku_extract` : route `trigger-elements-classify-whe`, même principe mais sur les
+`entries[]` déjà structurées par B2 (`source_label`/`stat_name_guess`/`bonus_raw`/
+`condition_note`) — moins cher, pas besoin de relire la page. **Terminé** (1157 pages
+résiduelles traitées, `remaining_after_this_run: 0`).
 
-**Pour reprendre, dans l'ordre** :
-1. Continuer `wiki_table_extract` : `curl -sS -m 310 "https://vault-intel-iota.vercel.app/api/debug/trigger-elements-classify-wte?limit=400"`,
-   vérifier progression via
-   `select count(*) from pluton_elements where source_table='wiki_table_extract';`
-   après chaque appel, jusqu'à `remaining_after_this_run: 0`. `limit=400` est le point
-   d'équilibre trouvé (600 timeout, 200 laisse du temps inutilisé).
-2. Une fois `wiki_table_extract` fini : construire la même route pour `wiki_haiku_extract`
-   (~5207 pages, entrées déjà structurées par B2 — `source_label`/`stat_name_guess`/
-   `bonus_raw`/`condition_note` — classification moins chère, pas besoin de relire la
-   page). Pas encore commencé.
-3. Vérifier l'ensemble (0 doublon global, cohérence element_type/tier, spot-check
-   qualité), **supprimer les 7 anciennes tables `pluton_tier_1_starter`..`_7_master`**
-   (gardées pour l'instant, ne rien casser en attendant la migration complète), supprimer
-   les 2 routes de debug (`trigger-elements-classify-ref`, `trigger-elements-classify-wte`).
-4. Rapport final à l'utilisateur — pas encore fait, ce chantier n'est PAS terminé.
+**État final vérifié en base** : **178 715 éléments dans `pluton_elements`**, 0 doublon
+(`distinct_keys = total`), **154 `source_table` distinctes** couvertes (150 tables de
+référence + `skills` + `game_drops` + `wiki_table_extract` + `wiki_haiku_extract`).
+Distribution `element_type` cohérente sur les 8 catégories — `item` 48 302 (24% gated),
+`mechanic_formula` 37 965 (27% gated), `mob_zone_data` 23 311 (24% gated),
+`progression_milestone` 19 043 (67% gated — logique, une milestone est presque toujours
+un vrai palier), `cosmetic` 18 817 (10% gated), `event_seasonal` 17 644 (14% gated),
+`general_mechanic` 12 897 (11% gated), `admin_excluded` 736 (**0% gated par construction**,
+vérifié). Total : 45 727 éléments gated (un vrai tier 1-7) / 132 988 non-gated (`NULL`,
+contenu universel/cosmétique/admin correctement exclu du modèle de progression plutôt que
+forcé par défaut).
 
-**Prochaine étape après ça, actée par l'utilisateur** : Pluton consomme `pluton_elements`
+**Nettoyage effectué** : les 7 tables `pluton_tier_1_starter`..`_7_master` (v1)
+supprimées, les 3 routes de debug (`trigger-elements-classify-ref`/`-wte`/`-whe`)
+supprimées après vérification finale.
+
+**Prochaine étape actée par l'utilisateur** : Pluton consomme `pluton_elements`
 pour Money Making (`WHERE tier<=N AND element_type='item'/'mechanic_formula'` + prix
 LIVE de `price_history_ah` recroisé au moment du calcul, jamais le prix figé dans
 `gate_reference`) et pour Evolve (diff données réelles joueur vs profil théorique
 `WHERE tier <= tier_joueur+1` → gap analysis).
 
-## ✅ Pluton — architecture 7-tiers de classification, SUPERSÉDÉE par l'architecture v2 ci-dessus (13 août)
+## ✅ Pluton — architecture 7-tiers de classification, SUPERSÉDÉE par l'architecture v2 ci-dessus, tables supprimées (13 août, remplacée le 17 août)
 
 Classification de toutes les sources référentielles (wiki + NEU-REPO/API) en 7 tables
 `pluton_tier_1_starter` → `pluton_tier_7_master`, mêmes bornes networth que
