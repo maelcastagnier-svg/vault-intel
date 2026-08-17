@@ -32,6 +32,47 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
+## ✅ Calibrage crons + optimisation coûts (17 août, après Pluton)
+
+Étapes 2 et 3 de la séquence actée par l'utilisateur le 17 août.
+
+**Calibrage crons** — audit des 20 crons actifs via `sync_log` réel (7 jours) :
+- **🔴 Bug réel trouvé+corrigé** : `wiki-referential-sync`/`trapper_pelts` en échec
+  ("0 modificateurs extraits") — la page wiki "Pelts" a changé son gabarit d'item
+  de `{{ID|...}}` vers `{{Item|...}}` entre le 10 et le 15 août (régression côté
+  source, pas côté code, confirmé en lisant le contenu wiki caché réel). Regex
+  élargi pour accepter les deux gabarits, vérifié en prod via route de debug
+  temporaire (8 lignes, mêmes valeurs qu'avant la régression), route supprimée.
+- `setup-generate-agent` partial (23/24) confirmé conforme au comportement
+  intermittent déjà documenté, pas une régression.
+- Pic `ah-collect` à 198.8s (7 jours) tracé à une fenêtre isolée le 11 août
+  (coïncide avec le déploiement de l'optimisation ce jour-là) — base saine sur
+  les dernières 24h (23.1s moyenne, 32.8s max, 0 erreur sur 1438 runs).
+- Chevauchements notés mais non corrigés faute de vrai problème observé :
+  `money-making-agent`/`patch-analysis-agent`/`skyhanni-repo-sync` à 6h lundi,
+  `setup-generate-agent`/`radar-agent` à 7h lundi — durées modestes, aucune
+  contention constatée.
+
+**Optimisation coûts** — audit du prompt caching Claude API sur les 6 routes
+faisant des appels directs à `api.anthropic.com` : `money-making-agent`,
+`setup-generate-agent`, `radar-agent`, `evolve-skills` l'avaient déjà (`system`
+en tableau + `cache_control:{type:'ephemeral'}`). **Vrai trou trouvé** :
+`pluton-weekly-sync` (construit le jour même) ne l'avait pas sur ses 2 boucles
+Haiku (`callHaikuB2`/`callHaikuClassify`, appelées une fois par page/lot de 25
+pages avec le même system prompt statique à chaque fois) — corrigé, même
+pattern. `patch-analysis-agent` vérifié SANS trou réel : ses 2 appels (Sonnet
+live + Haiku alpha) ont des system prompts et modèles différents, aucun
+préfixe partagé à mettre en cache.
+
+Côté Vercel : `ah-collect` reste de très loin le premier poste de coût
+(~55h/semaine même optimisé, contre <3h/semaine pour tout le reste combiné) —
+structurel à la fréquence 60s voulue par l'utilisateur, pas un bug. Levier
+restant identifié mais **délibérément pas touché** (risque jugé supérieur au
+gain pour l'instant, décision utilisateur) : `decodeItemBytes` utilise
+`gunzipSync` (bloquant CPU) au lieu d'un décodage async, refactor qui
+toucherait plusieurs points d'appel partagés — laissé en dette technique
+documentée plutôt que tenté à la légère sur le chemin le plus chaud du projet.
+
 ## ✅ Pluton — architecture v2 (element_type + gating), TERMINÉE (13-17 août)
 
 **Remplace l'architecture 7-tiers ci-dessous** — l'utilisateur a jugé le modèle "tier
@@ -173,11 +214,10 @@ LIVE de `price_history_ah` recroisé au moment du calcul, jamais le prix figé d
 `gate_reference`) et pour Evolve (diff données réelles joueur vs profil théorique
 `WHERE tier <= tier_joueur+1` → gap analysis) — le moteur de calcul SQL + le Haiku
 "instructeur" d'objectifs dashboard ne sont pas encore construits, prochaine étape
-réelle de Pluton. Puis, dans l'ordre acté par l'utilisateur le 17 août : calibrer les
-crons, optimiser à nouveau les coûts (Vercel + API Claude — prompt caching toujours pas
-implémenté sur les nouvelles routes), audit général Vault+Pluton, nettoyage complet +
-finalisation v1 prod, refonte frontend, 1 semaine de test réel sur le compte Hypixel de
-l'utilisateur, puis lancement.
+réelle de Pluton. Puis, dans l'ordre acté par l'utilisateur le 17 août : ~~calibrer les
+crons~~ ✅, ~~optimiser à nouveau les coûts~~ ✅ (voir section dédiée juste au-dessus),
+audit général Vault+Pluton (en cours), nettoyage complet + finalisation v1 prod, refonte
+frontend, 1 semaine de test réel sur le compte Hypixel de l'utilisateur, puis lancement.
 
 **✅ `ah-collect` optimisé côté coûts (17 août)** — identifié via données réelles
 (`mcp__vercel__get_runtime_logs` + `sync_log`, jamais deviné) comme le vrai poste de
