@@ -17,14 +17,22 @@ const supabase = createClient(
 // price_history_ah retombait en erreur PostgREST (timeout probable) jamais
 // verifiee (count coercé à 0 via `|| 0`, error jamais lu) -- le cron
 // rapportait "success" chaque nuit depuis des semaines sans jamais rien purger.
+// batch_limit 200000 timeoutait cote PostgREST (trouve en verifiant en prod le
+// 17 aout, apres avoir corrige le fix "error jamais lue" plus tot -- SELECT
+// rapide (~475ms une fois l'index/vacuum en place), mais la maintenance des
+// index pendant le DELETE de 200k lignes depassait le budget de la requete
+// RPC elle-meme). Reduit a 25000 -- plus d'iterations dans la meme boucle,
+// chaque appel individuel largement sous le timeout.
+const PURGE_BATCH_LIMIT = 25000
+
 async function purgeBatched(rpcName: string, cutoff: string, deadline: number): Promise<{ total: number; error?: string }> {
   let total = 0
   while (Date.now() < deadline) {
-    const { data, error } = await supabase.rpc(rpcName, { cutoff_date: cutoff, batch_limit: 200000 })
+    const { data, error } = await supabase.rpc(rpcName, { cutoff_date: cutoff, batch_limit: PURGE_BATCH_LIMIT })
     if (error) return { total, error: error.message }
     const deleted = (data as number) || 0
     total += deleted
-    if (deleted < 200000) break // lot incomplet = plus rien à purger
+    if (deleted < PURGE_BATCH_LIMIT) break // lot incomplet = plus rien à purger
   }
   return { total }
 }
