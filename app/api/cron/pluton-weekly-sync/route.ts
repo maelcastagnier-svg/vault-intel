@@ -277,9 +277,21 @@ async function callHaikuClassify(items: Array<{ index: number; text: string }>) 
 // trigger-elements-classify-wte (supprimee apres son usage le 17 aout).
 async function classifyWikiTableExtractResidual(deadline: number, doneWte: Set<string>) {
   let rows = 0, cost = 0
-  const { data: lightRows } = await supabase.from('wiki_table_extract').select('id, game_mechanics_misc_id, page_title')
+  // select() sans .range() plafonne silencieusement a ~1000 lignes cote
+  // PostgREST -- sur ~140k lignes ca ratait tout residu au-dela des 1000
+  // premieres (meme piege de troncature deja rencontre ailleurs sur ce
+  // projet). Pagine explicitement comme runClassificationPhase le fait deja
+  // pour pluton_elements (bug trouve le 17 aout : un run a rendu
+  // wte_rows:0 alors qu'un residu de 2307 lignes existait reellement).
+  const lightRows: Array<{ id: number; game_mechanics_misc_id: number; page_title: string }> = []
+  for (let offset = 0; ; offset += 1000) {
+    const { data } = await supabase.from('wiki_table_extract').select('id, game_mechanics_misc_id, page_title').range(offset, offset + 999)
+    if (!data || data.length === 0) break
+    lightRows.push(...data)
+    if (data.length < 1000) break
+  }
   const byPage = new Map<string, { title: string; ids: number[] }>()
-  for (const r of lightRows ?? []) {
+  for (const r of lightRows) {
     if (doneWte.has(String(r.id))) continue
     const key = `${r.game_mechanics_misc_id}::${r.page_title}`
     if (!byPage.has(key)) byPage.set(key, { title: r.page_title, ids: [] })
@@ -339,10 +351,18 @@ async function classifyWikiTableExtractResidual(deadline: number, doneWte: Set<s
 // trigger-elements-classify-whe.
 async function classifyWikiHaikuExtractResidual(deadline: number, doneWhe: Set<string>) {
   let rows = 0, cost = 0
-  const { data: pages } = await supabase.from('wiki_haiku_extract').select('id, page_title, entries').eq('extractable', true).is('error', null)
+  // Meme piege de troncature ~1000 lignes que classifyWikiTableExtractResidual
+  // (wiki_haiku_extract a ~5200 lignes, au-dela du plafond par defaut) -- pagine.
+  const pages: Array<{ id: number; page_title: string; entries: any[] }> = []
+  for (let offset = 0; ; offset += 1000) {
+    const { data } = await supabase.from('wiki_haiku_extract').select('id, page_title, entries').eq('extractable', true).is('error', null).range(offset, offset + 999)
+    if (!data || data.length === 0) break
+    pages.push(...data)
+    if (data.length < 1000) break
+  }
   type PageInfo = { id: number; title: string; entries: any[]; residualIdx: number[]; sampleText: string }
   const pagesInfo: PageInfo[] = []
-  for (const page of pages ?? []) {
+  for (const page of pages) {
     const entries = page.entries ?? []
     const residualIdx: number[] = []
     for (let ei = 0; ei < entries.length; ei++) {
