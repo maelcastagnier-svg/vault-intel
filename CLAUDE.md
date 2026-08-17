@@ -32,6 +32,79 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
+## ✅ Pluton Fishing — construit et validé (17 août)
+
+4e activité généralisée après Mining/Farming/Foraging. Mécanique la plus
+complexe rencontrée jusqu'ici : une capture se résout en **4 rolls
+successifs** (wiki "Fishing", intro) — Sea Creature (Sea Creature Chance%) →
+Trophy (Lotus Atoll/Crimson Isle uniquement, hors scope) → Treasure
+(Treasure Chance%, si pas de Sea Creature) → sinon Fish/Junk normal.
+
+**Formule bite-time réelle sourcée** (wiki "Fishing Speed#Mechanics") :
+`Ticks = BaseTicks(200-400, moy.300) − (FishingSpeed/FishingSpeedCap)×BaseTicks`,
+`Secondes = Ticks/20`, `Ticks=0` si `FishingSpeed≥FishingSpeedCap` (300
+"Everywhere else"). Contrairement à Farming/Foraging, **aucune réutilisation
+du plafond moteur 20 actions/seconde** ici — cette formule EST déjà le vrai
+mécanisme source de cadence (pas un palier à défaut d'alternative).
+Décompte de prise (1-4s, moy. 2.5s) non affecté par Fishing Speed, réduit
+-25% via Quick Bite (END/LATE uniquement).
+
+**🔴 Sea Creature exclu du calcul de coins/h — gap documenté, pas un oubli** :
+tuer un Sea Creature nécessite un modèle de combat (PV du mob, dégâts/s du
+joueur, temps de kill) qui n'existe pas encore côté Pluton — c'est
+précisément le sujet de la **prochaine activité (Slayer/Combat)**. Sea
+Creature Chance reste modélisée comme une fraction de captures perdues
+(jamais retirée du dénominateur captures/heure), donc `coins_per_hour_raw_
+block_only` **sous-estime le vrai revenu Fishing** (le loot de Sea Creature
+est souvent la vraie source principale de revenu en jeu) — documenté
+honnêtement, même catégorie que le taux de coffre au trésor jamais modélisé
+par Mining.
+
+**Table de loot Treasure réelle et complète** (`Treasure/Loot/Water`, wiki,
+37 lignes distinctes — dédupliquées depuis `pluton_elements` qui en portait
+148, artefact de classification antérieur non corrigé ici, hors scope),
+3 paliers qualité good/great/outstanding (89%/10%/1%, wiki "Treasure") +
+palier "Normal Catch" (Fish/Junk hors Treasure), poids wiki utilisés tels
+quels comme probabilités. Items non pricés (Raw Salmon/Tropical Fish/
+Pufferfish base, Enchanted Tropical Fish, pets Squid — aucun prix Bazaar/AH
+fiable trouvé) contribuent 0 à l'espérance, jamais inventés.
+
+**Gear sourcé et pricé réel** (`pluton_fishing_armor_stats`/`pluton_fishing_
+rod_stats`) : armures Angler(early)→Backwater→Diver's→Sponge→Shark Scale→
+Abyssal(late) — spécialisées Sea Creature Chance+Treasure Chance, **0
+Fishing Speed** (absentes de la table wiki "Fishing Speed#Sources", même
+pattern de spécialisation par stat déjà observé sur l'armure Helix de
+Foraging) ; cannes Fishing Rod→Challenging→Rod of Champions→Rod of
+Legends→Rod of the Sea (Fishing Speed+Sea Creature Chance). Salmon/Thunder/
+Magma Lord Armor exclues (aucun prix AH récent fiable). 22 nouvelles lignes
+`stat_bonus_sources` (pets compétitifs testés par impact réel coins/h comme
+Mining/Foraging, équipement necklace/cloak/belt/bracelet — Frozen Amulet
+domine strictement au collier, chaîne Ichthyic/Finwave/Gillsplash choisie au
+cape/ceinture/gants — simplification documentée, pas une vraie comparaison
+combinatoire par slot —, accessory-bag talismans/rings/artifacts au palier
+max de chaque chaîne, couche investissement max END/LATE avec enchants/
+reforges/gemmes réels).
+
+**1 vraie erreur de transcription trouvée et corrigée avant tout test** : le
+palier "great" de la table de loot pointait par erreur vers `GRAND_EXP_
+BOTTLE` au lieu de `TITANIC_EXP_BOTTLE` (le vrai objet de cette ligne wiki)
+— repérée en relisant le code juste après écriture, corrigée avant le
+premier déploiement de vérification.
+
+**État final vérifié en base** (recoupé par calcul manuel indépendant sur le
+tier EARLY — espérance Treasure ≈14.9K, cohérente à l'arrondi près) : 4
+combos tier×cible (une seule cible réelle `WATER_POOL`, générique — hors
+Backwater Bayou/Lotus Atoll/Jerry's Workshop), coins/h 149K-192K/h
+(`raw_block_only`, nettement plus bas que Mining/Farming/Foraging — cohérent
+avec l'exclusion documentée du Sea Creature, pas un signal d'erreur). Cron
+`pluton-fishing-refresh` (quotidien 5h10, `vercel.json`) créé, même pattern
+que les 3 précédents. Route de debug temporaire supprimée après validation.
+
+**Prochaine étape actée par l'utilisateur** : Slayer/Combat — fournira
+justement le modèle de dégâts/temps-de-kill qui manque ici, avec l'occasion
+de revenir enrichir Fishing avec la valeur Sea Creature une fois ce modèle
+disponible (piste notée, pas un chantier automatique). Puis Dungeons.
+
 ## ✅ Pluton Foraging — construit et validé (17 août)
 
 Généralisation du moteur Pluton à une 3e activité, après Mining/Farming.
