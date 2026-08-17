@@ -32,6 +32,77 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
+## ✅ Pluton Foraging — construit et validé (17 août)
+
+Généralisation du moteur Pluton à une 3e activité, après Mining/Farming.
+Mécanique hybride des deux précédentes, jamais rencontrée telle quelle avant :
+- Comme Mining : une vraie stat de gear (**Sweep**) détermine le rendement PAR
+  ACTION (logs par swing), formule réelle sourcée wiki "Sweep#Sources" —
+  `Logs = 1 + min(35, 4×log10(1+max(0,(Sweep+√Sweep−Toughness)/Toughness^0.511)^1.9))`,
+  plafond 36 logs/swing. Toughness (même stat que Block Strength de Mining) :
+  Fig=10, Mangrove=50, Helix=150.
+- Comme Farming : aucune stat de gear ne détermine la cadence de swing (aucun
+  "Foraging Speed" documenté, contrairement à Mining Speed) — réutilise le
+  même plafond moteur Minecraft (20 actions/seconde) déjà validé et approuvé
+  par l'utilisateur pour Farming le 5 août, généralisé ici sur demande
+  explicite ("essaye de toujours créer nos formules comme ça si on a pas de
+  donné exact").
+- **Foraging Fortune** (stat séparée, "100 FF = +1 log garanti") multiplie le
+  rendement par swing, formule identique à Mining/Farming Fortune.
+
+Design réel confirmé en sourçant (pas supposé) : le gear Helix (Torrhus
+Canyon, Toughness=150, le plus élevé) investit à 100% en Sweep, **zéro**
+Foraging Fortune (absent des tables wiki "Foraging Fortune#Armor"/"#Tools")
+— cohérent avec un bloc à très haute résistance où le vrai goulot
+d'étranglement est le rendement par swing, pas le multiplicateur de drop.
+
+**Gear sourcé et pricé réel** (nouvelles tables `pluton_foraging_armor_stats`/
+`pluton_foraging_tool_stats`, même schéma que Mining) : Canopy Armor (early,
+~2.3M), Fig Armor+Fig Hew/Figstone Splitter (mid, déjà en base depuis
+l'architecture v2), Helix Armor+Helix Chopper (end/late, ~181M) — Spruce Axe
+exclu (outil starter non-tradeable, aucune ligne `item_stats`, cohérent avec
+l'exclusion déjà actée de `LEAFLET`/`PARK` Armor). `stat_bonus_sources`
+étendue avec 14 nouvelles lignes `stat_name='sweep'` (pets Jade Dragon/Sloth,
+accessoires avec vraie compétition par slot — Honeycomb Necklace bat Mangrove
+Locket, Torrhus Belt bat Moonglade Belt, Veilshroom Bracelet bat Mangrove
+Grippers —, enchant Sweep Booster, milestone Swoop, consommable Century
+Cake). Sharpening Attribute Shards (Crow/Heron/Vulture, bonus cible-spécifique
+Fig/Mangrove/Helix) modélisés en couche investissement max END/LATE séparée
+(pas dans `stat_bonus_sources`, faute de colonne cible — même précédent que
+les bonus Gemstone-only de Mining, déjà hardcodés en constantes).
+
+**MVP documenté, pas caché** : ordre de coupe optimal assumé (pénalité -50%
+réelle si mauvais ordre/jet de hache, non modélisée) ; Gecko/Tiamat Shard
+(amplificateurs %, système d'Attribute Shards à slots/niveaux propre non
+construit) non modélisés ; Phanpyre/Groundhog (jour/nuit), Tadgang (collection
+non cataloguée), Mochibear/Bambuleaf (croisement Combat ambigu) exclus —
+situationnels/non vérifiés, même discipline que les "Temporary Sources" déjà
+exclues par Farming.
+
+**1 vrai bug trouvé et corrigé en vérifiant en prod** : une première version
+ajoutait le bonus enchant/milestone/consommable (+64 Sweep) une seconde fois
+dans la couche investissement max END/LATE, alors qu'il était déjà appliqué à
+tous les tiers via `stat_bonus_sources` — confirmé par calcul manuel sur le
+`total_sweep` persisté (308+114 au lieu de 308+50 attendu pour FIG_LOG
+END/LATE). Corrigé, revérifié en base : FIG_LOG 358 (308+50 Crow Shard),
+MANGROVE_LOG 453 (353+100 Heron Shard), HELIX_LOG 543 (393+150 Vulture
+Shard) — exact.
+
+**État final vérifié en base** : 12 combos tier×bloc (`pluton_rankings`
+`activity_key='foraging'`), coins/h cohérents (7.9M-19.2M/h selon
+tier/bloc, "raw_block_only" — vente du log brut au Bazaar uniquement, même
+convention que Mining/Farming, Tree Gifts/loot non inclus). Cron
+`pluton-foraging-refresh` (quotidien 5h00, `vercel.json`) créé, même pattern
+que `pluton-mining-refresh`/`pluton-farming-refresh`. Route de debug
+temporaire supprimée après validation.
+
+**Prochaine étape actée par l'utilisateur** ("Sourcing wiki d'une activité à
+la fois") : Fishing, puis Slayer/Combat, puis Dungeons — même discipline
+(wiki officiel, formules réelles, plafond moteur si aucune donnée exacte
+n'existe). Généraliser un vrai solveur générique reste différé jusqu'à avoir
+2+ activités réelles construites (objectif `PLUTON-ARCHITECTURE.md`, pas
+commencé).
+
 ## 🚧 Audit général — nettoyage pont pricing/mécanique (17 août, en cours)
 
 Suite du volet sécurité/performance Supabase (section dédiée plus bas). Étape
