@@ -117,11 +117,84 @@ forcé par défaut).
 supprimées, les 3 routes de debug (`trigger-elements-classify-ref`/`-wte`/`-whe`)
 supprimées après vérification finale.
 
+**🔴 Bug de corruption tier trouvé+corrigé (17 août, avant clôture)** : 2670 lignes
+avaient un `tier` hors de l'échelle [1,7] (jusqu'à 500) — Haiku recopiait parfois une
+échelle brute du jeu présente dans le contenu source (SkyBlock Level 500+, niveau HOTM
+10+, niveau Carpentry 200+) au lieu de la convertir vers l'échelle Pluton 1-7. Corrigé
+par (1) prompt renforcé avec règle explicite + exemple de conversion + interdiction
+littérale de copier un nombre brut, (2) `clampTier()` côté code
+(`Math.max(1, Math.min(7, Math.round(n)))`) en filet de sécurité permanent, jamais
+confié uniquement à la sortie structurée du modèle. 2670 lignes supprimées et
+reclassifiées, vérifié après : `min_tier=1, max_tier=7` exactement.
+
+**✅ Cron permanent d'auto-alimentation construit et vérifié (`pluton-weekly-sync`,
+17 août)** : `app/api/cron/pluton-weekly-sync/route.ts`, programmé lundi 5h15
+(`vercel.json`). Chaîne 2 phases dans la même invocation (demande explicite
+utilisateur — "quand la cartographie est finie on lance extract dans la foulée") :
+- **Phase 1 extraction** : watermark sur `game_mechanics_misc.created_at` (même
+  mécanisme que `discovery-scan`), B1 (`extractStructuredTables`, gratuit) puis Haiku B2
+  en dernier recours si B1 ne trouve rien → `wiki_table_extract`/`wiki_haiku_extract`.
+- **Phase 2 classification** : tout le résidu non encore dans `pluton_elements`, même
+  jugement Haiku element_type+gating (prompt renforcé + `clampTier()`). Scope
+  volontairement limité au wiki (symétrique de `discovery-scan`) — les ~150 tables de
+  référence NEU-REPO/SkyHanni-REPO reçoivent rarement de nouvelles lignes, pas couvertes
+  ici pour garder le cron simple (documenté en commentaire dans la route, avec la requête
+  SQL à lancer si un vrai résidu s'y accumule un jour).
+
+**2 vrais bugs trouvés en testant, corrigés avant clôture** :
+1. `insert()` nu sur `wiki_table_extract`/`wiki_haiku_extract` → tout retry rescanant
+   une page déjà extraite aurait fait remonter des 23505 en boucle (pas de risque de
+   duplication réelle, contraintes uniques déjà en place, mais calcul/logs gaspillés).
+   Corrigé en `upsert(ignoreDuplicates)`.
+2. Le watermark d'extraction n'avance que sur un succès complet (`finishSync`) — or
+   `maxDuration=300` tue l'invocation avant d'y arriver dès qu'un run dépasse le budget
+   (observé sur le premier test réel, backlog de 273 pages). Filet indépendant ajouté :
+   skip explicite de toute page déjà présente dans `wiki_table_extract`/
+   `wiki_haiku_extract` avant même de tenter B1/B2 — résumable par construction, peu
+   importe l'état du watermark.
+3. **`select()` sans `.range()` sur les deux fonctions de classification résiduelle**
+   (`classifyWikiTableExtractResidual`/`classifyWikiHaikuExtractResidual`) — plafond
+   silencieux ~1000 lignes côté PostgREST, invisible sur `wiki_table_extract` (~140k
+   lignes)/`wiki_haiku_extract` (~5200 lignes). Trouvé concrètement : un run a rendu
+   `wte_rows:0` alors qu'un résidu réel de 2307 lignes existait (confirmé par requête
+   SQL directe). Même piège de troncature déjà rencontré ailleurs sur ce projet —
+   corrigé en paginant par lots de 1000 comme `runClassificationPhase` le fait déjà pour
+   `pluton_elements`. Reverifié après fix : run suivant a traité `wte_rows:3545` (preuve
+   que le résidu était bien invisible avant, pas absent).
+
+**État final vérifié en base après tous les fixes (17 août)** : **183 384 éléments dans
+`pluton_elements`**, 0 doublon (`distinct_keys = total`), 0 tier hors [1,7], 0 résidu non
+classé sur `wiki_table_extract`/`wiki_haiku_extract`. Chantier Pluton (cartographie +
+extraction + classification + auto-alimentation) considéré **complet**.
+
 **Prochaine étape actée par l'utilisateur** : Pluton consomme `pluton_elements`
 pour Money Making (`WHERE tier<=N AND element_type='item'/'mechanic_formula'` + prix
 LIVE de `price_history_ah` recroisé au moment du calcul, jamais le prix figé dans
 `gate_reference`) et pour Evolve (diff données réelles joueur vs profil théorique
-`WHERE tier <= tier_joueur+1` → gap analysis).
+`WHERE tier <= tier_joueur+1` → gap analysis) — le moteur de calcul SQL + le Haiku
+"instructeur" d'objectifs dashboard ne sont pas encore construits, prochaine étape
+réelle de Pluton. Puis, dans l'ordre acté par l'utilisateur le 17 août : calibrer les
+crons, optimiser à nouveau les coûts (Vercel + API Claude — prompt caching toujours pas
+implémenté sur les nouvelles routes), audit général Vault+Pluton, nettoyage complet +
+finalisation v1 prod, refonte frontend, 1 semaine de test réel sur le compte Hypixel de
+l'utilisateur, puis lancement.
+
+**✅ `ah-collect` optimisé côté coûts (17 août)** — identifié via données réelles
+(`mcp__vercel__get_runtime_logs` + `sync_log`, jamais deviné) comme le vrai poste de
+coût Vercel du projet : ~51h de compute cumulé sur 5 jours contre <3h pour tous les
+autres crons réguliers combinés. Fréquence délibérément **inchangée** (1 min, demande
+explicite utilisateur — "on reste à 60 sec pour ah live"), 3 optimisations internes
+sans changement de comportement/données : (1) `fetchSoldAuctions()` lancé en parallèle
+du buffer-upsert au lieu de séquentiellement après, (2) les 2 boucles d'historique
+(`price_history_ah_variants`+`price_history_ah_variant_base`) fusionnées en un seul
+`Promise.all`, (3) taille de lot d'insert `ah_live` 50→500. Vérifié en prod via
+`sync_log` réel : durée moyenne ~22-25s → **13.3s**, `rows_written` inchangé (~6800),
+0 erreur. Architecture `ah-collect` (pagination Hypixel, décodage NBT, buffer par
+variante exacte avec moyenne glissante, agrégation quotidienne base/blended par
+`ah-aggregate`, top 25 flips/catégorie dans `ah_live`) confirmée conforme à la
+description de l'utilisateur — en réalité plus efficace que décrit littéralement (la
+variante "blended" a déjà été retirée du live le 11 août pour coût, calculée une fois/
+jour par `ah-aggregate` à la place, pas un bug).
 
 ## ✅ Pluton — architecture 7-tiers de classification, SUPERSÉDÉE par l'architecture v2 ci-dessus, tables supprimées (13 août, remplacée le 17 août)
 
@@ -1081,10 +1154,14 @@ vérifier plutôt si le changement est cohérent avec la direction du projet.
     `refresh-variant-stats`/`backfill-variant-stats` à évaluer,
     `insight_patch.gameplay_impact` (colonne orpheline, à supprimer/fusionner
     avec `mechanics_impact`)
-12. Pluton — généraliser l'architecture 7-tiers/stat_bonus_sources aux 4
-    activités restantes (Combat/Slayer, Foraging, Fishing, Dungeons) ; lancer
-    B3 (audit de couverture + triangulation multi-source) sur la
-    classification 7-tiers venant d'être clôturée
+12. **Pluton architecture v2 terminée (17 août)** — voir section dédiée plus haut.
+    Reste à construire : le moteur de calcul SQL + le Haiku "instructeur"
+    d'objectifs dashboard consommant `pluton_elements` (Money Making + Evolve).
+    Puis, dans l'ordre acté par l'utilisateur le 17 août : calibrer les crons,
+    optimiser à nouveau les coûts Vercel/Claude API (prompt caching pas encore
+    implémenté sur les nouvelles routes), audit général Vault+Pluton, nettoyage
+    complet + finalisation v1 prod, refonte frontend, 1 semaine de test réel sur
+    le compte Hypixel de l'utilisateur, puis lancement.
 
 ## Ce que je ne veux PAS
 
