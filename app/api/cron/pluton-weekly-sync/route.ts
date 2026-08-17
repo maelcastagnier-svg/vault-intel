@@ -85,7 +85,11 @@ async function callHaikuB2(pageTitle: string, content: string) {
     body: JSON.stringify({
       model: 'claude-haiku-4-5',
       max_tokens: 4096,
-      system: B2_SYSTEM_PROMPT,
+      // cache_control -- callHaikuB2 est appele une fois par page dans une boucle
+      // (potentiellement des dizaines/centaines par invocation sur un backlog),
+      // toujours avec le meme system prompt statique. Meme pattern que radar-agent/
+      // money-making-agent/setup-generate-agent.
+      system: [{ type: 'text', text: B2_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: `Page "${pageTitle}":\n\n${content.slice(0, 8000)}` }],
       output_config: { format: { type: 'json_schema', schema: B2_SCHEMA } },
     }),
@@ -258,7 +262,10 @@ async function callHaikuClassify(items: Array<{ index: number; text: string }>) 
     body: JSON.stringify({
       model: 'claude-haiku-4-5',
       max_tokens: 4096,
-      system: CLASSIFY_SYSTEM_PROMPT,
+      // cache_control -- callHaikuClassify est appele une fois par lot de 25 pages,
+      // potentiellement plusieurs dizaines de fois par invocation sur un residu
+      // important, toujours avec le meme system prompt statique.
+      system: [{ type: 'text', text: CLASSIFY_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: userContent }],
       output_config: { format: { type: 'json_schema', schema: CLASSIFY_SCHEMA } },
     }),
