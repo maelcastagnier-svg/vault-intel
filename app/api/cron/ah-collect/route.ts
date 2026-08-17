@@ -144,43 +144,64 @@ export async function runAhCollect() {
       })
     }
 
-    // UPSERT batch avec moyenne glissante via fonction SQL native
-    // Envoi par batch de 500 pour éviter les payloads trop lourds
-    for (let i = 0; i < bufferRows.length; i += 500) {
-      const batch = bufferRows.slice(i, i + 500).map(r => ({
-        base_item_id:     r.base_item_id,
-        variant_key:      r.variant_key,
-        variant_key_base: r.variant_key_base,
-        item_name:        r.item_name,
-        avg_price:        r.avg_price,
-        min_price:        r.min_price,
-        max_price:        r.max_price,
-        volume:           r.volume,
-        best_price:       r.best_price,
-        best_uuid:        r.best_uuid,
-        category:         r.category,
-        total_stars:      r.total_stars,
-        master_stars:     r.master_stars,
-        is_recomb:        r.is_recomb,
-        reforge:          r.reforge,
-        ultimate_enchant: r.ultimate_enchant,
-        attribute_1:      r.attribute_1,
-        attribute_1_level:r.attribute_1_level,
-        attribute_2:      r.attribute_2,
-        attribute_2_level:r.attribute_2_level,
-        scan_date:        r.scan_date,
-        last_scan_at:     r.last_scan_at,
-      }))
-      try {
-        await supabase.rpc('upsert_scan_buffer_batch', { p_rows: batch })
-      } catch (e) {
-        console.error('Buffer upsert error batch', i, e)
-      }
-    }
+    // UPSERT batch avec moyenne glissante via fonction SQL native.
+    // Envoi par batch de 500. Parallelise (Promise.all) au lieu d'un for
+    // sequentiel -- chaque batch ecrit des variantes disjointes, aucune
+    // dependance d'ordre entre eux (optimisation cout Vercel, 17 aout --
+    // ah-collect est de loin le cron le plus couteux du projet, ~51h de
+    // compute cumule sur 5 jours contre <3h pour tous les autres crons
+    // reguliers combines -- toute reduction de duree par run se multiplie
+    // par ~1440 runs/jour).
+    // Lance en parallele avec fetchSoldAuctions() ci-dessous -- un appel API
+    // Hypixel (I/O reseau) n'a aucune dependance avec des ecritures Supabase,
+    // aucune raison de les serialiser.
+    const bufferUpsertPromise = Promise.all(
+      Array.from({ length: Math.ceil(bufferRows.length / 500) }, async (_, chunkIdx) => {
+        const i = chunkIdx * 500
+        const batch = bufferRows.slice(i, i + 500).map(r => ({
+          base_item_id:     r.base_item_id,
+          variant_key:      r.variant_key,
+          variant_key_base: r.variant_key_base,
+          item_name:        r.item_name,
+          avg_price:        r.avg_price,
+          min_price:        r.min_price,
+          max_price:        r.max_price,
+          volume:           r.volume,
+          best_price:       r.best_price,
+          best_uuid:        r.best_uuid,
+          category:         r.category,
+          total_stars:      r.total_stars,
+          master_stars:     r.master_stars,
+          is_recomb:        r.is_recomb,
+          reforge:          r.reforge,
+          ultimate_enchant: r.ultimate_enchant,
+          attribute_1:      r.attribute_1,
+          attribute_1_level:r.attribute_1_level,
+          attribute_2:      r.attribute_2,
+          attribute_2_level:r.attribute_2_level,
+          scan_date:        r.scan_date,
+          last_scan_at:     r.last_scan_at,
+        }))
+        try {
+          await supabase.rpc('upsert_scan_buffer_batch', { p_rows: batch })
+        } catch (e) {
+          console.error('Buffer upsert error batch', i, e)
+        }
+      })
+    )
 
     // ── Fetch enchères BIN vendues → avg_sold_price par variante ──
+    // Kickoff immediat (en parallele du buffer upsert ci-dessus), await plus
+    // bas seulement au moment d'en avoir besoin.
+    const soldAuctionsPromise = fetchSoldAuctions().catch(e => {
+      console.error('Sold auctions fetch error:', e)
+      return { auctions: [] as any[] }
+    })
+
+    await bufferUpsertPromise
+
     try {
-      const { auctions: soldAuctions } = await fetchSoldAuctions()
+      const { auctions: soldAuctions } = await soldAuctionsPromise
 
       // Groupe les ventes par variante
       const soldGroups = new Map<string, { prices: number[]; decoded: any }>()
@@ -207,11 +228,14 @@ export async function runAhCollect() {
           sold_count:     prices.length,
         }))
 
-        for (let i = 0; i < soldRows.length; i += 500) {
-          const batch = soldRows.slice(i, i + 500)
-          const { error } = await supabase.rpc('update_sold_prices_batch', { p_rows: batch })
-          if (error) console.error('Sold prices batch update error', i, error)
-        }
+        await Promise.all(
+          Array.from({ length: Math.ceil(soldRows.length / 500) }, async (_, chunkIdx) => {
+            const i = chunkIdx * 500
+            const batch = soldRows.slice(i, i + 500)
+            const { error } = await supabase.rpc('update_sold_prices_batch', { p_rows: batch })
+            if (error) console.error('Sold prices batch update error', i, error)
+          })
+        )
       }
     } catch (e) {
       console.error('Sold auctions error:', e)
@@ -241,17 +265,35 @@ export async function runAhCollect() {
     // malgré 65k lignes réelles dans la table) -- même famille de bug que le
     // granularity périmé plus haut, cette fois côté requête plutôt que côté
     // schéma.
-    const historical: { base_item_id: string; variant_key: string; avg_price: number }[] = []
-    for (let i = 0; i < baseItemIds.length; i += 200) {
-      const batch = baseItemIds.slice(i, i + 200)
-      const { data, error } = await supabase
-        .from('price_history_ah_variants')
-        .select('base_item_id, variant_key, avg_price')
-        .in('base_item_id', batch)
-        .gte('bucket_date', sevenDaysAgo)
-      if (error) { console.error('historical fetch batch error', i, error.message); continue }
-      if (data) historical.push(...data)
-    }
+    // Les deux boucles d'historique (exact + base) sont independantes -- deux
+    // tables differentes, aucune donnee partagee entre elles -- et chacune
+    // faisait deja ~10-15 aller-retours sequentiels avant cette passe.
+    // Parallelisees ensemble (17 aout, optimisation cout Vercel).
+    const chunks = (arr: string[], size: number) =>
+      Array.from({ length: Math.ceil(arr.length / size) }, (_, i) => arr.slice(i * size, i * size + size))
+
+    const [historicalResults, historicalBaseResults] = await Promise.all([
+      Promise.all(chunks(baseItemIds, 200).map(async batch => {
+        const { data, error } = await supabase
+          .from('price_history_ah_variants')
+          .select('base_item_id, variant_key, avg_price')
+          .in('base_item_id', batch)
+          .gte('bucket_date', sevenDaysAgo)
+        if (error) { console.error('historical fetch batch error', error.message); return [] }
+        return data ?? []
+      })),
+      Promise.all(chunks(baseItemIds, 200).map(async batch => {
+        const { data, error } = await supabase
+          .from('price_history_ah_variant_base')
+          .select('base_item_id, variant_key_base, avg_price')
+          .in('base_item_id', batch)
+          .gte('bucket_date', sevenDaysAgo)
+        if (error) { console.error('historicalBase fetch batch error', error.message); return [] }
+        return data ?? []
+      })),
+    ])
+    const historical: { base_item_id: string; variant_key: string; avg_price: number }[] = historicalResults.flat()
+    const historicalBase: { base_item_id: string; variant_key_base: string; avg_price: number }[] = historicalBaseResults.flat()
 
     const histExact = new Map<string, number[]>()
     for (const h of historical) {
@@ -277,17 +319,7 @@ export async function runAhCollect() {
     // trompeur dans les deux sens, l'objectif étant des flips précis entre
     // variantes réellement comparables, pas une couverture maximale au prix
     // de faux signaux.
-    const historicalBase: { base_item_id: string; variant_key_base: string; avg_price: number }[] = []
-    for (let i = 0; i < baseItemIds.length; i += 200) {
-      const batch = baseItemIds.slice(i, i + 200)
-      const { data, error } = await supabase
-        .from('price_history_ah_variant_base')
-        .select('base_item_id, variant_key_base, avg_price')
-        .in('base_item_id', batch)
-        .gte('bucket_date', sevenDaysAgo)
-      if (error) { console.error('historicalBase fetch batch error', i, error.message); continue }
-      if (data) historicalBase.push(...data)
-    }
+    // historicalBase deja recupere plus haut, en parallele de historical.
     const histBase = new Map<string, number[]>()
     for (const h of historicalBase) {
       const k = `${h.base_item_id}::${h.variant_key_base}`
@@ -473,8 +505,11 @@ export async function runAhCollect() {
       scanned_at:        new Date().toISOString(),
     }))
 
-    for (let i = 0; i < liveRows.length; i += 50) {
-      await supabase.from('ah_live').insert(liveRows.slice(i, i + 50))
+    // 500/lot comme partout ailleurs dans ce fichier (etait 50 -- 10x plus
+    // d'aller-retours DB que necessaire pour un TOP_ITEMS_SAFETY_CEILING de
+    // 1000 lignes max, optimisation cout Vercel du 17 aout).
+    for (let i = 0; i < liveRows.length; i += 500) {
+      await supabase.from('ah_live').insert(liveRows.slice(i, i + 500))
     }
 
     await supabase.from('cron_locks').update({ locked_until: null }).eq('job_name', 'ah_collect')
