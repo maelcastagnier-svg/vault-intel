@@ -95,18 +95,17 @@ export function computeLogsPerSwing(sweep: number, toughness: number): number {
 const SHARPENING_SHARD_MAX: Record<string, number> = {
   FIG_LOG: 50, MANGROVE_LOG: 100, HELIX_LOG: 150,
 }
-// Sweep Booster (enchant, palier Uncommon -- seul palier trouve dans la source
-// wiki au 17 aout) : +10 axe / +5 armure / +2 equipement, non cumulatif par
-// piece (un seul enchant par categorie d'objet).
-const SWEEP_BOOSTER_ENCHANT_TOTAL = 10 + 5 + 2
-// Swoop (Tree Gift Milestone, deblocage permanent une fois atteint) : jusqu'a +42.
-const SWOOP_MILESTONE_SWEEP = 42
-// Long-Expired Century Cake (consommable, effet maintenu -- meme doctrine que
-// le Refined Dark Cacao Truffle de Farming) : +5.
-const CENTURY_CAKE_SWEEP = 5
-
+// Sweep Booster (enchant), Swoop (Tree Gift Milestone) et Long-Expired Century
+// Cake (consommable, effet maintenu) sont deja des lignes stat_bonus_sources
+// (equip_slot='passive') appliquees a TOUS les tiers via
+// applyForagingPetsAndAccessories -- PAS repetes ici. Bug reel trouve en
+// verifiant en prod (17 aout) : une premiere version les re-additionnait dans
+// cette couche, comptant leur +64 en double a END/LATE (confirme par calcul
+// manuel sur le total_sweep persiste : 308+114 au lieu de 308+50 attendu).
+// Seul le Sharpening Shard (cible-specifique, jamais dans stat_bonus_sources
+// faute de colonne target_block) appartient a cette couche.
 function maxInvestmentSweepBonus(blockId: string): number {
-  return (SHARPENING_SHARD_MAX[blockId] ?? 0) + SWEEP_BOOSTER_ENCHANT_TOTAL + SWOOP_MILESTONE_SWEEP + CENTURY_CAKE_SWEEP
+  return SHARPENING_SHARD_MAX[blockId] ?? 0
 }
 
 export type ForagingRankingResult = {
