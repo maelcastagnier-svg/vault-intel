@@ -27,11 +27,11 @@
 // Party 2-5 requise pour le run (aucun solo) mais coins/h reste une valeur
 // PAR JOUEUR.
 //
-// Table de loot (pluton_dungeons_chest_loot, 7 etages x jusqu'a 6 coffres)
-// sourcee mot pour mot depuis les pages wiki "The Catacombs - Floor X -
-// Loot" -- deja simulee par les editeurs du wiki via le vrai systeme
-// weight/quality (voir doc "Dungeon Reward Chest#Loot Rolling Process"),
-// jamais re-derivee a la main ici.
+// Table de loot (pluton_dungeons_chest_loot, 7 etages x jusqu'a 6 coffres,
+// ~230 lignes) sourcee mot pour mot depuis les pages wiki "The Catacombs -
+// Floor X - Loot" -- deja simulee par les editeurs du wiki via le vrai
+// systeme weight/quality (voir doc "Dungeon Reward Chest#Loot Rolling
+// Process"), jamais re-derivee a la main ici.
 // EARLY/MID = chance_no_bonus_pct (aucun accessoire Treasure) ; END/LATE =
 // chance_max_bonus_pct (Treasure Artifact/Ring/Talisman + Boss Luck perk +
 // Hideongeon Shard maxes -- meme convention "investissement max" que
@@ -48,6 +48,15 @@
 // du joueur, donc le choix de classe n'affecte pas ce calcul. Un futur
 // "frag run" cible (ex: Floor VI Sadan) redeviendra DPS-dependant et
 // necessitera de sourcer les Classes a ce moment-la.
+//
+// 🔴 Perf : premiere version faisait 1 requete Supabase par (item x ligne de
+// loot x combo tier/etage) -- jusqu'a plusieurs centaines de requetes
+// sequentielles, timeout 60s systematique en prod (confirme logs Vercel,
+// dizaines de 504 "Task timed out"). Reecrit pour tout charger en quelques
+// requetes batchees (meme pattern que lib/gear-pricing.ts loadPricedItems :
+// une requete large filtree par date, reduite en Map "premier vu = plus
+// recent" en JS) puis calculer en memoire, sans aucun aller-retour DB dans
+// la boucle de calcul.
 import { createClient } from '@supabase/supabase-js'
 import { TIER_CONFIG, type TierKey } from './money-making-constants'
 
@@ -86,26 +95,44 @@ function floorFromBlockId(blockId: string): string {
   return roman[Number(arabic)]
 }
 
-async function getLivePrice(itemId: string): Promise<number> {
-  const { data: bazaar } = await supabase
-    .from('price_history')
-    .select('sell_price, bucket_date')
-    .eq('item_id', itemId)
-    .gt('sell_price', 0)
-    .order('bucket_date', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  if (bazaar?.sell_price) return Number(bazaar.sell_price)
+// Charge le prix le plus recent de chaque item_id demande en 2 requetes
+// batchees (Bazaar d'abord, fallback AH nostar_norecomb) plutot qu'un
+// aller-retour par item -- meme pattern que loadPricedItems (gear-pricing.ts).
+async function loadPriceCache(itemIds: string[]): Promise<Map<string, number>> {
+  const ids = Array.from(new Set(itemIds))
+  const since = new Date(Date.now() - 5 * 86_400_000).toISOString().split('T')[0]
 
-  const { data: ah } = await supabase
-    .from('price_history_ah_variant_base')
-    .select('avg_price, bucket_date')
-    .eq('base_item_id', itemId)
-    .eq('variant_key_base', 'nostar_norecomb')
-    .order('bucket_date', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  return Number(ah?.avg_price) || 0
+  const [{ data: bazaarRows }, { data: ahRows }] = await Promise.all([
+    supabase.from('price_history')
+      .select('item_id, sell_price, bucket_date')
+      .in('item_id', ids)
+      .gte('bucket_date', since)
+      .gt('sell_price', 0)
+      .order('bucket_date', { ascending: false }),
+    supabase.from('price_history_ah_variant_base')
+      .select('base_item_id, avg_price, bucket_date')
+      .in('base_item_id', ids)
+      .eq('variant_key_base', 'nostar_norecomb')
+      .gte('bucket_date', since)
+      .order('bucket_date', { ascending: false }),
+  ])
+
+  const cache = new Map<string, number>()
+  for (const row of ahRows || []) {
+    if (!cache.has(row.base_item_id)) cache.set(row.base_item_id, Number(row.avg_price))
+  }
+  // Bazaar ecrase l'AH si present (source primaire pour les items
+  // consommables) -- premiere ligne rencontree par item = la plus recente
+  // grace au tri desc, donc un set() inconditionnel ici reecrirait avec des
+  // lignes plus vieilles au fil de la boucle. On ecrase l'entree AH une
+  // seule fois (au premier Bazaar vu pour cet item), puis on ignore le reste.
+  const bazaarSeen = new Set<string>()
+  for (const row of bazaarRows || []) {
+    if (bazaarSeen.has(row.item_id)) continue
+    bazaarSeen.add(row.item_id)
+    cache.set(row.item_id, Number(row.sell_price))
+  }
+  return cache
 }
 
 export type DungeonsRankingResult = {
@@ -122,35 +149,36 @@ export type DungeonsRankingResult = {
   } | null
 }
 
-export async function computeDungeonsRanking(tier: TierKey, blockId: string): Promise<DungeonsRankingResult> {
-  const { data: targetBlock } = await supabase
-    .from('pluton_target_blocks')
-    .select('id, block_name')
-    .eq('activity_key', 'dungeons')
-    .eq('block_id', blockId)
-    .single()
-  if (!targetBlock) throw new Error(`Unknown target block: ${blockId}`)
+type ChestLootRow = {
+  entry_item_id: string | null
+  entry_qty: number | string
+  added_cost: number | string
+  chance_no_bonus_pct: number | string
+  chance_max_bonus_pct: number | string
+}
+type ChestMeta = { base_cost: number | string }
+type TargetBlock = { id: number; block_name: string }
 
+function computeFromLoaded(
+  tier: TierKey,
+  blockId: string,
+  targetBlock: TargetBlock,
+  chestMeta: ChestMeta,
+  lootRows: ChestLootRow[],
+  chestTier: string,
+  priceCache: Map<string, number>,
+): DungeonsRankingResult {
   const floor = floorFromBlockId(blockId)
   const config = FLOOR_CONFIG[floor]
-  if (!config) throw new Error(`Unknown floor for block: ${blockId}`)
-  const chestTier = config.chestTier
-
-  const [{ data: chestMeta }, { data: lootRows }] = await Promise.all([
-    supabase.from('pluton_dungeons_chest_tiers').select('*').eq('floor', floor).eq('chest_tier', chestTier).single(),
-    supabase.from('pluton_dungeons_chest_loot').select('*').eq('floor', floor).eq('chest_tier', chestTier),
-  ])
-  if (!chestMeta || !lootRows) throw new Error(`Missing chest data for ${floor}/${chestTier}`)
-
   const useMaxBonus = tier === 'end' || tier === 'late'
 
   let expectedValue = 0
   let expectedAddedCost = 0
   for (const row of lootRows) {
+    if (!row.entry_item_id) continue
     const chancePct = useMaxBonus ? Number(row.chance_max_bonus_pct) : Number(row.chance_no_bonus_pct)
     const chance = chancePct / 100
-    if (!row.entry_item_id) continue
-    const price = await getLivePrice(row.entry_item_id)
+    const price = priceCache.get(row.entry_item_id) || 0
     expectedValue += chance * Number(row.entry_qty) * price
     if (Number(row.added_cost) > 0) {
       expectedAddedCost += chance * Number(row.added_cost)
@@ -177,6 +205,32 @@ export async function computeDungeonsRanking(tier: TierKey, blockId: string): Pr
   }
 }
 
+// Conserve pour compatibilite/tests unitaires cibles -- recharge tout pour un
+// seul combo (pas utilise par le chemin batch de computeAndPersistAllDungeonsRankings).
+export async function computeDungeonsRanking(tier: TierKey, blockId: string): Promise<DungeonsRankingResult> {
+  const { data: targetBlock } = await supabase
+    .from('pluton_target_blocks')
+    .select('id, block_name')
+    .eq('activity_key', 'dungeons')
+    .eq('block_id', blockId)
+    .single()
+  if (!targetBlock) throw new Error(`Unknown target block: ${blockId}`)
+
+  const floor = floorFromBlockId(blockId)
+  const config = FLOOR_CONFIG[floor]
+  if (!config) throw new Error(`Unknown floor for block: ${blockId}`)
+  const chestTier = config.chestTier
+
+  const [{ data: chestMeta }, { data: lootRows }] = await Promise.all([
+    supabase.from('pluton_dungeons_chest_tiers').select('*').eq('floor', floor).eq('chest_tier', chestTier).single(),
+    supabase.from('pluton_dungeons_chest_loot').select('*').eq('floor', floor).eq('chest_tier', chestTier),
+  ])
+  if (!chestMeta || !lootRows) throw new Error(`Missing chest data for ${floor}/${chestTier}`)
+
+  const priceCache = await loadPriceCache(lootRows.map(r => r.entry_item_id).filter(Boolean) as string[])
+  return computeFromLoaded(tier, blockId, targetBlock, chestMeta, lootRows, chestTier, priceCache)
+}
+
 export type PersistedDungeonsResult = {
   tier: TierKey
   block_id: string
@@ -186,55 +240,98 @@ export type PersistedDungeonsResult = {
 }
 
 export async function computeAndPersistAllDungeonsRankings(): Promise<PersistedDungeonsResult[]> {
-  const out: PersistedDungeonsResult[] = []
   await supabase.from('pluton_rankings').delete().eq('activity_key', 'dungeons')
   await supabase.from('pluton_setups').delete().eq('activity_key', 'dungeons')
 
+  const [{ data: targetBlocks }, { data: chestTiers }, { data: allLoot }] = await Promise.all([
+    supabase.from('pluton_target_blocks').select('id, block_id, block_name').eq('activity_key', 'dungeons'),
+    supabase.from('pluton_dungeons_chest_tiers').select('floor, chest_tier, base_cost'),
+    supabase.from('pluton_dungeons_chest_loot').select('floor, chest_tier, entry_item_id, entry_qty, added_cost, chance_no_bonus_pct, chance_max_bonus_pct'),
+  ])
+  if (!targetBlocks || !chestTiers || !allLoot) throw new Error('Failed to load Dungeons reference data')
+
+  const targetBlockByBlockId = new Map(targetBlocks.map(t => [t.block_id, t]))
+  const chestMetaByKey = new Map(chestTiers.map(c => [`${c.floor}|${c.chest_tier}`, c]))
+  const lootByKey = new Map<string, ChestLootRow[]>()
+  for (const row of allLoot) {
+    const key = `${row.floor}|${row.chest_tier}`
+    if (!lootByKey.has(key)) lootByKey.set(key, [])
+    lootByKey.get(key)!.push(row)
+  }
+
+  const priceCache = await loadPriceCache(allLoot.map(r => r.entry_item_id).filter(Boolean) as string[])
+
+  const out: PersistedDungeonsResult[] = []
+  const setupsToInsert: any[] = []
+  const setupMeta: { tier: TierKey; blockId: string; result: DungeonsRankingResult }[] = []
+
   for (const tier of DUNGEONS_TIER_KEYS) {
     for (const blockId of DUNGEONS_TARGET_BLOCK_IDS) {
-      const result = await computeDungeonsRanking(tier, blockId)
-      if (!result.top_setup) {
-        out.push({ tier, block_id: blockId, target_block: result.target_block, has_setup: false, coins_per_hour_raw_block_only: null })
+      const targetBlock = targetBlockByBlockId.get(blockId)
+      const floor = floorFromBlockId(blockId)
+      const config = FLOOR_CONFIG[floor]
+      if (!targetBlock || !config) {
+        out.push({ tier, block_id: blockId, target_block: targetBlock?.block_name || blockId, has_setup: false, coins_per_hour_raw_block_only: null })
         continue
       }
-      const s = result.top_setup
-      const { data: setupRow, error: setupErr } = await supabase
-        .from('pluton_setups')
-        .insert({
-          activity_key: 'dungeons',
-          tier,
-          investment_level: 'optimal',
-          armor_set_prefix: `Coffre ${s.chest_tier} (score S+)`,
-          tool_item_id: 'NONE',
-          total_mining_speed: 0,
-          total_mining_fortune: 0,
-          total_breaking_power: 0,
-          real_cost: Math.round(s.expected_chest_cost),
-          pet_id: null,
-          pet_rarity: null,
-          accessories: [{ source_id: '__dungeons_method__', equip_slot: 'meta', chest_tier: s.chest_tier, run_time_seconds: s.run_time_seconds }],
-        })
-        .select('id')
-        .single()
-      if (setupErr || !setupRow) throw new Error(`pluton_setups insert failed for ${tier}/${blockId}: ${setupErr?.message}`)
+      const chestMeta = chestMetaByKey.get(`${floor}|${config.chestTier}`)
+      const lootRows = lootByKey.get(`${floor}|${config.chestTier}`)
+      if (!chestMeta || !lootRows) {
+        out.push({ tier, block_id: blockId, target_block: targetBlock.block_name, has_setup: false, coins_per_hour_raw_block_only: null })
+        continue
+      }
 
-      const { error: rankErr } = await supabase
-        .from('pluton_rankings')
-        .insert({
-          activity_key: 'dungeons',
-          tier,
-          target_block_id: result.target_block_id,
-          setup_id: setupRow.id,
-          rank: 1,
-          mining_time_seconds: s.run_time_seconds,
-          actions_per_hour: s.runs_per_hour,
-          yield_per_hour: s.runs_per_hour,
-          coins_per_hour_raw_block_only: s.coins_per_hour_raw_block_only,
-        })
-      if (rankErr) throw new Error(`pluton_rankings insert failed for ${tier}/${blockId}: ${rankErr.message}`)
-
-      out.push({ tier, block_id: blockId, target_block: result.target_block, has_setup: true, coins_per_hour_raw_block_only: s.coins_per_hour_raw_block_only })
+      const result = computeFromLoaded(tier, blockId, targetBlock, chestMeta, lootRows, config.chestTier, priceCache)
+      const s = result.top_setup!
+      setupsToInsert.push({
+        activity_key: 'dungeons',
+        tier,
+        investment_level: 'optimal',
+        armor_set_prefix: `Coffre ${s.chest_tier} (score S+)`,
+        tool_item_id: 'NONE',
+        total_mining_speed: 0,
+        total_mining_fortune: 0,
+        total_breaking_power: 0,
+        real_cost: Math.round(s.expected_chest_cost),
+        pet_id: null,
+        pet_rarity: null,
+        accessories: [{ source_id: '__dungeons_method__', equip_slot: 'meta', chest_tier: s.chest_tier, run_time_seconds: s.run_time_seconds }],
+      })
+      setupMeta.push({ tier, blockId, result })
     }
+  }
+
+  const { data: insertedSetups, error: setupErr } = await supabase
+    .from('pluton_setups')
+    .insert(setupsToInsert)
+    .select('id')
+  if (setupErr || !insertedSetups) throw new Error(`pluton_setups batch insert failed: ${setupErr?.message}`)
+
+  const rankingsToInsert = setupMeta.map((meta, i) => {
+    const s = meta.result.top_setup!
+    return {
+      activity_key: 'dungeons',
+      tier: meta.tier,
+      target_block_id: meta.result.target_block_id,
+      setup_id: insertedSetups[i].id,
+      rank: 1,
+      mining_time_seconds: s.run_time_seconds,
+      actions_per_hour: s.runs_per_hour,
+      yield_per_hour: s.runs_per_hour,
+      coins_per_hour_raw_block_only: s.coins_per_hour_raw_block_only,
+    }
+  })
+  const { error: rankErr } = await supabase.from('pluton_rankings').insert(rankingsToInsert)
+  if (rankErr) throw new Error(`pluton_rankings batch insert failed: ${rankErr.message}`)
+
+  for (const meta of setupMeta) {
+    out.push({
+      tier: meta.tier,
+      block_id: meta.blockId,
+      target_block: meta.result.target_block,
+      has_setup: true,
+      coins_per_hour_raw_block_only: meta.result.top_setup!.coins_per_hour_raw_block_only,
+    })
   }
   return out
 }

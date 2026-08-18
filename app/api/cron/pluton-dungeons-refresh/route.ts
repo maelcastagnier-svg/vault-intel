@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server'
 import { computeAndPersistAllDungeonsRankings } from '../../../../lib/pluton-dungeons'
 import { startSync, finishSync } from '../../../../lib/sync-log'
 
-export const maxDuration = 60
+export const maxDuration = 120
 
 export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
