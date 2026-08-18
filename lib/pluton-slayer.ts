@@ -276,6 +276,10 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
       const bonus = Math.min(Number(armor.radioactive_cd_cap), Number(armor.radioactive_cd_per_10_str) * (totalStrength / 10))
       critDamage += bonus
     }
+    // Deathripper Dagger (Blaze) porte aussi un vrai bonus Crit Chance propre
+    // (+10%, wiki) -- oubli trouve en verifiant Blaze en prod juste apres le
+    // meme oubli sur Crit Damage (Spider/Enderman), meme discipline.
+    const weaponCritChance = Number(weapon.base_crit_chance || 0)
 
     // Bonus plat "+X Damage par niveau de collection Wolf Slayer" (Shaman/
     // Pooch Sword) -- niveau assume selon WOLF_COLLECTION_LEVEL_BY_TIER,
@@ -291,7 +295,7 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
     const bonusAttackSpeed = Number(weapon.base_attack_speed || 0) + enrageAttackSpeed
 
     const additivePct = COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT
-    const critChance = BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS
+    const critChance = BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS + weaponCritChance
     const dps = computeDps(
       Number(weapon.base_damage), enrageFlatDamage + collectionLevelFlatDamage, totalStrength,
       additivePct, [weaponMobTypeMult, armorMobTypeMult, octoMult, packMentalityMult, enrageMobTypeMult],
