@@ -32,7 +32,7 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
-## ✅ Pluton Slayer — construit et validé, Zombie/Spider T1-T5 + Wolf T1-T4 (18 août)
+## ✅ Pluton Slayer — construit et validé, Zombie/Spider/Enderman T1-T5/T4 + Wolf T1-T4 (18 août)
 
 5e activité généralisée, et la **première nécessitant un vrai moteur de
 combat** (temps de kill via dégâts/seconde réels) plutôt qu'un rendement par
@@ -150,11 +150,40 @@ manuel indépendant sur mid/WOLF_T1 — DPS=3705.4 calculé à la main, exact) :
 total** pour les 3 Slayers. Wolf ressort positif sur T2/T3 en END/LATE
 (jusqu'à ~1.78M/h), même schéma que Spider.
 
-**Prochaine étape actée par l'utilisateur** : Enderman/Blaze/Vampire Slayer
-avec la même rigueur d'exhaustivité (Enderman a la réputation d'être le
-boss le plus complexe mécaniquement — portails, téléportation — possible
-vrai choix de scope à faire dessus), puis Dungeons (dernière activité de la
-liste actée le 17 août). `activity_key='slayer'` déjà prêt à les accueillir.
+**Enderman Slayer (Voidgloom Seraph) ajouté juste après**, même rigueur.
+Seulement 4 paliers réels (pas 5, comme Wolf). Armes : Voidwalker
+Katana(dmg105,force+40,CD+15%,+150%Endermen,gate ES1,quasi-libre)→Voidedge
+Katana(dmg155,force+60,CD+25%,gate ES3)→Atomsplit Katana(dmg305,force+100,
+CD+50%,+300%Endermen,gate ES6 — Vorpal Katana intermédiaire volontairement
+sauté, même simplification que Reaper Scythe/Sting). Armure : Final
+Destination Armor (0 Force directe, survie pure) avec **Vivacious
+Darkness** (toggle continu coût Soulflow, pas une ability à cooldown —
+modélisée avec `duration=cooldown=1` réutilisant le mécanisme d'Enrage pour
+encoder un uptime réel de 100%, LATE uniquement) : Force+30, Bonus Attack
+Speed+20, +100% dégâts vs Endermen. **Malevolent Hitshield** — mécanique
+réelle inédite : le boss encaisse un nombre fixe de coups (15/30/60/100
+selon palier) à 3 déclenchements réels (spawn+2/3+1/3 PV) sans perdre de
+PV — modélisée comme temps d'attaque directement ajouté au TTK plutôt
+qu'ignorée. Yang Glyphs/Nukekubi Fixations/Broken Heart Radiation exclues
+(mécaniques de survie/réaction joueur, pas de ralentissement réel du DPS).
+
+**🔴 1 vrai oubli trouvé en vérifiant Enderman en prod** : les armes Spider
+ET Enderman ont chacune leur propre stat Crit Damage (Recluse Fang+10%,
+Tarantula Fang+20%, Scorpion Foil+30%, Sting+40%, Voidwalker+15%,
+Voidedge+25%, Atomsplit+50%) — sourcée en lisant les pages armes, jamais
+câblée dans le calcul jusqu'ici (Zombie/Wolf non affectés, 0 sur leurs
+armes). Colonne `base_crit_damage` ajoutée, recalcul complet, revérifié
+(EARLY/ENDERMAN_T1 : DPS=3318.2 calculé à la main = 3318 en base après
+correction, exact — était 3103 sans le fix, écart réel confirmé).
+
+**État final** : **72 combos au total** pour les 4 Slayers construits.
+Enderman ressort toujours négatif (bosses très chers en PV/temps de
+Hitshield, drop Null Sphere ~225 coins, pas assez pour compenser) —
+cohérent avec le gap RNG documenté, pas un signal d'erreur.
+
+**Prochaine étape actée par l'utilisateur** : Blaze/Vampire Slayer avec la
+même rigueur d'exhaustivité, puis Dungeons (dernière activité de la liste
+actée le 17 août). `activity_key='slayer'` déjà prêt à les accueillir.
 
 ## ✅ Pluton Fishing — construit et validé (17 août)
 
