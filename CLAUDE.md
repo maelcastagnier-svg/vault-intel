@@ -106,30 +106,81 @@ revend l'essence ??"), vérifié : `ESSENCE_WITHER`/`ESSENCE_UNDEAD` ont bien
 un vrai prix Bazaar live (~2238/~610 coins), inclus dans le calcul plutôt
 qu'exclu à tort.
 
-**État final vérifié en base** (recoupé par calcul manuel indépendant sur
+**État Floor I initial vérifié** (recoupé par calcul manuel indépendant sur
 end/late : E[valeur]≈867 406, E[coût]≈670 034, net×6 runs/h≈1 184 232,
-cohérent à l'arrondi près avec les 1 184 185,97 persistés) : **4 combos**
-(`pluton_rankings` `activity_key='dungeons'`), EARLY/MID≈122 490/h,
-END/LATE≈1 184 186/h — écart réel expliqué par l'investissement Treasure
-accessories (pas un artefact). Cron `pluton-dungeons-refresh` (quotidien
-5h25, `vercel.json`) créé, même pattern que les 5 précédents. Route de
-debug temporaire supprimée après validation.
+cohérent à l'arrondi près avec les 1 184 185,97 persistés) : 4 combos
+initiaux, EARLY/MID≈122 490/h, END/LATE≈1 184 186/h.
+
+**Généralisation Floors II-VII (même jour, suite immédiate)** — l'utilisateur
+a tranché "généraliser Floor II-VII (même pattern)" plutôt que de construire
+le frag run Floor VI/Sadan en premier. Même méthode "clear complet visant
+S+" partout : temps de run ancré sur le vrai seuil Speed=100 par étage,
+sourcé page "Dungeon Score" (`<=600s` Floor I/II/III/V, `<=720s` Floor
+IV/VI, `<=840s` Floor VII — offsets réels différents par palier de la
+formule `T=TotalSeconds-offset`). **Coffre Bedrock choisi dès Floor V**
+(disponible à partir de cet étage, score S+ 300 déjà suffisant pour les
+deux, Bedrock strictement meilleur qu'Obsidian). Table de loot complète des
+6 étages restants sourcée mot pour mot depuis les pages wiki "Floor
+II/III/IV/V/VI/VII - Loot" (~230 lignes au total ; Floor VII, la plus
+volumineuse à 129 entrées/50 Ko de wikitext brut, extraite via un agent
+dédié pour ne pas saturer le contexte principal — même discipline
+d'exhaustivité que Floor I, aucune ligne inventée). Nouveaux items par
+étage (Adaptive gear Floor II-III, Spirit gear+pet Floor IV, Shadow Assassin
+Floor V, Necromancer Lord Floor VI, Wither gear+Necron parts Floor VII) tous
+vérifiés avec un vrai prix live (Bazaar puis fallback AH nostar_norecomb).
+**1 vrai gap documenté** : "Wither Shard" (Floor VII Bedrock) n'a aucune
+entrée `items_catalog` trouvée — `entry_item_id=NULL`, exclu proprement du
+calcul (ligne conservée en base pour traçabilité, contribue 0).
+
+**🔴 Bug de performance réel trouvé en vérifiant en prod** : la première
+version de `computeAndPersistAllDungeonsRankings()` faisait 1 requête
+Supabase par item × ligne de loot × combo tier/étage — jusqu'à plusieurs
+centaines de requêtes séquentielles, confirmé par les logs Vercel (dizaines
+de `504 Task timed out after 60 seconds` d'affilée). **Piège de sondage
+répété reproduit une seconde fois dans cette session** : une boucle de
+polling en arrière-plan a re-déclenché la route toutes les ~13s sans
+vérifier de statut réel côté serveur, exactement la règle déjà notée le 13
+août (curl répétés sans vérifier `sync_log`) — stoppée dès identifiée.
+Corrigé en réécrivant le moteur pour tout charger en quelques requêtes
+batchées (même pattern que `loadPricedItems` de `lib/gear-pricing.ts` — une
+requête large filtrée par date, réduite en `Map` "premier vu = plus récent"
+en JS), calcul entièrement en mémoire, inserts `pluton_setups`/
+`pluton_rankings` groupés au lieu d'un aller-retour par combo.
+`maxDuration` 60→120 en filet de sécurité additionnel.
+
+**État final vérifié en base après le fix** (recoupé par calcul manuel
+indépendant sur early/Floor VII Bedrock — le combo le plus complexe,
+dominé par les pièces Wither Helmet/Boots ~50-70M à ~6-8% de chance chacune
+et Necron's Handle 467M à 0.1%: E[valeur]≈13 460 910, E[coût]≈3 086 349,
+net×4.286 runs/h≈44 462 404, cohérent à l'arrondi près avec les
+44 460 637,25 persistés) : **28 combos** (7 étages × 4 tiers,
+`pluton_rankings` `activity_key='dungeons'`, 0 `has_setup:false`). Floor
+III/IV/V/VI ressortent négatifs en EARLY/MID (coût de base fixe du coffre
+pas compensé par les chances `no_bonus`, réduites sans investissement
+Treasure) mais positifs en END/LATE — écart réel, pas un artefact, cohérent
+avec le fait que ces étages nécessitent un vrai investissement Treasure
+accessories pour être rentables. Floor VII ressort massivement positif à
+tous les tiers (Wither armor/Necron parts, contenu post-F7 réputé lucratif
+en jeu, cohérent). Cron `pluton-dungeons-refresh` (quotidien 5h25,
+`vercel.json`) rejoue les 28 combos. Route de debug temporaire supprimée
+après validation.
 
 **🔴 Gap documenté, pas un oubli** : le système de Classes (Archer/Mage/
 Tank/Healer/Berserk, scaling de stats propre) n'est pas modélisé ici — cette
-1ère méthode (ancrée sur le score, temps de run externe) ne dépend pas du
-DPS du joueur, donc le choix de classe n'affecte pas ce calcul. Un futur
-"frag run" ciblé (ex: Floor VI, boss Sadan/Blood Room, exemple cité par
-l'utilisateur) redeviendra DPS-dépendant et nécessitera de sourcer les
-Classes à ce moment-là — pas construit dans ce chantier.
+méthode (ancrée sur le score, temps de run externe) ne dépend pas du DPS du
+joueur, donc le choix de classe n'affecte pas ce calcul. Un futur "frag run"
+ciblé (ex: Floor VI, boss Sadan/Blood Room, exemple cité par l'utilisateur)
+redeviendra DPS-dépendant et nécessitera de sourcer les Classes à ce
+moment-là — pas construit dans ce chantier.
 
 **Explicitement hors scope de ce chantier** : découverte continue
 automatisée de nouvelles méthodes (moteur Claude/Haiku façon
-`pluton-weekly-sync`, vision long terme de l'utilisateur) ; généralisation
-aux Floors II-VII + Master Mode ; le frag run Floor VI/Sadan cité en
-exemple. **Prochaine étape actée par l'utilisateur** : généraliser Dungeons
-(étages suivants + méthodes additionnelles type frag run), avec la même
-rigueur d'exhaustivité que Slayer.
+`pluton-weekly-sync`, vision long terme de l'utilisateur) ; Master Mode ; le
+frag run Floor VI/Sadan cité en exemple. **Prochaine étape actée par
+l'utilisateur** : le frag run Floor VI/Sadan (2e méthode réelle, valide
+l'architecture multi-méthodes avec 2 méthodes distinctes sur le même
+étage — nécessitera de sourcer le système de Classes, DPS-dépendant cette
+fois), avec la même rigueur d'exhaustivité que Slayer.
 
 ## ✅ Pluton Slayer — construit et validé, Zombie/Spider/Enderman/Blaze T1-T5/T4 + Wolf T1-T4 (18 août)
 
