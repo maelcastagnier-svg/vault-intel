@@ -91,7 +91,15 @@ const supabase = createClient(
 export const SLAYER_TARGET_BLOCK_IDS = [
   'ZOMBIE_T1', 'ZOMBIE_T2', 'ZOMBIE_T3', 'ZOMBIE_T4', 'ZOMBIE_T5',
   'SPIDER_T1', 'SPIDER_T2', 'SPIDER_T3', 'SPIDER_T4', 'SPIDER_T5',
+  'WOLF_T1', 'WOLF_T2', 'WOLF_T3', 'WOLF_T4', // pas de Tier V reel (confirme wiki "Sven Packmaster")
 ] as const
+
+// Niveau de collection Wolf Slayer assume pour le bonus plat "+X Damage par
+// niveau" de Shaman/Pooch Sword (wiki) -- MID = palier minimum reellement
+// requis pour debloquer Shaman Sword (WS3, hypothese conservative "juste
+// debloque"), END/LATE = niveau max reellement documente dans la table de
+// deblocage Wolf Slayer (WS9 "Alpha Wolf", jamais invente).
+const WOLF_COLLECTION_LEVEL_BY_TIER: Partial<Record<TierKey, number>> = { mid: 3, end: 9, late: 9 }
 export const SLAYER_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
 
 const BASE_STRENGTH = 0
@@ -159,6 +167,15 @@ const GEAR_BY_SLAYER_TIER: Record<string, Record<TierKey, { weapons: string[]; a
     end: { weapons: ['STING'], armor: 'PRIMORDIAL', enrage: false },
     late: { weapons: ['STING'], armor: 'PRIMORDIAL', enrage: false },
   },
+  wolf: {
+    // Aucune arme Wolf gratuite/starter n'existe (confirme wiki : rien avant
+    // Shaman Sword @ Wolf Slayer 3, contrairement a Undead Sword/Spider
+    // Sword) -- EARLY honnetement non eligible, top_setup:null.
+    early: null as any,
+    mid: { weapons: ['SHAMAN_SWORD'], armor: 'MASTIFF', enrage: false },
+    end: { weapons: ['POOCH_SWORD'], armor: 'MASTIFF', enrage: false },
+    late: { weapons: ['POOCH_SWORD'], armor: 'MASTIFF', enrage: false },
+  },
 }
 
 export async function computeSlayerRanking(tier: TierKey, blockId: string): Promise<SlayerRankingResult> {
@@ -216,20 +233,35 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
       ? 1 + Number(armor.octodexterity_bonus_damage_pct) / 100 / Number(armor.octodexterity_every_n_hits)
       : 1
 
+    // Pack Mentality (Pooch Sword, wolf) -- +100% degats vs Wolves SI le
+    // joueur porte un set complet Armor of the Pack OU Mastiff Armor (wiki
+    // "Pooch Sword") -- toujours satisfait ici car le mapping gear associe
+    // deja Pooch Sword a Mastiff Armor pour END/LATE, condition verifiee
+    // explicitement plutot que supposee.
+    const packMentalityMult = (slayerKey === 'wolf' && weaponId === 'POOCH_SWORD' && armor?.set_prefix === 'MASTIFF') ? 2.0 : 1
+
     // Radioactive (casque Tarantula/Primordial) -- Crit Damage bonus
-    // proportionnel a la Force totale, plafond reel documente.
-    let critDamage = BASE_CRIT_DAMAGE
+    // proportionnel a la Force totale, plafond reel documente. Mastiff
+    // Armor (wolf) a un bonus Crit Damage plat separe (set_crit_damage).
+    let critDamage = BASE_CRIT_DAMAGE + (armor ? Number(armor.set_crit_damage) : 0)
     if (armor?.radioactive_cd_per_10_str) {
       const bonus = Math.min(Number(armor.radioactive_cd_cap), Number(armor.radioactive_cd_per_10_str) * (totalStrength / 10))
       critDamage += bonus
     }
 
+    // Bonus plat "+X Damage par niveau de collection Wolf Slayer" (Shaman/
+    // Pooch Sword) -- niveau assume selon WOLF_COLLECTION_LEVEL_BY_TIER,
+    // jamais invente (voir doc a sa definition).
+    const collectionLevelFlatDamage = weapon.damage_per_collection_level
+      ? Number(weapon.damage_per_collection_level) * (WOLF_COLLECTION_LEVEL_BY_TIER[tier] ?? 0)
+      : 0
+
     const additivePct = COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT
     const critChance = BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS
     const dps = computeDps(
-      Number(weapon.base_damage), enrageFlatDamage, totalStrength,
-      additivePct, [weaponMobTypeMult, armorMobTypeMult, octoMult],
-      critChance, critDamage, !!weapon.always_crit, 0
+      Number(weapon.base_damage), enrageFlatDamage + collectionLevelFlatDamage, totalStrength,
+      additivePct, [weaponMobTypeMult, armorMobTypeMult, octoMult, packMentalityMult],
+      critChance, critDamage, !!weapon.always_crit, Number(weapon.base_attack_speed)
     )
     if (!best || dps > best.dps) {
       best = { weapon: weapon.display_name, weapon_item_id: weapon.item_id, total_strength: totalStrength, dps }
