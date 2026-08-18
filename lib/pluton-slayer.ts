@@ -259,7 +259,7 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
     // Radioactive (casque Tarantula/Primordial) -- Crit Damage bonus
     // proportionnel a la Force totale, plafond reel documente. Mastiff
     // Armor (wolf) a un bonus Crit Damage plat separe (set_crit_damage).
-    let critDamage = BASE_CRIT_DAMAGE + (armor ? Number(armor.set_crit_damage) : 0)
+    let critDamage = BASE_CRIT_DAMAGE + Number(weapon.base_crit_damage || 0) + (armor ? Number(armor.set_crit_damage) : 0)
     if (armor?.radioactive_cd_per_10_str) {
       const bonus = Math.min(Number(armor.radioactive_cd_cap), Number(armor.radioactive_cd_per_10_str) * (totalStrength / 10))
       critDamage += bonus
