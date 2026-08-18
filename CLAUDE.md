@@ -32,7 +32,7 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
-## ✅ Pluton Slayer — construit et validé, Zombie/Spider/Enderman T1-T5/T4 + Wolf T1-T4 (18 août)
+## ✅ Pluton Slayer — construit et validé, Zombie/Spider/Enderman/Blaze T1-T5/T4 + Wolf T1-T4 (18 août)
 
 5e activité généralisée, et la **première nécessitant un vrai moteur de
 combat** (temps de kill via dégâts/seconde réels) plutôt qu'un rendement par
@@ -176,14 +176,65 @@ armes). Colonne `base_crit_damage` ajoutée, recalcul complet, revérifié
 (EARLY/ENDERMAN_T1 : DPS=3318.2 calculé à la main = 3318 en base après
 correction, exact — était 3103 sans le fix, écart réel confirmé).
 
-**État final** : **72 combos au total** pour les 4 Slayers construits.
-Enderman ressort toujours négatif (bosses très chers en PV/temps de
-Hitshield, drop Null Sphere ~225 coins, pas assez pour compenser) —
-cohérent avec le gap RNG documenté, pas un signal d'erreur.
+**État à ce stade** : 72 combos pour les 4 Slayers construits. Enderman
+ressort toujours négatif (bosses très chers en PV/temps de Hitshield, drop
+Null Sphere ~225 coins, pas assez pour compenser) — cohérent avec le gap RNG
+documenté, pas un signal d'erreur.
 
-**Prochaine étape actée par l'utilisateur** : Blaze/Vampire Slayer avec la
-même rigueur d'exhaustivité, puis Dungeons (dernière activité de la liste
-actée le 17 août). `activity_key='slayer'` déjà prêt à les accueillir.
+**Blaze Slayer (Inferno Demonlord) ajouté juste après**, même rigueur.
+Seulement 4 paliers réels (pas 5, comme Wolf/Enderman). **Aucune dague Blaze
+gratuite/starter n'existe** (confirmé wiki : rien avant Firedust/Twilight
+Dagger @ Blaze Slayer 2) — EARLY honnêtement non éligible, comme Wolf.
+**Aucune armure Blaze Slayer n'existe non plus** — confirmé explicitement
+par le wiki, seul Slayer dans ce cas ("the only Slayer that does not reward
+an exclusive set of armor, instead using Subzero Wisp Pet as a main scaling
+slayer item" — pet non modélisé, même gap pets déjà documenté ailleurs).
+Armes : Twilight Dagger(dmg90,force+45,+50%vs Blazes,CritDamage+15%,gate
+BS2)→Deathripper Dagger(dmg160,force+75,+250%vs Blazes,CritDamage+25%,
+**CritChance+10%**,gate BS6) — choisies contre Firedust/Pyrochaos par
+comparaison réelle (mêmes stats brutes, bonus Infernal strictement
+supérieur sur Twilight/Deathripper, pas un coup de dé).
+
+**2 mécaniques réelles inédites** : **Demonsplit** — le boss se scinde en 2
+sous-boss (Quazii+Typhoeus) avec de vrais PV propres à 50% PV (T1/T2,
+scission simple) ou 2/3 et 1/3 PV (T3/T4, double scission) — modélisée en
+additionnant les PV réels totaux des démons directement dans `health` du
+boss stocké (T1: 2.5M+500k+500k=3.5M ; T2: 10M+1.75M+1.75M=13.5M ; T3:
+45M+5M+5M×2=65M ; T4: 150M+10M+10M×2=190M) plutôt que le PV affiché du boss
+seul. **Hellion Shield** (T2+) — 99% de réduction de dégâts sauf en
+attaquant avec une Dague dont l'attunement courant (1 de 4 couleurs,
+rotation toutes les 8 coups) correspond à celui du bouclier ; chaque vraie
+dague ne couvre que 2 des 4 couleurs (Twilight/Deathripper : Spirit+Crystal)
+— modélisée via une nouvelle colonne `damage_uptime_pct` sur
+`pluton_slayer_boss_tiers` (100 pour T1 sans bouclier, 50 pour T2-T4),
+multipliant le DPS effectif avant calcul du TTK — même discipline que le
+Malevolent Hitshield d'Enderman (temps/effet réel quantifié, jamais ignoré).
+
+**🔴 1 vrai oubli trouvé en vérifiant Blaze en prod, même famille que le
+bug Crit Damage d'Enderman** : Deathripper Dagger a aussi une vraie stat
+Crit Chance propre (+10%, wiki), jamais câblée au calcul (Twilight n'en a
+pas, valeur wiki confirmée à 0). Colonne `base_crit_chance` ajoutée
+(NOT NULL DEFAULT 0), backfill Deathripper=10, recalcul complet. Revérifié
+par calcul manuel indépendant sur end/BLAZE_T1 : DPS=9555.46 calculé à la
+main = 9555 en base après correction (était 9086 sans le fix, écart réel
++5.2% confirmé, cohérent avec le ratio de multiplicateur crit
+`(1+0.70×0.75)/(1+0.60×0.75)`) ; mid/BLAZE_T1 (Twilight, non affecté par ce
+bug) confirmé exact indépendamment (DPS=1780.7≈1781).
+
+**État final vérifié en base** : **88 combos au total** pour les 5 Slayers
+construits (Zombie/Spider/Wolf/Enderman/Blaze). **Blaze ressort positif sur
+tous ses combos MID/END/LATE** (ex: end/late BLAZE_T1 ~19.8K/h,
+mid/BLAZE_T1 ~3.7K/h) — premier Slayer sans aucun combo négatif, cohérent
+avec le prix élevé de Derelict Ashe (~1717 coins/unité) largement supérieur
+à son coût de spawn, différence réelle entre Slayers plutôt qu'un signal
+d'erreur (même lecture que Spider/Wolf déjà positifs sur plusieurs paliers).
+Cron `pluton-slayer-refresh` (quotidien 5h20, déjà générique) rejoue les 5
+Slayers. Route de debug temporaire supprimée après validation.
+
+**Prochaine étape actée par l'utilisateur** : Vampire Slayer (Riftstalker
+Bloodfiend, dernier des 6 Slayers) avec la même rigueur d'exhaustivité, puis
+Dungeons (dernière activité de la liste actée le 17 août).
+`activity_key='slayer'` déjà prêt à l'accueillir.
 
 ## ✅ Pluton Fishing — construit et validé (17 août)
 
