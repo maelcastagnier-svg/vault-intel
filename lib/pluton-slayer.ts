@@ -93,6 +93,7 @@ export const SLAYER_TARGET_BLOCK_IDS = [
   'SPIDER_T1', 'SPIDER_T2', 'SPIDER_T3', 'SPIDER_T4', 'SPIDER_T5',
   'WOLF_T1', 'WOLF_T2', 'WOLF_T3', 'WOLF_T4', // pas de Tier V reel (confirme wiki "Sven Packmaster")
   'ENDERMAN_T1', 'ENDERMAN_T2', 'ENDERMAN_T3', 'ENDERMAN_T4', // pas de Tier V reel (confirme wiki "Voidgloom Seraph")
+  'BLAZE_T1', 'BLAZE_T2', 'BLAZE_T3', 'BLAZE_T4', // pas de Tier V reel (confirme wiki "Inferno Demonlord")
 ] as const
 
 // Niveau de collection Wolf Slayer assume pour le bonus plat "+X Damage par
@@ -185,6 +186,17 @@ const GEAR_BY_SLAYER_TIER: Record<string, Record<TierKey, { weapons: string[]; a
     // -- LATE uniquement, meme convention "investissement max" que Enrage
     // de Zombie.
     late: { weapons: ['ATOMSPLIT_KATANA'], armor: 'FINAL_DESTINATION', enrage: true },
+  },
+  blaze: {
+    // Aucune dague Blaze gratuite/starter n'existe (confirme wiki : rien
+    // avant Firedust/Twilight Dagger @ Blaze Slayer 2) -- EARLY honnetement
+    // non eligible. AUCUNE armure Blaze Slayer n'existe non plus (confirme
+    // explicitement par le wiki -- seul Slayer dans ce cas), armor:null a
+    // tous les tiers.
+    early: null as any,
+    mid: { weapons: ['MAWDUST_DAGGER'], armor: null, enrage: false },
+    end: { weapons: ['HEARTMAW_DAGGER'], armor: null, enrage: false },
+    late: { weapons: ['HEARTMAW_DAGGER'], armor: null, enrage: false },
   },
 }
 
@@ -298,7 +310,13 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
     ? (Number(boss.hitshield_triggers) * Number(boss.hitshield_hits_per_trigger)) / computeAttacksPerSecond(best.bonusAttackSpeed)
     : 0
 
-  const timeToKillSeconds = Number(boss.health) / best.dps + hitshieldExtraSeconds
+  // Hellion Shield (Inferno Demonlord T2+) -- uptime reel de degats
+  // effectifs (100% si pas de bouclier, 50% si une seule dague ne couvre
+  // que 2 des 4 attunements -- voir doc migration), applique comme DPS
+  // effectif reduit plutot qu'ignore.
+  const effectiveDps = best.dps * (Number(boss.damage_uptime_pct) / 100)
+
+  const timeToKillSeconds = Number(boss.health) / effectiveDps + hitshieldExtraSeconds
   const killsPerHour = 3600 / timeToKillSeconds
 
   const { data: dropPriceRow } = await supabase
