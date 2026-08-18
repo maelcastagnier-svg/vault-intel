@@ -92,6 +92,7 @@ export const SLAYER_TARGET_BLOCK_IDS = [
   'ZOMBIE_T1', 'ZOMBIE_T2', 'ZOMBIE_T3', 'ZOMBIE_T4', 'ZOMBIE_T5',
   'SPIDER_T1', 'SPIDER_T2', 'SPIDER_T3', 'SPIDER_T4', 'SPIDER_T5',
   'WOLF_T1', 'WOLF_T2', 'WOLF_T3', 'WOLF_T4', // pas de Tier V reel (confirme wiki "Sven Packmaster")
+  'ENDERMAN_T1', 'ENDERMAN_T2', 'ENDERMAN_T3', 'ENDERMAN_T4', // pas de Tier V reel (confirme wiki "Voidgloom Seraph")
 ] as const
 
 // Niveau de collection Wolf Slayer assume pour le bonus plat "+X Damage par
@@ -176,6 +177,15 @@ const GEAR_BY_SLAYER_TIER: Record<string, Record<TierKey, { weapons: string[]; a
     end: { weapons: ['POOCH_SWORD'], armor: 'MASTIFF', enrage: false },
     late: { weapons: ['POOCH_SWORD'], armor: 'MASTIFF', enrage: false },
   },
+  enderman: {
+    early: { weapons: ['VOIDWALKER_KATANA'], armor: null, enrage: false },
+    mid: { weapons: ['VOIDEDGE_KATANA'], armor: 'FINAL_DESTINATION', enrage: false },
+    end: { weapons: ['ATOMSPLIT_KATANA'], armor: 'FINAL_DESTINATION', enrage: false },
+    // Vivacious Darkness (Final Destination, toggle continu cout Soulflow)
+    // -- LATE uniquement, meme convention "investissement max" que Enrage
+    // de Zombie.
+    late: { weapons: ['ATOMSPLIT_KATANA'], armor: 'FINAL_DESTINATION', enrage: true },
+  },
 }
 
 export async function computeSlayerRanking(tier: TierKey, blockId: string): Promise<SlayerRankingResult> {
@@ -210,14 +220,20 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
 
   let enrageStrength = 0
   let enrageFlatDamage = 0
+  let enrageAttackSpeed = 0
+  let enrageMobTypeMultPct = 0
   if (gearConfig.enrage && armor?.enrage_duration_s && armor?.enrage_cooldown_s) {
     // Moyenne ponderee par temps reel d'activite (uptime = duree/cooldown,
     // reactivation immediate a la fin du cooldown) -- meme methode deja
     // validee pour le Mining Speed Boost de Pluton Mining, jamais "actif en
-    // continu" naivement.
+    // continu" naivement. Pour un toggle CONTINU comme Vivacious Darkness
+    // (Enderman), duration=cooldown=1 encode "toujours actif" (uptime=100%,
+    // reel pour ce mecanisme, pas invente).
     const uptime = Number(armor.enrage_duration_s) / Number(armor.enrage_cooldown_s)
     enrageStrength = Number(armor.enrage_bonus_strength) * uptime
-    enrageFlatDamage = Number(armor.enrage_bonus_damage_flat) * uptime
+    enrageFlatDamage = Number(armor.enrage_bonus_damage_flat || 0) * uptime
+    enrageAttackSpeed = Number(armor.enrage_bonus_attack_speed || 0) * uptime
+    enrageMobTypeMultPct = Number(armor.enrage_bonus_mob_type_mult_pct || 0) * uptime
   }
 
   let best: any = null
@@ -256,20 +272,33 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
       ? Number(weapon.damage_per_collection_level) * (WOLF_COLLECTION_LEVEL_BY_TIER[tier] ?? 0)
       : 0
 
+    // Vivacious Darkness (Enderman, LATE) -- +100% degats vs Endermen en
+    // plus des multiplicateurs deja presents, meme principe que Pack
+    // Mentality (facteur multiplicatif propre, jamais somme avec les autres).
+    const enrageMobTypeMult = 1 + enrageMobTypeMultPct / 100
+    const bonusAttackSpeed = Number(weapon.base_attack_speed || 0) + enrageAttackSpeed
+
     const additivePct = COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT
     const critChance = BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS
     const dps = computeDps(
       Number(weapon.base_damage), enrageFlatDamage + collectionLevelFlatDamage, totalStrength,
-      additivePct, [weaponMobTypeMult, armorMobTypeMult, octoMult, packMentalityMult],
-      critChance, critDamage, !!weapon.always_crit, Number(weapon.base_attack_speed)
+      additivePct, [weaponMobTypeMult, armorMobTypeMult, octoMult, packMentalityMult, enrageMobTypeMult],
+      critChance, critDamage, !!weapon.always_crit, bonusAttackSpeed
     )
     if (!best || dps > best.dps) {
-      best = { weapon: weapon.display_name, weapon_item_id: weapon.item_id, total_strength: totalStrength, dps }
+      best = { weapon: weapon.display_name, weapon_item_id: weapon.item_id, total_strength: totalStrength, dps, bonusAttackSpeed }
     }
   }
   if (!best) return { target_block: boss.boss_name, target_block_id: targetBlock.id, tier, top_setup: null }
 
-  const timeToKillSeconds = Number(boss.health) / best.dps
+  // Malevolent Hitshield (Voidgloom Seraph uniquement) -- le boss encaisse
+  // un nombre fixe de coups sans perdre de PV a 3 declenchements reels,
+  // temps "gaspille" ajoute directement au TTK plutot qu'ignore.
+  const hitshieldExtraSeconds = boss.hitshield_hits_per_trigger
+    ? (Number(boss.hitshield_triggers) * Number(boss.hitshield_hits_per_trigger)) / computeAttacksPerSecond(best.bonusAttackSpeed)
+    : 0
+
+  const timeToKillSeconds = Number(boss.health) / best.dps + hitshieldExtraSeconds
   const killsPerHour = 3600 / timeToKillSeconds
 
   const { data: dropPriceRow } = await supabase
