@@ -5,27 +5,33 @@
 // pluton_target_blocks porte ici des METHODES distinctes (pas des etages
 // bruts) -- ex: "Floor I clear complet" vs, plus tard, "Floor VI frag run
 // Sadan" pourront coexister sous le meme activity_key/tier et etre classees
-// l'une contre l'autre.
+// l'une contre l'autre. 7 etages Normal Mode generalises (Floor I->VII),
+// meme methode "clear complet visant S+" partout -- Master Mode et methodes
+// additionnelles (frag runs) restent hors scope de ce chantier.
 //
 // Difference mecanique fondamentale avec Slayer : un run de donjon n'a PAS
 // de formule DPS->temps-de-kill (navigation+puzzles+secrets+boss, aucune
 // donnee sourcee ne permet de simuler ce temps). Le temps de run est donc
 // ANCRE sur le seuil reel documente par la page wiki "Dungeon Score" pour
-// obtenir Speed=100 (<=600s sur Floor I) -- meme logique que le plafond
-// moteur 20 actions/sec de Farming/Foraging (un seuil reel, jamais une
-// moyenne inventee). Score S+ (>=300) verifie deterministe a ce temps :
-// Skill=100 (0 mort/0 puzzle rate) + Explore=100 (100% clear) + Speed=100 =
-// 300 pile, sans meme compter le Bonus crypts.
+// obtenir Speed=100 par etage (<=600s Floor I/II/III/V, <=720s Floor IV/VI,
+// <=840s Floor VII, voir FLOOR_CONFIG) -- meme logique que le plafond moteur
+// 20 actions/sec de Farming/Foraging (un seuil reel, jamais une moyenne
+// inventee). Score S+ (>=300) verifie deterministe a ce temps, sur tous les
+// etages : Skill=100 (0 mort/0 puzzle rate) + Explore=100 (100% clear) +
+// Speed=100 = 300 pile, sans meme compter le Bonus crypts.
 //
-// Coffre de recompense = Obsidian (meilleur coffre Floor I, pas de Bedrock
-// avant Floor V) -- PERSONNEL par joueur (pas de partage de loot a diviser
-// entre le groupe, confirme wiki "Dungeon Reward Chest"). Party 2-5 requise
-// pour le run (aucun solo Floor I) mais coins/h reste une valeur PAR JOUEUR.
+// Coffre de recompense = meilleur disponible par etage (Obsidian Floor I-IV,
+// Bedrock Floor V-VII des qu'il existe -- meme score S+ 300 suffit aux deux,
+// Bedrock strictement meilleur) -- PERSONNEL par joueur (pas de partage de
+// loot a diviser entre le groupe, confirme wiki "Dungeon Reward Chest").
+// Party 2-5 requise pour le run (aucun solo) mais coins/h reste une valeur
+// PAR JOUEUR.
 //
-// Table de loot (pluton_dungeons_chest_loot) sourcee mot pour mot depuis la
-// page wiki "The Catacombs - Floor I - Loot" -- deja simulee par les
-// editeurs du wiki via le vrai systeme weight/quality (voir doc "Dungeon
-// Reward Chest#Loot Rolling Process"), jamais re-derivee a la main ici.
+// Table de loot (pluton_dungeons_chest_loot, 7 etages x jusqu'a 6 coffres)
+// sourcee mot pour mot depuis les pages wiki "The Catacombs - Floor X -
+// Loot" -- deja simulee par les editeurs du wiki via le vrai systeme
+// weight/quality (voir doc "Dungeon Reward Chest#Loot Rolling Process"),
+// jamais re-derivee a la main ici.
 // EARLY/MID = chance_no_bonus_pct (aucun accessoire Treasure) ; END/LATE =
 // chance_max_bonus_pct (Treasure Artifact/Ring/Talisman + Boss Luck perk +
 // Hideongeon Shard maxes -- meme convention "investissement max" que
@@ -50,13 +56,35 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export const DUNGEONS_TARGET_BLOCK_IDS = ['F1_CLEAR_SPLUS'] as const
+export const DUNGEONS_TARGET_BLOCK_IDS = [
+  'F1_CLEAR_SPLUS', 'F2_CLEAR_SPLUS', 'F3_CLEAR_SPLUS', 'F4_CLEAR_SPLUS',
+  'F5_CLEAR_SPLUS', 'F6_CLEAR_SPLUS', 'F7_CLEAR_SPLUS',
+] as const
 export const DUNGEONS_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
 
-// Seuil reel source page wiki "Dungeon Score" -- Speed=100 si T<480 avec
-// T=TotalSeconds-120 sur Floor I, donc TotalSeconds<=600s. Utilise comme
-// temps de run assume pour la methode "clear complet visant S+".
-const FLOOR_I_ASSUMED_RUN_SECONDS = 600
+// Seuils reels source page wiki "Dungeon Score" -- Speed=100 si T<480 avec
+// T=TotalSeconds-offset (offset variable par etage). Utilise comme temps de
+// run assume pour la methode "clear complet visant S+" (Skill=100+Explore=
+// 100+Speed=100=300=S+ deterministe, sans meme compter le Bonus crypts).
+// Coffre Bedrock disponible seulement Floor V-VII (score S+ deja suffisant,
+// meme 300 que pour Obsidian) -- strictement meilleur, donc choisi des
+// qu'il existe.
+const FLOOR_CONFIG: Record<string, { runSeconds: number; chestTier: string }> = {
+  'I': { runSeconds: 600, chestTier: 'Obsidian' },
+  'II': { runSeconds: 600, chestTier: 'Obsidian' },
+  'III': { runSeconds: 600, chestTier: 'Obsidian' },
+  'IV': { runSeconds: 720, chestTier: 'Obsidian' },
+  'V': { runSeconds: 600, chestTier: 'Bedrock' },
+  'VI': { runSeconds: 720, chestTier: 'Bedrock' },
+  'VII': { runSeconds: 840, chestTier: 'Bedrock' },
+}
+
+function floorFromBlockId(blockId: string): string {
+  // 'F1_CLEAR_SPLUS' -> 'I', 'F7_CLEAR_SPLUS' -> 'VII'
+  const arabic = blockId.match(/^F(\d+)_/)?.[1]
+  const roman = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII']
+  return roman[Number(arabic)]
+}
 
 async function getLivePrice(itemId: string): Promise<number> {
   const { data: bazaar } = await supabase
@@ -103,11 +131,10 @@ export async function computeDungeonsRanking(tier: TierKey, blockId: string): Pr
     .single()
   if (!targetBlock) throw new Error(`Unknown target block: ${blockId}`)
 
-  // Seule methode construite pour l'instant : Floor I clear complet S+,
-  // coffre Obsidian. A generaliser (Floors II-VII + Master Mode + methodes
-  // additionnelles type frag run) selon le meme pattern.
-  const floor = 'I'
-  const chestTier = 'Obsidian'
+  const floor = floorFromBlockId(blockId)
+  const config = FLOOR_CONFIG[floor]
+  if (!config) throw new Error(`Unknown floor for block: ${blockId}`)
+  const chestTier = config.chestTier
 
   const [{ data: chestMeta }, { data: lootRows }] = await Promise.all([
     supabase.from('pluton_dungeons_chest_tiers').select('*').eq('floor', floor).eq('chest_tier', chestTier).single(),
@@ -131,7 +158,7 @@ export async function computeDungeonsRanking(tier: TierKey, blockId: string): Pr
   }
 
   const expectedCost = Number(chestMeta.base_cost) + expectedAddedCost
-  const runTimeSeconds = FLOOR_I_ASSUMED_RUN_SECONDS
+  const runTimeSeconds = config.runSeconds
   const runsPerHour = 3600 / runTimeSeconds
   const coinsPerHour = (expectedValue - expectedCost) * runsPerHour
 
