@@ -1,22 +1,48 @@
 // lib/pluton-slayer.ts
-// Pluton Slayer/Combat (18 aout) -- 5e activite generalisee. Premiere activite
+// Pluton Slayer/Combat (18 aout) -- 5e activite generalisee, la premiere
 // necessitant un vrai moteur de COMBAT (temps de kill via degats/seconde
 // reels), pas juste un rendement par action -- prerequis explicitement
 // identifie par le gap documente sur Sea Creature Chance de Pluton Fishing.
 //
-// Scope de cette premiere passe (choisi explicitement par l'utilisateur,
-// AskUserQuestion du 18 aout) : UN SEUL Slayer (Zombie/Revenant Horror),
-// TOUS ses paliers (I-V) -- meme logique que Mining qui choisit des blocs
-// representatifs plutot que de tout couvrir d'un coup. Spider/Wolf/Enderman/
-// Blaze/Vampire Slayer restent a construire, activity_key='slayer' deja
-// generique pour les accueillir sans migration de schema.
+// Formule de degats reelle -- 2 sources croisees, page "Damage" (formule
+// generale) + page "Damage Calculation" (classification Additive vs
+// Multiplicative, lue en entier apres un recadrage explicite de
+// l'utilisateur sur l'exhaustivite -- correction reelle d'un premier
+// classement invente a tort avant cette 2e lecture, voir plus bas) :
+//   DamageDealt = (5+BaseDamage+FlatDamageBonuses) x (1+Strength/100)
+//                 x AdditiveMultiplier x MultiplicativeMultiplier
+//                 x (1+CritDamage/100 si critique)
+//   ExpectedDamage = NonCrit x (1 + (CritChance/100)x(CritDamage/100))
+//     (simplification esperance-de-gain standard, ou x(1+CritDamage/100)
+//     direct si l'arme crit toujours -- cas reel de Sting/Stinger)
 //
-// Formule de degats reelle (wiki "Damage#Ways to Increase") :
-//   DamageDealt = ((5+BaseDamage) x (1+Strength/100) x AdditiveMultipliers
-//                  x MultiplicativeMultipliers x BonusModifiers)
-//                 x (1+CritDamage/100 si le coup est critique)
-//   ExpectedDamage = NonCrit x (1 + (CritChance/100) x (CritDamage/100))
-//     (simplification standard esperance-de-gain sur la formule crit reelle)
+// **AdditiveMultiplier** = 1 + (somme des sources classees Additive)/100 --
+// seule source confirmee et modelisee ici : perk Combat "Warrior" (skills.
+// reward, +4%/niveau jusqu'a 100% a 25, plafond reel "+210%" a 60, page
+// "Damage Calculation" confirme explicitement "Additive Buff").
+// **MultiplicativeMultiplier** = PRODUIT (pas somme) de chaque source
+// classee Multiplicative -- confirme explicitement sur "Damage Calculation"
+// pour {{Item|Halberd of the Shredded}} (+250% Undead = Multiplicative
+// 3.5x, formule 1+X/100) ET pour Tarantula Armor (Octodexterity every-4th-
+// hit +100% = Multiplicative 2x confirme) / Primordial Armor (every-3rd-hit
+// +50% = Multiplicative 1.5x confirme, valeurs prises telles quelles depuis
+// le wiki, pas re-derivees a la main). Halberd of the Shredded est
+// l'upgrade direct de Reaper Falchion (meme famille "+X% Undead"
+// Zombie Slayer) -- **les bonus "+X% a un type de mob" des armes/armures de
+// slayer sont donc traites ici comme Multiplicative (1+X/100), par
+// generalisation raisonnee depuis ce cas confirme**, le wiki lui-meme
+// avertissant explicitement que "les descriptions en jeu ne suivent pas des
+// regles coherentes, la verification de chaque implementation reelle est
+// necessaire" -- pas une certitude absolue par item, documentee comme telle.
+// Un premier jet de ce fichier sommait ces bonus armes+armure dans UN seul
+// bucket additif (donc x(1+200%+100%)=x4.0 au lieu de x3.0*x2.0=x6.0 pour
+// Reaper Falchion+Reaper Armor) -- corrige avant tout redeploiement apres
+// cette 2e lecture complete de "Damage Calculation".
+// **FlatDamageBonuses** : bonus type "+100 Damage" (Enrage de Reaper Armor)
+// s'ajoute directement a BaseDamage (comme le stat Damage brut d'un objet),
+// PAS un pourcentage -- confirme par la page "Damage" elle-meme (le stat
+// Damage EST BaseDamage dans la formule).
+//
 // Cadence d'attaque reelle (source live wiki "Bonus Attack Speed", page pas
 // encore cachee cote hypixelskyblock_wiki au moment de ce chantier -- fetch
 // direct) :
@@ -28,30 +54,29 @@
 // CritChance=30%, CritDamage=50%.
 //
 // Bonus de niveau Combat reel (table skills deja en base, skill_name=Combat,
-// reward textuel par niveau) : perk "Warrior" cumulatif +4%/niveau jusqu'a
-// 100% (niveau 25), puis ralentit, plafond reel "Warrior 60 : +210% degats"
-// au niveau max -- ET +0.5% Crit Chance par niveau (+30% cumule a 60).
-// Modelise ici a NIVEAU 60 MAX pour tous les tiers (meme hypothese "joueur
-// qui progresse le skill en parallele" deja implicite chez Mining/Farming,
-// jamais de palier de niveau invente).
+// reward textuel par niveau) : perk "Warrior" cumulatif, plafond reel
+// "Warrior 60 : +210% degats" au niveau max -- ET +0.5% Crit Chance par
+// niveau (+30% cumule a 60). Modelise ici a NIVEAU 60 MAX pour tous les
+// tiers (meme hypothese "joueur qui progresse le skill en parallele" deja
+// implicite chez Mining/Farming, jamais de palier de niveau invente).
 //
-// **Seul le drop garanti (Revenant Flesh, pool "Token", odds="Guaranteed"
-// explicite sur le wiki) est compte dans coins/h** -- tous les autres drops
-// (Foul Flesh/Catalysts/Runes/Smite VI/Scythe Blade/Warden Heart...) suivent
-// un systeme de poids multi-pool par kill dont la conversion poids->
-// probabilite exacte n'est pas proprement sourcee ici (le "requirement" du
-// wiki gate un PALIER de reward-track, pas un poids RNG directement
-// utilisable) -- gap documente, meme discipline que le taux de coffre au
-// tresor jamais modelise par Mining, ou Sea Creature jamais modelise par
-// Fishing. **coins_per_hour_boss_phase_only sous-estime donc fortement le
-// vrai revenu Slayer** (nom de champ volontairement explicite sur cette
-// limite, cf convention "raw_block_only" de Mining).
+// **Seul le drop garanti (pool "Token", odds="Guaranteed" explicite sur le
+// wiki) est compte dans coins/h** -- tous les autres drops (Catalysts/
+// Runes/enchant books/Scythe Blade/Shards...) suivent un systeme de poids
+// multi-pool par kill dont la conversion poids->probabilite exacte n'est
+// pas proprement sourcee ici (le "requirement" du wiki gate un PALIER de
+// reward-track, pas un poids RNG directement utilisable) -- gap documente,
+// meme discipline que le taux de coffre au tresor jamais modelise par
+// Mining, ou Sea Creature jamais modelise par Fishing.
+// **coins_per_hour_boss_phase_only sous-estime donc fortement le vrai
+// revenu Slayer** (nom de champ volontairement explicite sur cette limite,
+// cf convention "raw_block_only" de Mining).
 //
 // **Phase de farm de mobs (XP Combat necessaire pour faire spawn le boss)
 // PAS modelisee** -- gap documente egalement, distinct du gap ci-dessus :
-// necessiterait un 2e mini-modele de combat (PV/loot des zombies de base,
-// pas encore source) pour calculer le temps reel de la phase de farm avant
-// le spawn. coins_per_hour ici represente donc UNIQUEMENT la phase "combat
+// necessiterait un 2e mini-modele de combat (PV/loot des mobs de base, pas
+// encore source) pour calculer le temps reel de la phase de farm avant le
+// spawn. coins_per_hour ici represente donc UNIQUEMENT la phase "combat
 // contre le boss deja spawn", extrapolee a l'heure comme si un nouveau boss
 // etait toujours immediatement disponible -- une metrique partielle/idealisee,
 // documentee comme telle, pas un cycle de jeu complet realiste.
@@ -63,15 +88,19 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export const SLAYER_TARGET_BLOCK_IDS = ['ZOMBIE_T1', 'ZOMBIE_T2', 'ZOMBIE_T3', 'ZOMBIE_T4', 'ZOMBIE_T5'] as const
+export const SLAYER_TARGET_BLOCK_IDS = [
+  'ZOMBIE_T1', 'ZOMBIE_T2', 'ZOMBIE_T3', 'ZOMBIE_T4', 'ZOMBIE_T5',
+  'SPIDER_T1', 'SPIDER_T2', 'SPIDER_T3', 'SPIDER_T4', 'SPIDER_T5',
+] as const
 export const SLAYER_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
 
 const BASE_STRENGTH = 0
 const BASE_CRIT_CHANCE = 30
 const BASE_CRIT_DAMAGE = 50
-// "Warrior 60" (skills.reward, skill_name=Combat, niveau 60) -- perk cumulatif
-// reel, modelise a niveau max (voir doc d'en-tete).
-const COMBAT_LEVEL_60_DAMAGE_MULT_PCT = 210
+// "Warrior 60" (skills.reward, skill_name=Combat, niveau 60) -- perk
+// cumulatif reel, Additive confirme (voir doc d'en-tete), modelise a
+// niveau max.
+const COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT = 210
 const COMBAT_LEVEL_60_CRIT_CHANCE_BONUS = 30 // +0.5%/niveau x60
 
 function computeAttacksPerSecond(bonusAttackSpeed: number): number {
@@ -79,9 +108,16 @@ function computeAttacksPerSecond(bonusAttackSpeed: number): number {
   return 20 / ticks
 }
 
-function computeDps(baseDamage: number, strength: number, additiveMultPct: number, multiplicativeMultPct: number, critChance: number, critDamage: number, bonusAttackSpeed: number): number {
-  const nonCrit = (5 + baseDamage) * (1 + strength / 100) * (1 + additiveMultPct / 100) * (1 + multiplicativeMultPct / 100)
-  const expectedPerHit = nonCrit * (1 + (Math.min(100, critChance) / 100) * (critDamage / 100))
+function computeDps(
+  baseDamage: number, flatDamageBonus: number, strength: number,
+  additivePct: number, multiplicativeFactors: number[],
+  critChance: number, critDamage: number, alwaysCrit: boolean, bonusAttackSpeed: number
+): number {
+  const multiplicativeMult = multiplicativeFactors.reduce((a, b) => a * b, 1)
+  const nonCrit = (5 + baseDamage + flatDamageBonus) * (1 + strength / 100) * (1 + additivePct / 100) * multiplicativeMult
+  const expectedPerHit = alwaysCrit
+    ? nonCrit * (1 + critDamage / 100)
+    : nonCrit * (1 + (Math.min(100, critChance) / 100) * (critDamage / 100))
   return expectedPerHit * computeAttacksPerSecond(bonusAttackSpeed)
 }
 
@@ -105,56 +141,88 @@ export type SlayerRankingResult = {
   } | null
 }
 
+// Mapping gear reel par (slayer, tier joueur) -- armes/armures Slayer sont
+// gatees par collection XP, jamais par prix AH (la plupart "salable=no" sur
+// le wiki) -- l'architecture "budget AH combinatoire" des autres activites
+// Pluton ne s'applique pas ici, mapping direct a la place (meme raison que
+// Farming pour son Specialized Farming Tool).
+const GEAR_BY_SLAYER_TIER: Record<string, Record<TierKey, { weapons: string[]; armor: string | null; enrage: boolean }>> = {
+  zombie: {
+    early: { weapons: ['UNDEAD_SWORD'], armor: null, enrage: false },
+    mid: { weapons: ['REVENANT_SWORD'], armor: 'REVENANT', enrage: false },
+    end: { weapons: ['REAPER_SWORD', 'REAPER_SCYTHE'], armor: 'REAPER', enrage: false },
+    late: { weapons: ['REAPER_SWORD', 'REAPER_SCYTHE'], armor: 'REAPER', enrage: true },
+  },
+  spider: {
+    early: { weapons: ['SPIDER_SWORD'], armor: null, enrage: false },
+    mid: { weapons: ['TARANTULA_FANG'], armor: 'TARANTULA', enrage: false },
+    end: { weapons: ['STING'], armor: 'PRIMORDIAL', enrage: false },
+    late: { weapons: ['STING'], armor: 'PRIMORDIAL', enrage: false },
+  },
+}
+
 export async function computeSlayerRanking(tier: TierKey, blockId: string): Promise<SlayerRankingResult> {
-  const slayerTier = Number(blockId.replace('ZOMBIE_T', ''))
+  const [slayerKeyRaw, tierPart] = blockId.split('_T')
+  const slayerKey = slayerKeyRaw.toLowerCase()
+  const slayerTier = Number(tierPart)
+
   const [{ data: boss }, { data: weapons }, { data: armors }] = await Promise.all([
-    supabase.from('pluton_slayer_boss_tiers').select('*').eq('slayer_key', 'zombie').eq('tier', slayerTier).single(),
-    supabase.from('pluton_slayer_weapon_stats').select('*').eq('verified', true),
-    supabase.from('pluton_slayer_armor_stats').select('*'),
+    supabase.from('pluton_slayer_boss_tiers').select('*').eq('slayer_key', slayerKey).eq('tier', slayerTier).single(),
+    supabase.from('pluton_slayer_weapon_stats').select('*').eq('slayer_key', slayerKey).eq('verified', true),
+    supabase.from('pluton_slayer_armor_stats').select('*').eq('slayer_key', slayerKey),
   ])
   if (!boss) throw new Error(`Unknown target block: ${blockId}`)
 
   const weaponById = new Map((weapons || []).map(w => [w.item_id, w]))
   const armorByPrefix = new Map((armors || []).map(a => [a.set_prefix, a]))
 
-  // Mapping gear reel par tier joueur -- les armes/armures Zombie Slayer sont
-  // gatees par collection XP (Undead Sword libre -> Revenant Falchion @ZS3 ->
-  // Reaper Falchion/Reaper Scythe @ZS6/ZS7), jamais par prix AH (la plupart
-  // sont "salable=no" sur le wiki) -- l'architecture "budget AH combinatoire"
-  // des autres activites Pluton ne s'applique pas ici, mapping direct a la
-  // place (meme raison que Farming pour son Specialized Farming Tool).
-  let candidateWeaponIds: string[]
-  let armorPrefix: string | null
-  let applyEnrage = false
-  if (tier === 'early') { candidateWeaponIds = ['UNDEAD_SWORD']; armorPrefix = null }
-  else if (tier === 'mid') { candidateWeaponIds = ['REVENANT_SWORD']; armorPrefix = 'REVENANT' }
-  else { candidateWeaponIds = ['REAPER_SWORD', 'REAPER_SCYTHE']; armorPrefix = 'REAPER'; applyEnrage = (tier === 'late') }
+  const gearConfig = GEAR_BY_SLAYER_TIER[slayerKey]?.[tier]
+  if (!gearConfig) return { target_block: boss.boss_name, target_block_id: boss.id, tier, top_setup: null }
 
-  const armor = armorPrefix ? armorByPrefix.get(armorPrefix) : null
+  const armor = gearConfig.armor ? armorByPrefix.get(gearConfig.armor) : null
   const armorStrength = armor ? Number(armor.set_strength) : 0
-  const armorUndeadBonus = armor ? Number(armor.undead_damage_bonus_pct) : 0
+  const armorMobTypeMult = armor ? 1 + Number(armor.mob_type_damage_bonus_pct) / 100 : 1
 
   let enrageStrength = 0
-  let enrageDamageMultPct = 0
-  if (applyEnrage && armor?.enrage_duration_s && armor?.enrage_cooldown_s) {
+  let enrageFlatDamage = 0
+  if (gearConfig.enrage && armor?.enrage_duration_s && armor?.enrage_cooldown_s) {
     // Moyenne ponderee par temps reel d'activite (uptime = duree/cooldown,
     // reactivation immediate a la fin du cooldown) -- meme methode deja
     // validee pour le Mining Speed Boost de Pluton Mining, jamais "actif en
     // continu" naivement.
     const uptime = Number(armor.enrage_duration_s) / Number(armor.enrage_cooldown_s)
     enrageStrength = Number(armor.enrage_bonus_strength) * uptime
-    enrageDamageMultPct = Number(armor.enrage_bonus_damage_pct) * uptime
+    enrageFlatDamage = Number(armor.enrage_bonus_damage_flat) * uptime
   }
 
   let best: any = null
-  for (const weaponId of candidateWeaponIds) {
+  for (const weaponId of gearConfig.weapons) {
     const weapon = weaponById.get(weaponId)
     if (!weapon) continue
     const totalStrength = BASE_STRENGTH + Number(weapon.base_strength) + armorStrength + enrageStrength
-    const additiveUndeadPct = Number(weapon.undead_damage_bonus_pct) + armorUndeadBonus
-    const multiplicativePct = COMBAT_LEVEL_60_DAMAGE_MULT_PCT + enrageDamageMultPct
+    const weaponMobTypeMult = 1 + Number(weapon.mob_type_damage_bonus_pct) / 100
+
+    // Octodexterity (armure) -- deja fourni pre-moyenne par le wiki lui-meme
+    // (Multiplicative confirme, valeurs 2x/1.5x prises telles quelles).
+    const octoMult = armor?.octodexterity_bonus_damage_pct
+      ? 1 + Number(armor.octodexterity_bonus_damage_pct) / 100 / Number(armor.octodexterity_every_n_hits)
+      : 1
+
+    // Radioactive (casque Tarantula/Primordial) -- Crit Damage bonus
+    // proportionnel a la Force totale, plafond reel documente.
+    let critDamage = BASE_CRIT_DAMAGE
+    if (armor?.radioactive_cd_per_10_str) {
+      const bonus = Math.min(Number(armor.radioactive_cd_cap), Number(armor.radioactive_cd_per_10_str) * (totalStrength / 10))
+      critDamage += bonus
+    }
+
+    const additivePct = COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT
     const critChance = BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS
-    const dps = computeDps(Number(weapon.base_damage), totalStrength, additiveUndeadPct, multiplicativePct, critChance, BASE_CRIT_DAMAGE, 0)
+    const dps = computeDps(
+      Number(weapon.base_damage), enrageFlatDamage, totalStrength,
+      additivePct, [weaponMobTypeMult, armorMobTypeMult, octoMult],
+      critChance, critDamage, !!weapon.always_crit, 0
+    )
     if (!best || dps > best.dps) {
       best = { weapon: weapon.display_name, weapon_item_id: weapon.item_id, total_strength: totalStrength, dps }
     }
@@ -164,7 +232,7 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
   const timeToKillSeconds = Number(boss.health) / best.dps
   const killsPerHour = 3600 / timeToKillSeconds
 
-  const { data: fleshPriceRow } = await supabase
+  const { data: dropPriceRow } = await supabase
     .from('price_history')
     .select('sell_price, bucket_date')
     .eq('item_id', boss.guaranteed_drop_item_id)
@@ -172,8 +240,8 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
     .order('bucket_date', { ascending: false })
     .limit(1)
     .maybeSingle()
-  const fleshPrice = Number(fleshPriceRow?.sell_price) || 0
-  const guaranteedDropValue = Number(boss.guaranteed_drop_qty_avg) * fleshPrice
+  const dropPrice = Number(dropPriceRow?.sell_price) || 0
+  const guaranteedDropValue = Number(boss.guaranteed_drop_qty_avg) * dropPrice
 
   const coinsPerHour = (guaranteedDropValue - Number(boss.spawn_cost_coins)) * killsPerHour
 
@@ -193,7 +261,7 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
       guaranteed_drop_value: guaranteedDropValue,
       kills_per_hour: killsPerHour,
       coins_per_hour_boss_phase_only: coinsPerHour,
-      enrage_applied: applyEnrage,
+      enrage_applied: gearConfig.enrage,
     },
   }
 }
@@ -229,10 +297,10 @@ export async function computeAndPersistAllSlayerRankings(): Promise<PersistedSla
           tier,
           investment_level: 'optimal',
           // armor_set_prefix est NOT NULL en base -- EARLY n'a reellement
-          // aucune armure Zombie Slayer geree (Undead Sword seul, aucun set
-          // gate avant Zombie Slayer 4), label explicite plutot qu'un null
-          // qui violerait la contrainte (trouve en verifiant en prod).
-          armor_set_prefix: s.armor_set ?? 'Aucune (Undead Sword seul)',
+          // aucune armure geree (arme starter seule, aucun set gate a ce
+          // tier), label explicite plutot qu'un null qui violerait la
+          // contrainte (trouve en verifiant en prod sur Zombie).
+          armor_set_prefix: s.armor_set ?? `Aucune (${s.weapon} seul)`,
           tool_item_id: s.weapon_item_id,
           // total_mining_speed porte le DPS (arrondi), total_mining_fortune
           // porte la Force totale -- meme convention de reutilisation deja
