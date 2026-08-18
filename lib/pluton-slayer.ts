@@ -228,7 +228,11 @@ export async function computeAndPersistAllSlayerRankings(): Promise<PersistedSla
           activity_key: 'slayer',
           tier,
           investment_level: 'optimal',
-          armor_set_prefix: s.armor_set,
+          // armor_set_prefix est NOT NULL en base -- EARLY n'a reellement
+          // aucune armure Zombie Slayer geree (Undead Sword seul, aucun set
+          // gate avant Zombie Slayer 4), label explicite plutot qu'un null
+          // qui violerait la contrainte (trouve en verifiant en prod).
+          armor_set_prefix: s.armor_set ?? 'Aucune (Undead Sword seul)',
           tool_item_id: s.weapon_item_id,
           // total_mining_speed porte le DPS (arrondi), total_mining_fortune
           // porte la Force totale -- meme convention de reutilisation deja
