@@ -231,10 +231,33 @@ d'erreur (même lecture que Spider/Wolf déjà positifs sur plusieurs paliers).
 Cron `pluton-slayer-refresh` (quotidien 5h20, déjà générique) rejoue les 5
 Slayers. Route de debug temporaire supprimée après validation.
 
-**Prochaine étape actée par l'utilisateur** : Vampire Slayer (Riftstalker
-Bloodfiend, dernier des 6 Slayers) avec la même rigueur d'exhaustivité, puis
-Dungeons (dernière activité de la liste actée le 17 août).
-`activity_key='slayer'` déjà prêt à l'accueillir.
+**🔴 Vampire Slayer (Riftstalker Bloodfiend) — gap structurel réel, pas
+construit, décision explicite de l'utilisateur (`AskUserQuestion`)** :
+sourcé exhaustivement avant de conclure (page boss, `Vampire Slayer`
+overview, les 2 Karambit, les 2 Steak Stake, les 3 pièces d'armure — pas un
+vrai set 4 pièces, `Coven Seal`, page stat `Rift Damage`) — **2 murs
+structurels réels, pas un raccourci de confort** :
+1. Coût de spawn ET drop garanti (`Coven Seal`) sont libellés en **Motes**
+   (monnaie exclusive au Rift Dimension), pas en coins — `Coven Seal` n'est
+   même pas auctionable/tradeable (`salable=yes` contre 10 Motes
+   uniquement) — aucun taux de conversion Motes→coins sourcé nulle part.
+2. Le Rift utilise sa propre stat **Rift Damage** (base 20, sources listées
+   sur sa page dédiée : armes/armure/équipement/consommables) **à la place**
+   de Force/Crit Chance/Crit Damage — le wiki confirme explicitement que
+   "le skill Combat n'a aucun effet dans le Rift". Contrairement au monde
+   principal (pages "Damage"/"Damage Calculation" avec formule complète),
+   **aucune formule sourcée** ne relie Rift Damage aux dégâts réels infligés
+   — pages "Rift Stat"/"Rift Speed" cherchées, absentes du cache wiki.
+Bâtir un calculateur ici nécessiterait d'inventer soit un multiplicateur
+Rift Damage→dégâts, soit un taux Motes→coins — les deux violent la règle
+"jamais de constante de jeu inventée". Documenté honnêtement comme gap
+structurel (même catégorie que le Rift historiquement incomplet dans Vault,
+cf `rift_motes` seul mappé/11 sous-systèmes vides). L'utilisateur a acté de
+passer directement à Dungeons plutôt que de construire une approximation.
+
+**Prochaine étape actée par l'utilisateur** : Dungeons (dernière activité de
+la liste actée le 17 août). `activity_key='slayer'` reste prêt à accueillir
+Vampire Slayer si une formule Rift Damage venait à être sourcée plus tard.
 
 ## ✅ Pluton Fishing — construit et validé (17 août)
 
