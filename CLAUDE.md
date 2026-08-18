@@ -32,7 +32,7 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
-## ✅ Pluton Slayer — construit et validé, Zombie + Spider Slayer T1-T5 (18 août)
+## ✅ Pluton Slayer — construit et validé, Zombie/Spider T1-T5 + Wolf T1-T4 (18 août)
 
 5e activité généralisée, et la **première nécessitant un vrai moteur de
 combat** (temps de kill via dégâts/seconde réels) plutôt qu'un rendement par
@@ -128,10 +128,33 @@ Slayers, pas un artefact. Cron `pluton-slayer-refresh` (quotidien 5h20,
 `vercel.json`, déjà générique — aucune modif nécessaire pour Spider) rejoue
 les deux Slayers. Route de debug temporaire supprimée après validation.
 
-**Prochaine étape actée par l'utilisateur** : Dungeons (dernière activité de
-la liste actée le 17 août), OU poursuite de Slayer sur Wolf/Enderman/Blaze/
-Vampire avec la même rigueur d'exhaustivité (piste ouverte, pas encore
-tranchée) — `activity_key='slayer'` déjà prêt à les accueillir.
+**Wolf Slayer (Sven Packmaster) ajouté juste après** ("continue sur les
+autres slayers"), même rigueur d'exhaustivité. Seulement **4 paliers réels**
+(pas 5, confirmé wiki — cohérent avec `TIER_CONFIG` qui note déjà "Wolf
+T3-T4 (MAX)"). **Aucune arme Wolf gratuite n'existe** (rien avant Shaman
+Sword @ Wolf Slayer 3, contrairement à Undead Sword/Spider Sword) — EARLY
+honnêtement non éligible (`top_setup:null`), pas un oubli. Armes : Shaman
+Sword(dmg100,force+20,+100%vs Wolves,gate WS3)→Pooch Sword(dmg160,force+80,
++200%vs Wolves,gate WS6) — **2 mécaniques réelles inédites** : Bonus Attack
+Speed direct sur l'arme (+5%, premier cas réel pour Pluton, jusqu'ici
+toujours 0) et un bonus plat "+10/+20 Damage par niveau de collection Wolf
+Slayer" (niveau assumé = palier minimum requis pour MID/WS3, niveau max
+documenté WS9 "Alpha Wolf" pour END/LATE, jamais inventé). Armure : Mastiff
+Armor (0 Force/mob-type — design de spécialisation survie confirmé, Crit
+Damage plat +60) préférée à Armor of the Pack (son seul bonus offensif est
+multijoueur-conditionnel, exclu comme Dolphin Pet de Fishing). **Pack
+Mentality** (Pooch Sword : +100% vs Wolves si Mastiff/Armor of the Pack
+complet) vérifiée explicitement plutôt que supposée. Vérifié en base (calcul
+manuel indépendant sur mid/WOLF_T1 — DPS=3705.4 calculé à la main, exact) :
+16 combos supplémentaires (12 avec setup + 4 EARLY `null`), **56 combos au
+total** pour les 3 Slayers. Wolf ressort positif sur T2/T3 en END/LATE
+(jusqu'à ~1.78M/h), même schéma que Spider.
+
+**Prochaine étape actée par l'utilisateur** : Enderman/Blaze/Vampire Slayer
+avec la même rigueur d'exhaustivité (Enderman a la réputation d'être le
+boss le plus complexe mécaniquement — portails, téléportation — possible
+vrai choix de scope à faire dessus), puis Dungeons (dernière activité de la
+liste actée le 17 août). `activity_key='slayer'` déjà prêt à les accueillir.
 
 ## ✅ Pluton Fishing — construit et validé (17 août)
 
