@@ -166,18 +166,26 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
   const slayerKey = slayerKeyRaw.toLowerCase()
   const slayerTier = Number(tierPart)
 
-  const [{ data: boss }, { data: weapons }, { data: armors }] = await Promise.all([
+  const [{ data: boss }, { data: targetBlock }, { data: weapons }, { data: armors }] = await Promise.all([
     supabase.from('pluton_slayer_boss_tiers').select('*').eq('slayer_key', slayerKey).eq('tier', slayerTier).single(),
+    // pluton_rankings.target_block_id reference pluton_target_blocks(id), pas
+    // pluton_slayer_boss_tiers(id) -- bug reel trouve en verifiant Spider en
+    // prod (violation FK, "marchait" pour Zombie par pure coincidence
+    // d'ids). Chaque palier Slayer a sa propre ligne pluton_target_blocks
+    // (activity_key='slayer', block_id=ex 'ZOMBIE_T1'), jointe ici pour
+    // satisfaire la contrainte -- les vraies donnees de calcul restent dans
+    // pluton_slayer_boss_tiers.
+    supabase.from('pluton_target_blocks').select('id').eq('activity_key', 'slayer').eq('block_id', blockId).single(),
     supabase.from('pluton_slayer_weapon_stats').select('*').eq('slayer_key', slayerKey).eq('verified', true),
     supabase.from('pluton_slayer_armor_stats').select('*').eq('slayer_key', slayerKey),
   ])
-  if (!boss) throw new Error(`Unknown target block: ${blockId}`)
+  if (!boss || !targetBlock) throw new Error(`Unknown target block: ${blockId}`)
 
   const weaponById = new Map((weapons || []).map(w => [w.item_id, w]))
   const armorByPrefix = new Map((armors || []).map(a => [a.set_prefix, a]))
 
   const gearConfig = GEAR_BY_SLAYER_TIER[slayerKey]?.[tier]
-  if (!gearConfig) return { target_block: boss.boss_name, target_block_id: boss.id, tier, top_setup: null }
+  if (!gearConfig) return { target_block: boss.boss_name, target_block_id: targetBlock.id, tier, top_setup: null }
 
   const armor = gearConfig.armor ? armorByPrefix.get(gearConfig.armor) : null
   const armorStrength = armor ? Number(armor.set_strength) : 0
@@ -227,7 +235,7 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
       best = { weapon: weapon.display_name, weapon_item_id: weapon.item_id, total_strength: totalStrength, dps }
     }
   }
-  if (!best) return { target_block: boss.boss_name, target_block_id: boss.id, tier, top_setup: null }
+  if (!best) return { target_block: boss.boss_name, target_block_id: targetBlock.id, tier, top_setup: null }
 
   const timeToKillSeconds = Number(boss.health) / best.dps
   const killsPerHour = 3600 / timeToKillSeconds
@@ -247,7 +255,7 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
 
   return {
     target_block: boss.boss_name,
-    target_block_id: boss.id,
+    target_block_id: targetBlock.id,
     tier,
     top_setup: {
       weapon: best.weapon,
