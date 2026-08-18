@@ -32,6 +32,83 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
+## ✅ Pluton Slayer — construit et validé, Zombie Slayer T1-T5 (18 août)
+
+5e activité généralisée, et la **première nécessitant un vrai moteur de
+combat** (temps de kill via dégâts/seconde réels) plutôt qu'un rendement par
+action — prérequis explicitement identifié par le gap Sea Creature de
+Fishing. Scope acté avec l'utilisateur (`AskUserQuestion`, 3 options
+proposées) : **un seul Slayer (Zombie/Revenant Horror), tous ses paliers
+I-V** — même logique que Mining qui choisit des blocs représentatifs plutôt
+que de tout couvrir d'un coup. `activity_key='slayer'` déjà générique pour
+accueillir Spider/Wolf/Enderman/Blaze/Vampire sans migration de schéma.
+
+**Formule de dégâts réelle sourcée** (wiki "Damage#Ways to Increase") :
+`DamageDealt = ((5+BaseDamage)×(1+Force/100)×AdditiveMultipliers×
+MultiplicativeMultipliers)×(1+CritDamage/100 si critique)`, espérance
+`= NonCrit×(1+(CritChance/100)×(CritDamage/100))`. **Cadence d'attaque
+réelle** — trouvée sur le wiki live (`Bonus Attack Speed`, page pas encore
+cachée côté `hypixelskyblock_wiki` au moment du chantier, fetchée en direct
+via WebFetch) : `Ticks = floor(10/(1+BonusAttackSpeed/100))`, 20 TPS, base 2
+coups/s à 0 AS, plafond réel 4 coups/s (AS≥82). Stats de base réelles (wiki
+"Stats#Combat Stats") : PV=100, Force=0, Crit Chance=30%, Crit Damage=50%.
+**Bonus de niveau Combat réel** trouvé dans la table `skills` déjà en base
+(perk "Warrior" cumulatif, +210% dégâts + +30% Crit Chance au niveau 60 max)
+— modélisé à niveau max pour tous les tiers, même hypothèse "skill progressé
+en parallèle" déjà implicite chez Mining/Farming.
+
+**Armes/armure réelles sourcées** (`pluton_slayer_weapon_stats`/`pluton_
+slayer_armor_stats`) : Undead Sword(dmg30,+100%Undead,libre)→Revenant
+Falchion(dmg90,force+50,+150%Undead,gate ZS3)→Reaper Falchion(dmg120,
+force+100,+200%Undead,gate ZS6)/Reaper Scythe(dmg333,gate ZS7, comparé
+réellement contre Reaper Falchion) ; Revenant Armor(0 stat offensive,
+survie pure)→Reaper Armor(force+75,+100%Undead,ability Enrage +100dmg/
++100force/+100vit 6s/25s cooldown, appliquée LATE uniquement en moyenne
+pondérée par uptime réel — même méthode que Mining Speed Boost de Mining).
+**Gear gaté par XP de collection Zombie Slayer, jamais par prix AH**
+(la plupart `salable=no` sur le wiki, confirmé) — mapping direct par tier
+joueur plutôt que la recherche combinatoire budget-AH des autres activités
+(même raison que l'outil spécialisé de Farming).
+
+**🔴 2 gaps documentés, pas des oublis** :
+- Seul le drop garanti (Revenant Flesh, pool "Token", `odds=Guaranteed`
+  explicite sur le wiki) compte dans `coins_per_hour_boss_phase_only` — tous
+  les autres drops (Foul Flesh/Catalysts/Runes/Smite VI/Scythe Blade/Warden
+  Heart...) suivent un système de poids multi-pool par kill dont la
+  conversion poids→probabilité exacte n'est pas proprement sourcée (le
+  `requirement` du wiki gate un palier de reward-track, pas un poids RNG
+  directement utilisable) — même discipline que le taux de coffre au trésor
+  jamais modélisé par Mining, ou Sea Creature jamais modélisé par Fishing.
+- La phase de farm de mobs (XP Combat nécessaire pour faire spawn le boss)
+  n'est **pas modélisée** — nécessiterait un 2e mini-modèle de combat (PV/
+  loot des zombies de base, non sourcé) pour le temps réel de cette phase.
+  `coins_per_hour_boss_phase_only` représente donc uniquement la phase
+  "combat contre le boss déjà spawné", extrapolée à l'heure comme si un
+  nouveau boss était toujours immédiatement disponible — métrique partielle/
+  idéalisée, documentée comme telle, pas un cycle de jeu complet réaliste.
+
+**1 vrai bug trouvé et corrigé en vérifiant en prod** : `armor_set_prefix`
+(colonne `NOT NULL` de `pluton_setups`) recevait `null` au tier EARLY (aucune
+armure Zombie Slayer gérée avant Zombie Slayer 4, Undead Sword seul) —
+violait la contrainte. Corrigé par un libellé explicite ("Aucune (Undead
+Sword seul)") plutôt qu'un null, revérifié : 20/20 combos persistés.
+
+**État final vérifié en base** (recoupé par calcul manuel indépendant sur
+EARLY/T1 — DPS=564.2, TTK=0.886s, exact) : 20 combos tier×palier
+(`pluton_rankings` `activity_key='slayer'`). **`coins_per_hour_boss_phase_
+only` négatif sur les 20 combos** — résultat honnête et attendu, pas un
+signal d'erreur : sans les drops RNG (exclus, voir gap ci-dessus), le coût
+de spawn dépasse systématiquement la valeur de la chair garantie, preuve que
+le vrai profit du Slayer vient du loot rare volontairement laissé de côté.
+Cron `pluton-slayer-refresh` (quotidien 5h20, `vercel.json`) créé, même
+pattern que les 4 précédents. Route de debug temporaire supprimée après
+validation.
+
+**Prochaine étape actée par l'utilisateur** : Dungeons (dernière activité de
+la liste actée le 17 août). Généraliser aux 5 autres Slayers (Spider/Wolf/
+Enderman/Blaze/Vampire) reste une extension future non automatique, piste
+notée dans `activity_key='slayer'` déjà prêt à les accueillir.
+
 ## ✅ Pluton Fishing — construit et validé (17 août)
 
 4e activité généralisée après Mining/Farming/Foraging. Mécanique la plus
