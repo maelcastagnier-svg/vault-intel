@@ -32,6 +32,105 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
+## ✅ Pluton Dungeons — Floor I clear complet S+, 1er consommateur de l'architecture multi-méthodes (18 août)
+
+6e activité généralisée, et **premier chantier qui recadre l'objectif réel de
+Pluton**. Jusqu'ici, Pluton calculait une seule méthode par (tier joueur ×
+cible) — le meilleur setup pour miner tel bloc, tuer tel boss Slayer à tel
+palier. En démarrant Dungeons, l'utilisateur a explicitement recadré la
+vision : Pluton doit être un moteur qui, pour chaque skill, décompose les
+activités/mécaniques/items à plus-value, produit des setups ET des méthodes
+de money-making réelles, classe le tout sur les 7 tiers du jeu, et identifie
+en continu ce qui est possible et optimal à l'instant T contre les vrais prix
+Bazaar/AH — avec, à terme, une capacité d'auto-alimentation en nouvelles
+méthodes. Exemple concret donné (Dungeons) : un "frag run" (rush une salle
+ciblée, tue un boss/mob spécifique pour son loot, sort) est une méthode
+solo-viable **distincte** d'un clear complet à 5 joueurs — les deux doivent
+pouvoir coexister et être comparées, plutôt qu'une seule méthode "clear
+complet" imposée par défaut.
+
+**Découverte architecturale clé (avant tout code)** : aucun changement de
+schéma n'était nécessaire. `pluton_target_blocks` (déjà la table "cible"
+partagée par toutes les activités) porte déjà `block_name` (label humain) et
+`pricing_note` (texte libre) — il suffit que ces deux colonnes décrivent une
+**méthode** plutôt qu'une simple cible ("Floor I — Clear complet (score S+)"
+au lieu d'un simple nom d'étage). `pluton_setups`/`pluton_rankings`
+fonctionnent déjà tels quels : rien n'empêche plusieurs lignes
+`pluton_target_blocks` pour le même `activity_key`+`tier` — le pattern
+"plusieurs méthodes par tier" était donc une question de **contenu**
+(combien de lignes on insère), pas d'architecture, déjà démontré
+implicitement par les 5 paliers de boss Slayer. **Décision explicite** :
+pas rétroactif sur Mining/Farming/Foraging/Fishing/Slayer (restent à une
+méthode par cible), seulement Dungeons et la suite — réutilisable plus tard
+sans migration si besoin.
+
+**Différence mécanique fondamentale avec Slayer** : un run de donjon n'a pas
+de formule DPS→temps-de-kill (navigation + puzzles + secrets + boss, aucune
+donnée sourcée ne permet de simuler ce temps réel). Le temps de run est donc
+**ancré sur un vrai seuil documenté** plutôt que dérivé d'un DPS simulé :
+page wiki "Dungeon Score" (formule complète Skill+Explore+Speed+Bonus, 6
+rangs D→S+, seuils 0/100/160/230/269.5/300) donne le seuil exact de temps
+pour Speed=100 par étage (Floor I : ≤600s). Vérifié déterministe : à ce
+temps, Skill=100 (0 mort/0 puzzle raté) + Explore=100 (100% clear, seuil
+secrets Floor I=30%) + Speed=100 = score 300 pile (S+), sans même compter le
+Bonus crypts — même logique que le plafond moteur 20 actions/sec de
+Farming/Foraging (un seuil réel, jamais une moyenne inventée), confirmée par
+l'utilisateur ("vise run S ou S+ à chaque fois").
+
+**Coffre de récompense = Obsidian** (meilleur coffre Floor I, pas de Bedrock
+avant Floor V) — **personnel par joueur**, pas de partage de loot à diviser
+entre le groupe (confirmé wiki "Dungeon Reward Chest" : chaque joueur ouvre
+son propre coffre, coût déduit de sa propre Purse/Bank). Party 2-5 requise
+pour le run (aucun solo possible Floor I) mais coins/h reste une valeur PAR
+JOUEUR, pas divisée.
+
+**Table de loot Floor I complète et réelle sourcée** (nouvelle table
+`pluton_dungeons_chest_loot`, 75 lignes, 5 coffres Wood/Gold/Diamond/
+Emerald/Obsidian) — extraite mot pour mot depuis la page wiki "The Catacombs
+- Floor I - Loot", qui documente déjà le résultat du vrai système
+weight/quality simulé par les éditeurs (`average_chance_no_bonuses`/
+`average_chance_max_bonuses`, jamais re-dérivé à la main ici). EARLY/MID
+utilisent `chance_no_bonus_pct` (aucun accessoire Treasure) ; END/LATE
+utilisent `chance_max_bonus_pct` (Treasure Artifact/Ring/Talisman + Boss
+Luck perk + Hideongeon Shard maxés — même convention "investissement max"
+que Mining/Foraging). **"Added Cost"** par entrée (ex: Bonzo's Staff +2M,
+Recombobulator 3000 +5M, Fuming Potato Book +1M, Bonzo's Mask +1M) — un
+surcoût réel payé SEULEMENT si l'item concerné est effectivement tiré,
+confirmé méthodologie explicite avec l'utilisateur : `E[coût] = coût de
+base du coffre + Σ(probabilité × added_cost)`.
+
+**🔴 1 fausse hypothèse corrigée avant le premier calcul** : l'Essence
+(Wither/Undead) semblait a priori non-priceable (sert à l'Essence Shop, pas
+un objet classique) — l'utilisateur a immédiatement corrigé ("ba si elle se
+revend l'essence ??"), vérifié : `ESSENCE_WITHER`/`ESSENCE_UNDEAD` ont bien
+un vrai prix Bazaar live (~2238/~610 coins), inclus dans le calcul plutôt
+qu'exclu à tort.
+
+**État final vérifié en base** (recoupé par calcul manuel indépendant sur
+end/late : E[valeur]≈867 406, E[coût]≈670 034, net×6 runs/h≈1 184 232,
+cohérent à l'arrondi près avec les 1 184 185,97 persistés) : **4 combos**
+(`pluton_rankings` `activity_key='dungeons'`), EARLY/MID≈122 490/h,
+END/LATE≈1 184 186/h — écart réel expliqué par l'investissement Treasure
+accessories (pas un artefact). Cron `pluton-dungeons-refresh` (quotidien
+5h25, `vercel.json`) créé, même pattern que les 5 précédents. Route de
+debug temporaire supprimée après validation.
+
+**🔴 Gap documenté, pas un oubli** : le système de Classes (Archer/Mage/
+Tank/Healer/Berserk, scaling de stats propre) n'est pas modélisé ici — cette
+1ère méthode (ancrée sur le score, temps de run externe) ne dépend pas du
+DPS du joueur, donc le choix de classe n'affecte pas ce calcul. Un futur
+"frag run" ciblé (ex: Floor VI, boss Sadan/Blood Room, exemple cité par
+l'utilisateur) redeviendra DPS-dépendant et nécessitera de sourcer les
+Classes à ce moment-là — pas construit dans ce chantier.
+
+**Explicitement hors scope de ce chantier** : découverte continue
+automatisée de nouvelles méthodes (moteur Claude/Haiku façon
+`pluton-weekly-sync`, vision long terme de l'utilisateur) ; généralisation
+aux Floors II-VII + Master Mode ; le frag run Floor VI/Sadan cité en
+exemple. **Prochaine étape actée par l'utilisateur** : généraliser Dungeons
+(étages suivants + méthodes additionnelles type frag run), avec la même
+rigueur d'exhaustivité que Slayer.
+
 ## ✅ Pluton Slayer — construit et validé, Zombie/Spider/Enderman/Blaze T1-T5/T4 + Wolf T1-T4 (18 août)
 
 5e activité généralisée, et la **première nécessitant un vrai moteur de
