@@ -47,7 +47,12 @@ function parseSimpleNumeric(raw: string | null): number | null {
   const lower = raw.toLowerCase()
   if (/hits|\?|abilities|infoneeded/.test(lower)) return null
   if (raw.includes('/') || raw.includes(';')) return null // multi-niveau ou multi-valeur -- non gere ici
-  const m = raw.match(/\d[\d ,]*\d|\d/)
+  // Bug reel trouve en verifiant en prod (21 aout) : la 1re version de ce
+  // regex ne capturait pas le point decimal ("2.5M" -> lisait "2" puis
+  // s'arretait avant "." -- valeur non multipliee par M car le caractere
+  // suivant immediat etait "." pas "m"). Regex etendu pour inclure un
+  // decimal optionnel avant de chercher le suffixe K/M/B.
+  const m = raw.match(/\d[\d ,]*(?:\.\d+)?|\d/)
   if (!m) return null
   let num = parseFloat(m[0].replace(/[ ,]/g, ''))
   if (!isFinite(num)) return null
@@ -95,6 +100,7 @@ async function buildItemNameMap(): Promise<Map<string, string>> {
 }
 
 export type BestiaryMobResult = {
+  id: number
   zone_page: string
   name: string
   hp: number
@@ -104,16 +110,16 @@ export type BestiaryMobResult = {
 }
 
 export async function computeBestiaryCandidates(): Promise<BestiaryMobResult[]> {
-  const { data: mobs } = await supabase.from('zone_mob_stats').select('zone_page, name, hp, drops')
+  const { data: mobs } = await supabase.from('zone_mob_stats').select('id, zone_page, name, hp, drops')
   if (!mobs) return []
   const nameMap = await buildItemNameMap()
 
   const allPriceIds = new Set<string>()
-  const parsed = (mobs as { zone_page: string; name: string; hp: string | null; drops: string | null }[]).map(m => {
+  const parsed = (mobs as { id: number; zone_page: string; name: string; hp: string | null; drops: string | null }[]).map(m => {
     const hp = parseSimpleNumeric(m.hp)
     const drops = parseGuaranteedDrops(m.drops).map(d => ({ ...d, item_id: nameMap.get(d.itemName.toLowerCase()) || null }))
     for (const d of drops) if (d.item_id) allPriceIds.add(d.item_id)
-    return { zone_page: m.zone_page, name: m.name, hp, drops }
+    return { id: m.id, zone_page: m.zone_page, name: m.name, hp, drops }
   })
 
   const since = new Date(Date.now() - 5 * 86_400_000).toISOString().split('T')[0]
@@ -129,12 +135,12 @@ export async function computeBestiaryCandidates(): Promise<BestiaryMobResult[]> 
 
   const results: BestiaryMobResult[] = []
   for (const m of parsed) {
-    if (m.hp == null) { results.push({ zone_page: m.zone_page, name: m.name, hp: 0, is_undead: false, guaranteed_ev: 0, skipped_reason: 'hp_unparseable' }); continue }
+    if (m.hp == null) { results.push({ id: m.id, zone_page: m.zone_page, name: m.name, hp: 0, is_undead: false, guaranteed_ev: 0, skipped_reason: 'hp_unparseable' }); continue }
     const pricedDrops = m.drops.filter(d => d.item_id && priceCache.has(d.item_id))
-    if (pricedDrops.length === 0) { results.push({ zone_page: m.zone_page, name: m.name, hp: m.hp, is_undead: false, guaranteed_ev: 0, skipped_reason: 'no_priced_guaranteed_drop' }); continue }
+    if (pricedDrops.length === 0) { results.push({ id: m.id, zone_page: m.zone_page, name: m.name, hp: m.hp, is_undead: false, guaranteed_ev: 0, skipped_reason: 'no_priced_guaranteed_drop' }); continue }
     const ev = pricedDrops.reduce((sum, d) => sum + d.qty * (priceCache.get(d.item_id!) || 0), 0)
     const isUndead = /zombie|skeleton|wither|husk|ghoul/i.test(m.name)
-    results.push({ zone_page: m.zone_page, name: m.name, hp: m.hp, is_undead: isUndead, guaranteed_ev: ev })
+    results.push({ id: m.id, zone_page: m.zone_page, name: m.name, hp: m.hp, is_undead: isUndead, guaranteed_ev: ev })
   }
   return results
 }
@@ -160,7 +166,13 @@ export async function computeAndPersistBestiaryRankings(): Promise<{ candidates:
   const armorByPrefix = new Map((armors || []).map((a: any) => [a.set_prefix, a]))
 
   for (const c of viable) {
-    const blockIdSafe = `BESTIARY_${c.zone_page}_${c.name}`.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+    // Suffixe par id reel (zone_mob_stats.id) -- plusieurs lignes peuvent
+    // partager le meme (zone,name) avec des paliers/drops reellement
+    // distincts (ex: 3 lignes "Zealot" dans The End, pas des doublons mais
+    // 3 variantes reelles) -- meme discipline "multi-methodes" que Dungeons
+    // plutot que de laisser la contrainte UNIQUE(activity_key,block_id) en
+    // supprimer silencieusement 2 sur 3.
+    const blockIdSafe = `BESTIARY_${c.zone_page}_${c.name}_${c.id}`.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
     const { data: block, error: blockErr } = await supabase
       .from('pluton_target_blocks')
       .insert({
