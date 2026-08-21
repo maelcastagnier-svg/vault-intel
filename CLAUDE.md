@@ -32,6 +32,69 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
+## ✅ Pluton Fishing — Sea Creature kills, méthode additive (21 août)
+
+Premier item du backlog des 13 skills fermé (`pluton_skill_activities` id 7,
+`backlog`→`built`). Ferme le gap documenté depuis la construction de Fishing
+(17 août) : "tuer un Sea Creature nécessite un modèle de combat qui n'existe
+pas encore — c'est précisément le sujet de la prochaine activité (Slayer/
+Combat)". Ce modèle existe désormais (`lib/pluton-slayer.ts`).
+
+**Architecture délibérément additive, pas une modification de Fishing** :
+nouveau fichier `lib/pluton-sea-creatures.ts`, nouvelle ligne
+`pluton_target_blocks` (`activity_key='fishing'`,
+`block_id='WATER_POOL_SEA_CREATURES'`) — `lib/pluton-fishing.ts` (déjà
+validé en prod) n'est pas retouché, même discipline "multi-méthodes" que
+Dungeons. Le coins/h produit ici s'ADDITIONNE au `coins_per_hour_raw_block_
+only` déjà persisté pour `WATER_POOL`, il ne le remplace pas.
+
+**Gear de combat réutilisé, pas reconstruit** : la progression Zombie
+Slayer (Undead Sword→Revenant Falchion→Reaper Falchion+Reaper Armor, même
+formule de dégâts déjà sourcée et validée) sert de moteur DPS/TTK. Choix
+justifié, pas arbitraire : 2 des 10 Sea Creatures de la pool "basic" (Sea
+Walker, Rider of the Deep) sont `mob_type=Undead` — bénéficient réellement
+du bonus Multiplicative de ce gear.
+
+**Table des 10 Sea Creatures sourcée page par page** (HP/dégâts/mob_type/
+table de loot, nerf Mars 2025 confirmé — PV actuels utilisés, pas les
+anciens pré-nerf). Poids réels déjà en base (`sea_creature_pools`,
+pool=`basic`, somme=4296, cohérent avec les pourcentages de capture
+individuellement documentés par le wiki). **3 corrections d'item_id avant
+tout calcul** (`items_catalog` interrogée plutôt que supposée) : Lily Pad =
+`WATER_LILY` (pas `LILY_PAD`), Ink Sac = `INK_SACK`/`ENCHANTED_INK_SACK`
+(pas `*_INK_SAC`), Enchanted Iron Ingot = `ENCHANTED_IRON` (pas
+`*_IRON_INGOT`), Aquamarine Dye = `DYE_AQUAMARINE`. Squid Boots/Fish
+Affinity Talisman/Water Hydra Head introuvables en Bazaar, résolus via le
+fallback AH (`price_history_ah_variant_base`). **1 item honnêtement non
+pricé** : Bone Dye (Sea Archer, drop ultra-rare 1/3M) — aucune entrée
+Bazaar/AH trouvée, contribue 0 à l'espérance, documenté plutôt qu'inventé.
+
+**🔴 Bug réel trouvé et corrigé avant tout déploiement** (relecture du code
+juste après écriture) : la persistance appelait initialement
+`persistSetupsAndRankings()` du moteur partagé (`lib/pluton-engine.ts`),
+dont le `delete()` est scopé par `activity_key` SEUL (conçu pour un rebuild
+complet d'une activité mono-méthode) — appliqué tel quel à `'fishing'`,
+cela aurait effacé les lignes `WATER_POOL` déjà validées avant de les
+remplacer par les 4 seules lignes Sea Creature kills. Corrigé en écrivant
+une persistance manuelle scopée sur `target_block_id` (delete + insert
+propres à cette méthode uniquement) plutôt que de modifier le moteur
+partagé (qui reste correct pour Dungeons/futures activités mono-méthode,
+seul l'appelant était mal scopé ici).
+
+**Simplification documentée** : le temps de combat n'est PAS soustrait de
+la cadence de capture (calculée indépendamment par `lib/pluton-fishing.ts`,
+non retouché) — sous-estime légèrement le vrai total plutôt que de coupler
+les 2 calculs, même discipline que les autres métriques partielles/
+idéalisées déjà documentées (Slayer : phase de farm de mobs non modélisée ;
+Dungeons : Classes non modélisées).
+
+**Vérifié en base** (calcul manuel indépendant sur EARLY — TTK pondéré
+recalculé à la main sur les 10 créatures avec leurs poids réels :
+52.85102s, exact contre 52.85082551256637 persisté) : 4 lignes
+`pluton_rankings` (`target_block_id` dédié), additional coins/h
+1.12M (early) → 1.72M/h (end/late), s'ajoutant au coins/h `WATER_POOL` déjà
+existant. Route de debug temporaire supprimée après validation.
+
 ## 🚧 Pluton — pipeline skill→activité→setup→money making, backlog 13 skills établi (21 août)
 
 Recadrage de fond demandé par l'utilisateur : Pluton ne doit pas être une
