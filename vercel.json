@@ -25,6 +25,7 @@
     { "path": "/api/cron/pluton-foraging-refresh", "schedule": "0 5 * * *" },
     { "path": "/api/cron/pluton-fishing-refresh", "schedule": "10 5 * * *" },
     { "path": "/api/cron/pluton-slayer-refresh", "schedule": "20 5 * * *" },
-    { "path": "/api/cron/pluton-dungeons-refresh", "schedule": "25 5 * * *" }
+    { "path": "/api/cron/pluton-dungeons-refresh", "schedule": "25 5 * * *" },
+    { "path": "/api/cron/pluton-bestiary-refresh", "schedule": "35 5 * * *" }
   ]
 }

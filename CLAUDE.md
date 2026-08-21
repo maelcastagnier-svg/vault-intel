@@ -120,9 +120,56 @@ dans `pluton-mining-refresh` existant (même skill, même cadence) plutôt
 qu'un nouveau cron séparé. Route de debug temporaire supprimée après
 validation.
 
-**Prochaine étape de ce lot** : Bestiary/grind mob générique (Combat,
-parsing réel requis, scope à borner), puis Hunting Trap+Charm (nouveau
-skill).
+### ✅ Bestiary / grind mob générique (Combat) — construit et vérifié
+
+Nouveau fichier `lib/pluton-bestiary.ts`, nouveau namespace `activity_key=
+'combat'` (distinct de `slayer`/`dungeons`, vérifié additif — 22 blocs
+Slayer + 7 Dungeons intacts après). `computeCombatDps`/`computeAttacksPer
+Second` extraits dans `lib/pluton-engine.ts` (formule Damage/Damage
+Calculation déjà dupliquée 2x sur Slayer/Sea Creature kills — Bestiary est
+le 3e consommateur, évite une triplication).
+
+**Correction avant tout code** : une première lecture avait cru que
+`game_drops` (`source_type='mob'`, 167 lignes) donnait des probabilités de
+drop d'item réelles — vérifié directement, c'est en fait un regroupement de
+variantes de mob par bracket Bestiary (`item_id='ZOMBIE_SOLDIER'` y désigne
+une catégorie de mob, pas un objet lootable). La seule vraie source de
+drops reste le texte libre `zone_mob_stats.drops`.
+
+**Portée bornée, documentée** : `zone_mob_stats` (107 lignes, texte wiki
+brut, aucune colonne numérique propre) parsé en best-effort — HP simple
+uniquement retenu (multi-niveau `/`, `"X Hits"`, `"?"`, `"(Abilities)"`
+explicitement exclus, 11 mobs rejetés) ; seuls les drops **garantis**
+comptent dans l'espérance (jamais les `"0-Nx Item"`, dont aucune probabilité
+n'est chiffrée nulle part côté wiki source — même discipline que le pool RNG
+déjà exclu de `coins_per_hour_boss_phase_only` sur Slayer, 33 mobs rejetés
+faute de drop garanti priceable). 63 mobs viables au final sur 107.
+
+**2 bugs réels trouvés et corrigés avant tout persist** (dry-run vérifié
+avant d'écrire en base) :
+1. Regex HP ne capturait pas le point décimal (`"2.5M"` lu comme `2`, jamais
+   multiplié par M car le caractère suivant immédiat était `.` pas `m`) —
+   Mutated Blaze/Pack Magma Cube/Smoldering Blaze/Mushroom Bull affectés.
+2. Plusieurs lignes `zone_mob_stats` partagent le même `(zone_page, name)`
+   avec des drops réellement distincts (3 vraies lignes "Zealot" dans The
+   End, une seule droppant un Summoning Eye) — la contrainte
+   `UNIQUE(activity_key, block_id)` en aurait silencieusement supprimé 2/3.
+   `block_id` suffixé par l'id réel de la ligne source, même discipline
+   multi-méthodes que Dungeons.
+
+**Fausse piste évitée** : plusieurs valeurs semblaient aberrantes en 1re
+lecture (Jungle Key Guardian ~388K/loot, Zealot→Summoning Eye ~1.2M/loot) —
+vérifiées directement contre `price_history` avant d'être "corrigées" à
+tort : toutes les deux réelles (Jungle Key ≈194 115 coins, Summoning Eye
+≈1 200 931 coins, prix Bazaar actuels), pas des bugs.
+
+**Vérifié en base** : recoupé à la main sur Miner Zombie EARLY (TTK=
+0.4431s exact, coins/h=2791.98 cohérent). Cron `pluton-bestiary-refresh`
+(quotidien 5h35, `vercel.json`) créé. Route de debug temporaire supprimée
+après validation.
+
+**Prochaine étape de ce lot** : Hunting Trap+Charm (nouveau skill, 2 des 5
+méthodes réelles sourcées — Forest/Water/Combat restent des gaps documentés).
 
 ## ✅ Pluton Fishing — Sea Creature kills, méthode additive (21 août)
 
