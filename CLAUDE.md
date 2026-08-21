@@ -32,6 +32,98 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
+## 🚧 Pluton — fermeture complète du backlog, lot en cours (21 août, suite)
+
+Recadrage explicite de l'utilisateur après Sea Creature kills : ne plus
+avancer un item de backlog "à la carte" — chaque skill doit être traité
+sérieusement via la pipeline (activités réelles sourcées → setup → prix
+marché réel = money making), sans laisser de statut vague. Reproche concret
+et justifié : une note antérieure disait "Powder grinding = valeur" sans
+vérifier que la Powder n'est pas un item revendable — exactement le type de
+raccourci interdit par la règle #7 (jamais de constante/valeur de jeu
+supposée). **Principe retenu pour tout le reste du projet** : bien
+distinguer une **mécanique fondamentale de skill** (monnaie de progression,
+stat, palier — jamais une "activité" en soi, un ingrédient qui nourrit une
+ou plusieurs vraies activités) d'une **activité réelle** (action+setup+drop
+revendable à un prix Bazaar/AH réel). Avant de classer quoi que ce soit
+comme activité : est-ce que ça produit directement un item revendable, ou
+est-ce que ça alimente autre chose ?
+
+**Recherche menée avant toute construction** (3 agents Explore en parallèle,
+lecture seule, zéro coût API supplémentaire) sur tout le backlog restant —
+verdicts décisifs plutôt que "pas encore investigué" :
+
+- **Mining Powder** — confirmé mécanique fondamentale pure (monnaie HOTM/
+  HOTF), pas une activité. Sa valeur est déjà absorbée dans le calculateur
+  Mining gemstone existant (les perks qu'elle achète le boostent). Statut
+  `pluton_skill_activities` id 2 : `backlog` → `excluded_low_value`.
+- **Mining raw ore** (COAL/IRON/GOLD/DIAMOND/GLACITE/MITHRIL_ORE) — **faux
+  trou signalé par l'agent, vérifié et infirmé** : `lib/pluton-mining.ts` a
+  déjà un fallback prix Bazaar live quand `effective_sell_price` est NULL,
+  les 6 blocs sont déjà rankés sur les 4 tiers avec des valeurs réelles
+  cohérentes (ex: Diamond Ore end/late ≈61.9M/h) — confirmé par requête
+  directe sur `pluton_rankings` avant de coder quoi que ce soit. Aucun
+  changement nécessaire, label mis à jour pour refléter la couverture réelle.
+- **Kuudra** — confirmé gap structurel réel (la page wiki source elle-même a
+  un trou explicite `{{InfoNeeded}}` sur le nombre de vagues, aucune des
+  30+ pages `kuudra_wiki` cachées ne donne le temps total de run ni les PV
+  du boss). Note reformulée en décisive, même catégorie que Vampire Slayer.
+- **Enchanted Books flip (Anvil)** — mécanique confirmée réelle et gratuite
+  sur Hypixel (`game_mechanics_misc`, contrairement à Minecraft vanilla),
+  mais bloquée par la **couverture de prix** : seulement 2 enchant books
+  cachés en Bazaar/AH actuellement, aucune paire de niveaux adjacents
+  pricée des deux côtés. Gap de données, pas de mécanique — note reformulée.
+- **Bestiary / grind mob générique** — confirmé buildable (`zone_mob_stats`
+  107 lignes + `game_drops` 1235 lignes, drops réels non-XP), mais le
+  contenu réel s'avère bien plus brut que rapporté par l'agent (HP/dégâts en
+  texte libre avec templates wiki `hp|200|icononly=yes`, niveaux multiples
+  séparés par `/`, texte de drops semi-structuré avec des cas cassés comme
+  "Only rolled when the player has dealt at least dmg|short=yes|1M1x Lumino
+  Fiber" collé sans séparateur) — nécessite un vrai travail de parsing par
+  zone, pas un simple branchement. Scope réduit explicitement aux zones/mobs
+  au format le plus propre en premier lieu (voir suite de ce chantier).
+- **Hunting** — Trap Hunting et Charm Hunting confirmés buildables (formules
+  réelles sourcées : table temps de capture par rareté de shard + stacking,
+  table %/niveau) ; Forest/Water/Combat restent des gaps réels (mécaniques
+  `{{confirm}}` non chiffrées dans le wiki source lui-même).
+
+### ✅ Forge crafting margin (Mining) — construit et vérifié
+
+Nouveau fichier `lib/pluton-forge.ts`, `activity_key='mining'` (additif, ne
+touche pas aux 18 blocs mining existants). `forge_recipes` (107 recettes
+réelles, `ingredients` jsonb + `forge_time_hours`) avait `market_value`/
+`profit_per_forge` jamais chiffrés — calculé ici depuis les vrais prix
+Bazaar (`buy_price` pour les ingrédients achetés, `sell_price` pour le
+produit fini vendu — 1re activité Pluton avec un vrai côté achat, nécessite
+les 2 prix distincts contrairement à `loadPriceCache()` du moteur partagé
+qui n'a jamais eu besoin que d'un seul prix jusqu'ici). **Vérification
+préalable qui a évité un faux signal** : 21/107 recettes avaient
+`forge_time_hours=0.01` (30s), soupçonné défaut de parsing — recoupé contre
+`hotm_forge_durations` (source indépendante, même `item_name`) : confirmé
+réel (Bejeweled Handle, Tungsten Key, pièces de drill — vrais crafts rapides
+gatés par la rareté des ingrédients, pas par le temps), donnée gardée
+telle quelle.
+
+**Tier-scaling réel trouvé** : perk HOTM `quick_forge` (`hotm_perks`,
+`stat_formula` sourcée littéralement) — réduit le temps de forge jusqu'à
+-30% au niveau 20 max. Appliqué par tier (early=0%, mid=niveau 10≈-15%,
+end/late=-30%), même convention "investissement croissant par tier" que
+Mining Speed Boost/Reaper Enrage ailleurs dans Pluton.
+
+**Vérifié en base** : 44 recettes priceables des 2 côtés, 32 rentables (ex:
+Will-o'-wisp +81.3M/craft, Refined Tungsten +127 916/craft) ; 12 recettes
+avec marge négative gardées telles quelles (ex: Gleaming Crystal -3.2M,
+Perfect Plate -2.4M — coût réel des ingrédients dépasse la valeur de vente,
+donnée réelle, pas cachée). Recoupé à la main sur Refined Tungsten (end/late
+= 127 916.46/0.7 = 182 737.80 exact contre la valeur persistée). Cron fusionné
+dans `pluton-mining-refresh` existant (même skill, même cadence) plutôt
+qu'un nouveau cron séparé. Route de debug temporaire supprimée après
+validation.
+
+**Prochaine étape de ce lot** : Bestiary/grind mob générique (Combat,
+parsing réel requis, scope à borner), puis Hunting Trap+Charm (nouveau
+skill).
+
 ## ✅ Pluton Fishing — Sea Creature kills, méthode additive (21 août)
 
 Premier item du backlog des 13 skills fermé (`pluton_skill_activities` id 7,

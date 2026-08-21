@@ -12,6 +12,7 @@
 // les 5 autres activités restent un chantier séparé, pas fait ici.
 import { NextResponse } from 'next/server'
 import { computeAndPersistAllMiningRankings } from '../../../../lib/pluton-mining'
+import { computeAndPersistForgeRankings } from '../../../../lib/pluton-forge'
 import { startSync, finishSync } from '../../../../lib/sync-log'
 
 export const maxDuration = 120
@@ -25,7 +26,11 @@ export async function GET(request: Request) {
   try {
     const results = await computeAndPersistAllMiningRankings()
     const withSetup = results.filter(r => r.has_setup).length
-    const result = { success: true, combos: results.length, with_setup: withSetup, without_setup: results.length - withSetup }
+    // Forge (21 aout) -- methode additive au meme activity_key='mining',
+    // rejouee dans le meme cron (meme skill, meme cadence). Scoping additif
+    // deja garanti par computeAndPersistForgeRankings() (blocs FORGE_* seuls).
+    const forge = await computeAndPersistForgeRankings()
+    const result = { success: true, combos: results.length, with_setup: withSetup, without_setup: results.length - withSetup, forge_recipes: forge.recipes, forge_viable: forge.viable }
     await finishSync(logId, 'success', withSetup, result)
     return NextResponse.json(result)
   } catch (e: any) {
