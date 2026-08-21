@@ -162,3 +162,30 @@ export async function persistSetupsAndRankings(activityKey: string, entries: Per
   const { error: rankErr } = await supabase.from('pluton_rankings').insert(rankingsToInsert)
   if (rankErr) throw new Error(`pluton_rankings batch insert failed (${activityKey}): ${rankErr.message}`)
 }
+
+// Formule de degats generale (wiki "Damage"/"Damage Calculation"), deja
+// dupliquee 2x a l'identique (lib/pluton-slayer.ts, lib/pluton-sea-
+// creatures.ts -- fichiers deja valides en prod, non retouches pour eviter
+// tout risque de regression). Extraite ici (21 aout) pour que Bestiary (3e
+// consommateur) ne la triple pas.
+// DamageDealt = (5+BaseDamage+Flat) x (1+Strength/100) x AdditiveMult x
+// MultiplicativeMult x (1+CritDamage/100 si critique), ExpectedDamage =
+// NonCrit x (1+(CritChance/100)x(CritDamage/100)).
+const BASE_STRENGTH = 0
+const BASE_CRIT_CHANCE = 30
+const BASE_CRIT_DAMAGE = 50
+const COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT = 210
+const COMBAT_LEVEL_60_CRIT_CHANCE_BONUS = 30
+
+export function computeAttacksPerSecond(bonusAttackSpeed: number): number {
+  const ticks = Math.max(1, Math.floor(10 / (1 + bonusAttackSpeed / 100)))
+  return 20 / ticks
+}
+
+export function computeCombatDps(baseDamage: number, strength: number, multiplicativeFactors: number[]): number {
+  const multiplicativeMult = multiplicativeFactors.reduce((a, b) => a * b, 1)
+  const nonCrit = (5 + baseDamage) * (1 + (BASE_STRENGTH + strength) / 100) * (1 + COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT / 100) * multiplicativeMult
+  const critChance = BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS
+  const expectedPerHit = nonCrit * (1 + (critChance / 100) * (BASE_CRIT_DAMAGE / 100))
+  return expectedPerHit * computeAttacksPerSecond(0)
+}
