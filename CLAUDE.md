@@ -32,6 +32,67 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
+## 🚧 Pluton — pipeline skill→activité→setup→money making, backlog 13 skills établi (21 août)
+
+Recadrage de fond demandé par l'utilisateur : Pluton ne doit pas être une
+suite d'activités construites une par une sur commande, mais une vraie
+**pipeline** — cartographie (déjà faite, `pluton_elements` 183k lignes) →
+extraction (déjà faite) → **pour chaque skill, décortiquer toutes les
+activités réelles qui en découlent** → setup optimal par activité **sur
+l'échelle 1-7 cumulative** (celle de `pluton_elements`/`milestone_tier_totals`,
+pas les 4 paliers early/mid/end/late hérités de Money Making) → lien prix
+réel Bazaar/AH → classement meilleur→pire par tier pour le dashboard Money
+Making → recommandation Evolve (activité/setup logique actuel + cible de
+progression). **Contrainte budget explicite** : ~12€ de crédit API Claude
+restant — aucun nouveau pipeline Haiku/cron consommant l'API n'est construit
+pour la découverte ; l'énumération des activités reste faite directement par
+Claude Code (lecture wiki/`pluton_elements`), même discipline que toutes les
+activités précédentes, coût nul (conversation déjà en cours).
+
+**Audit du code existant (agent Explore)** : les 6 calculateurs actuels
+partagent du code copié-collé réel (persistance delete-puis-rebuild, lookup
+prix Bazaar/AH, boucle tier×cible — extractible dans un futur
+`lib/pluton-engine.ts`) mais leurs **formules de rendement restent
+structurellement différentes** par activité (tick/softcap Mining,
+engine-cap+pest Farming, Sweep Foraging, multi-roll Fishing, DPS/TTK Slayer,
+EV-coffre-ancrée-score Dungeons) — un solveur générique unique n'est pas
+réaliste sans inventer de raccourcis.
+
+**Backlog des 13 skills réels établi en une seule passe** (table
+`pluton_skill_activities`, décision explicite de l'utilisateur : "finis
+tout les skills, te mélange pas avec des tâches complexes supplémentaires" —
+plutôt que de creuser une seule activité neuve en profondeur). Chaque ligne
+est sourcée (wiki `game_mechanics_misc`/`pluton_elements`), jamais inventée :
+
+- **`built`** (6 activités, déjà en prod) : Mining (minage gemstone),
+  Farming (culture+pest), Foraging (coupe de bois), Fishing (pêche, Sea
+  Creature exclu), Slayer (5/6 Slayers), Dungeons (Floor I-VII Normal Mode).
+- **`backlog`** (activités réelles confirmées, pas encore construites) :
+  Mining → Powder grinding, Forge (craft) ; Fishing → Sea Creature kills
+  (**gap rouvrable maintenant** que le moteur DPS/TTK de Slayer existe) ;
+  Combat → **Kuudra** (5 paliers, combat multi-phases, table de loot dense
+  ~40 items, sourcé en partie — boss/coûts/loot déjà lus, ancre de temps par
+  run pas encore trouvée), Dungeons Master Mode, frag run (ex: Floor
+  VI/Sadan, cité explicitement par l'utilisateur — nécessite de sourcer les
+  Classes), grind mob générique/Bestiary (diffus, pas investigué) ;
+  Enchanting → craft/flip Enchanted Books (marge Anvil, pas encore
+  investigué) ; Hunting → 5 méthodes de chasse (Forest/Water/Combat/Charm/
+  Trap), drops = Attribute Shards réels (prix Bazaar déjà en base),
+  mécaniques non sourcées.
+- **`excluded_low_value`** (skill confirmé sans money-making direct — reste
+  visible/tracké avec un poids faible pour le grind joueur, pas masqué) :
+  **Alchemy** (XP-only, confirmé par le wiki lui-même : "the only
+  requirement being Coins"), **Runecrafting** (confirmé cosmétique-only
+  explicitement par le wiki), **Enchanting** (le mécanisme XP du skill
+  lui-même, distinct du craft/flip listé en backlog ci-dessus), Carpentry/
+  Social (déjà confirmés cosmétiques le 17 août), Taming (XP-sink via
+  nourriture de pets, `taming_cost` confirmé).
+
+**Prochaine étape actée par l'utilisateur** : continuer à traverser les
+skills/activités du backlog (Kuudra "ressortira naturellement" en
+traitant Combat plus en profondeur) — pas de deep-dive isolé sur une seule
+activité pour l'instant.
+
 ## ✅ Pluton Dungeons — Floor I clear complet S+, 1er consommateur de l'architecture multi-méthodes (18 août)
 
 6e activité généralisée, et **premier chantier qui recadre l'objectif réel de
