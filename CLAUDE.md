@@ -168,8 +168,45 @@ tort : toutes les deux réelles (Jungle Key ≈194 115 coins, Summoning Eye
 (quotidien 5h35, `vercel.json`) créé. Route de debug temporaire supprimée
 après validation.
 
-**Prochaine étape de ce lot** : Hunting Trap+Charm (nouveau skill, 2 des 5
-méthodes réelles sourcées — Forest/Water/Combat restent des gaps documentés).
+### ✅ Trap Hunting (Hunting) — construit et vérifié, lot de fermeture terminé
+
+Nouveau fichier `lib/pluton-hunting.ts` — **1re activité Pluton pour le
+skill Hunting** (skill neuf 2025/2026, jamais couvert avant). Formule
+réelle sourcée mot pour mot (page wiki "Huntraps", 3 citations Discord dev
+`mrkeith` explicitement référencées sur la page elle-même) : temps de
+capture par **rareté du shard** (Common 8-12h → Legendary 16-24h), réduit
+par le palier de Huntrap (Small 0% → Astral -50%, mappé sur early→late).
+Parmi les 321 Attribute Shards réels pricés (`attribute_shards`, rareté +
+`bazaar_stock_id` déjà en base), retient le meilleur coins/h par tier —
+**Molthorn (Legendary, ~7.07M coins) domine tous les tiers**, recoupé à la
+main exact (Astral : 20h×0.5=10h → 706 500.38/h, exact).
+
+**Charm Hunting explicitement écarté, pas oublié** — reclassé selon le
+principe mécanique-fondamentale-vs-activité établi dans ce même lot :
+Charming est un **modificateur passif** posé sur du combat déjà en cours
+(chance `chc%` de shard bonus au kill d'un mob déjà charmable), pas une
+activité autonome avec sa propre action+setup. La stat Charm Chance
+(0.04%-2% selon niveau Hunting) et la relation Hunter Fortune→nombre de
+shards par proc ("multiplicateur hf") ne sont jamais chiffrées précisément
+dans le wiki source — mécanisme réel, ampleur non modélisable sans
+inventer un ratio. **Forest/Water/Combat Hunting restent des gaps réels**
+(stamina Lasso, formule pull Fishing Net, vitesse Black Hole — tous
+`{{confirm}}` explicite côté wiki source, pas une recherche insuffisante).
+
+Cron `pluton-hunting-refresh` (quotidien 5h40, `vercel.json`) créé. Route de
+debug temporaire supprimée après validation.
+
+**Lot de fermeture de backlog terminé** (4 constructions : Forge/Bestiary/
+Trap Hunting + 1 confirmation raw-ore-déjà-fonctionnel, 4 fermetures de
+statut décisives : Powder/Kuudra/Enchanted Books/Charm Hunting). Reste
+ouvert dans `pluton_skill_activities` (`backlog`, gaps honnêtes documentés,
+pas de code à écrire tant qu'aucune source réelle n'apparaît) : Kuudra
+(ancre de temps introuvable), Dungeons Master Mode/frag run Floor VI (déjà
+notés), Enchanted Books flip (couverture de prix), Forest/Water/Combat
+Hunting (mécaniques non chiffrées). Prochaine étape actée : consommateur
+frontend du classement `pluton_rankings` (jamais lu par aucune UI à ce
+stade) + fonction de recommandation Evolve — scope backend déjà posé dans
+le plan pipeline 7-tiers, pas commencé.
 
 ## ✅ Pluton Fishing — Sea Creature kills, méthode additive (21 août)
 
