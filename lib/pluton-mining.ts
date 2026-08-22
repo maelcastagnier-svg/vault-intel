@@ -266,6 +266,14 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
       // rendement séparément (formule wiki "Pristine" : ×(1+Pristine×0.79)).
       gemstoneBonus = await applyGemstoneBonuses(layer.best_pet?.source_id ?? null)
       finalFortune += gemstoneBonus.gemstoneFortune
+      // Diamond Essence Shop, perk "Rhinestone Infusion" (22 aout, trouve en
+      // auditant les Essence Shops) -- +2..+20 Gemstone Fortune (10 paliers,
+      // niveau max assume), "while on Mining Islands" -- confirme applicable
+      // ici (toutes les cibles Mining de ce calculateur sont sur Mining
+      // Islands). Croise contre la page wiki "Gemstone Fortune" elle-meme
+      // ("ways_to_increase" cite explicitement "Diamond Essence Shop") avant
+      // d'ajouter -- jamais suppose depuis le nom seul.
+      finalFortune += RHINESTONE_INFUSION_GEMSTONE_FORTUNE_MAX
       pristineMult = 1 + gemstoneBonus.pristine * 0.79
       const { data: petGF } = await supabase.from('stat_bonus_sources').select('bonus_numeric')
         .eq('source_id', layer.best_pet?.source_id ?? '').eq('stat_name', 'gemstone_fortune').eq('equip_slot', 'pet').maybeSingle()
@@ -548,6 +556,10 @@ function computeMiningSpeedBoostAvgMultiplier(hasDrillFuelTank: boolean): number
   return 1 + boostFraction * uptime
 }
 const HOTM_MAX = { speed: 1000 + 2000, fortune: 100 + 150, gemstoneFortune: 100 }
+// Diamond Essence Shop, "Rhinestone Infusion" -- +2/4/6/8/10/12/14/16/18/20
+// Gemstone Fortune (10 paliers, niveau max), "while on Mining Islands",
+// confirme via cross-reference wiki "Gemstone Fortune" (22 aout).
+const RHINESTONE_INFUSION_GEMSTONE_FORTUNE_MAX = 20
 // Professional (HOTM, powder GEMSTONE) -- perk manqué dans la 1ère passe :
 // formule réelle (niveau*5+50), niveau max 140 = +755, "while mining Gemstones"
 // (wiki "Achieving Maximum Mining Speed", table Heart of the Mountain) -- pas

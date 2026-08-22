@@ -164,6 +164,13 @@ const HOTF_SWEEP_MAX = 50 // perk "sweep", niveau 50 * 1
 const HOTF_FORAGING_FORTUNE_MAX = 150 // perk "foraging_fortune", niveau 50 * 3
 const HOTF_FORAGING_MADNESS = { sweep: 10, fortune: 50 } // palier unique
 
+// Forest Essence Shop, perk "Lumberjack" (22 aout, trouve en auditant les
+// Essence Shops) -- +2/4/6/8/10/12/14/16/18/20 Foraging Fortune (10
+// paliers, niveau max), AUCUNE restriction de lieu dans le texte du perk
+// lui-meme (contrairement a sa "soeur" Forest Training, "while on Foraging
+// Islands" -- verifie explicitement, pas suppose identique).
+const LUMBERJACK_FORAGING_FORTUNE_MAX = 20
+
 function citrineForagingFortuneBonus(toolItemId: string, armorSetPrefix: string): number {
   let bonus = 0
   const toolSlots = CITRINE_SLOTS_BY_TOOL[toolItemId]
@@ -363,6 +370,9 @@ export async function computeForagingRanking(tier: TierKey, blockId: string): Pr
       // max atteignable (voir doc des constantes).
       finalSweep += HOTF_SWEEP_MAX + HOTF_FORAGING_MADNESS.sweep
       finalFF += HOTF_FORAGING_FORTUNE_MAX + HOTF_FORAGING_MADNESS.fortune
+      // Forest Essence Shop, "Lumberjack" -- meme discipline "investissement
+      // max END/LATE" que HOTF (voir doc de la constante).
+      finalFF += LUMBERJACK_FORAGING_FORTUNE_MAX
     }
 
     const { logsPerSwing, yieldPerHour, coinsPerHourRawBlockOnly } = scoreYield(finalSweep, finalFF)

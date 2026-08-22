@@ -30,7 +30,7 @@
 import { createClient } from '@supabase/supabase-js'
 import {
   getGearStatsFromElements, findMobTypeBonus, findBaseStat, computeCombatDps,
-  fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH,
+  fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH, WITHER_FORBIDDEN_STRENGTH_MAX,
 } from './pluton-engine'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
@@ -270,6 +270,7 @@ async function computeZombieSlayerCombo(playerTier: string, boss: { tier: number
   // The Art of War -- +5 Force, universel, cout unique, applique par defaut
   // (voir pluton-engine.ts).
   nbtModifiers.push(`The Art of War (+${ART_OF_WAR_STRENGTH} Force, sourcee wiki)`)
+  nbtModifiers.push(`Wither Essence Shop -- Forbidden Strength (+${WITHER_FORBIDDEN_STRENGTH_MAX} Force, sourcee wiki, aucune restriction de lieu)`)
   // The Art of Peace -- +40 HP par piece d'armure (sourcee wiki), documente
   // pour un setup complet mais SANS effet sur ce calcul (HP n'entre pas dans
   // la formule DPS/coins-per-hour) -- inclus dans le loadout, pas dans le score.
@@ -280,7 +281,7 @@ async function computeZombieSlayerCombo(playerTier: string, boss: { tier: number
   // identiques, simplification documentee -- voir pluton-engine.ts). Aucun
   // reforge n'etait applique avant cette passe -- trou reel trouve en
   // auditant "rien ne doit rester a moitie fait", pas seulement complete ici.
-  const strengthBeforeReforge = strength + enrageStrengthBonus + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH
+  const strengthBeforeReforge = strength + enrageStrengthBonus + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH + WITHER_FORBIDDEN_STRENGTH_MAX
   const baseDamageBeforeReforge = baseDamage + flatDamageBonus + potatoFlat
   const additivePctBeforeReforge = sharpnessPct + smitePct
   const critDamageBeforeReforge = criticalPct

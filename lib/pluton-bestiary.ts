@@ -26,7 +26,7 @@
 // discipline que le gap RNG deja documente sur Slayer/Mining/Fishing.
 import { createClient } from '@supabase/supabase-js'
 import {
-  computeCombatDps, fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH,
+  computeCombatDps, fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH, WITHER_FORBIDDEN_STRENGTH_MAX,
 } from './pluton-engine'
 import type { TierKey } from './money-making-constants'
 
@@ -243,7 +243,7 @@ export async function computeAndPersistBestiaryRankings(): Promise<{ candidates:
         gemstoneStrength += GEMSTONE_JASPER_SLOTS_ARMOR[gear.armorPrefix] * JASPER_PERFECT_BY_RARITY[armorRecombRarity]
       }
 
-      const strengthBeforeReforge = baseStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH
+      const strengthBeforeReforge = baseStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH + WITHER_FORBIDDEN_STRENGTH_MAX
       const baseDamage = Number(weapon.base_damage) + potatoFlat
       const additivePct = sharpnessPct + smitePct
 

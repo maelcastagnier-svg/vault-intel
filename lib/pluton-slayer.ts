@@ -83,7 +83,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { TIER_CONFIG, type TierKey } from './money-making-constants'
 import {
-  fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH,
+  fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH, WITHER_FORBIDDEN_STRENGTH_MAX,
 } from './pluton-engine'
 
 const supabase = createClient(
@@ -352,7 +352,7 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
     const gemstoneStrength = jasperSlots && weaponRecombRarity ? jasperSlots * JASPER_PERFECT_BY_RARITY[weaponRecombRarity] : 0
     const potatoUses = POTATO_BOOK_USES_BY_TIER[tier]
     const potatoFlat = potatoUses * POTATO_BOOK_BONUS_PER_USE
-    const totalStrength = BASE_STRENGTH + Number(weapon.base_strength) + armorStrength + enrageStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH
+    const totalStrength = BASE_STRENGTH + Number(weapon.base_strength) + armorStrength + enrageStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH + WITHER_FORBIDDEN_STRENGTH_MAX
     const weaponMobTypeMult = 1 + Number(weapon.mob_type_damage_bonus_pct) / 100
 
     // Octodexterity (armure) -- deja fourni pre-moyenne par le wiki lui-meme

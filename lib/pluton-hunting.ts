@@ -63,6 +63,16 @@ const TRAP_BY_TIER: Record<TierKey, { itemId: string; name: string; reductionPct
   late: { itemId: 'RETIA_SUPREMA', name: 'Astral Huntrap', reductionPct: 50 },
 }
 
+// Forest Essence Shop, perk "Trapped" (22 aout, trouve en auditant les
+// Essence Shops) -- "Your traps now catch creatures X% faster", I+1%..
+// V+5% (5 paliers, niveau max), AUCUNE restriction de lieu. Stack de
+// maniere ADDITIVE avec la reduction de palier de Huntrap -- confirme
+// explicitement par la formule deja citee en tete de fichier ("calculated
+// first then multiplied with all other modifiers which stack
+// additively"), applique a tous les tiers (cout modique, pas de gate
+// d'item comme le Sharpening Shard de Foraging).
+const TRAPPED_REDUCTION_PCT_MAX = 5
+
 export type TrapHuntingResult = {
   tier: TierKey
   trap_name: string
@@ -98,7 +108,7 @@ export async function computeTrapHuntingRankings(): Promise<TrapHuntingResult[]>
       const price = priceCache.get(s.bazaar_stock_id)
       const baseHours = BASE_HOURS_BY_RARITY[s.rarity]
       if (!price || !baseHours) continue
-      const captureHours = baseHours * (1 - trap.reductionPct / 100)
+      const captureHours = baseHours * (1 - (trap.reductionPct + TRAPPED_REDUCTION_PCT_MAX) / 100)
       const coinsPerHour = price / captureHours
       if (!best || coinsPerHour > best.coins_per_hour) {
         best = { tier, trap_name: trap.name, best_shard: s.display_name, shard_rarity: s.rarity, shard_price: price, capture_hours: captureHours, coins_per_hour: coinsPerHour }

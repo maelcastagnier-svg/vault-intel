@@ -36,7 +36,7 @@
 import { createClient } from '@supabase/supabase-js'
 import {
   loadPriceCache, expectedValueFromLootTable, type WeightedLootRow,
-  computeCombatDps, fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH,
+  computeCombatDps, fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH, WITHER_FORBIDDEN_STRENGTH_MAX,
 } from './pluton-engine'
 import type { TierKey } from './money-making-constants'
 
@@ -94,7 +94,7 @@ async function computeEnrichedDps(tier: TierKey, weapon: any, armor: any): Promi
   if (GEMSTONE_JASPER_SLOTS[gear.weaponId] && weaponRecombRarity) gemstoneStrength += GEMSTONE_JASPER_SLOTS[gear.weaponId] * JASPER_PERFECT_BY_RARITY[weaponRecombRarity]
   if (gear.armorPrefix && GEMSTONE_JASPER_SLOTS_ARMOR[gear.armorPrefix] && armorRecombRarity) gemstoneStrength += GEMSTONE_JASPER_SLOTS_ARMOR[gear.armorPrefix] * JASPER_PERFECT_BY_RARITY[armorRecombRarity]
 
-  const strengthBeforeReforge = baseStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH
+  const strengthBeforeReforge = baseStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH + WITHER_FORBIDDEN_STRENGTH_MAX
   const baseDamage = Number(weapon.base_damage) + potatoFlat
 
   async function bestDps(smitePct: number, mults: number[]): Promise<number> {

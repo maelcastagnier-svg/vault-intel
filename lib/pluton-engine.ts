@@ -280,6 +280,18 @@ export const CITRINE_PERFECT_BY_RARITY: Record<string, number> = {
 // Recombobulator.
 export const ART_OF_WAR_STRENGTH = 5
 
+// Wither Essence Shop, perk "Forbidden Strength" (22 aout, trouve en
+// auditant les 11 Essence Shops suite a question utilisateur HOTM/HOTF) --
+// +1/2/3/4/5 Force (5 paliers), AUCUNE restriction de lieu (contrairement
+// aux perks soeurs Health/Defense/Speed/Intelligence de la meme boutique,
+// non traques par Pluton -- Force est la seule stat combat pertinente
+// parmi les 5, verifie via lecture complete des 2 pages Wither+Undead
+// Essence Shop). Essence non-tradeable (aucun item_id catalogue, confirme
+// avant de coder) -- traite comme HOTM/HOTF : niveau max assume
+// atteignable, jamais de prix sur la monnaie elle-meme. Universel Combat
+// (Slayer x5/Bestiary/Sea Creature), applique par defaut comme Art of War.
+export const WITHER_FORBIDDEN_STRENGTH_MAX = 5
+
 // Extrait les stats reelles d'un item directement depuis pluton_elements
 // (Systeme A, 21 aout) -- 1er vrai consommateur en lecture live, remplace
 // les tables dediees (pluton_slayer_weapon_stats etc.) comme source de
