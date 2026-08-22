@@ -216,6 +216,7 @@ export type FishingRankingResult = {
     pet?: { source_id: string; rarity: string | null; fishing_speed: number; sea_creature_chance: number; treasure_chance: number } | null
     pet_candidates_checked?: number
     accessories?: { source_id: string; equip_slot: string; fishing_speed: number; sea_creature_chance: number; treasure_chance: number }[]
+    nbt_modifiers?: string[]
   } | null
   eligible_combos_count: number
   total_combos_checked: number
