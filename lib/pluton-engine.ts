@@ -189,3 +189,48 @@ export function computeCombatDps(baseDamage: number, strength: number, multiplic
   const expectedPerHit = nonCrit * (1 + (critChance / 100) * (BASE_CRIT_DAMAGE / 100))
   return expectedPerHit * computeAttacksPerSecond(0)
 }
+
+// Extrait les stats reelles d'un item directement depuis pluton_elements
+// (Systeme A, 21 aout) -- 1er vrai consommateur en lecture live, remplace
+// les tables dediees (pluton_slayer_weapon_stats etc.) comme source de
+// verite pour la refonte "1 calculateur par skill" (plan reconnexion
+// Systeme A/B). Format des lignes wiki_haiku_extract : element_name =
+// "<ItemName> -- <StatName> <valeur>", raw_data.bonus_raw = valeur brute
+// ("+120", "+200%", "30"). Retourne une Map stat_name (tel quel, la
+// nomenclature n'est PAS uniforme d'un item a l'autre -- ex: "Damage to
+// Undead mobs" vs "Damage vs Undead" pour le meme concept -- l'appelant
+// fait le pattern-matching necessaire) -> {value, isPercent}.
+export type GearStat = { value: number; isPercent: boolean; raw: string }
+
+export async function getGearStatsFromElements(itemName: string, activity?: string): Promise<Map<string, GearStat>> {
+  let query = supabase.from('pluton_elements')
+    .select('stat_name, raw_data')
+    .eq('source_table', 'wiki_haiku_extract')
+    .ilike('element_name', `${itemName} -- %`)
+  if (activity) query = query.eq('activity', activity)
+  const { data } = await query
+  const stats = new Map<string, GearStat>()
+  for (const row of data || []) {
+    const statName = row.stat_name as string | null
+    const bonusRaw = (row.raw_data as any)?.bonus_raw as string | undefined
+    if (!statName || !bonusRaw) continue
+    const isPercent = bonusRaw.includes('%')
+    const value = parseFloat(bonusRaw.replace(/[+%]/g, ''))
+    if (!isFinite(value)) continue
+    if (!stats.has(statName)) stats.set(statName, { value, isPercent, raw: bonusRaw })
+  }
+  return stats
+}
+
+// Trouve la valeur d'un stat "mob-type bonus" (ex: "+200% vs Undead") parmi
+// les stats d'un item, quelle que soit la formulation reelle utilisee par
+// la page source ("to X mobs"/"vs X"/"against X").
+export function findMobTypeBonus(stats: Map<string, GearStat>, mobTypeKeyword: string): number {
+  for (const [name, stat] of stats) {
+    const lower = name.toLowerCase()
+    if (lower.includes('damage') && (lower.includes('to ') || lower.includes('vs ') || lower.includes('against ')) && lower.includes(mobTypeKeyword.toLowerCase())) {
+      return stat.value
+    }
+  }
+  return 0
+}
