@@ -547,6 +547,53 @@ EPIC→recombobulé LEGENDARY=8×2), Sweep 583 exact (393 base déjà documenté
 valeur déjà publiée le 17 août avant cette session). Route de debug
 temporaire supprimée après validation.
 
+### ✅ Essence Shops — audit des 11 boutiques terminé, 4 vrais trous fermés (22-23 août)
+
+Suite de la section précédente. Les 9 boutiques restantes (Wither/Dragon/
+Crimson/Ice/Gold/Diamond/Forest/Fossil/Safari) vérifiées via agent dédié
+puis **recoupées manuellement contre le wikitext brut avant tout code** —
+discipline qui a payé : le rapport de l'agent affirmait *"Frozen Skin (Ice
+Essence Shop) = +5 Crit Chance"*, contredit par la source elle-même
+(`{{stat|cr}}`) — vérifié directement : `cr` = **Cold Resistance** (page
+wiki dédiée confirmée, sans rapport avec le combat), **pas intégré**.
+Même discipline sur "Dwarven Expertise" (Fossil, stat `dmf`) : ni la page
+wiki "Mining Fortune" ni "Gemstone Fortune" ne citent Fossil Essence Shop
+dans leur `ways_to_increase` — stat non-classifiable avec confiance,
+**laissé de côté plutôt que deviné**.
+
+**4 vrais trous fermés, chacun confirmé indépendamment avant d'écrire du
+code** :
+- **Wither — "Forbidden Strength"** : +1/2/3/4/5 Force (5 paliers,
+  niveau max), **aucune restriction de lieu** (contrairement aux 4 perks
+  soeurs Health/Defense/Speed/Intelligence de la même boutique, non
+  suivies par Pluton) — universel Combat, appliqué dans les 4 fichiers
+  (`pluton-combat.ts`/`pluton-slayer.ts`/`pluton-bestiary.ts`/`pluton-
+  sea-creatures.ts`) exactement comme The Art of War déjà codé.
+- **Diamond — "Rhinestone Infusion"** : +2..+20 Gemstone Fortune (10
+  paliers), "while on Mining Islands" — **confirmé par cross-référence**
+  (la page wiki "Gemstone Fortune" cite explicitement "Diamond Essence
+  Shop" dans ses `ways_to_increase`, pas une supposition depuis le nom).
+- **Forest — "Lumberjack"** : +2..+20 Foraging Fortune (10 paliers),
+  aucune restriction (vérifié distinct de sa "sœur" Forest Training,
+  elle explicitement "while on Foraging Islands").
+- **Forest — "Trapped"** : +1..+5% vitesse de capture Huntrap (5
+  paliers), stack ADDITIVEMENT avec le palier de trap (formule déjà
+  documentée en tête de `pluton-hunting.ts` — "calculated first then
+  multiplied with all other modifiers which stack additively").
+
+Toutes ces monnaies (Essence comme Powder) confirmées non-tradeable (0
+`item_id` catalogué, vérifié avant même de commencer l'audit) — traitées
+partout comme HOTM/HOTF : niveau max assumé atteignable, jamais un prix
+sur la monnaie elle-même.
+
+**Vérifié en base, un seul cycle pour les 7 fichiers touchés** : Zombie
+T7 DPS 205 850.1432→208 404.1152 exact (+5 Force), Mining Ruby LATE
+57 683 461→58 164 959 (+0.83%, cohérent avec +20 Gemstone Fortune sur
+~2296 de base), Foraging LATE Foraging Fortune 232→252 exact (+20),
+Trap Hunting 4 tiers (19h/17h/12h/9h de capture, tous exacts avec le
++5% Trapped additionné au palier de trap). Route de debug temporaire
+supprimée après validation.
+
 ### 🔴 Essence Shops — nouvelle surface d'audit trouvée, seulement 2/11 boutiques vérifiées (22 août)
 
 La question HOTM/HOTF de l'utilisateur a fait remonter une **catégorie
