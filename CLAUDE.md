@@ -218,9 +218,45 @@ confirmé identique en base après persist (35 combos). Traçabilité complète 
 `pluton_rankings.accessories.nbt_modifiers` documente les 3 enchants
 appliqués par combo. Route de debug temporaire supprimée après validation.
 
+**2e lot, même jour, même cycle unique** — Gemmes + Hot/Fuming Potato Book :
+- **Gemmes** — vérifié AVANT de coder (pas supposé) : seuls Reaper Falchion
+  (1 emplacement Jasper-only, item EPIC) et Reaper Armor (1 emplacement
+  Combat universel, LEGENDARY) ont un vrai emplacement de gemme (infobox
+  wiki `gemstone_slots`) — Undead Sword/Revenant Falchion/Revenant Armor
+  n'en ont AUCUN, confirmé absent de leur infobox, pas un trou. Type
+  retenu = **Jasper** (Strength), choisi par vraie comparaison des 4 types
+  Combat disponibles sur l'emplacement universel de l'armure (Ruby=Health/
+  Sapphire=Intelligence/Amethyst=Defense, aucun effet sur le DPS) — 1er cas
+  concret de "recherche sur l'espace réel" plutôt qu'un choix suivi par
+  défaut. Qualité PERFECT (T7 uniquement, ces emplacements n'existent que
+  sur le gear Reaper). Valeurs sourcées table `gemstones` (déjà validée par
+  `lib/pluton-mining.ts`) : +11 Force (Jasper PERFECT @ EPIC, Falchion),
+  +13 Force (Jasper PERFECT @ LEGENDARY, Armor).
+- **Hot Potato Book / Fuming Potato Book** — modificateur **universel**
+  (toute épée/armure du jeu, pas spécifique à cette activité). **Contradiction
+  réelle trouvée dans la source wiki elle-même** (même famille que la
+  contradiction Execute déjà documentée) : la page Hot Potato Book a un
+  encadré-résumé "x10 → Str+10/Dmg+10" qui contredit sa propre table
+  détaillée (+2/usage, donc +20 à 10 usages par extrapolation linéaire).
+  Résolu en faveur de la page Fuming Potato Book, dont l'encadré combiné
+  est cohérent en interne sur 2 valeurs indépendantes (5 FPB seuls = +10,
+  10 HPB+5 FPB = +30, toutes deux = usages×2) — retenu comme la source la
+  plus fiable, pas le résumé isolé et incohérent. Palier 5/10/15 usages par
+  tier (T1-3/T4-6/T7).
+
+**Vérifié en base, même cycle unique push/déploiement/vérification/persist/
+nettoyage** : DPS T7/ZOMBIE_SLAYER_T1 = 59 067.2076 exact (calcul à la main :
+179×3.53×4.10×6.0×1.9×2, Force totale 253 = 100(arme)+75(armure)+24(Enrage
+moy.)+24(gemmes)+30(potato), Dégâts base 179 = 5+120+24(Enrage)+30(potato)) —
+confirmé identique en base après persist. `pluton_rankings.accessories.
+nbt_modifiers` trace les 6 modificateurs appliqués par combo.
+
 **Reste à sourcer** (même méthode accélérée à réutiliser) : étoiles
-(régulières + Master)/gemmes/Hot Potato Book/Recombobulator etc. — non
-commencés, voir plan `joyful-shimmying-finch.md`.
+(régulières + Master, confirmé absent pour toute la chaîne Zombie Slayer —
+mécanique non applicable à ces items, pas un gap) — reste pertinent pour
+d'autres skills/activités (Dungeons/Necron notamment) ; Recombobulator 3000/
+Art of War/Art of Peace/Ability Scrolls — pas encore audités. Voir plan
+`joyful-shimmying-finch.md`.
 
 ### 🚧 Phase 3 — Système B refondu, 1re tranche (Zombie Slayer) vérifiée
 
