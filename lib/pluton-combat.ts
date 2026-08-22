@@ -65,6 +65,29 @@ const REAPER_ARMOR_UNDEAD_BONUS_FALLBACK_PCT = 100 // introuvable dans pluton_el
 // separe, note dans le plan de reconnexion).
 const REAPER_ARMOR_STRENGTH_FALLBACK = 75
 
+// Sharpness -- 1er modificateur NBT (enchant) reellement compose dans le
+// calcul (22 aout, Phase 5 du plan reconnexion). Sourcee wiki "Sharpness"
+// (game_mechanics_misc, hypixelskyblock_wiki, lue en entier) -- bonus
+// additif confirme explicitement par le wiki lui-meme ("increases melee
+// weapon damage. ({{additive}})"), meme bucket que le perk Warrior niveau
+// Combat 60 (+210%) deja code -- computeCombatDps() etendu avec un
+// parametre additionalAdditivePct dedie. Valeurs actuelles (wiki a jour,
+// post-patch 0.23.5) : I+5% II+10% III+15% IV+20% V+30% VI+40% VII+50%.
+// Applicable aux Swords -- Undead Sword/Revenant Falchion/Reaper Falchion
+// sont de la famille Sword (meme classification que le reste de la chaine
+// Zombie Slayer deja construite). Palier par tier joueur, meme convention
+// "investissement croissant par tier" que Mining Speed Boost/Reaper Enrage
+// ailleurs dans Pluton : Sharpness I-V obtenables Table d'Enchantement +
+// combinaison Anvil (peu couteux, T1-6), VI/VII necessitent Dark/Darker
+// Auction ou NPC Tomioka (10M coins, investissement reel) -- reserves T7.
+const SHARPNESS_BONUS_PCT: Record<number, number> = { 1: 5, 2: 10, 3: 15, 4: 20, 5: 30, 6: 40, 7: 50 }
+function sharpnessLevelForTier(tier: string): number {
+  const t = Number(tier)
+  if (t <= 3) return 3
+  if (t <= 6) return 5
+  return 7
+}
+
 export type ZombieSlayerCombo = {
   playerTier: string
   bossTier: number
@@ -75,6 +98,7 @@ export type ZombieSlayerCombo = {
   ttkSeconds: number
   coinsPerHour: number
   dataSourceGaps: string[]
+  nbtModifiers: string[]
 }
 
 async function computeZombieSlayerCombo(playerTier: string, boss: { tier: number; boss_name: string; health: number; guaranteed_drop_item_id: string; guaranteed_drop_qty_avg: number }, dropPrice: number): Promise<ZombieSlayerCombo> {
@@ -120,12 +144,17 @@ async function computeZombieSlayerCombo(playerTier: string, boss: { tier: number
     enrageStrengthBonus = 100 * ENRAGE_UPTIME
   }
 
-  const dps = computeCombatDps(baseDamage + flatDamageBonus, strength + enrageStrengthBonus, mults)
+  const sharpnessLevel = sharpnessLevelForTier(playerTier)
+  const sharpnessPct = SHARPNESS_BONUS_PCT[sharpnessLevel]
+  const sharpnessRoman = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'][sharpnessLevel]
+  const nbtModifiers = [`Sharpness ${sharpnessRoman} (+${sharpnessPct}% additif, sourcee wiki)`]
+
+  const dps = computeCombatDps(baseDamage + flatDamageBonus, strength + enrageStrengthBonus, mults, sharpnessPct)
   const ttkSeconds = boss.health / dps
   const killsPerHour = 3600 / ttkSeconds
   const coinsPerHour = killsPerHour * boss.guaranteed_drop_qty_avg * dropPrice
 
-  return { playerTier, bossTier: boss.tier, bossName: boss.boss_name, weapon, armor, dps, ttkSeconds, coinsPerHour, dataSourceGaps: gaps }
+  return { playerTier, bossTier: boss.tier, bossName: boss.boss_name, weapon, armor, dps, ttkSeconds, coinsPerHour, dataSourceGaps: gaps, nbtModifiers }
 }
 
 export async function computeZombieSlayerRankings(): Promise<ZombieSlayerCombo[]> {
@@ -183,7 +212,7 @@ export async function computeAndPersistZombieSlayerRankings(): Promise<{ combos:
         block_id: `ZOMBIE_SLAYER_T${bossTier}`,
         block_name: `Zombie Slayer -- ${sample.bossName}`,
         block_strength: 0, required_breaking_power: 0, sell_item_id: 'REVENANT_FLESH', base_drop_count: 1,
-        pricing_note: `Refonte 1-skill-par-fichier (21 aout) -- gear source en direct depuis pluton_elements (Systeme A), echelle tier joueur 1-7 reelle. Formule Damage/Damage Calculation deja validee (lib/pluton-slayer.ts). Gaps de donnees Systeme A documentes: ${allGaps.join(' | ') || 'aucun'}.`,
+        pricing_note: `Refonte 1-skill-par-fichier (21-22 aout) -- gear source en direct depuis pluton_elements (Systeme A), echelle tier joueur 1-7 reelle. Formule Damage/Damage Calculation deja validee (lib/pluton-slayer.ts). Phase 5 (composition NBT) demarree : Sharpness (enchant, additif, sourcee wiki) compose reellement dans le DPS, palier par tier (III T1-3, V T4-6, VII T7). Gaps de donnees Systeme A documentes: ${allGaps.join(' | ') || 'aucun'}.`,
       })
       .select('id').single()
     if (error || !block) throw new Error(`target_block insert failed: ${error?.message}`)
@@ -197,7 +226,7 @@ export async function computeAndPersistZombieSlayerRankings(): Promise<{ combos:
     armor_set_prefix: r.armor ?? `Aucune (${r.weapon} seul)`,
     tool_item_id: r.weapon,
     total_mining_speed: 0, total_mining_fortune: 0, total_breaking_power: 0, real_cost: 0,
-    accessories: [{ source_id: '__zombie_slayer_v2__', boss_tier: r.bossTier, dps: r.dps }],
+    accessories: [{ source_id: '__zombie_slayer_v2__', boss_tier: r.bossTier, dps: r.dps, nbt_modifiers: r.nbtModifiers }],
   }))
   const { data: insertedSetups, error: setupErr } = await supabase.from('pluton_setups').insert(setupsToInsert).select('id')
   if (setupErr || !insertedSetups) throw new Error(`pluton_setups insert failed: ${setupErr?.message}`)
