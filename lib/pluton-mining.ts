@@ -88,11 +88,27 @@ export type MiningRankingResult = {
 // TITANIUM_ORE retiré (5 août) -- pas une cible autonome, remplacement rare
 // modélisé comme bonus sur MITHRIL_ORE (voir pluton_target_blocks.bonus_material_id).
 // 12 types de gemmes désormais représentés (contre 2 avant le 5 août).
+//
+// 10 blocs supplémentaires (23 août) -- audit d'exhaustivité explicite de
+// l'utilisateur ("miner du ruby est une activité en soi comme miner du
+// charbon... rien laissé de côté"). Sourcés wiki "Block Strength"/"Breaking
+// Power" (tables réelles Ores/Blocks, déjà la source canonique de tout
+// MINING_TARGET_BLOCK_IDS existant) + prix Bazaar live vérifié pour chacun
+// avant ajout : Cobblestone/Netherrack/End Stone/Hard Stone/Obsidian (blocs
+// "filler" non-Ore, instamine 30x comme Glacite) + Redstone/Emerald/Nether
+// Quartz/Lapis Lazuli Ore (vraies Ores, instamine 60x, même famille que
+// Coal/Iron/Gold/Diamond) + Sulphur Ore. STONE exclu (aucun prix Bazaar live
+// trouvé, gap de donnée documenté plutôt qu'un prix inventé). CHLORONITE
+// (même palier Breaking Power que Cobblestone/End Stone dans la table
+// source) pas encore vérifié -- zone d'origine et statut Bazaar non confirmés,
+// laissé de côté explicitement plutôt que deviné, à re-visiter.
 export const MINING_TARGET_BLOCK_IDS = [
   'COAL_ORE', 'IRON_ORE', 'GOLD_ORE', 'DIAMOND_ORE', 'MITHRIL_ORE', 'GLACITE',
   'RUBY_GEMSTONE', 'AMBER_GEMSTONE', 'SAPPHIRE_GEMSTONE', 'JADE_GEMSTONE',
   'AMETHYST_GEMSTONE', 'OPAL_GEMSTONE', 'TOPAZ_GEMSTONE', 'JASPER_GEMSTONE',
   'AQUAMARINE_GEMSTONE', 'ONYX_GEMSTONE', 'CITRINE_GEMSTONE', 'PERIDOT_GEMSTONE',
+  'COBBLESTONE', 'NETHERRACK', 'ENDER_STONE', 'HARD_STONE', 'OBSIDIAN',
+  'REDSTONE_ORE', 'EMERALD_ORE', 'QUARTZ_ORE', 'LAPIS_ORE', 'SULPHUR_ORE',
 ] as const
 
 export const MINING_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
