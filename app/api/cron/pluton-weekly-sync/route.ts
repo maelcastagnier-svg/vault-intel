@@ -450,6 +450,21 @@ async function runClassificationPhase(deadline: number) {
   return { wte_rows: wte.rows, whe_rows: whe.rows, classify_cost_usd: wte.cost + whe.cost }
 }
 
+// Verifie le residu reel des ~148 tables de reference NEU-REPO/SkyHanni-REPO
+// (fonction SQL pluton_referential_residual_check, 21 aout) -- SQL pur, cout
+// nul, aucun appel Haiku ici. Ferme le gap documente : ces tables sont
+// rafraichies chaque semaine par leurs propres crons mais leur contenu neuf
+// n'etait jamais reinjecte dans la classification. Un residu trouve ici est
+// juste RAPPORTE (jamais classe automatiquement) -- un vrai residu reste une
+// decision de classification a faire manuellement (meme discipline que le
+// residu game_drops ferme le 21 aout, 1032 lignes classees a la main),
+// jamais delegue a Haiku pour un one-shot que Claude Code peut faire lui-meme.
+async function checkReferentialResidual() {
+  const { data, error } = await supabase.rpc('pluton_referential_residual_check')
+  if (error) return { checked: true, residual_found: false, tables: [], error: error.message }
+  return { checked: true, residual_found: (data || []).length > 0, tables: data || [] }
+}
+
 // ════════════════════════════════════════════════════════════════════════
 export async function runPlutonWeeklySync() {
   const startedAt = Date.now()
@@ -457,11 +472,13 @@ export async function runPlutonWeeklySync() {
 
   const extraction = await runExtractionPhase()
   const classification = await runClassificationPhase(deadline)
+  const referentialResidual = await checkReferentialResidual()
 
   return {
     success: true,
     extraction,
     classification,
+    referential_residual: referentialResidual,
     total_cost_usd: extraction.b2_cost_usd + classification.classify_cost_usd,
     duration_ms: Date.now() - startedAt,
   }
