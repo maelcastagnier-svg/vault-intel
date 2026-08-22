@@ -358,6 +358,57 @@ AUCUN, confirmé par recherche directe, pas un oubli.
 88 combos persistés (`activity_key='slayer'`, inchangé). Route de debug
 temporaire supprimée après validation.
 
+### ✅ Pluton Fishing — couche NBT complétée à tous les tiers (22 août)
+
+**Exemple donné explicitement par l'utilisateur** en poursuivant le
+recadrage "ne rien laisser à moitié" : "si je suis starter et que je fais
+une certaine activité en fishing, je veux un setup vraiment complet" —
+audit de `lib/pluton-fishing.ts` (construit le 17 août) a confirmé le même
+type de trou que Combat avant sa fermeture.
+
+**Avant ce lot** : Piscary (enchant, +Fishing Speed)/Expertise (enchant,
++Sea Creature Chance)/reforge rod (Salty/Treacherous/Stiff/Lucky)/reforge
+armure (Submerged)/gemme Aquamarine n'étaient ajoutés QUE si `tier==='end'
+||'late'` — un joueur starter/mid avait un setup strictement dépourvu de
+ces 5 modificateurs. Sourcés wiki (agent dédié) : Piscary (I-VII, +1 à +7
+Fishing Speed, additif confirmé "Fs stacks additively"), Expertise (I-X,
++0.6% à +6% Sea Creature Chance) — tous deux avec un vrai palier de niveau
+(Enchanting/drop rare pour VI/VII), désormais scalés par tier comme
+Sharpness Combat (jamais 0). Reforges rod/armure : **pas de table par
+rareté sourcée** (contrairement aux reforges Combat) — seule la valeur MAX
+documentée ("+7%"/"Cost to Apply" 2.5k-600k, wiki dédié) — appliqués
+désormais à TOUS les tiers (coût réel modique, aucune raison de les
+réserver à end/late).
+
+**🔴 2 bugs réels trouvés et corrigés, pas seulement le trou de tier** :
+1. **Gemme Aquamarine appliquée sans vérifier la rod** — la version
+   précédente ajoutait `PERFECT_AQUAMARINE_GEMSTONE_FS` inconditionnellement
+   en end/late, sans vérifier que la rod réellement choisie par la
+   recherche budgétaire avait un emplacement. Vérifié AVANT de recoder :
+   seules Rod of Champions (1)/Rod of Legends (2)/Rod of the Sea (2) ont un
+   vrai emplacement — Fishing Rod/Challenging Rod n'en ont AUCUN. Calculé
+   désormais par rod réellement sélectionnée + rareté RECOMBOBULÉE
+   (Recombobulator confirmé applicable aux rods, aucune exclusion
+   documentée).
+2. **Double-comptage réel, pré-existant, découvert en vérifiant en prod
+   après le premier fix** : `applyFishingPetsAndAccessories()` tirait déjà
+   ces 5 sources (`stat_bonus_sources`, `equip_slot='passive'`) à TOUS les
+   tiers via son filtre générique (jamais tier-gaté) — combiné à l'ancien
+   bloc "end/late only" qui les ajoutait une 2e fois, **Fishing
+   double-comptait déjà ces 5 sources en END/LATE avant même cette
+   session**. `'passive'` exclu du filtre générique — la nouvelle logique
+   explicite (palier par tier + vérification rod) devient la seule source.
+3. Hot Potato Book/The Art of War confirmés exclus des rods (textes wiki
+   respectifs : "Swords and Armor"/"Weapons/Axes", aucune mention Rods) —
+   vérifié explicitement, non appliqués, pas un oubli.
+
+**Vérifié en base, un seul cycle** (2 combos recalculés à la main, tous
+deux exacts) : EARLY/WATER_POOL (Challenging Rod, sans emplacement gemme) —
+Fishing Speed 141.4 (35 base+68.4 accessoires+35 pet+3 Piscary), Sea
+Creature Chance 28.6 (10 base+5.8 accessoires+1.8 Expertise+7 reforge
+rod+4 reforge armure) — exact. Route de debug temporaire supprimée après
+validation.
+
 ### 🚧 Phase 3 — Système B refondu, 1re tranche (Zombie Slayer) vérifiée
 
 `lib/pluton-combat.ts` — 1er fichier "1 skill = 1 calculateur" (remplace à
