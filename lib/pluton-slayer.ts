@@ -104,6 +104,62 @@ export const SLAYER_TARGET_BLOCK_IDS = [
 const WOLF_COLLECTION_LEVEL_BY_TIER: Partial<Record<TierKey, number>> = { mid: 3, end: 9, late: 9 }
 export const SLAYER_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
 
+// Couche NBT (22 aout, meme methode acceleree que lib/pluton-combat.ts --
+// extraction groupee + tri agent + UN SEUL cycle de verification pour les 4
+// slayers, plutot qu'un par un). Deliberement AJOUTEE a ce fichier (garde
+// son architecture early/mid/end/late + tables dediees deja validees le 18
+// aout) plutot que migree vers pluton_elements/echelle 1-7 -- la migration
+// complete est un chantier separe (deja note dans pluton-combat.ts), ne pas
+// le conflater avec l'ajout NBT demande ici.
+//
+// Sharpness/Critical -- universels, memes tables que lib/pluton-combat.ts
+// (Sharpness additif 5/10/15/20/30/40/50%, Critical CritDamage 10/20/30/40/
+// 50/70/100%), palier III(early)/V(mid)/VII(end+late) -- end et late
+// partagent deja le meme gear dans GEAR_BY_SLAYER_TIER (seule Enrage/toggle
+// differe), meme logique appliquee ici.
+const SHARPNESS_PCT_BY_TIER: Record<TierKey, number> = { early: 15, mid: 30, end: 50, late: 50 }
+const CRITICAL_PCT_BY_TIER: Record<TierKey, number> = { early: 30, mid: 50, end: 100, late: 100 }
+
+// Enchant vs-type-de-mob specifique -- verifie AVANT de coder (agent dedie,
+// 22 aout) : seuls Spider (Bane of Arthropods, meme table 5-50%, "applied
+// to Weapons" -- couvre les dagues) et Enderman (Ender Slayer, meme table,
+// confirme applicable aux katanas -- leur page wiki declare `type=Sword`
+// malgre le nom cosmetique "Katana") ont un vrai enchant dedie a leur type
+// de mob. Wolf et Blaze n'en ont AUCUN (confirme par recherche directe,
+// aucune correspondance) -- 0% ici n'est pas un trou, une verite reelle.
+const MOB_TYPE_ENCHANT_PCT_BY_TIER: Partial<Record<string, Record<TierKey, number>>> = {
+  spider: { early: 15, mid: 30, end: 50, late: 50 }, // Bane of Arthropods
+  enderman: { early: 15, mid: 30, end: 50, late: 50 }, // Ender Slayer
+}
+
+// Gemmes Jasper (Strength) -- verifie AVANT de coder (agent dedie) : seuls
+// ces 5 items ont un vrai emplacement Jasper/Combat exploitable pour le DPS
+// (Recluse Fang/Spider Sword/Tarantula Armor/Shaman Sword/Voidwalker
+// Katana/Final Destination Armor : aucun emplacement du tout ; Primordial
+// Armor : emplacement present dans le wikitext mais commente <!--...--> par
+// le wiki lui-meme, "infoneeded", traite comme absent ; Mastiff Armor : 4
+// emplacements mais TOUS Ruby-only = Health, sans effet sur le DPS, ignores
+// ici). Valeur = Jasper qualite PERFECT a la rarete reelle de l'item hote
+// (table `gemstones`, meme source que lib/pluton-combat.ts) -- simplification
+// documentee : qualite PERFECT appliquee des que l'emplacement existe, quel
+// que soit le tier joueur (pas de palier de qualite intermediaire ROUGH/
+// FINE/FLAWLESS -- gain marginal faible face a la complexite d'un 2e axe de
+// palier, meme discipline "MVP documente" que Foraging/autres).
+const GEMSTONE_JASPER_STRENGTH_BY_WEAPON: Record<string, number> = {
+  STING: 26, // LEGENDARY, 2 emplacements Combat -> 2x Jasper PERFECT (13 chacun)
+  TARANTULA_FANG: 9, // RARE, 1 emplacement Combat gratuit -> Jasper PERFECT
+  POOCH_SWORD: 13, // LEGENDARY, 1 emplacement Jasper-only
+  ATOMSPLIT_KATANA: 13, // LEGENDARY, 1 emplacement Jasper (2 Sapphire ignores, sans effet DPS)
+  VOIDEDGE_KATANA: 9, // RARE, 1 emplacement Jasper (1 Sapphire ignore)
+}
+
+// Hot Potato Book / Fuming Potato Book -- universel (voir doc complete dans
+// lib/pluton-combat.ts), meme palier +2 Force/+2 Degats par usage. early=5
+// usages (HPB seul, peu couteux), mid=10 (HPB max), end/late=15 (10 HPB+5
+// FPB, investissement max -- end et late partagent deja le meme gear ici).
+const POTATO_BOOK_USES_BY_TIER: Record<TierKey, number> = { early: 5, mid: 10, end: 15, late: 15 }
+const POTATO_BOOK_BONUS_PER_USE = 2
+
 const BASE_STRENGTH = 0
 const BASE_CRIT_CHANCE = 30
 const BASE_CRIT_DAMAGE = 50
@@ -252,7 +308,10 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
   for (const weaponId of gearConfig.weapons) {
     const weapon = weaponById.get(weaponId)
     if (!weapon) continue
-    const totalStrength = BASE_STRENGTH + Number(weapon.base_strength) + armorStrength + enrageStrength
+    const gemstoneStrength = GEMSTONE_JASPER_STRENGTH_BY_WEAPON[weaponId] ?? 0
+    const potatoUses = POTATO_BOOK_USES_BY_TIER[tier]
+    const potatoFlat = potatoUses * POTATO_BOOK_BONUS_PER_USE
+    const totalStrength = BASE_STRENGTH + Number(weapon.base_strength) + armorStrength + enrageStrength + gemstoneStrength + potatoFlat
     const weaponMobTypeMult = 1 + Number(weapon.mob_type_damage_bonus_pct) / 100
 
     // Octodexterity (armure) -- deja fourni pre-moyenne par le wiki lui-meme
@@ -294,10 +353,16 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
     const enrageMobTypeMult = 1 + enrageMobTypeMultPct / 100
     const bonusAttackSpeed = Number(weapon.base_attack_speed || 0) + enrageAttackSpeed
 
-    const additivePct = COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT
+    // Sharpness + enchant vs-type-de-mob specifique (meme bucket additif,
+    // voir doc des constantes) + Critical (Crit Damage) -- couche NBT ajoutee
+    // 22 aout, memes sources/valeurs que lib/pluton-combat.ts (Zombie).
+    const sharpnessPct = SHARPNESS_PCT_BY_TIER[tier]
+    const mobEnchantPct = MOB_TYPE_ENCHANT_PCT_BY_TIER[slayerKey]?.[tier] ?? 0
+    const additivePct = COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT + sharpnessPct + mobEnchantPct
+    critDamage += CRITICAL_PCT_BY_TIER[tier]
     const critChance = BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS + weaponCritChance
     const dps = computeDps(
-      Number(weapon.base_damage), enrageFlatDamage + collectionLevelFlatDamage, totalStrength,
+      Number(weapon.base_damage), enrageFlatDamage + collectionLevelFlatDamage + potatoFlat, totalStrength,
       additivePct, [weaponMobTypeMult, armorMobTypeMult, octoMult, packMentalityMult, enrageMobTypeMult],
       critChance, critDamage, !!weapon.always_crit, bonusAttackSpeed
     )
