@@ -54,6 +54,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { loadPricedItems, type PricedItem } from './gear-pricing'
 import { TIER_CONFIG, type TierKey } from './money-making-constants'
+import { recombobulatedRarity } from './pluton-engine'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -641,9 +642,20 @@ export async function applyMaxInvestmentLayer(
   let gemstoneFortune = isGemstoneTarget ? HOTM_MAX.gemstoneFortune : 0
   let pristine = 0
 
+  // Recombobulator 3000 (22 aout, trouve en auditant "toutes les activites/
+  // tout le NBT du skill") -- sourcee wiki, meme mecanique que Combat/
+  // Fishing : decale la rarete d'1 cran pour le lookup GEMME uniquement
+  // (jamais le reforge Jaded ci-dessous, dont les stats ne sont sourcees
+  // qu'a LEGENDARY -- pas de donnee MYTHIC/DIVINE pour l'extrapoler).
+  // RARITY_ORDER etendu a DIVINE dans pluton-engine.ts specifiquement pour
+  // ce cas -- Divan's Drill a une rarete de BASE Mythic (confirme wiki),
+  // recombobule vers Divine (table gemstones confirmee couvrir Divine).
+  const armorGemRarity = armorRarity ? recombobulatedRarity(armorRarity) : armorRarity
+  const toolGemRarity = toolRarity ? recombobulatedRarity(toolRarity) : toolRarity
+
   // Sockets -- armure (toutes pièces, additif, pas d'arbitrage réel nécessaire).
   for (const pieceId of armorPieceIds) {
-    const g = await computeGemSocketBonus(pieceId, armorRarity)
+    const g = await computeGemSocketBonus(pieceId, armorGemRarity)
     speed += g.speed; fortune += g.fortune; pristine += g.pristine
   }
   // Reforge Jaded -- seulement si armure LEGENDARY (constantes validées pour
@@ -660,7 +672,7 @@ export async function applyMaxInvestmentLayer(
   // vitesse/fortune) -- Pristine a un effet multiplicatif sur les gemmes
   // (×(1+Pristine×0.79)) donc peut dominer même un gain de vitesse/fortune plus
   // gros en valeur brute.
-  const toolGem = await computeGemSocketBonus(toolItemId, toolRarity)
+  const toolGem = await computeGemSocketBonus(toolItemId, toolGemRarity)
   speed += toolGem.speed; fortune += toolGem.fortune
   if (toolGem.comboSlots > 0) {
     const speedOption = toolGem.comboSlots * toolGem.amberBonus

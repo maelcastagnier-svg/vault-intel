@@ -247,7 +247,14 @@ export function pickBestReforge(
 // reforge ET gemstone -- reutilise les memes tables deja sourcees (aucune
 // nouvelle donnee inventee, juste la ligne de rarete suivante des memes
 // tables `reforges`/`gemstones`).
-const RARITY_ORDER = ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY', 'MYTHIC']
+// Etendu a DIVINE (22 aout, trouve en auditant Mining) : la chaine complete
+// sourcee wiki va au-dela de MYTHIC (Mythic->Divine->Special->Very Special),
+// et au moins un item reel du jeu (Divan's Drill) a une rarete de BASE
+// MYTHIC (confirme explicitement par le wiki Recombobulator : "The only
+// items with an intentional base Mythic rarity are Divan's Drill...") --
+// recombobulatedRarity('MYTHIC') doit donc pouvoir avancer vers DIVINE, pas
+// rester bloque. La table `gemstones` a bien des lignes DIVINE (confirme).
+const RARITY_ORDER = ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY', 'MYTHIC', 'DIVINE']
 export function recombobulatedRarity(rarity: string): string {
   const idx = RARITY_ORDER.indexOf(rarity)
   return idx >= 0 && idx < RARITY_ORDER.length - 1 ? RARITY_ORDER[idx + 1] : rarity
