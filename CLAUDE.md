@@ -547,6 +547,31 @@ EPIC→recombobulé LEGENDARY=8×2), Sweep 583 exact (393 base déjà documenté
 valeur déjà publiée le 17 août avant cette session). Route de debug
 temporaire supprimée après validation.
 
+### ✅ Foraging — Heart of the Forest (HOTF), 2e vrai trou trouvé le même jour (22 août)
+
+**Question directe de l'utilisateur** après le premier bilan ("on a bien
+pris en compte tout, même les HOTM et HOTF ??") — a immédiatement fait
+remonter un 2e trou réel, la preuve que le premier bilan n'était pas encore
+complet. Vérifié : Mining a bien HOTM (`HOTM_MAX`, confirmé), **Foraging
+n'avait JAMAIS touché HOTF** (`hotf_perks`, 30 lignes, arbre analogue à
+HOTM sur les Foraging Islands, monnaie Forest Whispers) — 0 référence dans
+tout le fichier malgré la table déjà en base depuis la cartographie.
+
+3 perks directs/permanents retenus (niveau max END/LATE, même convention
+que `HOTM_MAX`) : `sweep` (niveau 50, +50 Sweep), `foraging_fortune`
+(niveau 50, +150 FF), `foraging_madness` (palier unique, +10 Sweep/+50 FF).
+Exclus et documentés, pas inventés : `forest_strength` (jusqu'à +1000
+Sweep/+1000 FF mais conditionnel à la stat Strength du joueur, jamais
+trackée par ce calculateur Foraging pur — aucune valeur de référence
+sourcée, inventer un total violerait la règle #7), `half_full`/`half_empty`
+(nécessitent un 2e joueur à proximité), `early_bird` (+20 Sweep/+100 FF
+mais seulement les 250 premiers arbres/jour, fraction négligeable du
+volume horaire visé), `collector` (drop différent, hors scope logs).
+
+**Vérifié en base** : LATE/HELIX_LOG — Sweep 583→643 exact (+50+10),
+Foraging Fortune 32→232 exact (+150+50). Route de debug temporaire
+supprimée après validation.
+
 ### ✅ Hunting audité — déjà correctement scopé (22 août)
 
 `lib/pluton-hunting.ts` (Trap Hunting, seule activité `built` du skill)
