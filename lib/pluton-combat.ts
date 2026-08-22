@@ -110,6 +110,49 @@ const SMITE_BONUS_PCT: Record<number, number> = { 1: 5, 2: 10, 3: 15, 4: 20, 5: 
 // cette chaine. Palier par tier, meme convention.
 const CRITICAL_BONUS_PCT: Record<number, number> = { 1: 10, 2: 20, 3: 30, 4: 40, 5: 50, 6: 70, 7: 100 }
 
+// Gemmes -- 4e/5e modificateur NBT (22 aout, meme lot), 1er cas d'emplacement
+// de gemme reellement scope (verifie via requete `gemstones` deja validee/
+// utilisee par lib/pluton-mining.ts -- table Combat = Jasper/Ruby/Sapphire/
+// Amethyst, distincte des gemmes Mining Ruby/Topaz/Jasper Mining). Verifie
+// AVANT de coder : seuls Reaper Falchion (1 emplacement Jasper-only) et
+// Reaper Armor (1 emplacement "Combat", accepte les 4 types) ont un vrai
+// emplacement de gemme -- Undead Sword/Revenant Falchion/Revenant Armor
+// n'en ont AUCUN (infobox wiki sans champ gemstone_slots), pas un trou.
+// Choix du type de gemme = vraie comparaison, pas suppose : sur les 4 types
+// Combat, seul Jasper (Strength) affecte le DPS -- Ruby(Health)/
+// Sapphire(Intelligence)/Amethyst(Defense) n'ont aucun effet sur la formule
+// de degats, Jasper domine donc strictement pour cette activite (meme
+// principe "recherche sur l'espace reel" que la vision finale Pluton).
+// Qualite PERFECT (investissement max, T7 uniquement -- ce sont des
+// emplacements Reaper-only). Valeurs table `gemstones` (bonus_value a
+// PERFECT, selon la rarete reelle de l'item hote : Reaper Falchion=EPIC,
+// Reaper Armor=LEGENDARY) :
+const GEMSTONE_STRENGTH_REAPER_FALCHION = 11 // Jasper PERFECT @ EPIC
+const GEMSTONE_STRENGTH_REAPER_ARMOR = 13 // Jasper PERFECT @ LEGENDARY
+
+// Hot Potato Book / Fuming Potato Book -- 6e modificateur NBT (22 aout, meme
+// lot), UNIVERSEL (s'applique a n'importe quelle epee/armure du jeu, pas
+// specifique a Zombie Slayer -- reutilisable tel quel pour toute autre
+// activite Combat future). Sourcee wiki "Hot Potato Book"/"Fuming Potato
+// Book" (game_mechanics_misc, lues en entier). **Contradiction reelle
+// trouvee dans la source elle-meme, documentee** : la page Hot Potato Book
+// a un encadre-resume "x10 -> Str+10/Dmg+10" qui contredit sa PROPRE table
+// detaillee par usage (Str+2/Dmg+2 PAR utilisation, 1 a 5 usages listes
+// -> extrapolation lineaire = +20 a 10 usages, pas +10). La page Fuming
+// Potato Book (qui necessite 10 HPB deja appliques comme prerequis) donne
+// un encadre combine coherent avec le taux lineaire +2/usage : "5 FPB
+// seuls" = +10 (5x2, coherent), "10 HPB + 5 FPB" = +30 (15x2, coherent) --
+// retenu comme la source la plus fiable (coherente en interne sur 2 valeurs
+// independantes), pas le resume isole et contradictoire de la page HPB
+// seule. Applique aux SWORDS uniquement ici (Str+Dmg plat) -- variante
+// Armor existe aussi (Def+HP) mais HP/Defense n'affectent pas la formule
+// DPS de ce calculateur, hors-scope ici (pas omis, juste sans effet sur ce
+// calcul precis). Palier par tier : 5 usages T1-3 (HPB seul, peu couteux,
+// craftable via collection Potato), 10 usages T4-6 (HPB max), 15 usages
+// T7 (10 HPB + 5 FPB, FPB = drop Donjon uniquement, investissement max).
+const POTATO_BOOK_USES_FOR_TIER: Record<number, number> = { 1: 5, 2: 5, 3: 5, 4: 10, 5: 10, 6: 10, 7: 15 }
+const POTATO_BOOK_BONUS_PER_USE = 2 // Str+2/Dmg+2 par usage, sourcee wiki, coherente sur 3 points de donnees independants
+
 export type ZombieSlayerCombo = {
   playerTier: string
   bossTier: number
@@ -177,7 +220,29 @@ async function computeZombieSlayerCombo(playerTier: string, boss: { tier: number
     `Critical ${roman} (+${criticalPct}% Crit Damage, sourcee wiki)`,
   ]
 
-  const dps = computeCombatDps(baseDamage + flatDamageBonus, strength + enrageStrengthBonus, mults, sharpnessPct + smitePct, criticalPct)
+  // Gemmes -- Reaper Falchion/Armor uniquement (T7), voir constantes ci-dessus.
+  let gemstoneStrength = 0
+  if (weapon === 'Reaper Falchion') {
+    gemstoneStrength += GEMSTONE_STRENGTH_REAPER_FALCHION
+    nbtModifiers.push(`Gemme Jasper PERFECT (Reaper Falchion, +${GEMSTONE_STRENGTH_REAPER_FALCHION} Force, sourcee table gemstones)`)
+  }
+  if (armor === 'Reaper Armor') {
+    gemstoneStrength += GEMSTONE_STRENGTH_REAPER_ARMOR
+    nbtModifiers.push(`Gemme Jasper PERFECT (Reaper Armor, +${GEMSTONE_STRENGTH_REAPER_ARMOR} Force, sourcee table gemstones)`)
+  }
+
+  // Hot Potato Book / Fuming Potato Book -- universel, palier par tier.
+  const potatoUses = POTATO_BOOK_USES_FOR_TIER[Number(playerTier)]
+  const potatoFlat = potatoUses * POTATO_BOOK_BONUS_PER_USE
+  nbtModifiers.push(`Hot/Fuming Potato Book x${potatoUses} (+${potatoFlat} Force/+${potatoFlat} Degats plat, sourcee wiki)`)
+
+  const dps = computeCombatDps(
+    baseDamage + flatDamageBonus + potatoFlat,
+    strength + enrageStrengthBonus + gemstoneStrength + potatoFlat,
+    mults,
+    sharpnessPct + smitePct,
+    criticalPct
+  )
   const ttkSeconds = boss.health / dps
   const killsPerHour = 3600 / ttkSeconds
   const coinsPerHour = killsPerHour * boss.guaranteed_drop_qty_avg * dropPrice
@@ -240,7 +305,7 @@ export async function computeAndPersistZombieSlayerRankings(): Promise<{ combos:
         block_id: `ZOMBIE_SLAYER_T${bossTier}`,
         block_name: `Zombie Slayer -- ${sample.bossName}`,
         block_strength: 0, required_breaking_power: 0, sell_item_id: 'REVENANT_FLESH', base_drop_count: 1,
-        pricing_note: `Refonte 1-skill-par-fichier (21-22 aout) -- gear source en direct depuis pluton_elements (Systeme A), echelle tier joueur 1-7 reelle. Formule Damage/Damage Calculation deja validee (lib/pluton-slayer.ts). Phase 5 (composition NBT) : 3 enchants composes reellement dans le DPS -- Sharpness (additif, universel), Smite (additif, +dmg vs Undead), Critical (+Crit Damage) -- palier par tier (III T1-3, V T4-6, VII T7), tous sourcees wiki. Gaps de donnees Systeme A documentes: ${allGaps.join(' | ') || 'aucun'}.`,
+        pricing_note: `Refonte 1-skill-par-fichier (21-22 aout) -- gear source en direct depuis pluton_elements (Systeme A), echelle tier joueur 1-7 reelle. Formule Damage/Damage Calculation deja validee (lib/pluton-slayer.ts). Phase 5 (composition NBT), lot complet : Sharpness/Smite/Critical (enchants, additif/CritDamage), Gemme Jasper PERFECT (Reaper Falchion+Armor uniquement, seul emplacement reel), Hot/Fuming Potato Book (universel, plat, palier 5/10/15 usages par tier) -- tous sourcees wiki/table gemstones, palier par tier. Gaps de donnees Systeme A documentes: ${allGaps.join(' | ') || 'aucun'}.`,
       })
       .select('id').single()
     if (error || !block) throw new Error(`target_block insert failed: ${error?.message}`)
