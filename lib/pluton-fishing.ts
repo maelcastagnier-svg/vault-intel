@@ -248,11 +248,20 @@ export async function applyFishingPetsAndAccessories(
   baseFs: number, baseScc: number, baseTc: number,
   treasureEV: number, fishEV: number, applyQuickBite: boolean
 ): Promise<FishingPetAndAccessoryLayer> {
+  // equip_slot='passive' EXCLU ici (22 aout) -- ce sont exactement les 5
+  // sources Piscary/Expertise/reforges rod+armure/gemme Aquamarine, deja
+  // couvertes explicitement plus bas dans computeFishingRanking() avec un
+  // vrai palier par tier + verification d'eligibilite de la rod (gemme).
+  // BUG REEL TROUVE ET CORRIGE : ce filtre les incluait deja ici (a TOUS
+  // les tiers, `applyFishingPetsAndAccessories` ne filtre pas par tier) --
+  // combine a l'ancien bloc "end/late only" qui les ajoutait UNE 2e fois,
+  // Fishing double-comptait deja ces 5 sources en END/LATE avant cette
+  // passe. Exclu ici, la nouvelle logique explicite devient la seule source.
   const { data: sources } = await supabase
     .from('stat_bonus_sources')
     .select('source_id, equip_slot, stat_name, rarity, bonus_numeric')
     .in('stat_name', ['fishing_speed', 'sea_creature_chance', 'treasure_chance'])
-    .in('equip_slot', ['pet', 'necklace', 'cloak', 'belt', 'bracelet', 'accessory_bag', 'passive'])
+    .in('equip_slot', ['pet', 'necklace', 'cloak', 'belt', 'bracelet', 'accessory_bag'])
 
   const rows = sources || []
 
