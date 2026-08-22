@@ -47,11 +47,56 @@
 import { createClient } from '@supabase/supabase-js'
 import { loadPricedItems, type PricedItem } from './gear-pricing'
 import { TIER_CONFIG, type TierKey } from './money-making-constants'
+import { recombobulatedRarity } from './pluton-engine'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+// Couche NBT rod (22 aout, recadrage "ne rien laisser a moitie") -- avant
+// cette passe, Piscary/Expertise/reforges/gemme n'etaient appliques QUE
+// end/late (tout ou rien), un joueur starter/mid n'avait STRICTEMENT AUCUN
+// enchant/reforge/gemme dans son setup Fishing -- incoherent avec le reste
+// de Pluton (Combat scale Sharpness III/V/VII par tier, jamais 0). Sourcee
+// wiki (`piscary`/`expertise`/`sea_creature_chance`#Reforges), agent dedie.
+//
+// Piscary -- +Fishing Speed par niveau, additif confirme ("Fs stacks
+// additively"), I-V Table+Anvil, VI/VII drop rare/item special. Palier par
+// tier, meme convention que Sharpness Combat.
+const PISCARY_FS_BY_TIER: Record<TierKey, number> = { early: 3, mid: 5, end: 7, late: 7 }
+// Expertise -- +Sea Creature Chance par niveau (I-X, 0.6% a 6%), additif.
+// Palier par tier.
+const EXPERTISE_SCC_BY_TIER: Record<TierKey, number> = { early: 1.8, mid: 3.6, end: 6, late: 6 }
+// Reforges rod (Salty/Treacherous/Stiff/Lucky, page wiki dediee
+// "reforge_stones_fishing_rod" + section Reforges de "sea_creature_chance")
+// -- **PAS de table par rarete sourcee** (contrairement aux reforges Combat/
+// `reforges` qui ont un jsonb par rarete) : seule la valeur MAX ("+7 SCC")
+// est documentee, valeur plate non-scalee par rarete. Cout d'application
+// reel modique (2.5k-600k selon le reforge, wiki "Cost to Apply") --
+// applique a TOUS les tiers (pas de raison reelle de le reserver a end/
+// late, contrairement a Piscary/Expertise qui ont un vrai palier de niveau
+// gate par Enchanting/drop rare).
+const ROD_REFORGE_SCC = 7
+// Submerged (armure, +1% SCC/piece, x4 pieces) -- meme raisonnement, cout
+// modique, applique a tous les tiers.
+const ARMOR_REFORGE_SCC = 4
+// Aquamarine PERFECT par rarete (table `gemstones`, verifiee 22 aout).
+const AQUAMARINE_PERFECT_BY_RARITY: Record<string, number> = { COMMON: 2.5, UNCOMMON: 2.5, RARE: 3.5, EPIC: 4, LEGENDARY: 4.5, MYTHIC: 5 }
+// Emplacements de gemme reels par rod -- verifie AVANT de coder (agent
+// dedie) : SEULS Rod of Champions (1)/Rod of Legends (2)/Rod of the Sea (2)
+// ont un vrai emplacement Aquamarine -- Fishing Rod/Challenging Rod n'en
+// ont AUCUN, pas un trou. Bug reel corrige ici : la version precedente
+// appliquait PERFECT_AQUAMARINE_GEMSTONE_FS APRES la recherche budget,
+// SANS verifier que la rod reellement choisie avait un emplacement --
+// desormais calcule par rod, avec la rarete RECOMBOBULEE (Recombobulator
+// applicable aux rods, aucune exclusion documentee contrairement a Hot
+// Potato Book/The Art of War -- voir plus bas).
+const ROD_GEM_SLOTS: Record<string, number> = { CHAMP_ROD: 1, LEGEND_ROD: 2, ROD_OF_THE_SEA: 2 }
+const ROD_RARITY: Record<string, string> = { CHALLENGE_ROD: 'UNCOMMON', CHAMP_ROD: 'RARE', LEGEND_ROD: 'EPIC', ROD_OF_THE_SEA: 'LEGENDARY' }
+// Hot Potato Book/The Art of War -- confirmes EXCLUS des rods (textes wiki
+// respectifs : "Swords and Armor" / "Weapons/Axes", aucune mention Rods) --
+// verifie explicitement, pas suppose. Non appliques ici, a dessein.
 
 export const FISHING_TARGET_BLOCK_IDS = ['WATER_POOL'] as const
 export const FISHING_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
@@ -327,16 +372,39 @@ export async function computeFishingRanking(tier: TierKey, blockId: string): Pro
     let finalFs = layer.total_fishing_speed
     let finalScc = layer.total_sea_creature_chance
     let finalTc = layer.total_treasure_chance
+    const nbtModifiers: string[] = []
 
-    if (tier === 'end' || tier === 'late') {
-      const { data: maxLayerRows } = await supabase
-        .from('stat_bonus_sources')
-        .select('stat_name, bonus_numeric')
-        .in('source_id', ['EXPERTISE_VI_ROD_ENCHANT', 'ROD_REFORGE_SCC_MAX', 'SUBMERGED_ARMOR_REFORGE', 'PERFECT_AQUAMARINE_GEMSTONE_FS', 'PISCARY_VII_ENCHANT'])
-      for (const r of maxLayerRows || []) {
-        if (r.stat_name === 'fishing_speed') finalFs += Number(r.bonus_numeric)
-        if (r.stat_name === 'sea_creature_chance') finalScc += Number(r.bonus_numeric)
-      }
+    // Piscary + Expertise -- enchants rod, palier par tier (III/V/VII-equiv
+    // niveau, jamais 0 a aucun tier -- corrige le trou reel trouve cette
+    // session, voir doc des constantes).
+    const piscaryFs = PISCARY_FS_BY_TIER[tier]
+    const expertiseScc = EXPERTISE_SCC_BY_TIER[tier]
+    finalFs += piscaryFs
+    finalScc += expertiseScc
+    nbtModifiers.push(`Piscary (+${piscaryFs} Fishing Speed, sourcee wiki, palier ${tier})`)
+    nbtModifiers.push(`Expertise (+${expertiseScc}% Sea Creature Chance, sourcee wiki, palier ${tier})`)
+
+    // Reforge rod (Salty/Treacherous/Stiff/Lucky, +7 SCC flat, pas de table
+    // par rarete sourcee -- voir doc) + reforge armure (Submerged, +4 SCC
+    // x4 pieces) -- tous les tiers, cout d'application reel modique.
+    finalScc += ROD_REFORGE_SCC + ARMOR_REFORGE_SCC
+    nbtModifiers.push(`Reforge rod (Salty/Treacherous/Stiff/Lucky, +${ROD_REFORGE_SCC}% SCC, sourcee wiki)`)
+    nbtModifiers.push(`Reforge armure Submerged x4 (+${ARMOR_REFORGE_SCC}% SCC, sourcee wiki)`)
+
+    // Gemme Aquamarine -- UNIQUEMENT si la rod reellement choisie a un vrai
+    // emplacement (verifie AVANT de coder, voir doc) -- corrige un bug reel
+    // de la version precedente qui l'appliquait sans verifier la rod.
+    // Recombobulator applicable aux rods (aucune exclusion documentee),
+    // decale la rarete d'1 cran pour ce lookup.
+    const gemSlots = ROD_GEM_SLOTS[topSetup.rod_item_id] ?? 0
+    if (gemSlots > 0) {
+      const rodRarity = ROD_RARITY[topSetup.rod_item_id]
+      const recombRarity = recombobulatedRarity(rodRarity)
+      const perGem = AQUAMARINE_PERFECT_BY_RARITY[recombRarity]
+      const gemFs = gemSlots * perGem
+      finalFs += gemFs
+      nbtModifiers.push(`Recombobulator 3000 (${topSetup.rod}, ${rodRarity}->${recombRarity}, sourcee wiki)`)
+      nbtModifiers.push(`Gemme Aquamarine PERFECT x${gemSlots} (+${gemFs} Fishing Speed, sourcee table gemstones, rarete recombobulee)`)
     }
 
     const { secondsPerCatch } = computeSecondsPerCatch(finalFs, applyQuickBite)
@@ -355,6 +423,7 @@ export async function computeFishingRanking(tier: TierKey, blockId: string): Pro
       pet: layer.best_pet,
       pet_candidates_checked: layer.pet_candidates_checked,
       accessories: layer.accessories,
+      nbt_modifiers: nbtModifiers,
       seconds_per_catch: secondsPerCatch,
       catches_per_hour: catchesPerHour,
       sea_creature_fraction_excluded: sccFraction,
@@ -415,7 +484,7 @@ export async function computeAndPersistAllFishingRankings(): Promise<PersistedFi
           real_cost: s.real_cost,
           pet_id: s.pet?.source_id ?? null,
           pet_rarity: s.pet?.rarity ?? null,
-          accessories: [...(s.accessories ?? []), { source_id: '__treasure_chance_total__', equip_slot: 'meta', treasure_chance: s.total_treasure_chance }],
+          accessories: [...(s.accessories ?? []), { source_id: '__treasure_chance_total__', equip_slot: 'meta', treasure_chance: s.total_treasure_chance, nbt_modifiers: s.nbt_modifiers }],
         })
         .select('id')
         .single()
