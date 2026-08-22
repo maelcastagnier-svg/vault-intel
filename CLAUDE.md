@@ -499,6 +499,54 @@ toujours.
 mécanisme sans avoir eu besoin de recalculer à la main les 15+ couches
 imbriquées du fichier. Route de debug temporaire supprimée après validation.
 
+### ✅ Farming audité — déjà complet (aucun trou trouvé) (22 août)
+
+`lib/pluton-farming.ts` (construit le 5 août, **4 passes d'audit déjà
+demandées par l'utilisateur** à l'époque — "es-tu sûr d'avoir tout maxé ?",
+Pest Farming ajouté après avoir été signalé comme omis, Bonus Pest Chance
+corrigé après un chiffre challengé "40M+/h en vrai") s'est confirmé
+**déjà au même niveau d'exigence** que ce chantier demande : reprend le
+"Theoretical Maximum" déjà publié et vérifié par le wiki lui-même (armure
+Helianthus **déjà explicitement recombobulée** dans ce total officiel, pas
+une omission), Pest Farming avec formules réelles (Bonus Pest Chance,
+Pesthunter Phillip en régime permanent via Little's Law, pièges). Aucune
+réécriture nécessaire — contrairement à Combat/Fishing, la structure
+"total wiki déjà publié" de ce fichier n'a pas le même point de défaillance
+("documenté mais pas câblé pièce par pièce") que les calculateurs Combat.
+
+### ✅ Foraging — Citrine (gemmes) + Frenzy (item ability), jamais modélisés (22 août)
+
+Contrairement à Farming, **trou réel trouvé** (agent dédié, 6 items
+vérifiés — 3 outils + 3 armures) : Foraging n'avait NI gemmes NI item
+ability modélisés du tout, alors que les deux existent réellement.
+
+- **Citrine** (Foraging Fortune, pas Sweep) — emplacements réels vérifiés
+  AVANT de coder : Fig Hew=1, Figstone Splitter=2, Helix Chopper=2
+  (outils) ; Canopy=0 (confirmé absent de l'infobox), Fig=1, Helix=2
+  (armure — 1 seul champ `gemstone_slots` par SET sur la page wiki, pas
+  par pièce, traité comme un total pour l'objet armure complet, même
+  convention que Reaper Armor/Combat). Appliqué à TOUS les tiers où
+  l'item concerné est réellement choisi par la recherche budgétaire
+  (contrairement au Sharpening Shard déjà codé, ces emplacements existent
+  dès Fig/mid-tier, pas seulement Helix/end-late).
+- **Frenzy** (item ability outil, PERMANENT une fois un seuil de logs
+  coupés atteint) : Fig Hew +1 Sweep/2000 logs (max 20), Figstone
+  Splitter +1/10000 (max 20, **plus lent malgré l'upgrade** — vérifié tel
+  quel contre le wiki, pas une contradiction supposée), Helix Chopper
+  +1/20000 (max 40, soit 800 000 logs coupés pour le cap) — investissement
+  réel très important, même discipline "investissement max END/LATE" que
+  le Sharpening Shard déjà codé.
+
+`CITRINE_PERFECT_BY_RARITY` ajouté au moteur partagé (`pluton-engine.ts`),
+même pattern que Jasper/Aquamarine.
+
+**Vérifié en base, un seul cycle** : LATE/HELIX_LOG — Foraging Fortune
+32 exact (16 Citrine outil + 16 Citrine armure, tous deux Helix
+EPIC→recombobulé LEGENDARY=8×2), Sweep 583 exact (393 base déjà documentée
++150 Sharpening Shard existant +40 Frenzy nouveau — recoupe exactement la
+valeur déjà publiée le 17 août avant cette session). Route de debug
+temporaire supprimée après validation.
+
 ### 🚧 Phase 3 — Système B refondu, 1re tranche (Zombie Slayer) vérifiée
 
 `lib/pluton-combat.ts` — 1er fichier "1 skill = 1 calculateur" (remplace à
