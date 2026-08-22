@@ -251,12 +251,39 @@ moy.)+24(gemmes)+30(potato), Dégâts base 179 = 5+120+24(Enrage)+30(potato)) �
 confirmé identique en base après persist. `pluton_rankings.accessories.
 nbt_modifiers` trace les 6 modificateurs appliqués par combo.
 
-**Reste à sourcer** (même méthode accélérée à réutiliser) : étoiles
-(régulières + Master, confirmé absent pour toute la chaîne Zombie Slayer —
-mécanique non applicable à ces items, pas un gap) — reste pertinent pour
-d'autres skills/activités (Dungeons/Necron notamment) ; Recombobulator 3000/
-Art of War/Art of Peace/Ability Scrolls — pas encore audités. Voir plan
-`joyful-shimmying-finch.md`.
+**Reste à sourcer** (même méthode accélérée à réutiliser) : Recombobulator
+3000/Art of War/Art of Peace/Ability Scrolls — pas encore audités.
+
+### ✅ Couche NBT étendue aux 4 autres Slayers, même jour (22 août)
+
+Décision explicite : plutôt que migrer Spider/Wolf/Enderman/Blaze vers
+`pluton_elements`/échelle 1-7 (chantier séparé, pas fait ici), la couche NBT
+(Sharpness/Critical/enchant vs-type-de-mob/gemmes/Potato Books) a été
+**ajoutée directement à `lib/pluton-slayer.ts`** (architecture early/mid/
+end/late + tables dédiées déjà validées le 18 août, inchangée sinon) — même
+discipline "ne pas conflater deux chantiers différents" que le reste de
+cette session.
+
+**Scoping fait AVANT tout code** (agent dédié, 14 items des 4 chaînes) :
+gemstones réelles pour seulement 5/14 items (Sting ×2 Jasper, Tarantula
+Fang ×1, Pooch Sword ×1, Atomsplit/Voidedge Katana ×1 chacun — Mastiff
+Armor a bien 4 emplacements mais tous Ruby-only = Health, sans effet DPS,
+ignorés ; Primordial Armor a un champ `gemstone_slots` présent mais
+**commenté par le wiki lui-même** `<!--...infoneeded-->`, traité comme
+absent) ; étoiles confirmées absentes des 14 items (mécanique non
+applicable, pas un gap) ; enchant vs-type-de-mob réel seulement pour
+Spider (Bane of Arthropods, "applied to Weapons" — couvre les dagues) et
+Enderman (Ender Slayer, confirmé applicable aux katanas malgré leur nom
+cosmétique — leur page wiki déclare `type=Sword`) — Wolf et Blaze n'en ont
+AUCUN, confirmé par recherche directe, pas un oubli.
+
+**Vérifié en base, un seul cycle pour les 4 slayers** (2 combos recalculés
+à la main, tous deux exacts) : Spider END/SPIDER_T5 (Sting+Primordial,
+`always_crit`) — Force totale 131 (75 arme+26 gemmes+30 potato), DPS
+50 637.86959 exact. Wolf LATE/WOLF_T4 (Pooch Sword+Mastiff, Pack Mentality
+×2) — Force totale 123 (80 arme+13 gemme+30 potato), DPS 90 716.4 exact.
+88 combos persistés (`activity_key='slayer'`, inchangé). Route de debug
+temporaire supprimée après validation.
 
 ### 🚧 Phase 3 — Système B refondu, 1re tranche (Zombie Slayer) vérifiée
 
