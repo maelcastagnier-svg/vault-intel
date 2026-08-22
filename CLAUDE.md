@@ -87,6 +87,53 @@ exacte 49 628, vérifiée).
 cartographie continue), puis Phase 3 (refonte des calculateurs, 1 par
 skill, consommant `pluton_elements`) — voir le plan complet.
 
+### 🚧 Phase 3 — Système B refondu, 1re tranche (Zombie Slayer) vérifiée
+
+`lib/pluton-combat.ts` — 1er fichier "1 skill = 1 calculateur" (remplace à
+terme `pluton-slayer.ts`+`pluton-dungeons.ts`+`pluton-bestiary.ts`, 3
+fichiers pour le même skill Combat). Gear sourcé **en direct** depuis
+`pluton_elements` (nouveaux helpers `getGearStatsFromElements`/
+`findBaseStat`/`findMobTypeBonus` dans `lib/pluton-engine.ts`), échelle
+tier joueur **1-7 réelle** (pas early/mid/end/late). Portée bornée à Zombie
+Slayer pour l'instant (1re tranche vérifiée avant d'étendre aux 4 autres
+Slayers/Dungeons/Bestiary) — `pluton-slayer.ts`/`pluton-dungeons.ts`/
+`pluton-bestiary.ts` restent actifs et inchangés, pas de retrait avant
+migration complète vérifiée.
+
+**2 vrais trous structurels trouvés dans le Système A en construisant
+ceci** (corrigés au cas par cas, pas masqués) :
+1. La classification originale ne tague AUCUN item par skill (0/49 628,
+   corrigé Phase 1) NI par tier sur les lignes `wiki_haiku_extract` qui
+   portent les vraies valeurs de stats (594/3890 seulement gérées à
+   l'origine) — corrigé pour Zombie Slayer en réutilisant la recherche déjà
+   validée cette session (paliers ZS3/ZS6 réels), jamais inventé.
+2. **Bug réel trouvé en vérifiant Reaper Falchion en prod** :
+   `stat_name="Damage"` porte à la fois la valeur plate (+120) et le bonus
+   vs type de mob (+200% "against Undead mobs") pour la même arme — la 1re
+   version de `getGearStatsFromElements` dédupliquait par `stat_name` (Map),
+   perdant silencieusement une des deux lignes selon l'ordre retourné par
+   SQL. Corrigé : retourne un tableau complet, `findBaseStat`/
+   `findMobTypeBonus` filtrent sur `stat_name` ET `condition_note`.
+   Recoupé à la main sur les 2 combos non-triviaux : Revenant Falchion+
+   Armor (95×1.5×3.1×2.5×1.3×2=2871.375 exact) et Reaper Falchion+Armor
+   (149×2.99×3.1×6.0×1.3×2=21544.8636 exact).
+
+**Gaps de données restants, documentés et retournés explicitement par le
+code** (`dataSourceGaps`, jamais masqués) : le bonus +100% Undead de Reaper
+Armor et le timing de l'ability Enrage restent introuvables dans
+`pluton_elements` même après recherche sur plusieurs pages candidates —
+fallback sur la valeur déjà validée (sourcée wiki à l'origine dans
+`lib/pluton-slayer.ts`), jamais une invention nouvelle. Force+75 de Reaper
+Armor est réellement présente dans `pluton_elements` mais sous
+`wiki_table_extract` (page "Strength", format `cells`/`headers` différent
+de `wiki_haiku_extract`) — `getGearStatsFromElements` n'interroge que
+`wiki_haiku_extract` pour l'instant, extension à faire.
+
+**Vérifié en base** : 35 combos (5 paliers boss Zombie × 7 tiers joueur),
+additif confirmé (22 blocs `slayer` + 63 `combat` Bestiary intacts après).
+Cron `pluton-combat-refresh` (quotidien 5h45) créé, couvre Zombie Slayer
+uniquement pour l'instant — à étendre au fur et à mesure de la migration.
+
 ## ✅ Pluton — fermeture complète du backlog (21 août, terminé)
 
 Recadrage explicite de l'utilisateur après Sea Creature kills : ne plus
