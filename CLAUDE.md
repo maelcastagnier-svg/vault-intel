@@ -4,6 +4,60 @@
 > Basé sur la session la plus récente disponible. En cas de divergence avec une
 > session antérieure sur le même sujet, cette version fait foi.
 
+## 🎯 Vision finale et définitive de Pluton (dictée par l'utilisateur, 21 août)
+
+Cette section est la référence permanente pour toute construction Pluton —
+ne jamais dévier de cette pipeline sans accord explicite de l'utilisateur.
+
+**1. Cartographie** — prendre TOUTE source possible sur Hypixel Skyblock
+pour compléter le 100% informationnel possible sur le jeu, peu importe
+l'info, elle peut être essentielle.
+
+**2. Extraction et classement en 7 tiers de progression** — l'extraction
+initiale se fait par Claude Code directement (pagination, lecture, jamais
+Haiku pour ce travail de construction — voir mémoire `feedback_budget_api_
+claude`). Tout ce qui est cartographié est classé dans un stockage en
+7 tiers représentant l'avancement du joueur (starter→master). **Chaque
+tier doit représenter un joueur complet à cette étape de sa vie de
+joueur** — chaque tier contient en son sein le 100% informationnel sur cet
+état d'avancement (ex: le tier "starter" = 100% de ce qu'un joueur starter
+a besoin). Les **mécaniques non-client** (fonctionnement intrinsèque du
+moteur de jeu, formules internes non exposées au joueur) sont classées **à
+part**, jamais dans les tiers — les joueurs n'y ont pas accès. Tout le
+reste (items, mécaniques accessibles au joueur) rentre dans les tiers.
+
+**3. Utilisation pour le dashboard** — pour chaque skill du jeu, faire
+découler toutes les activités qui existent en jeu liées à ce skill. Ces
+activités sont classées en 7 tiers d'accessibilité selon le niveau
+d'avancement global nécessaire pour les accomplir. Pour chaque activité,
+un **setup optimal qui n'omet absolument rien** : items optimaux avec leur
+NBT précis (enchantement, reforge, étoiles régulières ET Master Star,
+gemmes socketées + qualité, et tout autre modificateur NBT réel du jeu —
+rien n'est omis), mécaniques optimales — un vrai loadout complet A à Z
+pour l'activité. L'activité est ensuite liée à son prix de marché réel
+(Bazaar/AH) pour produire une **money making method** = activité + setup +
+pricing. Usage final : comparaison interne pour proposer les meilleures
+money making methods dans la section Money Making du dashboard (coins/h
+par tier), et pour Evolve, proposer le meilleur setup/activité par rapport
+à la progression réelle du joueur à l'instant T.
+
+**Setup optimal = recherche réelle, pas un chemin canonique fixe** — le
+moteur doit comparer l'espace des items pertinents (et leurs variantes
+NBT) pour trouver le setup réellement optimal par activité×tier, pas
+seulement suivre le chemin de gear "évident"/déjà documenté. Un item hors
+du chemin canonique peut ressortir meilleur (ex illustratif, pas à
+reproduire à la lettre : un Hyperion bien enchanté avec spam Wither Impact
+pourrait battre Reaper Falchion à un tier avancé de Zombie Slayer) — la
+recherche doit être capable de le découvrir, pas seulement confirmer un
+choix pré-décidé.
+
+**Discipline d'exécution** : chaque skill traité un par un (jamais tous
+les skills/toutes les activités d'un coup), zéro appel API pendant la
+construction (Claude Code fait ce travail directement), automatisation
+finale en cron hebdomadaire une fois le moteur validé sur au moins un cas
+connu — voir le plan `joyful-shimmying-finch.md` pour le détail complet
+des phases en cours.
+
 ## Vision
 
 Plateforme SaaS d'intelligence économique gaming par abonnement, démarrage sur
