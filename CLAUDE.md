@@ -32,7 +32,62 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
-## 🚧 Pluton — fermeture complète du backlog, lot en cours (21 août, suite)
+## 🚧 Pluton — reconnexion Système A/B, Phase 1 terminée (21 août)
+
+Audit général demandé par l'utilisateur après la fermeture du backlog
+(section ci-dessous) : Pluton avait en réalité **deux systèmes jamais
+reliés**. Système A (cartographie→extraction→classification,
+`pluton_elements`, 183 384 lignes, échelle 1-7 réelle) et Système B (les
+calculateurs money-making, tous construits en lisant le wiki à la main avec
+des tables dédiées par activité, échelle 4 tiers). Vérifié par grep sur les
+10 fichiers `lib/pluton-*.ts` : aucun ne lit `pluton_elements`. Cause racine
+confirmée par requête directe : sur les 49 628 lignes `element_type='item'`,
+**0 avaient une colonne `activity` renseignée** — le lien skill↔item n'a
+jamais existé dans la classification. Décision de l'utilisateur : corriger
+la classification puis reconnecter (voir plan `joyful-shimmying-finch.md`
+pour l'architecture cible complète — 1 calculateur par skill, pas par
+activité, consommant `pluton_elements`).
+
+**🔴 Incident réel pendant cette phase — leçon retenue pour tout le
+projet** : une 1re tentative a écrit une route Haiku (`claude-haiku-4-5`,
+batch=25) pour tagger les 49 628 items par skill. Testée sur 500 items
+(~0,085 USD, extrapolé ~8,44 USD pour le tout), lancée sur le reste sans
+re-vérification du solde réel — le run s'est arrêté sec après avoir
+consommé l'intégralité du solde API Anthropic du projet ("credit balance
+too low"), les crons automatiques du projet (`money-making-agent`/
+`radar-agent`/`setup-generate-agent`/`patch-analysis-agent`/
+`pluton-weekly-sync`) ayant probablement déjà entamé ce solde en tâche de
+fond, invisible depuis cette session. **Correction explicite de
+l'utilisateur** : Claude Code (cette session) tourne sur l'abonnement Claude
+Pro, pas sur le solde API — je m'étais trompé en supposant le contraire.
+Règle retenue (mémoire `feedback_budget_api_claude`) : pour tout travail de
+classement/jugement ponctuel (pas une automatisation récurrente en prod),
+le faire soi-même en tant que Claude Code (lecture MCP/SQL, jugement direct,
+écriture SQL) plutôt que d'écrire une route qui appelle Haiku — coût
+marginal nul. Réservé aux seules automatisations qui doivent réellement
+tourner en prod sans intervention humaine.
+
+**Phase 1 terminée sans dépense API supplémentaire** : les ~7 139 items
+restants après l'arrêt du run Haiku classés directement par moi (Claude
+Code) via des passes SQL groupées (`UPDATE ... WHERE element_name/
+classification_reason ILIKE '%mot-clé skill-spécifique%'`) — chaque règle
+ancrée sur un vrai signal déjà présent dans le texte extrait (noms de stats
+comme "Mining Fortune"/"Farming Fortune", noms de boss/zones comme "Slayer"/
+"Kuudra"/"Catacombs", mots-clés d'équipement comme "Sword"/"Halberd"),
+jamais un skill deviné au hasard. **État final vérifié** : 49 628/49 628
+items classés (0 restant NULL), 24 135 `__none__` (cross-skill/générique/
+événementiel honnêtement exclus — armures génériques sans stat spécifique,
+Minions, Jerry Box, Dark Auction, Ananke Feather...), 25 493 répartis sur
+les 13 skills réels (Combat 5380, Fishing 2722, Alchemy 2606, Enchanting
+2455, Dungeoneering 2341, Farming 2297, Mining 2276, Taming 2259, Hunting
+1367, Foraging 978, Runecrafting 297, Carpentry 275, Social 240 — somme
+exacte 49 628, vérifiée).
+
+**Prochaine étape actée** : Phase 2 (fermer le gap NEU-REPO/SkyHanni sur la
+cartographie continue), puis Phase 3 (refonte des calculateurs, 1 par
+skill, consommant `pluton_elements`) — voir le plan complet.
+
+## ✅ Pluton — fermeture complète du backlog (21 août, terminé)
 
 Recadrage explicite de l'utilisateur après Sea Creature kills : ne plus
 avancer un item de backlog "à la carte" — chaque skill doit être traité
