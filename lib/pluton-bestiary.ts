@@ -25,7 +25,9 @@
 // exclus de l'esperance plutot qu'une probabilite inventee -- meme
 // discipline que le gap RNG deja documente sur Slayer/Mining/Fishing.
 import { createClient } from '@supabase/supabase-js'
-import { computeCombatDps } from './pluton-engine'
+import {
+  computeCombatDps, fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH,
+} from './pluton-engine'
 import type { TierKey } from './money-making-constants'
 
 const supabase = createClient(
@@ -39,6 +41,26 @@ const COMBAT_GEAR_BY_TIER: Record<TierKey, { weaponId: string; armorPrefix: stri
   end: { weaponId: 'REAPER_SWORD', armorPrefix: 'REAPER' },
   late: { weaponId: 'REAPER_SWORD', armorPrefix: 'REAPER' },
 }
+
+// Couche NBT (22 aout, recadrage "aucune activite Combat laissee de cote") --
+// Bestiary reutilise le meme gear que la chaine Zombie (UNDEAD_SWORD/
+// REVENANT_SWORD/REAPER_SWORD + REVENANT/REAPER armor) mais appelait
+// computeCombatDps() avec 0 des couches NBT desormais construites pour
+// Slayer (Sharpness/Smite/Critical/reforge/recombobulator/gemmes/Art of
+// War/Potato Books) -- trou reel trouve en auditant "les 5 Slayers sont-ils
+// vraiment la seule activite Combat ?" (non -- Dungeons et Bestiary aussi,
+// tous deux 'built'). Memes constantes/valeurs deja sourcees et verifiees
+// pour Zombie (lib/pluton-combat.ts/pluton-slayer.ts), reutilisees ici
+// telles quelles plutot que re-sourcees.
+const SHARPNESS_PCT_BY_TIER: Record<TierKey, number> = { early: 15, mid: 30, end: 50, late: 50 }
+const SMITE_PCT_BY_TIER: Record<TierKey, number> = { early: 15, mid: 30, end: 50, late: 50 }
+const CRITICAL_PCT_BY_TIER: Record<TierKey, number> = { early: 30, mid: 50, end: 100, late: 100 }
+const POTATO_BOOK_USES_BY_TIER: Record<TierKey, number> = { early: 5, mid: 10, end: 15, late: 15 }
+const POTATO_BOOK_BONUS_PER_USE = 2
+const WEAPON_RARITY: Record<string, string> = { UNDEAD_SWORD: 'COMMON', REVENANT_SWORD: 'RARE', REAPER_SWORD: 'EPIC' }
+const ARMOR_RARITY: Record<string, string> = { REVENANT: 'EPIC', REAPER: 'LEGENDARY' }
+const GEMSTONE_JASPER_SLOTS: Record<string, number> = { REAPER_SWORD: 1 } // Reaper Falchion, verifie 22 aout
+const GEMSTONE_JASPER_SLOTS_ARMOR: Record<string, number> = { REAPER: 1 } // Reaper Armor, verifie 22 aout
 
 // Parse un champ hp/damage brut en nombre, ou null si non parseable de
 // facon fiable (multi-niveau, "Hits", "?", "(Abilities)"...).
@@ -183,29 +205,80 @@ export async function computeAndPersistBestiaryRankings(): Promise<{ candidates:
         required_breaking_power: 0,
         sell_item_id: 'NONE',
         base_drop_count: 1,
-        pricing_note: `Grind mob generique (21 aout). HP reel=${c.hp} (source zone_mob_stats, sourcage wiki). EV=${c.guaranteed_ev.toFixed(2)} = somme des drops GARANTIS uniquement (Bazaar sell_price reel) -- les drops "0-Nx" (chance non chiffree cote wiki) sont exclus, meme discipline que le gap RNG deja documente sur Slayer/Mining/Fishing. Gear Zombie Slayer reutilise pour le DPS/TTK, bonus Undead applique si le nom du mob correspond a un type non-mort (Zombie/Skeleton/Wither/Husk/Ghoul).`,
+        pricing_note: `Grind mob generique (21 aout, couche NBT completee 22 aout). HP reel=${c.hp} (source zone_mob_stats, sourcage wiki). EV=${c.guaranteed_ev.toFixed(2)} = somme des drops GARANTIS uniquement (Bazaar sell_price reel) -- les drops "0-Nx" (chance non chiffree cote wiki) sont exclus, meme discipline que le gap RNG deja documente sur Slayer/Mining/Fishing. Gear Zombie Slayer reutilise pour le DPS/TTK, bonus Undead applique si le nom du mob correspond a un type non-mort (Zombie/Skeleton/Wither/Husk/Ghoul). Setup complet : Sharpness+Smite(si Undead)+Critical, reforge arme+armure (recherche reelle), Recombobulator 3000, gemme Jasper (Reaper uniquement), Hot/Fuming Potato Book, The Art of War -- memes valeurs sourcees que lib/pluton-slayer.ts.`,
       })
       .select('id')
       .single()
     if (blockErr || !block) continue
 
-    const entries = (['early', 'mid', 'end', 'late'] as TierKey[]).map(tier => {
+    const entries = await Promise.all((['early', 'mid', 'end', 'late'] as TierKey[]).map(async tier => {
       const gear = COMBAT_GEAR_BY_TIER[tier]
       const weapon = weaponById.get(gear.weaponId)
       const armor = gear.armorPrefix ? armorByPrefix.get(gear.armorPrefix) : null
       if (!weapon) return null
-      const strength = Number(weapon.base_strength) + (armor ? Number(armor.set_strength) : 0)
+      const baseStrength = Number(weapon.base_strength) + (armor ? Number(armor.set_strength) : 0)
       const mults = c.is_undead
         ? [1 + Number(weapon.mob_type_damage_bonus_pct) / 100, armor ? 1 + Number(armor.mob_type_damage_bonus_pct) / 100 : 1]
         : []
-      const dps = computeCombatDps(Number(weapon.base_damage), strength, mults)
+
+      // Sharpness (toujours) + Smite (si mob Undead) + Critical + Art of War
+      // + gemme Jasper (Reaper uniquement) + Potato Books -- memes valeurs
+      // que Slayer, voir doc des constantes.
+      const sharpnessPct = SHARPNESS_PCT_BY_TIER[tier]
+      const smitePct = c.is_undead ? SMITE_PCT_BY_TIER[tier] : 0
+      const criticalPct = CRITICAL_PCT_BY_TIER[tier]
+      const potatoUses = POTATO_BOOK_USES_BY_TIER[tier]
+      const potatoFlat = potatoUses * POTATO_BOOK_BONUS_PER_USE
+
+      const weaponRarity = WEAPON_RARITY[gear.weaponId]
+      const weaponRecombRarity = weaponRarity ? recombobulatedRarity(weaponRarity) : undefined
+      const armorRarity = gear.armorPrefix ? ARMOR_RARITY[gear.armorPrefix] : undefined
+      const armorRecombRarity = armorRarity ? recombobulatedRarity(armorRarity) : undefined
+
+      let gemstoneStrength = 0
+      if (GEMSTONE_JASPER_SLOTS[gear.weaponId] && weaponRecombRarity) {
+        gemstoneStrength += GEMSTONE_JASPER_SLOTS[gear.weaponId] * JASPER_PERFECT_BY_RARITY[weaponRecombRarity]
+      }
+      if (gear.armorPrefix && GEMSTONE_JASPER_SLOTS_ARMOR[gear.armorPrefix] && armorRecombRarity) {
+        gemstoneStrength += GEMSTONE_JASPER_SLOTS_ARMOR[gear.armorPrefix] * JASPER_PERFECT_BY_RARITY[armorRecombRarity]
+      }
+
+      const strengthBeforeReforge = baseStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH
+      const baseDamage = Number(weapon.base_damage) + potatoFlat
+      const additivePct = sharpnessPct + smitePct
+
+      const scoreWeapon = (d: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
+        computeCombatDps(baseDamage, strengthBeforeReforge + d.strength, mults, additivePct, criticalPct + d.crit_damage, d.crit_chance, d.bonus_attack_speed)
+      const weaponReforges = weaponRecombRarity ? await fetchReforges('SWORD/ROD', weaponRecombRarity) : []
+      const bestWeaponReforge = pickBestReforge(weaponReforges, 1, scoreWeapon)
+
+      let armorDelta = { strength: 0, crit_chance: 0, crit_damage: 0, bonus_attack_speed: 0 }
+      if (armorRecombRarity) {
+        const armorReforges = await fetchReforges('ARMOR', armorRecombRarity)
+        const wStrength = strengthBeforeReforge + (bestWeaponReforge?.delta.strength || 0)
+        const wCC = bestWeaponReforge?.delta.crit_chance || 0
+        const wCD = criticalPct + (bestWeaponReforge?.delta.crit_damage || 0)
+        const wAS = bestWeaponReforge?.delta.bonus_attack_speed || 0
+        const scoreArmor = (d: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
+          computeCombatDps(baseDamage, wStrength + d.strength, mults, additivePct, wCD + d.crit_damage, wCC + d.crit_chance, wAS + d.bonus_attack_speed)
+        const best = pickBestReforge(armorReforges, 4, scoreArmor)
+        if (best) armorDelta = best.delta
+      }
+
+      const finalStrength = strengthBeforeReforge + (bestWeaponReforge?.delta.strength || 0) + armorDelta.strength
+      const finalCC = (bestWeaponReforge?.delta.crit_chance || 0) + armorDelta.crit_chance
+      const finalCD = criticalPct + (bestWeaponReforge?.delta.crit_damage || 0) + armorDelta.crit_damage
+      const finalAS = (bestWeaponReforge?.delta.bonus_attack_speed || 0) + armorDelta.bonus_attack_speed
+
+      const dps = computeCombatDps(baseDamage, finalStrength, mults, additivePct, finalCD, finalCC, finalAS)
       const ttk = c.hp / dps
       return { tier, ttk, weaponName: weapon.display_name, armorName: armor?.set_name ?? null }
-    }).filter((e): e is NonNullable<typeof e> => e !== null)
+    }))
+    const entriesFiltered = entries.filter((e): e is NonNullable<typeof e> => e !== null)
 
     const { data: insertedSetups, error: setupErr } = await supabase
       .from('pluton_setups')
-      .insert(entries.map(e => ({
+      .insert(entriesFiltered.map(e => ({
         activity_key: 'combat',
         tier: e.tier,
         investment_level: 'optimal',
@@ -215,12 +288,12 @@ export async function computeAndPersistBestiaryRankings(): Promise<{ candidates:
         total_mining_fortune: 0,
         total_breaking_power: 0,
         real_cost: 0,
-        accessories: [{ source_id: '__bestiary_method__', is_undead: c.is_undead }],
+        accessories: [{ source_id: '__bestiary_method__', is_undead: c.is_undead, nbt: 'sharpness+smite+critical+reforge+recomb+art_of_war+gemme+potato' }],
       })))
       .select('id')
     if (setupErr || !insertedSetups) continue
 
-    const rankingsToInsert = entries.map((e, i) => ({
+    const rankingsToInsert = entriesFiltered.map((e, i) => ({
       activity_key: 'combat',
       tier: e.tier,
       target_block_id: block.id,

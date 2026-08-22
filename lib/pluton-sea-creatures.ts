@@ -34,7 +34,10 @@
 // autres gaps partiels/idealises deja documentes (Slayer : phase de farm de
 // mobs non modelisee ; Dungeons : Classes non modelisees).
 import { createClient } from '@supabase/supabase-js'
-import { loadPriceCache, expectedValueFromLootTable, type WeightedLootRow } from './pluton-engine'
+import {
+  loadPriceCache, expectedValueFromLootTable, type WeightedLootRow,
+  computeCombatDps, fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH,
+} from './pluton-engine'
 import type { TierKey } from './money-making-constants'
 
 const supabase = createClient(
@@ -45,28 +48,6 @@ const supabase = createClient(
 export const SEA_CREATURE_TARGET_BLOCK_ID = 'WATER_POOL_SEA_CREATURES'
 export const SEA_CREATURE_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
 
-// Meme formule que lib/pluton-slayer.ts (Damage/Damage Calculation, wiki) --
-// duplication intentionnelle plutot que d'exporter les internals de
-// pluton-slayer.ts (fichier deja valide en prod, pas retouche).
-const BASE_STRENGTH = 0
-const BASE_CRIT_CHANCE = 30
-const BASE_CRIT_DAMAGE = 50
-const COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT = 210
-const COMBAT_LEVEL_60_CRIT_CHANCE_BONUS = 30
-
-function computeAttacksPerSecond(bonusAttackSpeed: number): number {
-  const ticks = Math.max(1, Math.floor(10 / (1 + bonusAttackSpeed / 100)))
-  return 20 / ticks
-}
-
-function computeDps(baseDamage: number, flatDamageBonus: number, strength: number, multiplicativeFactors: number[]): number {
-  const multiplicativeMult = multiplicativeFactors.reduce((a, b) => a * b, 1)
-  const nonCrit = (5 + baseDamage + flatDamageBonus) * (1 + strength / 100) * (1 + COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT / 100) * multiplicativeMult
-  const critChance = BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS
-  const expectedPerHit = nonCrit * (1 + (critChance / 100) * (BASE_CRIT_DAMAGE / 100))
-  return expectedPerHit * computeAttacksPerSecond(0)
-}
-
 // Gear Zombie Slayer reutilise (meme mapping que GEAR_BY_SLAYER_TIER dans
 // pluton-slayer.ts pour la ligne 'zombie').
 const COMBAT_GEAR_BY_TIER: Record<TierKey, { weaponId: string; armorPrefix: string | null }> = {
@@ -74,6 +55,78 @@ const COMBAT_GEAR_BY_TIER: Record<TierKey, { weaponId: string; armorPrefix: stri
   mid: { weaponId: 'REVENANT_SWORD', armorPrefix: 'REVENANT' },
   end: { weaponId: 'REAPER_SWORD', armorPrefix: 'REAPER' },
   late: { weaponId: 'REAPER_SWORD', armorPrefix: 'REAPER' },
+}
+
+// Couche NBT (22 aout, "aucune activite Combat laissee de cote") -- l'ancien
+// computeDps() local (duplication delibree de la formule de base, doc
+// d'origine) n'appliquait AUCUNE des couches NBT desormais construites pour
+// Slayer/Bestiary (Sharpness/Smite/Critical/reforge/recombobulator/gemmes/
+// Art of War/Potato Books). Remplace par computeCombatDps() du moteur
+// partage (deja etendu avec tous les parametres necessaires), memes
+// constantes/valeurs deja sourcees et verifiees pour Zombie.
+const SHARPNESS_PCT_BY_TIER: Record<TierKey, number> = { early: 15, mid: 30, end: 50, late: 50 }
+const SMITE_PCT_BY_TIER: Record<TierKey, number> = { early: 15, mid: 30, end: 50, late: 50 }
+const CRITICAL_PCT_BY_TIER: Record<TierKey, number> = { early: 30, mid: 50, end: 100, late: 100 }
+const POTATO_BOOK_USES_BY_TIER: Record<TierKey, number> = { early: 5, mid: 10, end: 15, late: 15 }
+const POTATO_BOOK_BONUS_PER_USE = 2
+const WEAPON_RARITY: Record<string, string> = { UNDEAD_SWORD: 'COMMON', REVENANT_SWORD: 'RARE', REAPER_SWORD: 'EPIC' }
+const ARMOR_RARITY: Record<string, string> = { REVENANT: 'EPIC', REAPER: 'LEGENDARY' }
+const GEMSTONE_JASPER_SLOTS: Record<string, number> = { REAPER_SWORD: 1 }
+const GEMSTONE_JASPER_SLOTS_ARMOR: Record<string, number> = { REAPER: 1 }
+
+type NbtDps = { dpsVsUndead: number; dpsVsOther: number }
+async function computeEnrichedDps(tier: TierKey, weapon: any, armor: any): Promise<NbtDps> {
+  const gear = COMBAT_GEAR_BY_TIER[tier]
+  const baseStrength = Number(weapon.base_strength) + (armor ? Number(armor.set_strength) : 0)
+  const weaponMobTypeMult = 1 + Number(weapon.mob_type_damage_bonus_pct) / 100
+  const armorMobTypeMult = armor ? 1 + Number(armor.mob_type_damage_bonus_pct) / 100 : 1
+
+  const sharpnessPct = SHARPNESS_PCT_BY_TIER[tier]
+  const criticalPct = CRITICAL_PCT_BY_TIER[tier]
+  const potatoFlat = POTATO_BOOK_USES_BY_TIER[tier] * POTATO_BOOK_BONUS_PER_USE
+
+  const weaponRarity = WEAPON_RARITY[gear.weaponId]
+  const weaponRecombRarity = weaponRarity ? recombobulatedRarity(weaponRarity) : undefined
+  const armorRarity = gear.armorPrefix ? ARMOR_RARITY[gear.armorPrefix] : undefined
+  const armorRecombRarity = armorRarity ? recombobulatedRarity(armorRarity) : undefined
+
+  let gemstoneStrength = 0
+  if (GEMSTONE_JASPER_SLOTS[gear.weaponId] && weaponRecombRarity) gemstoneStrength += GEMSTONE_JASPER_SLOTS[gear.weaponId] * JASPER_PERFECT_BY_RARITY[weaponRecombRarity]
+  if (gear.armorPrefix && GEMSTONE_JASPER_SLOTS_ARMOR[gear.armorPrefix] && armorRecombRarity) gemstoneStrength += GEMSTONE_JASPER_SLOTS_ARMOR[gear.armorPrefix] * JASPER_PERFECT_BY_RARITY[armorRecombRarity]
+
+  const strengthBeforeReforge = baseStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH
+  const baseDamage = Number(weapon.base_damage) + potatoFlat
+
+  async function bestDps(smitePct: number, mults: number[]): Promise<number> {
+    const additivePct = sharpnessPct + smitePct
+    const scoreWeapon = (d: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
+      computeCombatDps(baseDamage, strengthBeforeReforge + d.strength, mults, additivePct, criticalPct + d.crit_damage, d.crit_chance, d.bonus_attack_speed)
+    const weaponReforges = weaponRecombRarity ? await fetchReforges('SWORD/ROD', weaponRecombRarity) : []
+    const bestWeaponReforge = pickBestReforge(weaponReforges, 1, scoreWeapon)
+
+    let armorDelta = { strength: 0, crit_chance: 0, crit_damage: 0, bonus_attack_speed: 0 }
+    if (armorRecombRarity) {
+      const armorReforges = await fetchReforges('ARMOR', armorRecombRarity)
+      const wStrength = strengthBeforeReforge + (bestWeaponReforge?.delta.strength || 0)
+      const wCC = bestWeaponReforge?.delta.crit_chance || 0
+      const wCD = criticalPct + (bestWeaponReforge?.delta.crit_damage || 0)
+      const wAS = bestWeaponReforge?.delta.bonus_attack_speed || 0
+      const scoreArmor = (d: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
+        computeCombatDps(baseDamage, wStrength + d.strength, mults, additivePct, wCD + d.crit_damage, wCC + d.crit_chance, wAS + d.bonus_attack_speed)
+      const best = pickBestReforge(armorReforges, 4, scoreArmor)
+      if (best) armorDelta = best.delta
+    }
+
+    const finalStrength = strengthBeforeReforge + (bestWeaponReforge?.delta.strength || 0) + armorDelta.strength
+    const finalCC = (bestWeaponReforge?.delta.crit_chance || 0) + armorDelta.crit_chance
+    const finalCD = criticalPct + (bestWeaponReforge?.delta.crit_damage || 0) + armorDelta.crit_damage
+    const finalAS = (bestWeaponReforge?.delta.bonus_attack_speed || 0) + armorDelta.bonus_attack_speed
+    return computeCombatDps(baseDamage, finalStrength, mults, additivePct, finalCD, finalCC, finalAS)
+  }
+
+  const dpsVsUndead = await bestDps(SMITE_PCT_BY_TIER[tier], [weaponMobTypeMult, armorMobTypeMult])
+  const dpsVsOther = await bestDps(0, [])
+  return { dpsVsUndead, dpsVsOther }
 }
 
 type Creature = {
@@ -164,13 +217,7 @@ export async function computeSeaCreatureRanking(tier: TierKey): Promise<SeaCreat
   ])
   if (!weapon) throw new Error(`Missing Zombie weapon for tier ${tier}`)
 
-  const armorStrength = armor ? Number(armor.set_strength) : 0
-  const totalStrength = BASE_STRENGTH + Number(weapon.base_strength) + armorStrength
-  const weaponMobTypeMult = 1 + Number(weapon.mob_type_damage_bonus_pct) / 100
-  const armorMobTypeMult = armor ? 1 + Number(armor.mob_type_damage_bonus_pct) / 100 : 1
-
-  const dpsVsUndead = computeDps(Number(weapon.base_damage), 0, totalStrength, [weaponMobTypeMult, armorMobTypeMult])
-  const dpsVsOther = computeDps(Number(weapon.base_damage), 0, totalStrength, [])
+  const { dpsVsUndead, dpsVsOther } = await computeEnrichedDps(tier, weapon, armor)
 
   const allItemIds = BASIC_POOL_CREATURES.flatMap(c => c.loot.map(l => l.entry_item_id)).filter(Boolean) as string[]
   const priceCache = await loadPriceCache(allItemIds)
