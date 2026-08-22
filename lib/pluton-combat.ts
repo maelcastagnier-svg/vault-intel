@@ -81,12 +81,34 @@ const REAPER_ARMOR_STRENGTH_FALLBACK = 75
 // combinaison Anvil (peu couteux, T1-6), VI/VII necessitent Dark/Darker
 // Auction ou NPC Tomioka (10M coins, investissement reel) -- reserves T7.
 const SHARPNESS_BONUS_PCT: Record<number, number> = { 1: 5, 2: 10, 3: 15, 4: 20, 5: 30, 6: 40, 7: 50 }
-function sharpnessLevelForTier(tier: string): number {
+function enchantLevelForTier(tier: string): number {
   const t = Number(tier)
   if (t <= 3) return 3
   if (t <= 6) return 5
   return 7
 }
+
+// Smite -- 2e enchant compose (22 aout, meme lot que Sharpness), directement
+// pertinent a Zombie Slayer (bonus explicitement vs Undead/Wither/Skeletal
+// depuis le patch 2025/08/14). Sourcee wiki "Smite" -- meme table de valeurs
+// que Sharpness (5/10/15/20/30/40/50%), meme bucket ADDITIF confirme
+// explicitement par le wiki ("Damage is now additive with other
+// enchantments"), s'additionne donc a Sharpness dans additionalAdditivePct
+// (pas un nouveau parametre moteur). Distinct du bonus "+X% vs Undead"
+// intrinseque a l'ARME/ARMURE elle-meme (deja code, Multiplicative,
+// findMobTypeBonus) -- Smite est un enchant separe, son propre facteur.
+// Palier par tier, meme convention que Sharpness.
+const SMITE_BONUS_PCT: Record<number, number> = { 1: 5, 2: 10, 3: 15, 4: 20, 5: 30, 6: 40, 7: 50 }
+
+// Critical -- 3e enchant compose (22 aout, meme lot), universel (pas
+// specifique Undead). Sourcee wiki "Critical" -- augmente Crit Damage,
+// I+10% II+20% III+30% IV+40% V+50% VI+70% VII+100%. Compose via le nouveau
+// parametre additionalCritDamagePct de computeCombatDps() (5e parametre,
+// retro-compatible). Zombie Slayer n'a aucune stat Crit Damage intrinseque
+// sur ses armes (contrairement a Spider/Enderman/Blaze deja codes
+// ailleurs) -- Critical est donc le 1er contributeur Crit Damage reel pour
+// cette chaine. Palier par tier, meme convention.
+const CRITICAL_BONUS_PCT: Record<number, number> = { 1: 10, 2: 20, 3: 30, 4: 40, 5: 50, 6: 70, 7: 100 }
 
 export type ZombieSlayerCombo = {
   playerTier: string
@@ -144,12 +166,18 @@ async function computeZombieSlayerCombo(playerTier: string, boss: { tier: number
     enrageStrengthBonus = 100 * ENRAGE_UPTIME
   }
 
-  const sharpnessLevel = sharpnessLevelForTier(playerTier)
-  const sharpnessPct = SHARPNESS_BONUS_PCT[sharpnessLevel]
-  const sharpnessRoman = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'][sharpnessLevel]
-  const nbtModifiers = [`Sharpness ${sharpnessRoman} (+${sharpnessPct}% additif, sourcee wiki)`]
+  const enchantLevel = enchantLevelForTier(playerTier)
+  const roman = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'][enchantLevel]
+  const sharpnessPct = SHARPNESS_BONUS_PCT[enchantLevel]
+  const smitePct = SMITE_BONUS_PCT[enchantLevel]
+  const criticalPct = CRITICAL_BONUS_PCT[enchantLevel]
+  const nbtModifiers = [
+    `Sharpness ${roman} (+${sharpnessPct}% additif, sourcee wiki)`,
+    `Smite ${roman} (+${smitePct}% additif vs Undead, sourcee wiki)`,
+    `Critical ${roman} (+${criticalPct}% Crit Damage, sourcee wiki)`,
+  ]
 
-  const dps = computeCombatDps(baseDamage + flatDamageBonus, strength + enrageStrengthBonus, mults, sharpnessPct)
+  const dps = computeCombatDps(baseDamage + flatDamageBonus, strength + enrageStrengthBonus, mults, sharpnessPct + smitePct, criticalPct)
   const ttkSeconds = boss.health / dps
   const killsPerHour = 3600 / ttkSeconds
   const coinsPerHour = killsPerHour * boss.guaranteed_drop_qty_avg * dropPrice
@@ -212,7 +240,7 @@ export async function computeAndPersistZombieSlayerRankings(): Promise<{ combos:
         block_id: `ZOMBIE_SLAYER_T${bossTier}`,
         block_name: `Zombie Slayer -- ${sample.bossName}`,
         block_strength: 0, required_breaking_power: 0, sell_item_id: 'REVENANT_FLESH', base_drop_count: 1,
-        pricing_note: `Refonte 1-skill-par-fichier (21-22 aout) -- gear source en direct depuis pluton_elements (Systeme A), echelle tier joueur 1-7 reelle. Formule Damage/Damage Calculation deja validee (lib/pluton-slayer.ts). Phase 5 (composition NBT) demarree : Sharpness (enchant, additif, sourcee wiki) compose reellement dans le DPS, palier par tier (III T1-3, V T4-6, VII T7). Gaps de donnees Systeme A documentes: ${allGaps.join(' | ') || 'aucun'}.`,
+        pricing_note: `Refonte 1-skill-par-fichier (21-22 aout) -- gear source en direct depuis pluton_elements (Systeme A), echelle tier joueur 1-7 reelle. Formule Damage/Damage Calculation deja validee (lib/pluton-slayer.ts). Phase 5 (composition NBT) : 3 enchants composes reellement dans le DPS -- Sharpness (additif, universel), Smite (additif, +dmg vs Undead), Critical (+Crit Damage) -- palier par tier (III T1-3, V T4-6, VII T7), tous sourcees wiki. Gaps de donnees Systeme A documentes: ${allGaps.join(' | ') || 'aucun'}.`,
       })
       .select('id').single()
     if (error || !block) throw new Error(`target_block insert failed: ${error?.message}`)

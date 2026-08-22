@@ -182,11 +182,11 @@ export function computeAttacksPerSecond(bonusAttackSpeed: number): number {
   return 20 / ticks
 }
 
-export function computeCombatDps(baseDamage: number, strength: number, multiplicativeFactors: number[], additionalAdditivePct: number = 0): number {
+export function computeCombatDps(baseDamage: number, strength: number, multiplicativeFactors: number[], additionalAdditivePct: number = 0, additionalCritDamagePct: number = 0): number {
   const multiplicativeMult = multiplicativeFactors.reduce((a, b) => a * b, 1)
   const nonCrit = (5 + baseDamage) * (1 + (BASE_STRENGTH + strength) / 100) * (1 + (COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT + additionalAdditivePct) / 100) * multiplicativeMult
   const critChance = BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS
-  const expectedPerHit = nonCrit * (1 + (critChance / 100) * (BASE_CRIT_DAMAGE / 100))
+  const expectedPerHit = nonCrit * (1 + (critChance / 100) * ((BASE_CRIT_DAMAGE + additionalCritDamagePct) / 100))
   return expectedPerHit * computeAttacksPerSecond(0)
 }
 
