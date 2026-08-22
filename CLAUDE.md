@@ -152,48 +152,75 @@ cumulative vérifiée (starter 148 824 → master 183 680, +736 non-client =
 184 416 total exact). Limite documentée : la séparation client/non-client
 ne repose que sur `admin_excluded` pour l'instant — à affiner si besoin.
 
-### 🚧 Phase 5 — composition NBT, Sharpness fusionné dans le DPS (22 août)
+### 🚧 Phase 5 — composition NBT, 3 enchants fusionnés dans le DPS (22 août)
 
-1er modificateur NBT (au-delà du chemin de gear canonique déjà construit)
-réellement composé dans le calcul Zombie Slayer, preuve de concept avant
-d'étendre aux 39 autres enchants d'épée. Sourcée wiki "Sharpness"
-(`hypixelskyblock_wiki`, lue en entier, pas devinée) : bonus additif
-confirmé explicitement par le wiki lui-même (`{{additive}}`), même bucket
-que le perk Warrior niveau Combat 60 (+210%) déjà codé. `computeCombatDps()`
-(`lib/pluton-engine.ts`) étendu avec un paramètre `additionalAdditivePct`
-optionnel (rétro-compatible, Bestiary inchangé — seul autre appelant).
-Palier par tier joueur (III T1-3, V T4-6, VII T7), même convention
-"investissement croissant par tier" que Mining Speed Boost/Reaper Enrage —
-I-V obtenables Table d'Enchantement+Anvil (peu coûteux), VI/VII nécessitent
-Dark/Darker Auction ou NPC Tomioka (10M coins, réservé T7).
+**Méthode accélérée, décidée par l'utilisateur en cours de route** ("ne fait
+pas 1 enchant à la fois, construit plus vite, trouve la manière la plus
+rapide et optimisée de construire et tester") : abandon du cycle 1
+enchant → 1 push → 1 déploiement Vercel → 1 curl → 1 persist → 1 nettoyage.
+Nouvelle méthode, réutilisable pour tout le reste de Phase 5/6 :
+1. **Extraction groupée** — toutes les pages wiki candidates fetchées en UNE
+   requête SQL (`game_mechanics_misc`), triage fait par un agent dédié
+   (lecture seule, hors du contexte principal) qui rapporte pour chaque
+   enchant : table de bonus exacte, additif/multiplicatif si confirmé par
+   le wiki, applicabilité, et un verdict SIMPLE (multiplicateur plat,
+   composable tout de suite) vs COMPLEX (scaling dynamique/DoT/ability —
+   mis de côté, documenté).
+2. **Tri par pertinence à l'activité réelle**, pas exhaustivité aveugle des
+   40 enchants d'épée existants — seuls ceux qui affectent vraiment Zombie
+   Slayer (mob Undead, single-target) sont intégrés maintenant ; les
+   enchants d'autre type de mob (Bane of Arthropods/Ender Slayer/Impaling)
+   sont de bons candidats pour Spider/Enderman/Fishing plus tard, pas ici.
+3. **Un seul cycle push/déploiement/vérification/persist/nettoyage pour
+   tout le lot**, pas un par enchant.
 
-**Vérifié en base** : DPS T7/ZOMBIE_SLAYER_T1 = 25 019.8416 exact (calcul
-à la main : 149×2.99×3.60×6.0×1.3×2, le bucket additif passe de ×3.10 à
-×3.60 avec Sharpness VII +50%) — confirmé identique en base après persist.
-Traçabilité complète : `pluton_rankings.accessories.nbt_modifiers` documente
-la composition réelle appliquée par combo, pas juste le résultat final.
-Route de debug temporaire supprimée après validation.
+**3 enchants composés dans ce lot** (tous sourcés wiki, `hypixelskyblock_
+wiki`, jamais devinés) :
+- **Sharpness** — bonus additif universel, I+5%→VII+50%, confirmé additif
+  explicitement par le wiki (`{{additive}}`).
+- **Smite** — bonus additif **spécifique vs Undead/Wither/Skeletal**
+  (depuis le patch 2025/08/14), mêmes valeurs que Sharpness, confirmé
+  additif explicitement par le wiki ("damage is now additive with other
+  enchantments") — directement pertinent à Zombie Slayer, s'additionne à
+  Sharpness dans le même bucket (`additionalAdditivePct`, pas un nouveau
+  paramètre moteur). Distinct du bonus "+X% vs Undead" intrinsèque à
+  l'arme/l'armure elle-même (déjà codé, Multiplicative, `findMobTypeBonus`)
+  — Smite est un enchant séparé, propre facteur.
+- **Critical** — augmente Crit Damage, I+10%→VII+100%. `computeCombatDps()`
+  (`lib/pluton-engine.ts`) étendu avec un 5e paramètre
+  `additionalCritDamagePct` (rétro-compatible, Bestiary inchangé — seul
+  autre appelant). Zombie Slayer n'a aucune stat Crit Damage intrinsèque
+  sur ses armes (contrairement à Spider/Enderman/Blaze déjà codés ailleurs)
+  — Critical est le 1er contributeur Crit Damage réel pour cette chaîne.
 
-**Reste à sourcer** (39 autres enchants d'épée identifiés dans
-`enchantments`, contenu wiki déjà lu pour 3 d'entre eux — Critical/Execute/
-First Strike — pas encore intégrés) :
-- **Critical** : +CritDamage par niveau (I+10% → VII+100%), composition
-  directe dans `BASE_CRIT_DAMAGE` — prochain candidat naturel après
-  Sharpness (même simplicité, bucket additif clair).
-- **Execute** : bonus scalant avec le % de vie MANQUANT du boss —
-  **contradiction réelle trouvée dans le wiki source lui-même** (l'intro dit
-  "pour chaque % de vie manquante", la section Ability dit littéralement
-  "pour chaque % de vie qu'a la cible") — nécessiterait en plus d'intégrer
-  le DPS sur la durée du combat (dégâts croissants à mesure que le boss
-  perd des PV), pas un multiplicateur plat comme Sharpness/Critical — mis
-  de côté, complexité de modélisation réelle, pas oublié.
-- **First Strike** : bonus uniquement sur le 1er coup porté à un mob (mutex
-  avec Triple Strike) — impact négligeable sur un TTK long (Slayer), mais
-  potentiellement significatif sur des kills très rapides — mis de côté
-  pour l'instant, même raison qu'Execute (mécanique burst, pas un multiplicateur
-  DPS soutenu, formule d'intégration pas encore posée).
-- Étoiles (régulières + Master)/gemmes/Hot Potato Book/Recombobulator etc. —
-  non commencés, voir plan `joyful-shimmying-finch.md`.
+Palier par tier joueur pour les 3 (III T1-3, V T4-6, VII T7), même
+convention "investissement croissant par tier" que Mining Speed Boost/
+Reaper Enrage.
+
+**9 candidats triés et écartés dans le même lot** (agent dédié, contenu
+wiki lu en entier, jamais deviné) :
+- Giant Killer/Titan Killer/Prosecute — bonus scalant dynamiquement avec
+  le % de vie ou la Defense de la cible, même famille qu'Execute déjà
+  écarté — nécessiterait d'intégrer le DPS sur la durée du combat, pas un
+  multiplicateur plat.
+- Lethality/Venomous — DoT à stacks (réduction de Defense/poison), pas un
+  multiplicateur instantané.
+- Vicious/Champion — pas des enchants de dégâts (Ferocity/XP-économie).
+- Cleave — dégâts de zone (AoE), n'affecte pas le DPS single-target d'un
+  boss Slayer.
+- First Strike (déjà noté avant ce lot) — bonus uniquement sur le 1er coup,
+  mécanique burst, formule d'intégration pas encore posée.
+
+**Vérifié en base, en un seul cycle** : DPS T7/ZOMBIE_SLAYER_T1 = 41 646.2748
+exact (calcul à la main : 149×2.99×4.10×6.0×1.9×2 — bucket additif 210+50+50
+=310% → ×4.10, Crit Damage 50+100=150% → multiplicateur crit ×1.9) —
+confirmé identique en base après persist (35 combos). Traçabilité complète :
+`pluton_rankings.accessories.nbt_modifiers` documente les 3 enchants
+appliqués par combo. Route de debug temporaire supprimée après validation.
+
+**Reste à sourcer** (même méthode accélérée à réutiliser) : étoiles
+(régulières + Master)/gemmes/Hot Potato Book/Recombobulator etc. — non
+commencés, voir plan `joyful-shimmying-finch.md`.
 
 ### 🚧 Phase 3 — Système B refondu, 1re tranche (Zombie Slayer) vérifiée
 
