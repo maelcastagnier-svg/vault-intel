@@ -134,6 +134,36 @@ const CITRINE_SLOTS_BY_ARMOR: Record<string, number> = { 'Fig Armor': 1, 'Helix 
 const ARMOR_RARITY: Record<string, string> = { 'Fig Armor': 'RARE', 'Helix Armor': 'EPIC' }
 const FRENZY_BY_TOOL: Record<string, { cap: number }> = { FIG_AXE: { cap: 20 }, FIGSTONE_AXE: { cap: 20 }, HELIX_CHOPPER: { cap: 40 } }
 
+// Heart of the Forest (HOTF) -- 22 aout, trouve suite a question explicite
+// de l'utilisateur ("on a bien pris en compte HOTM et HOTF ??"). Verifie :
+// Mining a bien HOTM (HOTM_MAX dans pluton-mining.ts), mais Foraging n'avait
+// JAMAIS touche HOTF (`hotf_perks`, 30 lignes, arbre analogue a HOTM,
+// monnaie Forest Whispers) -- trou reel confirme par grep (0 reference).
+// 3 perks DIRECTS/permanents une fois debloques retenus (niveau max
+// applique END/LATE, meme convention "investissement max atteignable" que
+// HOTM_MAX de Mining) :
+// - "sweep" (max niveau 50, formule "id level" = +50 Sweep a L50)
+// - "foraging_fortune" (max niveau 50, formule "level*3" = +150 FF a L50)
+// - "foraging_madness" (1 seul palier, +10 Sweep +50 FF flat)
+// Perks EXCLUS, documentes plutot qu'invente :
+// - "forest_strength" (jusqu'a +1000 Sweep/+1000 FF a 1000 Strength) --
+//   conditionnel a la stat Strength du joueur, jamais trackee par ce
+//   calculateur Foraging (stat Combat), aucune valeur de reference sourcee
+//   pour un setup Foraging pur -- inventer un total Strength violerait la
+//   regle #7, gap documente plutot que force.
+// - "half_full"/"half_empty" -- necessitent un 2e joueur a proximite avec
+//   l'effet complementaire actif, situationnel/multijoueur, meme famille
+//   que les bonus multijoueur deja exclus ailleurs dans Pluton.
+// - "early_bird" (+20 Sweep/+100 FF mais SEULEMENT les 250 premiers arbres
+//   coupes par jour) -- fraction negligeable du volume horaire vise par ce
+//   calculateur (72 000 actions/h), meme categorie que les "Temporary
+//   Sources" deja exclues par Farming.
+// - "collector" (double Berries/Island Resources) -- pas Sweep/FF, drop
+//   different hors scope de ce calculateur (logs uniquement).
+const HOTF_SWEEP_MAX = 50 // perk "sweep", niveau 50 * 1
+const HOTF_FORAGING_FORTUNE_MAX = 150 // perk "foraging_fortune", niveau 50 * 3
+const HOTF_FORAGING_MADNESS = { sweep: 10, fortune: 50 } // palier unique
+
 function citrineForagingFortuneBonus(toolItemId: string, armorSetPrefix: string): number {
   let bonus = 0
   const toolSlots = CITRINE_SLOTS_BY_TOOL[toolItemId]
@@ -329,6 +359,10 @@ export async function computeForagingRanking(tier: TierKey, blockId: string): Pr
       // meme discipline "investissement max END/LATE" que Sharpening Shard.
       const frenzy = FRENZY_BY_TOOL[topSetup.tool_item_id]
       if (frenzy) finalSweep += frenzy.cap
+      // Heart of the Forest (HOTF) -- 3 perks directs/permanents, niveau
+      // max atteignable (voir doc des constantes).
+      finalSweep += HOTF_SWEEP_MAX + HOTF_FORAGING_MADNESS.sweep
+      finalFF += HOTF_FORAGING_FORTUNE_MAX + HOTF_FORAGING_MADNESS.fortune
     }
 
     const { logsPerSwing, yieldPerHour, coinsPerHourRawBlockOnly } = scoreYield(finalSweep, finalFF)
