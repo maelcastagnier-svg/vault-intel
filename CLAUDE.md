@@ -409,6 +409,46 @@ Creature Chance 28.6 (10 base+5.8 accessoires+1.8 Expertise+7 reforge
 rod+4 reforge armure) — exact. Route de debug temporaire supprimée après
 validation.
 
+### ✅ Audit "toutes les activités du skill" — Bestiary + Sea Creature kills fermés (22 août)
+
+**Question explicite de l'utilisateur** en poursuivant le recadrage : "les
+5 Slayers sont-ils vraiment la seule activité Combat ?? vérifie bien que
+pour chaque skill tu as bien TOUTE les activités possibles." Vérifié contre
+`pluton_skill_activities` (table d'inventaire officielle du projet, pas
+redevinée) — réponse : **non**. Combat a 2 autres activités `built` jamais
+touchées par la fermeture NBT : Dungeons (Floor I-VII Normal) et Bestiary/
+grind mob générique. Fishing a une 2e activité `built` (Sea Creature kills,
+distincte de la Pêche) dans le même cas.
+
+- **Bestiary** (`lib/pluton-bestiary.ts`) — appelait `computeCombatDps()`
+  avec 0 des couches NBT construites pour Slayer, malgré une réutilisation
+  directe du même gear Zombie. Fermé avec les mêmes valeurs déjà sourcées
+  (Sharpness/Smite si Undead/Critical/reforge recherché/Recombobulator/
+  gemme Jasper/Potato Books/The Art of War) — 63 mobs viables inchangés
+  (aucune régression sur le filtrage déjà validé le 21 août).
+- **Sea Creature kills** (`lib/pluton-sea-creatures.ts`) — pire cas : avait
+  sa PROPRE copie locale de la formule de base (`computeDps`), dupliquée
+  avant même que `computeCombatDps` existe dans le moteur partagé,
+  strictement sans Crit Chance/Attack Speed composables. Remplacée par
+  `computeCombatDps()` du moteur partagé + même couche NBT complète.
+- **Dungeons (Floor I-VII)** — vérifié par lecture directe du code (pas
+  supposé) : aucune logique DPS/Strength/reforge n'existe dans ce fichier,
+  confirmant la doc déjà en place (méthode ancrée sur le score/temps de run
+  externe, **ne dépend pas du gear du joueur** par construction) — hors
+  scope de cette fermeture NBT à raison, pas un trou oublié.
+
+**Vérifié en base** : Bestiary 63/107 mobs viables (identique à la
+construction du 21 août, filtrage non régressé) ; Sea Creature kills 4
+combos (early/mid/end/late), TTK/coins-par-heure cohérents avec la
+progression de gear déjà validée (TTK LATE=0.58s vs EARLY=21.58s). Route
+de debug temporaire supprimée après validation.
+
+**Prochaine étape actée** : même audit "toutes les activités du skill"
+pour Mining/Farming/Foraging/Hunting (les seuls autres skills `built`) —
+vérifier si leurs calculateurs ont bien tout le NBT skill-approprié
+(enchants/reforges/gemmes spécifiques à chaque skill) appliqué, ou si le
+même écart "documenté mais pas câblé" existe ailleurs.
+
 ### 🚧 Phase 3 — Système B refondu, 1re tranche (Zombie Slayer) vérifiée
 
 `lib/pluton-combat.ts` — 1er fichier "1 skill = 1 calculateur" (remplace à
