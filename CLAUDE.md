@@ -547,6 +547,30 @@ EPIC→recombobulé LEGENDARY=8×2), Sweep 583 exact (393 base déjà documenté
 valeur déjà publiée le 17 août avant cette session). Route de debug
 temporaire supprimée après validation.
 
+### 🔴 Essence Shops — nouvelle surface d'audit trouvée, seulement 2/11 boutiques vérifiées (22 août)
+
+La question HOTM/HOTF de l'utilisateur a fait remonter une **catégorie
+entière jamais auditée cette session** : 11 Essence Shops (Undead/Wither/
+Dragon/Spider/Crimson/Ice/Gold/Diamond/Forest/Fossil/Safari), chacune avec
+plusieurs perks à paliers, échangés contre une monnaie Essence dédiée.
+
+**2 boutiques vérifiées jusqu'ici** :
+- **Undead** — Strength/Defense/Health/Intelligence/Critical Essence
+  explicitement qualifiées **"while in The Catacombs"** par le wiki lui-
+  même — confirmé hors-scope Slayer/Bestiary (pas de restriction de lieu
+  levée), et non applicable non plus à la méthode Dungeons actuelle
+  (ancrée sur le score, ne modélise aucune stat joueur) -- **rien à
+  fermer ici**, vérifié plutôt que supposé.
+- **Spider** — **"Bane" (+dmg vs Spiders, I+3%→V+15%, SANS restriction de
+  lieu) réel et fermé** : ajouté comme facteur multiplicatif (même bucket
+  "vs type de mob" que l'arme/l'armure), palier par tier. Vérifié en base :
+  DPS Spider LATE 135 573.30395→155 909.2995425 exact (×1.15 pile).
+
+**9 boutiques restantes jamais vérifiées** : Wither/Dragon/Crimson/Ice/
+Gold/Diamond/Forest/Fossil/Safari — Gold est déjà partiellement couverte
+(Eager Miner, déjà dans Mining), les 8 autres totalement inconnues à ce
+stade. Chantier distinct explicitement pas terminé, pas caché.
+
 ### ✅ Foraging — Heart of the Forest (HOTF), 2e vrai trou trouvé le même jour (22 août)
 
 **Question directe de l'utilisateur** après le premier bilan ("on a bien
