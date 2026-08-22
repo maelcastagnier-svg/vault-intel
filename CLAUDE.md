@@ -449,6 +449,56 @@ vérifier si leurs calculateurs ont bien tout le NBT skill-approprié
 (enchants/reforges/gemmes spécifiques à chaque skill) appliqué, ou si le
 même écart "documenté mais pas câblé" existe ailleurs.
 
+### ✅ Mining audité — déjà quasi-complet, 1 vrai trou fermé (Recombobulator) (22 août)
+
+Contrairement à Combat/Fishing, `lib/pluton-mining.ts` (construit/calibré
+le 5 août contre un vrai repère en jeu, écart -4.7% documenté) s'est avéré
+**déjà rigoureux** : HOTM maxé, sockets de gemmes réels (3 slots
+Amber/Jade/Topaz + arbitrage réel du 5e slot combo par impact sur le
+rendement, pas une supposition), reforge Jaded (armure) et arbitrage réel
+Ambered-vs-Glacial (foret), Hephaestus Relic, Drill Engine, Eager Miner,
+niveau Mining 60. Aucune réécriture nécessaire.
+
+**Seul trou réel trouvé** : `computeGemSocketBonus()` utilisait toujours la
+rareté de BASE de l'armure/l'outil, jamais recombobulée — Recombobulator
+3000 (déjà modélisé comme toujours appliqué pour Combat/Fishing, aucun
+downside réel documenté) n'était pas câblé ici. **Corrigé uniquement pour
+le lookup gemme** (jamais le reforge Jaded, dont les stats ne sont
+sourcées qu'à LEGENDARY — pas de donnée MYTHIC/DIVINE à extrapoler,
+contrairement aux gemmes qui ont une vraie table complète par rareté).
+
+**Trouvaille en cours de route** : `RARITY_ORDER` (moteur partagé) plafonnait
+à MYTHIC — étendu à DIVINE après avoir confirmé que **Divan's Drill a une
+rareté de BASE Mythic** (le seul cas parmi tout Pluton jusqu'ici, confirmé
+explicitement par le wiki Recombobulator lui-même : "the only items with an
+intentional base Mythic rarity are Divan's Drill...") — sans cette
+extension, le Drill n'aurait reçu aucun bénéfice de Recombobulator du tout.
+Table `gemstones` confirmée couvrir DIVINE (Amber/Jade/Topaz) avant
+d'étendre.
+
+**🔴 Incident opérationnel réel pendant la vérification** : le run de
+persist complet (72 combos, tous tiers×blocs) a timeout à 2 reprises
+(maxDuration 60 puis 280 insuffisants au premier essai) — `sync_log`
+confirme que les runs réels de ce cron tournaient DÉJÀ à 111-120s AVANT ce
+changement (contre une limite de 120s), donc déjà à la marge. Un run réel
+du cron programmé (4h30 UTC) a percuté mes tests concurrents et est resté
+bloqué en `status='running'` sans jamais finir (id 42126, jamais nettoyé
+par son propre `finishSync`). **Vérifié avant toute correction** : la
+table `pluton_rankings` (activity_key='mining') était retombée à 42/65
+lignes après mes tentatives échouées (DELETE committé, INSERT partiel
+tué par le timeout) — un vrai risque de données incomplètes en prod,
+pas juste un ratage de test. Corrigé : relancé un persist complet propre
+(65/65 lignes restaurées, vérifié), `maxDuration` du cron production
+120→280 (marge de sécurité, aucune formule changée), ligne `sync_log`
+bloquée marquée `error` manuellement plutôt que laissée `running` pour
+toujours.
+
+**Vérifié en base** : Ruby Gemstone LATE 46.2M/h (5 août) → 57.68M/h
+(22 août) — **+24.8%, cohérent avec le saut exact Amber/Jade LEGENDARY
+→MYTHIC (80→100 et 40→50, tous deux exactement +25%)**, confirme le
+mécanisme sans avoir eu besoin de recalculer à la main les 15+ couches
+imbriquées du fichier. Route de debug temporaire supprimée après validation.
+
 ### 🚧 Phase 3 — Système B refondu, 1re tranche (Zombie Slayer) vérifiée
 
 `lib/pluton-combat.ts` — 1er fichier "1 skill = 1 calculateur" (remplace à

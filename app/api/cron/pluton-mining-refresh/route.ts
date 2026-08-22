@@ -15,7 +15,11 @@ import { computeAndPersistAllMiningRankings } from '../../../../lib/pluton-minin
 import { computeAndPersistForgeRankings } from '../../../../lib/pluton-forge'
 import { startSync, finishSync } from '../../../../lib/sync-log'
 
-export const maxDuration = 120
+// 120->280 (22 aout) -- sync_log confirmait des runs reels a 111-120s AVANT
+// l'ajout Recombobulator (deja a la limite), et un run reel a depasse 120s
+// et est reste bloque en 'running' (id 42126, jamais fini) pendant l'audit
+// de cette session -- marge de securite augmentee, aucune formule changee.
+export const maxDuration = 280
 
 export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
