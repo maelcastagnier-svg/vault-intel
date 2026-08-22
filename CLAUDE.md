@@ -547,6 +547,55 @@ EPIC→recombobulé LEGENDARY=8×2), Sweep 583 exact (393 base déjà documenté
 valeur déjà publiée le 17 août avant cette session). Route de debug
 temporaire supprimée après validation.
 
+### ✅ Hunting audité — déjà correctement scopé (22 août)
+
+`lib/pluton-hunting.ts` (Trap Hunting, seule activité `built` du skill)
+vérifié : pas de gemstone/reforge applicable (le Huntrap est un objet posé
+dans le monde, pas du gear porté — infobox wiki confirmée sans champ de
+stats combat/gemstone). Les 3 exclusions déjà documentées dans le fichier
+(Desert Temple -25% bonus de localisation, Forest/Combat Trap -10%
+spécifiques au type de shard, Charm Hunting) restent des vrais choix
+raisonnés — pas des oublis : `attribute_shards` n'a aucune colonne
+type-Forest/Water/Combat exploitable pour les conditionner par shard
+individuellement, et la page wiki "Huntraps#Locations" elle-même est
+marquée `{{Sectionstub}}` (liste reconnue incomplète par le wiki source).
+Aucun changement nécessaire.
+
+### 🎯 Bilan de l'audit "toutes les activités / tout le NBT" — 6 skills `built` couverts (22 août)
+
+Chantier complet demandé par l'utilisateur ("vérifie bien que pour chaque
+skill tu as bien TOUTE les activités possibles... rien laissé au hasard").
+Vérifié contre `pluton_skill_activities` (inventaire officiel, pas
+redeviné) — les 6 skills `built` couvrent en réalité **10 activités**, pas
+6 (plusieurs skills ont 2+ activités distinctes jamais auditées comme un
+groupe avant cette passe) :
+
+| Skill | Activités `built` | Trou trouvé | Statut |
+|---|---|---|---|
+| Combat | Slayer×5, Dungeons, Bestiary | Reforge absent (Slayer×5) ; NBT absent (Bestiary) | ✅ fermés |
+| Fishing | Pêche, Sea Creature kills | Tier zéro à early/mid ; formule dupliquée sans NBT | ✅ fermés |
+| Mining | Minage+Forge | Recombobulator non câblé sur les gemmes | ✅ fermé |
+| Farming | Culture+Pest | — | ✅ déjà complet |
+| Foraging | Coupe de bois | Gemmes+item ability jamais modélisés | ✅ fermés |
+| Hunting | Trap Hunting | — | ✅ déjà correctement scopé |
+
+Dungeons confirmé structurellement hors-scope (méthode ancrée sur le score,
+pas sur le gear — vérifié par lecture directe du code, pas supposé).
+
+Chaque fermeture suit la même discipline : scoping par agent dédié AVANT
+tout code (jamais une supposition), un seul cycle push/déploiement/
+vérification/persist/nettoyage par lot, au moins 1 calcul recoupé à la
+main par lot avant persist. 2 incidents opérationnels réels trouvés et
+corrigés en cours de route (Mining : timeout + sync_log bloqué + données
+partiellement effacées, restaurées) — documentés dans leurs sections
+respectives ci-dessus, pas cachés.
+
+**Explicitement hors scope de cette passe** : les activités `backlog`
+(Kuudra, Dungeons Master Mode, frag runs, Enchanted Books flip, Forest/
+Water/Combat Hunting) restent des gaps structurels réels déjà documentés
+individuellement (données manquantes à la source, pas un défaut
+d'application du NBT) — pas retouchées ici, chantier distinct.
+
 ### 🚧 Phase 3 — Système B refondu, 1re tranche (Zombie Slayer) vérifiée
 
 `lib/pluton-combat.ts` — 1er fichier "1 skill = 1 calculateur" (remplace à
