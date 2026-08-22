@@ -251,8 +251,81 @@ moy.)+24(gemmes)+30(potato), Dégâts base 179 = 5+120+24(Enrage)+30(potato)) �
 confirmé identique en base après persist. `pluton_rankings.accessories.
 nbt_modifiers` trace les 6 modificateurs appliqués par combo.
 
-**Reste à sourcer** (même méthode accélérée à réutiliser) : Recombobulator
-3000/Art of War/Art of Peace/Ability Scrolls — pas encore audités.
+### ✅ Reforge + Recombobulator 3000 + The Art of War — fermeture complète, plus rien à moitié (22 août)
+
+**Recadrage explicite de l'utilisateur** : "ne fait pas les choses à
+moitié... si je suis starter et que je fais une certaine activité en
+fishing par exemple, je veux un setup vraiment complet" — après avoir noté
+Recombobulator/Art of War/Ability Scrolls comme "pas encore audités" et
+enchaîné sur un autre chantier, correction explicite : finir un audit
+avant de passer au suivant, pas laisser des items ouverts indéfiniment.
+
+**Audit réel (pas supposé)** : `grep "reforge"` sur `lib/pluton-combat.ts`
+et `lib/pluton-slayer.ts` → **0 résultat dans les deux fichiers**. Le
+Reforge — un des leviers NBT les plus impactants du jeu — n'était appliqué
+NULLE PART sur les 5 Slayers, malgré le plan Phase 5 le listant comme
+"déjà propre et complet, utilisable direct" (vrai pour la DONNÉE, faux pour
+l'INTÉGRATION — jamais câblé). Fermé complètement dans ce lot :
+
+- **Reforge — vraie recherche sur l'espace des candidats**, pas une
+  supposition ("Heroic"/"Legendary" auraient semblé évidents). Le moteur
+  simule le DPS de CHAQUE reforge candidat (table `reforges`, 9 par
+  catégorie SWORD/ROD ou ARMOR, à la rareté réelle de l'item) et retient
+  le meilleur réel. **Confirmé en pratique que le "meilleur" dépend de la
+  rareté** : les paliers d'Attack Speed (`floor(10/(1+AS/100))`, non-linéaire)
+  créent des sauts de valeur — ex. "Fast" (bonus AS pur) peut dominer un
+  reforge "évident" comme "Legendary" simplement en franchissant un palier
+  de tick. Armure = 4 pièces identiques reforgées (×4), simplification
+  documentée (le modèle ne différencie pas les 4 pièces).
+- **Recombobulator 3000** — sourcé wiki : augmente l'effet des Reforges et
+  Gemmes (décale la rareté d'un cran pour ces deux lookups), **aucun
+  downside réel documenté** ("Reforges appliqués avant ou après profitent
+  quand même du bonus") → toujours appliqué. N'affecte PAS les stats
+  intrinsèques de l'item (Damage/Force de base restent celles de la rareté
+  d'origine) — seul reforge+gemme en bénéficient ici, gap documenté
+  (bénéfice complet nécessiterait des stats de base recombobulées par
+  item, non sourcées).
+- **The Art of War** — sourcé wiki : +5 Force, universel (Weapons/Axes),
+  coût unique modique, appliqué par défaut.
+- **The Art of Peace** — sourcé wiki : +40 HP par pièce d'armure, documenté
+  dans le loadout (`nbtModifiers`/`accessories`) pour un setup complet,
+  **sans effet sur le calcul** (HP n'entre pas dans la formule DPS/coins-
+  par-heure) — inclus dans la description, pas dans le score, distinction
+  explicite plutôt qu'omis silencieusement.
+- **Ability Scrolls (Wither Scrolls)** — confirmé item-spécifique à la
+  famille Necron's Blade/Hyperion, absente des calculateurs actuels
+  (aucune arme en cours de scope n'y appartient) — hors-scope réel, vérifié
+  par recherche directe, pas une supposition.
+- **Power Scrolls** (`power_scroll_recipes`) — confirmé système distinct
+  (buff temporaire 5s sur activation d'ability), même famille qu'Execute/
+  First Strike déjà écartés (burst, pas un multiplicateur DPS soutenu).
+- **Dyes** — confirmé cosmétique pur (couleur uniquement), aucune donnée
+  de stat sur aucune des ~90 pages vérifiées.
+
+**2 trous structurels supplémentaires trouvés en construisant la recherche
+de reforge** (pas seulement le reforge lui-même) :
+1. `computeCombatDps()` (`lib/pluton-engine.ts`) n'avait AUCUN moyen de
+   composer un bonus de Crit Chance ni une vitesse d'attaque non-nulle —
+   étendu avec `additionalCritChancePct`/`bonusAttackSpeed` (rétro-
+   compatible, Bestiary inchangé).
+2. Crit Chance n'était jamais plafonnée à 100% (vraie limite du jeu) dans
+   AUCUN des deux fichiers — sans conséquence tant qu'aucune source ne
+   dépassait 100, mais Sharp/Pure reforge + Critical enchant peuvent
+   réellement y arriver (confirmé : combo Zombie T7 atteint exactement 108%
+   avant plafond) — corrigé dans les deux fichiers.
+
+**Vérifié en base, un seul cycle pour les 5 Slayers** (2 calculs complets à
+la main, tous deux exacts) :
+- Zombie T7/ZOMBIE_SLAYER_T1 : reforge arme=Fast (LEGENDARY, +50 AS),
+  reforge armure=Pure ×4 (MYTHIC, +40 Force/+48 CC/+40 CD/+20 AS) —
+  Crit Chance plafonnée à 100% (108% avant plafond, confirme le bug #2
+  ci-dessus était réel). DPS = 205 850.1432 exact (calcul à la main :
+  179×4.03×4.10×6.0×2.90×4.0, palier Attack Speed AS=70→ticks=5).
+- Spider END/SPIDER_T5 (Sting, `always_crit`) : reforge arme=Spicy (MYTHIC),
+  reforge armure=Fierce ×4 (MYTHIC) — Force totale 202 exact, DPS
+  135 573.30395 exact (calcul à la main, palier AS=15→ticks=8).
+
+Route de debug temporaire supprimée après validation.
 
 ### ✅ Couche NBT étendue aux 4 autres Slayers, même jour (22 août)
 
