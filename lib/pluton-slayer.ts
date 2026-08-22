@@ -147,6 +147,19 @@ const MOB_TYPE_ENCHANT_PCT_BY_TIER: Partial<Record<string, Record<TierKey, numbe
   enderman: { early: 15, mid: 30, end: 50, late: 50 }, // Ender Slayer
 }
 
+// Essence Shop "Bane" (Spider Essence Shop, NPC Spider Tamer) -- 22 aout,
+// trouve en repondant a une question de l'utilisateur sur les systemes
+// annexes (HOTM/HOTF -> a fait remonter les Essence Shops). Sourcee wiki
+// "Essence Shops/Spider" -- "Increases damage dealt to Spiders by X%",
+// I+3% II+6% III+9% IV+12% V+15% (5 paliers max, PAS de restriction de
+// lieu contrairement aux perks Undead Essence Shop "while in The
+// Catacombs" -- verifie explicitement avant d'ajouter, celles-ci restent
+// hors-scope Slayer/Bestiary a raison). MULTIPLICATIVE (meme bucket "vs
+// type de mob" que le bonus arme/armure deja code, confirme par la doc
+// d'en-tete de ce fichier). Palier par tier, meme convention que les
+// autres enchants/bonus deja scales dans ce fichier.
+const BANE_PCT_BY_TIER: Record<TierKey, number> = { early: 3, mid: 9, end: 15, late: 15 }
+
 // Gemmes Jasper (Strength) -- verifie AVANT de coder (agent dedie) : seuls
 // ces 5 items ont un vrai emplacement Jasper/Combat exploitable pour le DPS
 // (Recluse Fang/Spider Sword/Tarantula Armor/Shaman Sword/Voidwalker
@@ -389,7 +402,8 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
     const additivePct = COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT + sharpnessPct + mobEnchantPct
     critDamage += CRITICAL_PCT_BY_TIER[tier]
     const critChanceBeforeReforge = Math.min(100, BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS + weaponCritChance)
-    const multiplicativeFactors = [weaponMobTypeMult, armorMobTypeMult, octoMult, packMentalityMult, enrageMobTypeMult]
+    const baneMult = slayerKey === 'spider' ? 1 + BANE_PCT_BY_TIER[tier] / 100 : 1
+    const multiplicativeFactors = [weaponMobTypeMult, armorMobTypeMult, octoMult, packMentalityMult, enrageMobTypeMult, baneMult]
     const flatDamageTotal = enrageFlatDamage + collectionLevelFlatDamage + potatoFlat
 
     // Reforge -- recherche reelle sur l'espace des candidats (table
