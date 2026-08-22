@@ -268,6 +268,12 @@ export const JASPER_PERFECT_BY_RARITY: Record<string, number> = {
   COMMON: 6, UNCOMMON: 7, RARE: 9, EPIC: 11, LEGENDARY: 13, MYTHIC: 16,
 }
 
+// Citrine PERFECT par rarete (Foraging Fortune) -- sourcee table `gemstones`
+// (verifiee 22 aout, meme requete que Jasper/Aquamarine).
+export const CITRINE_PERFECT_BY_RARITY: Record<string, number> = {
+  COMMON: 3, UNCOMMON: 4, RARE: 5, EPIC: 6, LEGENDARY: 8, MYTHIC: 10,
+}
+
 // The Art of War -- sourcee wiki ("can be applied to Weapons/Axes via un
 // Anvil to grant +5 Strength, once per item"). Universel, cout unique
 // modique, aucun downside -- applique par defaut a toute arme comme

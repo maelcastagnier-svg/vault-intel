@@ -58,6 +58,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { loadPricedItems, type PricedItem } from './gear-pricing'
 import { TIER_CONFIG, type TierKey } from './money-making-constants'
+import { recombobulatedRarity, CITRINE_PERFECT_BY_RARITY } from './pluton-engine'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -106,6 +107,46 @@ const SHARPENING_SHARD_MAX: Record<string, number> = {
 // faute de colonne target_block) appartient a cette couche.
 function maxInvestmentSweepBonus(blockId: string): number {
   return SHARPENING_SHARD_MAX[blockId] ?? 0
+}
+
+// Gemmes Citrine + Frenzy (outil) -- 22 aout, trouve en auditant "tout le
+// NBT du skill" (jamais modelise avant, trou reel confirme wiki : ni
+// gemstone_slots ni item ability n'existaient dans ce fichier). Sourcee
+// wiki (agent dedie, 6 items -- 3 outils + 3 armures) :
+// - Citrine (Foraging Fortune, PAS Sweep) -- emplacements REELS verifies
+//   AVANT de coder : Fig Hew=1, Figstone Splitter=2, Helix Chopper=2 (outils) ;
+//   Canopy=0 (confirme absent de l'infobox), Fig=1, Helix=2 (armure -- 1
+//   seul champ gemstone_slots sur la page de SET, pas par piece -- traite
+//   comme un total pour l'objet "armure" complet, meme convention que
+//   Reaper Armor/Combat qui n'a jamais ete per-piece non plus dans ce
+//   calculateur). Applique a TOUS les tiers ou l'item concerne est reellement
+//   choisi (contrairement au Sharpening Shard, ces slots existent des Fig/
+//   mid-tier, pas seulement Helix/end-late).
+// - Frenzy (item ability outil, PERMANENT une fois le seuil de logs coupes
+//   atteint) : Fig Hew +1 Sweep/2000 logs (max 20), Figstone Splitter
+//   +1/10000 (max 20, plus lent malgre l'upgrade -- verifie tel quel, pas
+//   une contradiction), Helix Chopper +1/20000 (max 40). Investissement reel
+//   tres important (Helix = 800 000 logs coupes pour le cap) -- meme
+//   discipline "investissement max END/LATE" que Sharpening Shard.
+const CITRINE_SLOTS_BY_TOOL: Record<string, number> = { FIG_AXE: 1, FIGSTONE_AXE: 2, HELIX_CHOPPER: 2 }
+const TOOL_RARITY: Record<string, string> = { FIG_AXE: 'UNCOMMON', FIGSTONE_AXE: 'RARE', HELIX_CHOPPER: 'EPIC' }
+const CITRINE_SLOTS_BY_ARMOR: Record<string, number> = { 'Fig Armor': 1, 'Helix Armor': 2 }
+const ARMOR_RARITY: Record<string, string> = { 'Fig Armor': 'RARE', 'Helix Armor': 'EPIC' }
+const FRENZY_BY_TOOL: Record<string, { cap: number }> = { FIG_AXE: { cap: 20 }, FIGSTONE_AXE: { cap: 20 }, HELIX_CHOPPER: { cap: 40 } }
+
+function citrineForagingFortuneBonus(toolItemId: string, armorSetPrefix: string): number {
+  let bonus = 0
+  const toolSlots = CITRINE_SLOTS_BY_TOOL[toolItemId]
+  if (toolSlots) {
+    const rarity = recombobulatedRarity(TOOL_RARITY[toolItemId])
+    bonus += toolSlots * (CITRINE_PERFECT_BY_RARITY[rarity] ?? 0)
+  }
+  const armorSlots = CITRINE_SLOTS_BY_ARMOR[armorSetPrefix]
+  if (armorSlots) {
+    const rarity = recombobulatedRarity(ARMOR_RARITY[armorSetPrefix])
+    bonus += armorSlots * (CITRINE_PERFECT_BY_RARITY[rarity] ?? 0)
+  }
+  return bonus
 }
 
 export type ForagingRankingResult = {
@@ -274,9 +315,20 @@ export async function computeForagingRanking(tier: TierKey, blockId: string): Pr
     let finalFF = topSetup.total_foraging_fortune
     let maxInvestmentBonus: number | undefined
 
+    // Gemmes Citrine (Foraging Fortune) -- appliquees des que l'outil/
+    // armure reellement choisi a un emplacement reel, a TOUS les tiers
+    // (contrairement au Sharpening Shard ci-dessous, ces slots existent
+    // deja des Fig/mid-tier). Voir doc de citrineForagingFortuneBonus.
+    finalFF += citrineForagingFortuneBonus(topSetup.tool_item_id, topSetup.armor_set)
+
     if (tier === 'end' || tier === 'late') {
       maxInvestmentBonus = maxInvestmentSweepBonus(blockId)
       finalSweep += maxInvestmentBonus
+      // Frenzy (item ability outil, PERMANENT une fois le seuil de logs
+      // coupes atteint) -- investissement reel tres important (voir doc),
+      // meme discipline "investissement max END/LATE" que Sharpening Shard.
+      const frenzy = FRENZY_BY_TOOL[topSetup.tool_item_id]
+      if (frenzy) finalSweep += frenzy.cap
     }
 
     const { logsPerSwing, yieldPerHour, coinsPerHourRawBlockOnly } = scoreYield(finalSweep, finalFF)
