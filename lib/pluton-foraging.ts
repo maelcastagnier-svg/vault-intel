@@ -164,6 +164,28 @@ const HOTF_SWEEP_MAX = 50 // perk "sweep", niveau 50 * 1
 const HOTF_FORAGING_FORTUNE_MAX = 150 // perk "foraging_fortune", niveau 50 * 3
 const HOTF_FORAGING_MADNESS = { sweep: 10, fortune: 50 } // palier unique
 
+// Center of the Forest (23 aout, trouve en corrigeant la corruption
+// "[object Object]" de hotf_perks.lore -- lore reconstruite depuis la
+// vraie page wiki "Heart of the Forest#Tier 5" apres avoir trouve que
+// hotf_perks.perk_id='center_of_the_forest' n'etait jamais consomme par
+// ce fichier, alors que ses 5 niveaux de recompense sont bien reels).
+// Perk PERMANENT (non reinitialisable, confirme explicitement par la page
+// "Heart of the Forest" elle-meme : "The Center of the Forest cannot be
+// reset, making it a permanent perk once upgraded"). Niveau max 5 :
+// - Lvl 2 : Sweep +5%
+// - Lvl 4 : Sweep +10%
+// Multiplicatif sur le Sweep total (pas un flat, confirme par le template
+// wiki {{Stat|swp|+5%}} -- Sweep est un nombre brut, jamais lui-meme un
+// pourcentage, donc "+X%" ne peut se lire que comme une augmentation
+// relative du total deja accumule). Applique meme convention "investissement
+// max END/LATE" que le reste des perks HOTF de ce fichier.
+// Lvl 1 (+1 Axe Ability Level) et Lvl 3 (Forest Whispers/Tree Gift, monnaie
+// non pricee) explicitement PAS integres : aucun systeme d'Axe Ability n'est
+// modelise cote Pluton Foraging (meme categorie de gap que le systeme de
+// Classes non modelise sur Dungeons), et le gain de Forest Whispers ne
+// touche aucune stat de rendement.
+const CENTER_OF_THE_FOREST_SWEEP_MULT = 1 + 5 / 100 + 10 / 100
+
 // Forest Essence Shop, perk "Lumberjack" (22 aout, trouve en auditant les
 // Essence Shops) -- +2/4/6/8/10/12/14/16/18/20 Foraging Fortune (10
 // paliers, niveau max), AUCUNE restriction de lieu dans le texte du perk
@@ -373,6 +395,9 @@ export async function computeForagingRanking(tier: TierKey, blockId: string): Pr
       // Forest Essence Shop, "Lumberjack" -- meme discipline "investissement
       // max END/LATE" que HOTF (voir doc de la constante).
       finalFF += LUMBERJACK_FORAGING_FORTUNE_MAX
+      // Center of the Forest (HOTF, perk permanent) -- multiplicatif,
+      // applique apres tous les bonus additifs de Sweep (voir doc constante).
+      finalSweep *= CENTER_OF_THE_FOREST_SWEEP_MULT
     }
 
     const { logsPerSwing, yieldPerHour, coinsPerHourRawBlockOnly } = scoreYield(finalSweep, finalFF)

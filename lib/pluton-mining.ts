@@ -546,6 +546,18 @@ export async function applyGemstoneBonuses(bestPetId: string | null): Promise<Ge
 // l'ancienne implémentation qui la limitait à tort aux blocs Gemstone).
 const MINING_SPEED_BOOST_LEVEL3 = { boostPct: 300, durationS: 20, baseCooldownS: 120 }
 const PERFECTLY_CUT_FUEL_TANK_COOLDOWN_REDUCTION_PCT = 10 // -10%, foret uniquement
+// Core of the Mountain (23 aout, trouve en corrigeant la corruption
+// "[object Object]" de hotm_perks.lore) -- perk HOTM 5 permanent (niveau
+// max 10, jamais reinitialisable). Son Niveau 2 donne litteralement "+1
+// Pickaxe Ability Level" -- pousserait Mining Speed Boost au-dela de son
+// Niveau 3 (deja assume max ci-dessus). GAP REEL DOCUMENTE, PAS INTEGRE :
+// aucune source (page wiki dediee "HotM 2 Perks/Mining Speed Boost", seule
+// table de valeurs par niveau qui existe) ne documente de Niveau 4 -- la
+// table s'arrete a 300%/20s. Inventer une extrapolation violerait la regle
+// #7 (jamais de constante de jeu reconstituee). Les 3 autres effets
+// numeriques de Core of the Mountain (Lvl 4/6/8 : +1/+2/+3 Powder de base
+// par bloc mine) sont hors-scope structurel de ce calculateur (Powder =
+// monnaie HOTM non tradeable, jamais pricee ici, voir doc d'en-tete fichier).
 
 function computeMiningSpeedBoostAvgMultiplier(hasDrillFuelTank: boolean): number {
   const cooldown = hasDrillFuelTank
