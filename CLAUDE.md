@@ -141,6 +141,23 @@ exacte 49 628, vérifiée).
 cartographie continue), puis Phase 3 (refonte des calculateurs, 1 par
 skill, consommant `pluton_elements`) — voir le plan complet.
 
+### ✅ Phase 4 — 7 vues tier créées et vérifiées
+
+`pluton_tier_starter`...`pluton_tier_master` (noms réels tirés de
+`milestone_tier_totals`) + `pluton_non_client_mechanics` (miroir,
+`element_type='admin_excluded'`, 736 lignes). Vues plutôt que 7 tables
+physiques — évite la classe de bug réelle (doublons cross-table) qui avait
+forcé l'abandon de l'architecture 7-tables originale le 17 août. Croissance
+cumulative vérifiée (starter 148 824 → master 183 680, +736 non-client =
+184 416 total exact). Limite documentée : la séparation client/non-client
+ne repose que sur `admin_excluded` pour l'instant — à affiner si besoin.
+
+**Phase 5 en cours** : compléter les briques NBT manquantes pour un setup
+complet (reforge déjà propre — `reforges`/`reforge_stones` ; 40 enchants
+compatibles épée identifiés dans `enchantments` mais sans formule de bonus
+par niveau structurée, à sourcer un par un ; étoiles/gemmes à extraire
+item par item). Voir le plan `joyful-shimmying-finch.md` pour le détail.
+
 ### 🚧 Phase 3 — Système B refondu, 1re tranche (Zombie Slayer) vérifiée
 
 `lib/pluton-combat.ts` — 1er fichier "1 skill = 1 calculateur" (remplace à
