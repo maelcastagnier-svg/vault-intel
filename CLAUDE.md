@@ -152,11 +152,48 @@ cumulative vérifiée (starter 148 824 → master 183 680, +736 non-client =
 184 416 total exact). Limite documentée : la séparation client/non-client
 ne repose que sur `admin_excluded` pour l'instant — à affiner si besoin.
 
-**Phase 5 en cours** : compléter les briques NBT manquantes pour un setup
-complet (reforge déjà propre — `reforges`/`reforge_stones` ; 40 enchants
-compatibles épée identifiés dans `enchantments` mais sans formule de bonus
-par niveau structurée, à sourcer un par un ; étoiles/gemmes à extraire
-item par item). Voir le plan `joyful-shimmying-finch.md` pour le détail.
+### 🚧 Phase 5 — composition NBT, Sharpness fusionné dans le DPS (22 août)
+
+1er modificateur NBT (au-delà du chemin de gear canonique déjà construit)
+réellement composé dans le calcul Zombie Slayer, preuve de concept avant
+d'étendre aux 39 autres enchants d'épée. Sourcée wiki "Sharpness"
+(`hypixelskyblock_wiki`, lue en entier, pas devinée) : bonus additif
+confirmé explicitement par le wiki lui-même (`{{additive}}`), même bucket
+que le perk Warrior niveau Combat 60 (+210%) déjà codé. `computeCombatDps()`
+(`lib/pluton-engine.ts`) étendu avec un paramètre `additionalAdditivePct`
+optionnel (rétro-compatible, Bestiary inchangé — seul autre appelant).
+Palier par tier joueur (III T1-3, V T4-6, VII T7), même convention
+"investissement croissant par tier" que Mining Speed Boost/Reaper Enrage —
+I-V obtenables Table d'Enchantement+Anvil (peu coûteux), VI/VII nécessitent
+Dark/Darker Auction ou NPC Tomioka (10M coins, réservé T7).
+
+**Vérifié en base** : DPS T7/ZOMBIE_SLAYER_T1 = 25 019.8416 exact (calcul
+à la main : 149×2.99×3.60×6.0×1.3×2, le bucket additif passe de ×3.10 à
+×3.60 avec Sharpness VII +50%) — confirmé identique en base après persist.
+Traçabilité complète : `pluton_rankings.accessories.nbt_modifiers` documente
+la composition réelle appliquée par combo, pas juste le résultat final.
+Route de debug temporaire supprimée après validation.
+
+**Reste à sourcer** (39 autres enchants d'épée identifiés dans
+`enchantments`, contenu wiki déjà lu pour 3 d'entre eux — Critical/Execute/
+First Strike — pas encore intégrés) :
+- **Critical** : +CritDamage par niveau (I+10% → VII+100%), composition
+  directe dans `BASE_CRIT_DAMAGE` — prochain candidat naturel après
+  Sharpness (même simplicité, bucket additif clair).
+- **Execute** : bonus scalant avec le % de vie MANQUANT du boss —
+  **contradiction réelle trouvée dans le wiki source lui-même** (l'intro dit
+  "pour chaque % de vie manquante", la section Ability dit littéralement
+  "pour chaque % de vie qu'a la cible") — nécessiterait en plus d'intégrer
+  le DPS sur la durée du combat (dégâts croissants à mesure que le boss
+  perd des PV), pas un multiplicateur plat comme Sharpness/Critical — mis
+  de côté, complexité de modélisation réelle, pas oublié.
+- **First Strike** : bonus uniquement sur le 1er coup porté à un mob (mutex
+  avec Triple Strike) — impact négligeable sur un TTK long (Slayer), mais
+  potentiellement significatif sur des kills très rapides — mis de côté
+  pour l'instant, même raison qu'Execute (mécanique burst, pas un multiplicateur
+  DPS soutenu, formule d'intégration pas encore posée).
+- Étoiles (régulières + Master)/gemmes/Hot Potato Book/Recombobulator etc. —
+  non commencés, voir plan `joyful-shimmying-finch.md`.
 
 ### 🚧 Phase 3 — Système B refondu, 1re tranche (Zombie Slayer) vérifiée
 
