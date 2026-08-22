@@ -28,7 +28,7 @@
 // documente sur la valeur deja validee (lib/pluton-slayer.ts, sourcee wiki
 // a l'origine), PAS une invention nouvelle, PAS un silence.
 import { createClient } from '@supabase/supabase-js'
-import { getGearStatsFromElements, findMobTypeBonus, computeCombatDps } from './pluton-engine'
+import { getGearStatsFromElements, findMobTypeBonus, findBaseStat, computeCombatDps } from './pluton-engine'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -56,7 +56,14 @@ function gearForTier(tier: string): { weapon: string; armor: string | null } {
 // Undead de l'armure et le detail de l'ability Enrage (duree/cooldown) ne
 // le sont pas -- fallback sur la recherche originale.
 const ENRAGE_UPTIME = 6 / 25 // 6s actif / 25s cooldown, cf. lib/pluton-slayer.ts
-const REAPER_ARMOR_UNDEAD_BONUS_FALLBACK_PCT = 100 // introuvable dans pluton_elements, meme apres recherche
+const REAPER_ARMOR_UNDEAD_BONUS_FALLBACK_PCT = 100 // introuvable dans pluton_elements (wiki_haiku_extract), meme apres recherche
+// Reaper Armor +75 Force permanente : CONFIRME reelle et presente dans
+// pluton_elements, mais dans wiki_table_extract (page "Strength", format
+// cells/headers) -- getGearStatsFromElements() n'interroge que
+// wiki_haiku_extract pour l'instant. Fallback documente en attendant
+// d'etendre le helper aux pages de reference wiki_table_extract (chantier
+// separe, note dans le plan de reconnexion).
+const REAPER_ARMOR_STRENGTH_FALLBACK = 75
 
 export type ZombieSlayerCombo = {
   playerTier: string
@@ -75,15 +82,25 @@ async function computeZombieSlayerCombo(playerTier: string, boss: { tier: number
   const { weapon, armor } = gearForTier(playerTier)
 
   const weaponStats = await getGearStatsFromElements(weapon, 'combat')
-  const armorStats = armor ? await getGearStatsFromElements(armor, 'combat') : new Map()
+  const armorStats = armor ? await getGearStatsFromElements(armor, 'combat') : []
 
-  const baseDamage = weaponStats.get('Damage')?.value ?? 0
-  if (!weaponStats.has('Damage')) gaps.push(`${weapon}: Damage introuvable dans pluton_elements`)
-  const strength = (weaponStats.get('Strength')?.value ?? 0) + (armorStats.get('Strength')?.value ?? 0)
+  const baseDamage = findBaseStat(weaponStats, 'Damage')
+  if (baseDamage === 0) gaps.push(`${weapon}: Damage introuvable dans pluton_elements`)
+  let armorStrength = findBaseStat(armorStats, 'Strength')
+  if (armor === 'Reaper Armor' && armorStrength === 0) {
+    armorStrength = REAPER_ARMOR_STRENGTH_FALLBACK
+    gaps.push(`${armor}: Strength introuvable dans pluton_elements (wiki_haiku_extract) -- reelle dans wiki_table_extract page "Strength", pas encore interrogee par ce helper, fallback valeur deja validee (+${REAPER_ARMOR_STRENGTH_FALLBACK})`)
+  }
+  const strength = findBaseStat(weaponStats, 'Strength') + armorStrength
 
   const weaponMobBonus = findMobTypeBonus(weaponStats, 'undead')
+  // Revenant Armor a reellement 0% bonus Undead (confirme -- armure de
+  // survie pure, aucun bonus offensif, deja documente cette session) : 0
+  // est ici la VRAIE valeur, pas un trou. Seul Reaper Armor a un bonus reel
+  // (+100%) introuvable dans pluton_elements -- fallback scope a cet
+  // unique cas, jamais applique generiquement a "armure sans bonus trouve".
   let armorMobBonus = armor ? findMobTypeBonus(armorStats, 'undead') : 0
-  if (armor && armorMobBonus === 0) {
+  if (armor === 'Reaper Armor' && armorMobBonus === 0) {
     armorMobBonus = REAPER_ARMOR_UNDEAD_BONUS_FALLBACK_PCT
     gaps.push(`${armor}: bonus vs Undead introuvable dans pluton_elements, fallback valeur deja validee (${REAPER_ARMOR_UNDEAD_BONUS_FALLBACK_PCT}%)`)
   }

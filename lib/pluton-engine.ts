@@ -196,41 +196,62 @@ export function computeCombatDps(baseDamage: number, strength: number, multiplic
 // verite pour la refonte "1 calculateur par skill" (plan reconnexion
 // Systeme A/B). Format des lignes wiki_haiku_extract : element_name =
 // "<ItemName> -- <StatName> <valeur>", raw_data.bonus_raw = valeur brute
-// ("+120", "+200%", "30"). Retourne une Map stat_name (tel quel, la
-// nomenclature n'est PAS uniforme d'un item a l'autre -- ex: "Damage to
-// Undead mobs" vs "Damage vs Undead" pour le meme concept -- l'appelant
-// fait le pattern-matching necessaire) -> {value, isPercent}.
-export type GearStat = { value: number; isPercent: boolean; raw: string }
+// ("+120", "+200%", "30").
+//
+// **Bug reel trouve et corrige en verifiant Reaper Falchion en prod (21
+// aout)** : `stat_name` n'est PAS unique par concept -- le meme stat_name
+// "Damage" porte a la fois la valeur PLATE (+120, note vide) et le bonus
+// vs type de mob (+200%, note="against Undead mobs") pour la meme arme.
+// Une 1re version dedupliquait par stat_name (Map), perdant silencieusement
+// l'une des deux lignes selon l'ordre de retour SQL -- moitie du DPS reel
+// selon quelle ligne survivait. Corrige : retourne TOUS les stats (tableau,
+// pas de dedup), `condition_note` inclus, l'appelant (findMobTypeBonus,
+// etc.) filtre sur le texte reel (stat_name OU condition_note), jamais sur
+// stat_name seul.
+export type GearStat = { statName: string; value: number; isPercent: boolean; raw: string; note: string }
 
-export async function getGearStatsFromElements(itemName: string, activity?: string): Promise<Map<string, GearStat>> {
+export async function getGearStatsFromElements(itemName: string, activity?: string): Promise<GearStat[]> {
   let query = supabase.from('pluton_elements')
     .select('stat_name, raw_data')
     .eq('source_table', 'wiki_haiku_extract')
     .ilike('element_name', `${itemName} -- %`)
   if (activity) query = query.eq('activity', activity)
   const { data } = await query
-  const stats = new Map<string, GearStat>()
+  const stats: GearStat[] = []
   for (const row of data || []) {
     const statName = row.stat_name as string | null
     const bonusRaw = (row.raw_data as any)?.bonus_raw as string | undefined
+    const note = ((row.raw_data as any)?.condition_note as string | undefined) || ''
     if (!statName || !bonusRaw) continue
     const isPercent = bonusRaw.includes('%')
     const value = parseFloat(bonusRaw.replace(/[+%]/g, ''))
     if (!isFinite(value)) continue
-    if (!stats.has(statName)) stats.set(statName, { value, isPercent, raw: bonusRaw })
+    stats.push({ statName, value, isPercent, raw: bonusRaw, note })
   }
   return stats
 }
 
+// Trouve la valeur PLATE d'un stat nomme (ex: "Damage", "Strength") --
+// exclut explicitement les lignes dont condition_note mentionne un type de
+// mob (celles-la sont un bonus conditionnel, pas la valeur de base), pour
+// eviter de reprendre par erreur la ligne "+200% against Undead mobs"
+// comme si c'etait le "Damage" plat de l'arme.
+export function findBaseStat(stats: GearStat[], statName: string): number {
+  const row = stats.find(s => s.statName.toLowerCase() === statName.toLowerCase() && !/\bvs\b|\bto\b.*mobs?|\bagainst\b/i.test(s.note))
+  return row?.value ?? 0
+}
+
 // Trouve la valeur d'un stat "mob-type bonus" (ex: "+200% vs Undead") parmi
-// les stats d'un item, quelle que soit la formulation reelle utilisee par
-// la page source ("to X mobs"/"vs X"/"against X").
-export function findMobTypeBonus(stats: Map<string, GearStat>, mobTypeKeyword: string): number {
-  for (const [name, stat] of stats) {
-    const lower = name.toLowerCase()
-    if (lower.includes('damage') && (lower.includes('to ') || lower.includes('vs ') || lower.includes('against ')) && lower.includes(mobTypeKeyword.toLowerCase())) {
-      return stat.value
-    }
+// les stats d'un item -- cherche dans stat_name ET condition_note (le
+// meme stat_name "Damage" porte souvent a la fois la valeur plate et le
+// bonus conditionnel, distingues uniquement par condition_note).
+export function findMobTypeBonus(stats: GearStat[], mobTypeKeyword: string): number {
+  const kw = mobTypeKeyword.toLowerCase()
+  for (const stat of stats) {
+    const haystack = `${stat.statName} ${stat.note}`.toLowerCase()
+    const mentionsDamage = haystack.includes('damage')
+    const mentionsRelation = haystack.includes(' to ') || haystack.includes(' vs ') || haystack.includes('against ')
+    if (mentionsDamage && mentionsRelation && haystack.includes(kw)) return stat.value
   }
   return 0
 }
