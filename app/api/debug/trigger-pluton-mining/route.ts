@@ -4,7 +4,7 @@
 import { NextResponse } from 'next/server'
 import { computeMiningRanking, computeAndPersistAllMiningRankings } from '../../../../lib/pluton-mining'
 
-export const maxDuration = 60
+export const maxDuration = 280
 
 export async function GET(request: Request) {
   const url = new URL(request.url)
