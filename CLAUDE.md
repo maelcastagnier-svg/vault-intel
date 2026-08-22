@@ -86,6 +86,79 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
+## ✅ Compte rendu final — audit corruption des sources + fermeture HOTM/HOTF (23 août)
+
+Suite directe de la demande explicite de l'utilisateur : "je veux que tu ne
+laisse rien au hasard et rien de côté... si les sources extraites sont trop
+mal faites, refais ce que Haiku n'a pas su faire... je veux un compte rendu
+final... maintenant". Deux volets traités : (1) scan systématique de
+corruption d'extraction sur TOUTES les tables texte/jsonb de la base, (2)
+fermeture des 2 corruptions réelles trouvées, avec intégration du contenu
+réel dans les calculateurs concernés.
+
+**Scan de corruption exhaustif** — recherche du motif `[object Object]`
+(signature d'un bug JS classique : un tableau d'objets sérialisé avec
+`String()` au lieu d'un accès à un champ précis) sur les 24 autres colonnes
+texte/jsonb candidates du schéma (`lore`/`description`/`content`/`notes`/
+`effect`/`value`) + `pluton_elements.raw_data`/`classification_reason` +
+`game_mechanics_misc.value` : **0 corruption trouvée partout ailleurs**.
+Seules 2 lignes corrompues existaient dans toute la base, toutes deux dans
+`hotm_perks`/`hotf_perks` (`lore`), trouvées avant ce scan large en auditant
+spécifiquement ces 2 tables suite à la question de l'utilisateur sur HOTM/
+HOTF. Conclusion honnête : la cartographie n'était pas "mal faite" au sens
+large — c'était 2 lignes ponctuelles corrompues sur ~184k éléments classés,
+pas un problème systémique.
+
+**Les 2 lignes corrompues identifiées** : `hotm_perks.perk_id='core_of_the_
+mountain'` (10 niveaux) et `hotf_perks.perk_id='center_of_the_forest'`
+(5 niveaux) — deux perks "hub" spéciaux (pas un simple scaling à 1 stat
+comme les autres perks HOTM/HOTF) dont le `lore` original contenait
+littéralement `"[object Object]"` répété une fois par ligne de récompense
+(10 et 8 occurrences respectivement, cohérent avec le nombre réel de lignes
+de récompense par niveau) — bug d'extraction réel sur ces 2 cas particuliers
+à structure multi-effet, jamais corrigé depuis leur import initial.
+
+**Contenu réel retrouvé et re-sourcé depuis le wiki live** (jamais deviné) :
+`Core of the Mountain` redirige vers `Heart of the Mountain#Tier_5`, `Center
+of the Forest` vers `Heart of the Forest#Tier_5` — contenu exact récupéré
+depuis ces 2 sections (déjà en cache pour HOTM, fetché en direct pour HOTF
+qui manquait cette page). Les deux `lore` réécrits avec le contenu réel
+niveau par niveau (format §-couleur Minecraft, cohérent avec le format des
+28 autres lignes déjà correctes de ces 2 tables) — plus `pluton_elements.
+raw_data` (id 368 et 9387, snapshots figés au moment de la classification
+initiale) resynchronisé avec le `lore` corrigé. **0 corruption restante**
+dans toute la base, vérifié par requête directe après fix.
+
+**2 vrais bonus trouvés dans ce contenu, traités différemment selon la
+disponibilité de la source** :
+- **Center of the Forest (HOTF) — Sweep +15% multiplicatif intégré à
+  `lib/pluton-foraging.ts`** : Niveau 2 (+5% Sweep) + Niveau 4 (+10% Sweep),
+  jamais consommé avant ce fix alors que la ligne existait depuis la
+  construction Foraging du 17 août. Appliqué après tous les bonus additifs
+  de Sweep déjà présents (même convention "investissement max END/LATE" que
+  le reste du fichier). **Vérifié en base** : LATE/HELIX_LOG Sweep 643→739
+  exact (643×1.15=739.35, arrondi 739, confirmé après redéploiement).
+- **Core of the Mountain (HOTM) — Niveau 2 "+1 Pickaxe Ability Level" —
+  gap réel documenté, PAS intégré** : ce bonus pousserait la capacité
+  Mining Speed Boost au-delà de son Niveau 3 déjà assumé max dans
+  `lib/pluton-mining.ts`. Aucune source (la page wiki dédiée à cette
+  capacité, seule table de valeurs par niveau connue) ne documente de
+  Niveau 4 — la table s'arrête à 300%/20s. Extrapoler violerait la règle
+  #7 (jamais de constante de jeu inventée). Documenté en commentaire dans
+  le code plutôt que masqué. Les 3 autres lignes numériques de Core of the
+  Mountain (Powder brut par bloc miné aux niveaux 4/6/8) restent hors-scope
+  structurel (Powder = monnaie HOTM non tradeable, jamais pricée par ce
+  calculateur, cohérent avec l'exclusion déjà actée du Mining Powder comme
+  mécanique fondamentale plutôt qu'activité).
+
+**Correction du 22 août reconfirmée dans ce lot** : le Mining Powder et le
+Forest Whispers (monnaies HOTM/HOTF) ne sont ni achetables ni vendables au
+Bazaar/AH — obtenables uniquement via commissions et minage/coupe de bois
+réel. Classification déjà correcte depuis la décision du 21 août (Powder =
+mécanique fondamentale, jamais une activité autonome), reconfirmée ici en
+vérifiant qu'aucun des 2 fichiers `.ts` touchés ne tente de pricer ces
+monnaies directement (seuls leurs perks/effets dérivés sont modélisés).
+
 ## 🚧 Pluton — reconnexion Système A/B, Phase 1 terminée (21 août)
 
 Audit général demandé par l'utilisateur après la fermeture du backlog
