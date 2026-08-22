@@ -28,9 +28,27 @@
 // documente sur la valeur deja validee (lib/pluton-slayer.ts, sourcee wiki
 // a l'origine), PAS une invention nouvelle, PAS un silence.
 import { createClient } from '@supabase/supabase-js'
-import { getGearStatsFromElements, findMobTypeBonus, findBaseStat, computeCombatDps } from './pluton-engine'
+import {
+  getGearStatsFromElements, findMobTypeBonus, findBaseStat, computeCombatDps,
+  fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH,
+} from './pluton-engine'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+
+// Rarete reelle des items (item_stats, verifiee 22 aout) -- necessaire pour
+// le lookup reforge (table `reforges`, keyee par rarete) et Recombobulator
+// (decale la rarete d'1 cran, voir pluton-engine.ts). Undead Sword=Common
+// confirme via l'infobox wiki (item_stats.rarity y est NULL, jamais
+// backfille pour ce starter item -- pas invente, verifie a la source).
+const WEAPON_RARITY: Record<string, string> = {
+  'Undead Sword': 'COMMON',
+  'Revenant Falchion': 'RARE',
+  'Reaper Falchion': 'EPIC',
+}
+const ARMOR_RARITY: Record<string, string> = {
+  'Revenant Armor': 'EPIC',
+  'Reaper Armor': 'LEGENDARY',
+}
 
 const PLAYER_TIERS = ['1', '2', '3', '4', '5', '6', '7'] as const
 
@@ -124,11 +142,9 @@ const CRITICAL_BONUS_PCT: Record<number, number> = { 1: 10, 2: 20, 3: 30, 4: 40,
 // de degats, Jasper domine donc strictement pour cette activite (meme
 // principe "recherche sur l'espace reel" que la vision finale Pluton).
 // Qualite PERFECT (investissement max, T7 uniquement -- ce sont des
-// emplacements Reaper-only). Valeurs table `gemstones` (bonus_value a
-// PERFECT, selon la rarete reelle de l'item hote : Reaper Falchion=EPIC,
-// Reaper Armor=LEGENDARY) :
-const GEMSTONE_STRENGTH_REAPER_FALCHION = 11 // Jasper PERFECT @ EPIC
-const GEMSTONE_STRENGTH_REAPER_ARMOR = 13 // Jasper PERFECT @ LEGENDARY
+// emplacements Reaper-only). Valeur = table `gemstones` a la rarete
+// RECOMBOBULEE (Reaper Falchion EPIC->LEGENDARY, Reaper Armor
+// LEGENDARY->MYTHIC -- voir Recombobulator plus bas, toujours applique).
 
 // Hot Potato Book / Fuming Potato Book -- 6e modificateur NBT (22 aout, meme
 // lot), UNIVERSEL (s'applique a n'importe quelle epee/armure du jeu, pas
@@ -220,15 +236,30 @@ async function computeZombieSlayerCombo(playerTier: string, boss: { tier: number
     `Critical ${roman} (+${criticalPct}% Crit Damage, sourcee wiki)`,
   ]
 
-  // Gemmes -- Reaper Falchion/Armor uniquement (T7), voir constantes ci-dessus.
+  // Recombobulator 3000 -- toujours applique (voir pluton-engine.ts, aucun
+  // downside reel documente). Decale la rarete d'1 cran pour le lookup
+  // reforge ET gemstone.
+  const weaponRarity = WEAPON_RARITY[weapon]
+  const weaponRecombRarity = recombobulatedRarity(weaponRarity)
+  nbtModifiers.push(`Recombobulator 3000 (${weapon}, ${weaponRarity}->${weaponRecombRarity}, sourcee wiki)`)
+
+  // Gemmes -- Reaper Falchion/Armor uniquement (emplacements reels verifies,
+  // voir doc ci-dessus), valeur = Jasper PERFECT a la rarete RECOMBOBULEE.
   let gemstoneStrength = 0
   if (weapon === 'Reaper Falchion') {
-    gemstoneStrength += GEMSTONE_STRENGTH_REAPER_FALCHION
-    nbtModifiers.push(`Gemme Jasper PERFECT (Reaper Falchion, +${GEMSTONE_STRENGTH_REAPER_FALCHION} Force, sourcee table gemstones)`)
+    const g = JASPER_PERFECT_BY_RARITY[weaponRecombRarity]
+    gemstoneStrength += g
+    nbtModifiers.push(`Gemme Jasper PERFECT (Reaper Falchion, +${g} Force, sourcee table gemstones, rarete recombobulee)`)
   }
+  let armorRecombRarity = ''
   if (armor === 'Reaper Armor') {
-    gemstoneStrength += GEMSTONE_STRENGTH_REAPER_ARMOR
-    nbtModifiers.push(`Gemme Jasper PERFECT (Reaper Armor, +${GEMSTONE_STRENGTH_REAPER_ARMOR} Force, sourcee table gemstones)`)
+    const armorRarity = ARMOR_RARITY[armor]
+    armorRecombRarity = recombobulatedRarity(armorRarity)
+    const g = JASPER_PERFECT_BY_RARITY[armorRecombRarity]
+    gemstoneStrength += g
+    nbtModifiers.push(`Gemme Jasper PERFECT (Reaper Armor, +${g} Force, sourcee table gemstones, rarete recombobulee ${armorRarity}->${armorRecombRarity})`)
+  } else if (armor) {
+    armorRecombRarity = recombobulatedRarity(ARMOR_RARITY[armor])
   }
 
   // Hot Potato Book / Fuming Potato Book -- universel, palier par tier.
@@ -236,12 +267,60 @@ async function computeZombieSlayerCombo(playerTier: string, boss: { tier: number
   const potatoFlat = potatoUses * POTATO_BOOK_BONUS_PER_USE
   nbtModifiers.push(`Hot/Fuming Potato Book x${potatoUses} (+${potatoFlat} Force/+${potatoFlat} Degats plat, sourcee wiki)`)
 
+  // The Art of War -- +5 Force, universel, cout unique, applique par defaut
+  // (voir pluton-engine.ts).
+  nbtModifiers.push(`The Art of War (+${ART_OF_WAR_STRENGTH} Force, sourcee wiki)`)
+  // The Art of Peace -- +40 HP par piece d'armure (sourcee wiki), documente
+  // pour un setup complet mais SANS effet sur ce calcul (HP n'entre pas dans
+  // la formule DPS/coins-per-hour) -- inclus dans le loadout, pas dans le score.
+  if (armor) nbtModifiers.push(`The Art of Peace x4 pieces (+160 HP total, sourcee wiki, sans effet DPS)`)
+
+  // Reforge -- recherche reelle sur l'espace des candidats (table `reforges`,
+  // rarete RECOMBOBULEE), jamais suppose. Arme x1, armure x4 (4 pieces
+  // identiques, simplification documentee -- voir pluton-engine.ts). Aucun
+  // reforge n'etait applique avant cette passe -- trou reel trouve en
+  // auditant "rien ne doit rester a moitie fait", pas seulement complete ici.
+  const strengthBeforeReforge = strength + enrageStrengthBonus + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH
+  const baseDamageBeforeReforge = baseDamage + flatDamageBonus + potatoFlat
+  const additivePctBeforeReforge = sharpnessPct + smitePct
+  const critDamageBeforeReforge = criticalPct
+
+  const scoreWeaponReforge = (delta: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
+    computeCombatDps(baseDamageBeforeReforge, strengthBeforeReforge + delta.strength, mults, additivePctBeforeReforge, critDamageBeforeReforge + delta.crit_damage, delta.crit_chance, delta.bonus_attack_speed)
+
+  const weaponReforgeCandidates = await fetchReforges('SWORD/ROD', weaponRecombRarity)
+  const bestWeaponReforge = pickBestReforge(weaponReforgeCandidates, 1, scoreWeaponReforge)
+
+  let armorReforgeDelta = { strength: 0, crit_chance: 0, crit_damage: 0, bonus_attack_speed: 0 }
+  if (armor && armorRecombRarity) {
+    const armorReforgeCandidates = await fetchReforges('ARMOR', armorRecombRarity)
+    const wStrength = strengthBeforeReforge + (bestWeaponReforge?.delta.strength || 0)
+    const wCritChance = bestWeaponReforge?.delta.crit_chance || 0
+    const wCritDamage = critDamageBeforeReforge + (bestWeaponReforge?.delta.crit_damage || 0)
+    const wAttackSpeed = bestWeaponReforge?.delta.bonus_attack_speed || 0
+    const scoreArmorReforge = (delta: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
+      computeCombatDps(baseDamageBeforeReforge, wStrength + delta.strength, mults, additivePctBeforeReforge, wCritDamage + delta.crit_damage, wCritChance + delta.crit_chance, wAttackSpeed + delta.bonus_attack_speed)
+    const best = pickBestReforge(armorReforgeCandidates, 4, scoreArmorReforge)
+    if (best) armorReforgeDelta = best.delta
+    if (best) nbtModifiers.push(`Reforge armure x4: ${best.name} (${armorRecombRarity}, +${best.delta.strength} Force/+${best.delta.crit_chance} CC/+${best.delta.crit_damage} CD/+${best.delta.bonus_attack_speed} AS, sourcee table reforges)`)
+  }
+  if (bestWeaponReforge) {
+    nbtModifiers.push(`Reforge arme: ${bestWeaponReforge.name} (${weaponRecombRarity}, +${bestWeaponReforge.delta.strength} Force/+${bestWeaponReforge.delta.crit_chance} CC/+${bestWeaponReforge.delta.crit_damage} CD/+${bestWeaponReforge.delta.bonus_attack_speed} AS, sourcee table reforges)`)
+  }
+
+  const finalStrength = strengthBeforeReforge + (bestWeaponReforge?.delta.strength || 0) + armorReforgeDelta.strength
+  const finalCritChance = (bestWeaponReforge?.delta.crit_chance || 0) + armorReforgeDelta.crit_chance
+  const finalCritDamage = critDamageBeforeReforge + (bestWeaponReforge?.delta.crit_damage || 0) + armorReforgeDelta.crit_damage
+  const finalAttackSpeed = (bestWeaponReforge?.delta.bonus_attack_speed || 0) + armorReforgeDelta.bonus_attack_speed
+
   const dps = computeCombatDps(
-    baseDamage + flatDamageBonus + potatoFlat,
-    strength + enrageStrengthBonus + gemstoneStrength + potatoFlat,
+    baseDamageBeforeReforge,
+    finalStrength,
     mults,
-    sharpnessPct + smitePct,
-    criticalPct
+    additivePctBeforeReforge,
+    finalCritDamage,
+    finalCritChance,
+    finalAttackSpeed
   )
   const ttkSeconds = boss.health / dps
   const killsPerHour = 3600 / ttkSeconds
@@ -305,7 +384,7 @@ export async function computeAndPersistZombieSlayerRankings(): Promise<{ combos:
         block_id: `ZOMBIE_SLAYER_T${bossTier}`,
         block_name: `Zombie Slayer -- ${sample.bossName}`,
         block_strength: 0, required_breaking_power: 0, sell_item_id: 'REVENANT_FLESH', base_drop_count: 1,
-        pricing_note: `Refonte 1-skill-par-fichier (21-22 aout) -- gear source en direct depuis pluton_elements (Systeme A), echelle tier joueur 1-7 reelle. Formule Damage/Damage Calculation deja validee (lib/pluton-slayer.ts). Phase 5 (composition NBT), lot complet : Sharpness/Smite/Critical (enchants, additif/CritDamage), Gemme Jasper PERFECT (Reaper Falchion+Armor uniquement, seul emplacement reel), Hot/Fuming Potato Book (universel, plat, palier 5/10/15 usages par tier) -- tous sourcees wiki/table gemstones, palier par tier. Gaps de donnees Systeme A documentes: ${allGaps.join(' | ') || 'aucun'}.`,
+        pricing_note: `Refonte 1-skill-par-fichier (21-22 aout) -- gear source en direct depuis pluton_elements (Systeme A), echelle tier joueur 1-7 reelle. Formule Damage/Damage Calculation deja validee (lib/pluton-slayer.ts). Phase 5 (composition NBT), setup complet : Sharpness/Smite/Critical (enchants), Gemme Jasper PERFECT (rarete recombobulee), Hot/Fuming Potato Book (universel), The Art of War (+5 Force), Recombobulator 3000 (toujours applique, decale reforge+gemme d'1 rarete), Reforge arme+armure (recherche reelle sur la table reforges, pas suppose) -- tous sourcees wiki/tables reforges+gemstones. Recombobulator lui-meme necessiterait des stats de base recombobulees pour un gain complet (hors-scope ici, seuls reforge/gemme en beneficient -- gap documente). Gaps de donnees Systeme A documentes: ${allGaps.join(' | ') || 'aucun'}.`,
       })
       .select('id').single()
     if (error || !block) throw new Error(`target_block insert failed: ${error?.message}`)

@@ -182,13 +182,90 @@ export function computeAttacksPerSecond(bonusAttackSpeed: number): number {
   return 20 / ticks
 }
 
-export function computeCombatDps(baseDamage: number, strength: number, multiplicativeFactors: number[], additionalAdditivePct: number = 0, additionalCritDamagePct: number = 0): number {
+// 22 aout -- etendu avec additionalCritChancePct/bonusAttackSpeed (absents
+// jusqu'ici, trou reel trouve en construisant la recherche de reforge
+// ci-dessous : aucun moyen de composer un bonus Crit Chance ni une vitesse
+// d'attaque non-nulle). Retro-compatible (nouveaux parametres optionnels,
+// defaut 0 -- Bestiary, seul autre appelant, inchange). Crit Chance
+// plafonnee a 100 (reelle limite du jeu, jamais verifiee avant -- sans
+// consequence tant qu'aucune source ne depassait 100, mais Sharp/Pure
+// reforge + Critical enchant peuvent reellement y arriver).
+export function computeCombatDps(baseDamage: number, strength: number, multiplicativeFactors: number[], additionalAdditivePct: number = 0, additionalCritDamagePct: number = 0, additionalCritChancePct: number = 0, bonusAttackSpeed: number = 0): number {
   const multiplicativeMult = multiplicativeFactors.reduce((a, b) => a * b, 1)
   const nonCrit = (5 + baseDamage) * (1 + (BASE_STRENGTH + strength) / 100) * (1 + (COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT + additionalAdditivePct) / 100) * multiplicativeMult
-  const critChance = BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS
+  const critChance = Math.min(100, BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS + additionalCritChancePct)
   const expectedPerHit = nonCrit * (1 + (critChance / 100) * ((BASE_CRIT_DAMAGE + additionalCritDamagePct) / 100))
-  return expectedPerHit * computeAttacksPerSecond(0)
+  return expectedPerHit * computeAttacksPerSecond(bonusAttackSpeed)
 }
+
+// Reforges -- recherche reelle sur l'espace des candidats (22 aout, suite
+// au recadrage "ne rien laisser a moitie" de l'utilisateur). Jusqu'ici
+// AUCUN calculateur Combat n'appliquait de reforge du tout (trou reel
+// trouve en auditant, pas seulement "pas encore fait" -- absent des deux
+// fichiers). Plutot que supposer un reforge "evident" (Heroic/Legendary),
+// le moteur simule le DPS de CHAQUE reforge candidat (table `reforges`,
+// meme rarete que l'item, x1 pour une arme/x4 pour un set d'armure complet
+// -- 4 pieces identiques reforgees, simplification documentee faute de
+// differenciation par piece dans ce modele) et retient le meilleur reel --
+// confirme en pratique que le "meilleur" reforge depend de la rarete de
+// l'item (paliers d'Attack Speed via floor(10/(1+AS/100)) creent des sauts
+// non-lineaires, ex: "Fast" domine sur une arme EPIC grace au palier
+// AS=40->ticks=7, mais rien ne garantit que ce soit vrai a toute rarete)
+// -- jamais une reforge fixee en dur.
+export type ReforgeStatDelta = { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }
+export type ReforgeCandidate = { name: string; raw: Record<string, number> }
+
+export async function fetchReforges(itemTypes: 'SWORD/ROD' | 'ARMOR', rarity: string): Promise<ReforgeCandidate[]> {
+  const { data } = await supabase.from('reforges').select('reforge_name, stats').eq('item_types', itemTypes).eq('rarity', rarity)
+  return (data || []).map((r: any) => ({ name: r.reforge_name, raw: r.stats || {} }))
+}
+
+export function pickBestReforge(
+  candidates: ReforgeCandidate[],
+  countMultiplier: number,
+  scoreFn: (delta: ReforgeStatDelta) => number
+): { name: string; delta: ReforgeStatDelta } | null {
+  let best: { name: string; delta: ReforgeStatDelta; score: number } | null = null
+  for (const c of candidates) {
+    const delta: ReforgeStatDelta = {
+      strength: (c.raw.strength || 0) * countMultiplier,
+      crit_chance: (c.raw.crit_chance || 0) * countMultiplier,
+      crit_damage: (c.raw.crit_damage || 0) * countMultiplier,
+      bonus_attack_speed: (c.raw.bonus_attack_speed || 0) * countMultiplier,
+    }
+    const score = scoreFn(delta)
+    if (!best || score > best.score) best = { name: c.name, delta, score }
+  }
+  return best ? { name: best.name, delta: best.delta } : null
+}
+
+// Recombobulator 3000 -- sourcee wiki ("increases the effect of Reforges
+// and Gemstones applied to the item"), toujours applique ici : aucun
+// downside reel documente ("Reforges peuvent etre appliques avant ou apres,
+// profitent quand meme du bonus de rarete"), strictement benefique des que
+// la rarete suivante existe. Decale la rarete d'1 cran pour le lookup
+// reforge ET gemstone -- reutilise les memes tables deja sourcees (aucune
+// nouvelle donnee inventee, juste la ligne de rarete suivante des memes
+// tables `reforges`/`gemstones`).
+const RARITY_ORDER = ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY', 'MYTHIC']
+export function recombobulatedRarity(rarity: string): string {
+  const idx = RARITY_ORDER.indexOf(rarity)
+  return idx >= 0 && idx < RARITY_ORDER.length - 1 ? RARITY_ORDER[idx + 1] : rarity
+}
+
+// Jasper PERFECT par rarete -- sourcee table `gemstones` (verifiee 22 aout,
+// meme requete que lib/pluton-mining.ts), partagee ici pour eviter de la
+// re-hardcoder par fichier/par item a chaque fois qu'un emplacement Jasper
+// reel est trouve.
+export const JASPER_PERFECT_BY_RARITY: Record<string, number> = {
+  COMMON: 6, UNCOMMON: 7, RARE: 9, EPIC: 11, LEGENDARY: 13, MYTHIC: 16,
+}
+
+// The Art of War -- sourcee wiki ("can be applied to Weapons/Axes via un
+// Anvil to grant +5 Strength, once per item"). Universel, cout unique
+// modique, aucun downside -- applique par defaut a toute arme comme
+// Recombobulator.
+export const ART_OF_WAR_STRENGTH = 5
 
 // Extrait les stats reelles d'un item directement depuis pluton_elements
 // (Systeme A, 21 aout) -- 1er vrai consommateur en lecture live, remplace

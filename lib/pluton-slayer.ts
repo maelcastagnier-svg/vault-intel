@@ -82,11 +82,26 @@
 // documentee comme telle, pas un cycle de jeu complet realiste.
 import { createClient } from '@supabase/supabase-js'
 import { TIER_CONFIG, type TierKey } from './money-making-constants'
+import {
+  fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH,
+} from './pluton-engine'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+// Rarete reelle (item_stats, verifiee 22 aout) -- necessaire pour Reforge
+// (table `reforges`, keyee par rarete) et Recombobulator (decale d'1 cran).
+const WEAPON_RARITY: Record<string, string> = {
+  SPIDER_SWORD: 'COMMON', RECLUSE_FANG: 'UNCOMMON', TARANTULA_FANG: 'RARE', SCORPION_FOIL: 'EPIC', STING: 'LEGENDARY',
+  SHAMAN_SWORD: 'EPIC', POOCH_SWORD: 'LEGENDARY',
+  VOIDWALKER_KATANA: 'UNCOMMON', VOIDEDGE_KATANA: 'RARE', ATOMSPLIT_KATANA: 'LEGENDARY',
+  MAWDUST_DAGGER: 'RARE', HEARTMAW_DAGGER: 'LEGENDARY',
+}
+const ARMOR_RARITY_BY_PREFIX: Record<string, string> = {
+  TARANTULA: 'EPIC', PRIMORDIAL: 'LEGENDARY', MASTIFF: 'EPIC', FINAL_DESTINATION: 'LEGENDARY',
+}
 
 export const SLAYER_TARGET_BLOCK_IDS = [
   'ZOMBIE_T1', 'ZOMBIE_T2', 'ZOMBIE_T3', 'ZOMBIE_T4', 'ZOMBIE_T5',
@@ -145,12 +160,15 @@ const MOB_TYPE_ENCHANT_PCT_BY_TIER: Partial<Record<string, Record<TierKey, numbe
 // que soit le tier joueur (pas de palier de qualite intermediaire ROUGH/
 // FINE/FLAWLESS -- gain marginal faible face a la complexite d'un 2e axe de
 // palier, meme discipline "MVP documente" que Foraging/autres).
-const GEMSTONE_JASPER_STRENGTH_BY_WEAPON: Record<string, number> = {
-  STING: 26, // LEGENDARY, 2 emplacements Combat -> 2x Jasper PERFECT (13 chacun)
-  TARANTULA_FANG: 9, // RARE, 1 emplacement Combat gratuit -> Jasper PERFECT
-  POOCH_SWORD: 13, // LEGENDARY, 1 emplacement Jasper-only
-  ATOMSPLIT_KATANA: 13, // LEGENDARY, 1 emplacement Jasper (2 Sapphire ignores, sans effet DPS)
-  VOIDEDGE_KATANA: 9, // RARE, 1 emplacement Jasper (1 Sapphire ignore)
+// Nombre d'emplacements Jasper par arme (verifie AVANT de coder) -- valeur
+// reelle = JASPER_PERFECT_BY_RARITY a la rarete RECOMBOBULEE (voir plus bas,
+// Recombobulator toujours applique), pas a la rarete de base.
+const JASPER_SLOTS_BY_WEAPON: Record<string, number> = {
+  STING: 2, // LEGENDARY, 2 emplacements Combat
+  TARANTULA_FANG: 1, // RARE, 1 emplacement Combat gratuit
+  POOCH_SWORD: 1, // LEGENDARY, 1 emplacement Jasper-only
+  ATOMSPLIT_KATANA: 1, // LEGENDARY, 1 emplacement Jasper (2 Sapphire ignores, sans effet DPS)
+  VOIDEDGE_KATANA: 1, // RARE, 1 emplacement Jasper (1 Sapphire ignore)
 }
 
 // Hot Potato Book / Fuming Potato Book -- universel (voir doc complete dans
@@ -204,6 +222,8 @@ export type SlayerRankingResult = {
     kills_per_hour: number
     coins_per_hour_boss_phase_only: number
     enrage_applied: boolean
+    weapon_reforge: string | null
+    armor_reforge_x4: string | null
   } | null
 }
 
@@ -308,10 +328,18 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
   for (const weaponId of gearConfig.weapons) {
     const weapon = weaponById.get(weaponId)
     if (!weapon) continue
-    const gemstoneStrength = GEMSTONE_JASPER_STRENGTH_BY_WEAPON[weaponId] ?? 0
+
+    // Recombobulator 3000 -- toujours applique (voir pluton-engine.ts).
+    const weaponRarity = WEAPON_RARITY[weaponId]
+    const weaponRecombRarity = weaponRarity ? recombobulatedRarity(weaponRarity) : undefined
+    const armorRarity = armor?.set_prefix ? ARMOR_RARITY_BY_PREFIX[armor.set_prefix] : undefined
+    const armorRecombRarity = armorRarity ? recombobulatedRarity(armorRarity) : undefined
+
+    const jasperSlots = JASPER_SLOTS_BY_WEAPON[weaponId] ?? 0
+    const gemstoneStrength = jasperSlots && weaponRecombRarity ? jasperSlots * JASPER_PERFECT_BY_RARITY[weaponRecombRarity] : 0
     const potatoUses = POTATO_BOOK_USES_BY_TIER[tier]
     const potatoFlat = potatoUses * POTATO_BOOK_BONUS_PER_USE
-    const totalStrength = BASE_STRENGTH + Number(weapon.base_strength) + armorStrength + enrageStrength + gemstoneStrength + potatoFlat
+    const totalStrength = BASE_STRENGTH + Number(weapon.base_strength) + armorStrength + enrageStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH
     const weaponMobTypeMult = 1 + Number(weapon.mob_type_damage_bonus_pct) / 100
 
     // Octodexterity (armure) -- deja fourni pre-moyenne par le wiki lui-meme
@@ -360,14 +388,58 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
     const mobEnchantPct = MOB_TYPE_ENCHANT_PCT_BY_TIER[slayerKey]?.[tier] ?? 0
     const additivePct = COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT + sharpnessPct + mobEnchantPct
     critDamage += CRITICAL_PCT_BY_TIER[tier]
-    const critChance = BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS + weaponCritChance
+    const critChanceBeforeReforge = Math.min(100, BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS + weaponCritChance)
+    const multiplicativeFactors = [weaponMobTypeMult, armorMobTypeMult, octoMult, packMentalityMult, enrageMobTypeMult]
+    const flatDamageTotal = enrageFlatDamage + collectionLevelFlatDamage + potatoFlat
+
+    // Reforge -- recherche reelle sur l'espace des candidats (table
+    // `reforges`, rarete RECOMBOBULEE), jamais suppose. Arme x1, armure x4
+    // (4 pieces identiques, simplification documentee -- voir
+    // pluton-engine.ts). Aucun reforge n'etait applique avant cette passe.
+    const scoreWeaponReforge = (delta: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
+      computeDps(
+        Number(weapon.base_damage), flatDamageTotal, totalStrength + delta.strength,
+        additivePct, multiplicativeFactors,
+        Math.min(100, critChanceBeforeReforge + delta.crit_chance), critDamage + delta.crit_damage,
+        !!weapon.always_crit, bonusAttackSpeed + delta.bonus_attack_speed
+      )
+    const weaponReforgeCandidates = weaponRecombRarity ? await fetchReforges('SWORD/ROD', weaponRecombRarity) : []
+    const bestWeaponReforge = pickBestReforge(weaponReforgeCandidates, 1, scoreWeaponReforge)
+
+    let armorReforgeDelta = { strength: 0, crit_chance: 0, crit_damage: 0, bonus_attack_speed: 0 }
+    let armorReforgeName: string | null = null
+    if (armorRecombRarity) {
+      const armorReforgeCandidates = await fetchReforges('ARMOR', armorRecombRarity)
+      const wStrength = totalStrength + (bestWeaponReforge?.delta.strength || 0)
+      const wCritChance = Math.min(100, critChanceBeforeReforge + (bestWeaponReforge?.delta.crit_chance || 0))
+      const wCritDamage = critDamage + (bestWeaponReforge?.delta.crit_damage || 0)
+      const wAttackSpeed = bonusAttackSpeed + (bestWeaponReforge?.delta.bonus_attack_speed || 0)
+      const scoreArmorReforge = (delta: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
+        computeDps(
+          Number(weapon.base_damage), flatDamageTotal, wStrength + delta.strength,
+          additivePct, multiplicativeFactors,
+          Math.min(100, wCritChance + delta.crit_chance), wCritDamage + delta.crit_damage,
+          !!weapon.always_crit, wAttackSpeed + delta.bonus_attack_speed
+        )
+      const best2 = pickBestReforge(armorReforgeCandidates, 4, scoreArmorReforge)
+      if (best2) { armorReforgeDelta = best2.delta; armorReforgeName = best2.name }
+    }
+
+    const finalStrength = totalStrength + (bestWeaponReforge?.delta.strength || 0) + armorReforgeDelta.strength
+    const finalCritChance = Math.min(100, critChanceBeforeReforge + (bestWeaponReforge?.delta.crit_chance || 0) + armorReforgeDelta.crit_chance)
+    const finalCritDamage = critDamage + (bestWeaponReforge?.delta.crit_damage || 0) + armorReforgeDelta.crit_damage
+    const finalAttackSpeed = bonusAttackSpeed + (bestWeaponReforge?.delta.bonus_attack_speed || 0) + armorReforgeDelta.bonus_attack_speed
+
     const dps = computeDps(
-      Number(weapon.base_damage), enrageFlatDamage + collectionLevelFlatDamage + potatoFlat, totalStrength,
-      additivePct, [weaponMobTypeMult, armorMobTypeMult, octoMult, packMentalityMult, enrageMobTypeMult],
-      critChance, critDamage, !!weapon.always_crit, bonusAttackSpeed
+      Number(weapon.base_damage), flatDamageTotal, finalStrength,
+      additivePct, multiplicativeFactors,
+      finalCritChance, finalCritDamage, !!weapon.always_crit, finalAttackSpeed
     )
     if (!best || dps > best.dps) {
-      best = { weapon: weapon.display_name, weapon_item_id: weapon.item_id, total_strength: totalStrength, dps, bonusAttackSpeed }
+      best = {
+        weapon: weapon.display_name, weapon_item_id: weapon.item_id, total_strength: finalStrength, dps, bonusAttackSpeed: finalAttackSpeed,
+        weapon_reforge: bestWeaponReforge?.name ?? null, armor_reforge_x4: armorReforgeName,
+      }
     }
   }
   if (!best) return { target_block: boss.boss_name, target_block_id: targetBlock.id, tier, top_setup: null }
@@ -418,6 +490,8 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
       kills_per_hour: killsPerHour,
       coins_per_hour_boss_phase_only: coinsPerHour,
       enrage_applied: gearConfig.enrage,
+      weapon_reforge: best.weapon_reforge,
+      armor_reforge_x4: best.armor_reforge_x4,
     },
   }
 }
@@ -467,7 +541,7 @@ export async function computeAndPersistAllSlayerRankings(): Promise<PersistedSla
           real_cost: 0, // gear gate par collection XP, pas par prix AH (voir doc)
           pet_id: null,
           pet_rarity: null,
-          accessories: [{ source_id: '__enrage_applied__', equip_slot: 'meta', enrage: s.enrage_applied }],
+          accessories: [{ source_id: '__enrage_applied__', equip_slot: 'meta', enrage: s.enrage_applied, weapon_reforge: s.weapon_reforge, armor_reforge_x4: s.armor_reforge_x4, art_of_war: true, art_of_peace_x4: !!s.armor_set, recombobulated: true }],
         })
         .select('id')
         .single()
