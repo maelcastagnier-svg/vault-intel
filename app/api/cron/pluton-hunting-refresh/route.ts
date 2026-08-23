@@ -7,7 +7,9 @@ import { NextResponse } from 'next/server'
 import { computeAndPersistTrapHuntingRankings } from '../../../../lib/pluton-hunting'
 import { startSync, finishSync } from '../../../../lib/sync-log'
 
-export const maxDuration = 30
+// 30->90 (23 aout, migration 7-tiers) -- 2240 lignes (320 shards x 7 tiers,
+// contre ~1280 avant), marge de securite, aucune formule changee.
+export const maxDuration = 90
 
 export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {

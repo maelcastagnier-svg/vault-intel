@@ -19,7 +19,11 @@ import { startSync, finishSync } from '../../../../lib/sync-log'
 // l'ajout Recombobulator (deja a la limite), et un run reel a depasse 120s
 // et est reste bloque en 'running' (id 42126, jamais fini) pendant l'audit
 // de cette session -- marge de securite augmentee, aucune formule changee.
-export const maxDuration = 280
+// 280->300 (23 aout, migration 7-tiers) -- 7 tiers = +75% de combos par
+// rapport aux 4 tiers d'origine (deja documente comme proche de la limite
+// a 280s avec Forge inclus) -- marge de securite augmentee au max deja
+// valide sur ce projet, aucune formule changee.
+export const maxDuration = 300
 
 export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {

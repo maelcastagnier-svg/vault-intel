@@ -7,7 +7,9 @@ import { NextResponse } from 'next/server'
 import { computeAndPersistAllSlayerRankings } from '../../../../lib/pluton-slayer'
 import { startSync, finishSync } from '../../../../lib/sync-log'
 
-export const maxDuration = 120
+// 120->220 (23 aout, migration 7-tiers) -- +75% de combos (4->7 tiers),
+// marge de securite, aucune formule changee.
+export const maxDuration = 220
 
 export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {

@@ -7,7 +7,9 @@ import { NextResponse } from 'next/server'
 import { computeAndPersistBestiaryRankings } from '../../../../lib/pluton-bestiary'
 import { startSync, finishSync } from '../../../../lib/sync-log'
 
-export const maxDuration = 60
+// 60->100 (23 aout, migration 7-tiers) -- +75% de recherches de reforge par
+// mob (4->7 tiers), marge de securite, aucune formule changee.
+export const maxDuration = 100
 
 export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
