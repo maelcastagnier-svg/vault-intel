@@ -45,7 +45,7 @@
 // Slayer, qui partagent litteralement le meme combat/formule, un vrai cas
 // de regroupement legitime).
 import { createClient } from '@supabase/supabase-js'
-import type { TierKey } from './money-making-constants'
+import { SEVEN_TIER_KEYS, type SevenTier } from './pluton-engine'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -60,11 +60,20 @@ const BASE_HOURS_BY_RARITY: Record<string, number> = {
   LEGENDARY: (16 + 24) / 2,
 }
 
-const TRAP_BY_TIER: Record<TierKey, { itemId: string; name: string; reductionPct: number }> = {
-  early: { itemId: 'RETIA_BASICA', name: 'Small Huntrap', reductionPct: 0 },
-  mid: { itemId: 'RETIA_MELIORA', name: 'Medium Huntrap', reductionPct: 10 },
-  end: { itemId: 'RETIA_FORTA', name: 'Greater Huntrap', reductionPct: 35 },
-  late: { itemId: 'RETIA_SUPREMA', name: 'Astral Huntrap', reductionPct: 50 },
+// Migre au systeme reel a 7 tiers (23 aout) -- les 5 vrais paliers de
+// Huntrap (Small/Medium/Large/Greater/Astral) tiennent maintenant TOUS dans
+// les 7 tiers joueur, y compris Large (RETIA_ROBUSTA, -20%) qui etait
+// jusqu'ici saute par la compression 5->4 de l'ancien systeme -- plus
+// aucune donnee reelle perdue. Seul "intermediate" (entre Small et Medium)
+// reste une interpolation lineaire, aucune autre valeur n'est inventee.
+const TRAP_BY_TIER: Record<SevenTier, { itemId: string; name: string; reductionPct: number }> = {
+  starter:      { itemId: 'RETIA_BASICA',  name: 'Small Huntrap',   reductionPct: 0 },
+  amateur:      { itemId: 'RETIA_BASICA',  name: 'Small Huntrap',   reductionPct: 0 },     // ancre reelle
+  intermediate: { itemId: 'RETIA_MELIORA', name: 'Medium Huntrap',  reductionPct: 5 },      // interpole (Small->Medium)
+  skilled:      { itemId: 'RETIA_MELIORA', name: 'Medium Huntrap',  reductionPct: 10 },     // ancre reelle
+  expert:       { itemId: 'RETIA_ROBUSTA', name: 'Large Huntrap',   reductionPct: 20 },     // ancre reelle, restauree (sautee dans l'ancien systeme 4-tiers)
+  professional: { itemId: 'RETIA_FORTA',   name: 'Greater Huntrap', reductionPct: 35 },     // ancre reelle
+  master:       { itemId: 'RETIA_SUPREMA', name: 'Astral Huntrap',  reductionPct: 50 },     // ancre reelle
 }
 
 // Forest Essence Shop, perk "Trapped" (22 aout, trouve en auditant les
@@ -76,7 +85,7 @@ const TRAP_BY_TIER: Record<TierKey, { itemId: string; name: string; reductionPct
 const TRAPPED_REDUCTION_PCT_MAX = 5
 
 export type TrapHuntingResult = {
-  tier: TierKey
+  tier: SevenTier
   shard_item_id: string
   shard_name: string
   shard_rarity: string
@@ -106,7 +115,7 @@ export async function computeTrapHuntingRankings(): Promise<TrapHuntingResult[]>
   for (const row of priceRows || []) if (!priceCache.has(row.item_id)) priceCache.set(row.item_id, Number(row.sell_price))
 
   const results: TrapHuntingResult[] = []
-  for (const tier of ['early', 'mid', 'end', 'late'] as TierKey[]) {
+  for (const tier of SEVEN_TIER_KEYS) {
     const trap = TRAP_BY_TIER[tier]
     for (const s of validShards) {
       const price = priceCache.get(s.bazaar_stock_id as string)

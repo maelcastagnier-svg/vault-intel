@@ -46,8 +46,8 @@
 // "20 actions/seconde" cette fois -- une vraie formule existe.
 import { createClient } from '@supabase/supabase-js'
 import { loadPricedItems, type PricedItem } from './gear-pricing'
-import { TIER_CONFIG, type TierKey } from './money-making-constants'
-import { recombobulatedRarity } from './pluton-engine'
+import type { SevenTierConfig } from './money-making-constants'
+import { recombobulatedRarity, SEVEN_TIER_KEYS, type SevenTier, loadSevenTierConfig, INVESTMENT_MAX_TIERS } from './pluton-engine'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -62,12 +62,20 @@ const supabase = createClient(
 // wiki (`piscary`/`expertise`/`sea_creature_chance`#Reforges), agent dedie.
 //
 // Piscary -- +Fishing Speed par niveau, additif confirme ("Fs stacks
-// additively"), I-V Table+Anvil, VI/VII drop rare/item special. Palier par
-// tier, meme convention que Sharpness Combat.
-const PISCARY_FS_BY_TIER: Record<TierKey, number> = { early: 3, mid: 5, end: 7, late: 7 }
-// Expertise -- +Sea Creature Chance par niveau (I-X, 0.6% a 6%), additif.
-// Palier par tier.
-const EXPERTISE_SCC_BY_TIER: Record<TierKey, number> = { early: 1.8, mid: 3.6, end: 6, late: 6 }
+// additively"), I-VII Table+Anvil/drop rare/item special. Palier par tier,
+// meme convention que Sharpness Combat. 7 vrais niveaux (I-VII) correspondent
+// maintenant exactement aux 7 tiers reels (23 aout) -- value=tier_order,
+// mapping direct, plus naturel que l'ancienne interpolation 4 paliers.
+const PISCARY_FS_BY_TIER: Record<SevenTier, number> = {
+  starter: 1, amateur: 2, intermediate: 3, skilled: 4, expert: 5, professional: 6, master: 7,
+}
+// Expertise -- +Sea Creature Chance par niveau (I-X, 0.6% a 6% par niveau),
+// additif. Interpolation sur 7 paliers (23 aout) -- ancres reelles
+// preservees : amateur=ancien early (niveau 3=1.8%), professional/master=
+// ancien end/late (niveau 10 max=6%).
+const EXPERTISE_SCC_BY_TIER: Record<SevenTier, number> = {
+  starter: 0.6, amateur: 1.8, intermediate: 3.0, skilled: 4.2, expert: 5.4, professional: 6.0, master: 6.0,
+}
 // Reforges rod (Salty/Treacherous/Stiff/Lucky, page wiki dediee
 // "reforge_stones_fishing_rod" + section Reforges de "sea_creature_chance")
 // -- **PAS de table par rarete sourcee** (contrairement aux reforges Combat/
@@ -99,7 +107,8 @@ const ROD_RARITY: Record<string, string> = { CHALLENGE_ROD: 'UNCOMMON', CHAMP_RO
 // verifie explicitement, pas suppose. Non appliques ici, a dessein.
 
 export const FISHING_TARGET_BLOCK_IDS = ['WATER_POOL'] as const
-export const FISHING_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
+// 7 tiers reels (starter->master, 23 aout).
+export const FISHING_TIER_KEYS: readonly SevenTier[] = SEVEN_TIER_KEYS
 
 const BASE_TICKS_AVG = 300 // moyenne du random 200-400, sans Lure (non source)
 const FISHING_SPEED_CAP = 300 // "Everywhere else" (wiki "Fishing Speed#Mechanics")
@@ -200,7 +209,7 @@ async function computeLootTableEV(rows: LootRow[]): Promise<number> {
 export type FishingRankingResult = {
   target_block: string
   target_block_id: number
-  tier: TierKey
+  tier: SevenTier
   top_setup: {
     armor_set: string
     rod: string
@@ -314,8 +323,8 @@ export async function applyFishingPetsAndAccessories(
   }
 }
 
-export async function computeFishingRanking(tier: TierKey, blockId: string): Promise<FishingRankingResult> {
-  const [{ data: block }, { data: rodStats }, { data: armorStats }, priced, treasureGoodEV, treasureGreatEV, treasureOutstandingEV, fishEV] = await Promise.all([
+export async function computeFishingRanking(tier: SevenTier, blockId: string, tierConfig?: SevenTierConfig): Promise<FishingRankingResult> {
+  const [{ data: block }, { data: rodStats }, { data: armorStats }, priced, treasureGoodEV, treasureGreatEV, treasureOutstandingEV, fishEV, resolvedTierConfig] = await Promise.all([
     supabase.from('pluton_target_blocks').select('*').eq('activity_key', 'fishing').eq('block_id', blockId).single(),
     supabase.from('pluton_fishing_rod_stats').select('*').eq('verified', true),
     supabase.from('pluton_fishing_armor_stats').select('*'),
@@ -324,6 +333,7 @@ export async function computeFishingRanking(tier: TierKey, blockId: string): Pro
     computeLootTableEV(WATER_LOOT_GREAT),
     computeLootTableEV(WATER_LOOT_OUTSTANDING),
     computeLootTableEV(WATER_LOOT_NORMAL),
+    tierConfig ? Promise.resolve(tierConfig) : loadSevenTierConfig().then(cfg => cfg[tier]),
   ])
 
   if (!block) throw new Error(`Unknown target block: ${blockId}`)
@@ -333,10 +343,9 @@ export async function computeFishingRanking(tier: TierKey, blockId: string): Pro
     + TREASURE_QUALITY_CHANCE.outstanding * treasureOutstandingEV
 
   const priceById = new Map<string, PricedItem>(priced.map(p => [p.item_id, p]))
-  const tierConfig = TIER_CONFIG[tier]
-  const armorMax = tierConfig.max_gear_cost * 3
-  const rodMax = tierConfig.max_gear_cost * 3
-  const applyQuickBite = tier === 'end' || tier === 'late'
+  const armorMax = resolvedTierConfig.max_gear_cost * 3
+  const rodMax = resolvedTierConfig.max_gear_cost * 3
+  const applyQuickBite = INVESTMENT_MAX_TIERS.has(tier)
 
   const combos: {
     armor_set: string; rod: string; rod_item_id: string
@@ -452,7 +461,7 @@ export async function computeFishingRanking(tier: TierKey, blockId: string): Pro
 }
 
 export type PersistedFishingResult = {
-  tier: TierKey
+  tier: SevenTier
   block_id: string
   target_block: string
   has_setup: boolean
@@ -465,9 +474,10 @@ export async function computeAndPersistAllFishingRankings(): Promise<PersistedFi
   await supabase.from('pluton_rankings').delete().eq('activity_key', 'fishing')
   await supabase.from('pluton_setups').delete().eq('activity_key', 'fishing')
 
+  const sevenTierConfig = await loadSevenTierConfig()
   for (const tier of FISHING_TIER_KEYS) {
     for (const blockId of FISHING_TARGET_BLOCK_IDS) {
-      const result = await computeFishingRanking(tier, blockId)
+      const result = await computeFishingRanking(tier, blockId, sevenTierConfig[tier])
 
       if (!result.top_setup) {
         out.push({ tier, block_id: blockId, target_block: result.target_block, has_setup: false, coins_per_hour_raw_block_only: null })

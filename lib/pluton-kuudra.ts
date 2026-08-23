@@ -58,8 +58,7 @@
 // reputation de faction gatee mais traitee comme deja debloquee, meme
 // convention que les gates de collection ailleurs dans Pluton.
 import { createClient } from '@supabase/supabase-js'
-import { loadPriceCache } from './pluton-engine'
-import type { TierKey } from './money-making-constants'
+import { loadPriceCache, SEVEN_TIER_KEYS, type SevenTier } from './pluton-engine'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -73,11 +72,21 @@ type KuudraTier = (typeof KUUDRA_TIERS)[number]
 // d'investissement par tier joueur, meme convention "investissement
 // croissant" que le reste de Pluton (Mining Speed Boost, Reaper Enrage...).
 type CannoneerLevel = { cannonProficiencyPct: number; multiShotBalls: number; rapidFireCooldownS: number; steadyAimPct: number }
-const CANNONEER_BY_TIER: Record<TierKey, CannoneerLevel> = {
-  early:  { cannonProficiencyPct: 1.8, multiShotBalls: 1, rapidFireCooldownS: 0.8, steadyAimPct: 0 },    // aucun perk achete (base sans Multi-Shot/Steady Aim, Cannon Proficiency I)
-  mid:    { cannonProficiencyPct: 2.5, multiShotBalls: 4, rapidFireCooldownS: 0.5, steadyAimPct: 10 },    // paliers III
-  end:    { cannonProficiencyPct: 3.4, multiShotBalls: 6, rapidFireCooldownS: 0.3, steadyAimPct: 15 },    // paliers V (Multi-Shot/Rapid Fire max a V)
-  late:   { cannonProficiencyPct: 4.0, multiShotBalls: 6, rapidFireCooldownS: 0.3, steadyAimPct: 25 },    // Cannon Proficiency/Steady Aim VII (max), Multi-Shot/Rapid Fire deja au max (V)
+// Migre au systeme reel a 7 tiers (23 aout) -- les 4 ancres reelles (wiki
+// Perk Shop, paliers I/III/V/VII) sont PRESERVEES EXACTEMENT au tier 7
+// correspondant (amateur=early, skilled=mid, professional=end, master=late,
+// convention deja etablie sur tout le reste de cette migration) -- seule la
+// granularite entre ces ancres (starter/intermediate/expert) est
+// interpolee lineairement, jamais une valeur inventee au-dela de ce que la
+// source documente.
+const CANNONEER_BY_TIER: Record<SevenTier, CannoneerLevel> = {
+  starter:      { cannonProficiencyPct: 1.45, multiShotBalls: 1, rapidFireCooldownS: 0.95, steadyAimPct: 0 },
+  amateur:      { cannonProficiencyPct: 1.8,  multiShotBalls: 1, rapidFireCooldownS: 0.8,  steadyAimPct: 0 },    // ancre reelle : aucun perk achete (base sans Multi-Shot/Steady Aim, Cannon Proficiency I)
+  intermediate: { cannonProficiencyPct: 2.15, multiShotBalls: 3, rapidFireCooldownS: 0.65, steadyAimPct: 5 },
+  skilled:      { cannonProficiencyPct: 2.5,  multiShotBalls: 4, rapidFireCooldownS: 0.5,  steadyAimPct: 10 },   // ancre reelle : paliers III
+  expert:       { cannonProficiencyPct: 2.95, multiShotBalls: 5, rapidFireCooldownS: 0.4,  steadyAimPct: 12.5 },
+  professional: { cannonProficiencyPct: 3.4,  multiShotBalls: 6, rapidFireCooldownS: 0.3,  steadyAimPct: 15 },   // ancre reelle : paliers V (Multi-Shot/Rapid Fire max a V)
+  master:       { cannonProficiencyPct: 4.0,  multiShotBalls: 6, rapidFireCooldownS: 0.3,  steadyAimPct: 25 },   // ancre reelle : Cannon Proficiency/Steady Aim VII (max)
 }
 
 function computeCombatSeconds(level: CannoneerLevel): number {
@@ -114,7 +123,7 @@ const KUUDRA_TIER_LABEL: Record<KuudraTier, string> = {
 
 export type KuudraResult = {
   kuudraTier: KuudraTier
-  playerTier: TierKey
+  playerTier: SevenTier
   combatSeconds: number
   runsPerHour: number
   guaranteedLootValue: number
@@ -148,7 +157,7 @@ export async function computeKuudraRankings(): Promise<KuudraResult[]> {
   const netherStarPrice = buyCache.get('CORRUPTED_NETHER_STAR') || 0
 
   const results: KuudraResult[] = []
-  for (const playerTier of ['early', 'mid', 'end', 'late'] as TierKey[]) {
+  for (const playerTier of SEVEN_TIER_KEYS) {
     const combatSeconds = computeCombatSeconds(CANNONEER_BY_TIER[playerTier])
     const runsPerHour = 3600 / combatSeconds
     for (const kuudraTier of KUUDRA_TIERS) {

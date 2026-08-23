@@ -72,24 +72,29 @@ import { createClient } from '@supabase/supabase-js'
 import {
   loadPriceCache, expectedValueFromLootTable, type WeightedLootRow,
   computeCombatDps, fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH, WITHER_FORBIDDEN_STRENGTH_MAX,
+  SEVEN_TIER_KEYS, type SevenTier, loadSevenTierConfig, oldTierBucket,
+  SHARPNESS_PCT_BY_TIER, SMITE_PCT_BY_TIER, CRITICAL_PCT_BY_TIER, POTATO_BOOK_USES_BY_TIER,
 } from './pluton-engine'
-import type { TierKey } from './money-making-constants'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export const SEA_CREATURE_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
+// 7 tiers reels (starter->master, 23 aout).
+export const SEA_CREATURE_TIER_KEYS: readonly SevenTier[] = SEVEN_TIER_KEYS
 
 // Gear Zombie Slayer reutilise (meme mapping que GEAR_BY_SLAYER_TIER dans
-// pluton-slayer.ts pour la ligne 'zombie').
-const COMBAT_GEAR_BY_TIER: Record<TierKey, { weaponId: string; armorPrefix: string | null }> = {
+// pluton-slayer.ts pour la ligne 'zombie'). Gear collection-gated -- les 2
+// tiers reels qui partagent le meme ancien palier heritent du meme gear
+// (voir doc oldTierBucket, pluton-engine.ts).
+const COMBAT_GEAR_BY_OLD_TIER: Record<'early' | 'mid' | 'end' | 'late', { weaponId: string; armorPrefix: string | null }> = {
   early: { weaponId: 'UNDEAD_SWORD', armorPrefix: null },
   mid: { weaponId: 'REVENANT_SWORD', armorPrefix: 'REVENANT' },
   end: { weaponId: 'REAPER_SWORD', armorPrefix: 'REAPER' },
   late: { weaponId: 'REAPER_SWORD', armorPrefix: 'REAPER' },
 }
+const COMBAT_GEAR_BY_TIER = (tier: SevenTier) => COMBAT_GEAR_BY_OLD_TIER[oldTierBucket(tier)]
 
 // Couche NBT (22 aout, "aucune activite Combat laissee de cote") -- l'ancien
 // computeDps() local (duplication delibree de la formule de base, doc
@@ -97,11 +102,9 @@ const COMBAT_GEAR_BY_TIER: Record<TierKey, { weaponId: string; armorPrefix: stri
 // Slayer/Bestiary (Sharpness/Smite/Critical/reforge/recombobulator/gemmes/
 // Art of War/Potato Books). Remplace par computeCombatDps() du moteur
 // partage (deja etendu avec tous les parametres necessaires), memes
-// constantes/valeurs deja sourcees et verifiees pour Zombie.
-const SHARPNESS_PCT_BY_TIER: Record<TierKey, number> = { early: 15, mid: 30, end: 50, late: 50 }
-const SMITE_PCT_BY_TIER: Record<TierKey, number> = { early: 15, mid: 30, end: 50, late: 50 }
-const CRITICAL_PCT_BY_TIER: Record<TierKey, number> = { early: 30, mid: 50, end: 100, late: 100 }
-const POTATO_BOOK_USES_BY_TIER: Record<TierKey, number> = { early: 5, mid: 10, end: 15, late: 15 }
+// constantes/valeurs deja sourcees et verifiees pour Zombie. Paliers
+// Sharpness/Smite/Critical/Potato Books centralises dans pluton-engine.ts
+// (23 aout, migration 7 tiers -- evite 4 copies divergentes).
 const POTATO_BOOK_BONUS_PER_USE = 2
 const WEAPON_RARITY: Record<string, string> = { UNDEAD_SWORD: 'COMMON', REVENANT_SWORD: 'RARE', REAPER_SWORD: 'EPIC' }
 const ARMOR_RARITY: Record<string, string> = { REVENANT: 'EPIC', REAPER: 'LEGENDARY' }
@@ -109,8 +112,8 @@ const GEMSTONE_JASPER_SLOTS: Record<string, number> = { REAPER_SWORD: 1 }
 const GEMSTONE_JASPER_SLOTS_ARMOR: Record<string, number> = { REAPER: 1 }
 
 type NbtDps = { dpsVsUndead: number; dpsVsOther: number }
-async function computeEnrichedDps(tier: TierKey, weapon: any, armor: any): Promise<NbtDps> {
-  const gear = COMBAT_GEAR_BY_TIER[tier]
+async function computeEnrichedDps(tier: SevenTier, weapon: any, armor: any): Promise<NbtDps> {
+  const gear = COMBAT_GEAR_BY_TIER(tier)
   const baseStrength = Number(weapon.base_strength) + (armor ? Number(armor.set_strength) : 0)
   const weaponMobTypeMult = 1 + Number(weapon.mob_type_damage_bonus_pct) / 100
   const armorMobTypeMult = armor ? 1 + Number(armor.mob_type_damage_bonus_pct) / 100 : 1
@@ -598,7 +601,7 @@ export const SEA_CREATURE_POOL_KEYS = Object.keys(POOLS)
 export type SeaCreatureResult = {
   pool: string
   target_block: string
-  tier: TierKey
+  tier: SevenTier
   weapon: string
   armor: string | null
   avg_ttk_seconds: number
@@ -608,14 +611,15 @@ export type SeaCreatureResult = {
   event_gated: string | null
 }
 
-export async function computeSeaCreatureRanking(tier: TierKey, poolKey: string): Promise<SeaCreatureResult> {
+export async function computeSeaCreatureRanking(tier: SevenTier, poolKey: string): Promise<SeaCreatureResult> {
   const pool = POOLS[poolKey]
   if (!pool) throw new Error(`Unknown sea creature pool: ${poolKey}`)
 
+  const gearForTier = COMBAT_GEAR_BY_TIER(tier)
   const [{ data: weapon }, { data: armor }] = await Promise.all([
-    supabase.from('pluton_slayer_weapon_stats').select('*').eq('slayer_key', 'zombie').eq('item_id', COMBAT_GEAR_BY_TIER[tier].weaponId).single(),
-    COMBAT_GEAR_BY_TIER[tier].armorPrefix
-      ? supabase.from('pluton_slayer_armor_stats').select('*').eq('slayer_key', 'zombie').eq('set_prefix', COMBAT_GEAR_BY_TIER[tier].armorPrefix).single()
+    supabase.from('pluton_slayer_weapon_stats').select('*').eq('slayer_key', 'zombie').eq('item_id', gearForTier.weaponId).single(),
+    gearForTier.armorPrefix
+      ? supabase.from('pluton_slayer_armor_stats').select('*').eq('slayer_key', 'zombie').eq('set_prefix', gearForTier.armorPrefix).single()
       : Promise.resolve({ data: null }),
   ])
   if (!weapon) throw new Error(`Missing Zombie weapon for tier ${tier}`)

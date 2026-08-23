@@ -38,7 +38,8 @@
 //   donné -- pas un bug, pas un oubli.
 
 import { createClient } from '@supabase/supabase-js'
-import { TIER_CONFIG, type TierKey } from './money-making-constants'
+import type { SevenTierConfig } from './money-making-constants'
+import { SEVEN_TIER_KEYS, type SevenTier, loadSevenTierConfig, INVESTMENT_MAX_TIERS, MID_INVESTMENT_TIERS, EARLY_INVESTMENT_TIERS } from './pluton-engine'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -55,11 +56,11 @@ const supabase = createClient(
 const CROPS_PER_SECOND_ENGINE_CAP = 20
 const ACTIONS_PER_HOUR_FIXED = CROPS_PER_SECOND_ENGINE_CAP * 3600 // 72 000
 
-// 'early' inclus dans le type (un vrai tier du jeu) mais toujours non éligible
-// en pratique -- voir doc plus bas (Garden interdit à ce tier).
-export const FARMING_TIER_KEYS = ['mid', 'end', 'late'] as const
-export const ALL_FARMING_TIER_KEYS = ['early', 'mid', 'end', 'late'] as const
-export type FarmingTierKey = (typeof ALL_FARMING_TIER_KEYS)[number]
+// 7 tiers reels (starter->master, 23 aout) -- starter/amateur restent
+// toujours non eligibles en pratique (voir doc plus bas, Garden interdit a
+// ces 2 tiers, meme mecanique que l'ancien 'early').
+export const ALL_FARMING_TIER_KEYS: readonly SevenTier[] = SEVEN_TIER_KEYS
+export type FarmingTierKey = SevenTier
 
 // Les 8 crops sur la liste d'export de Carrolyn (+12 Crop Fortune permanent,
 // sourcé wikitext "Farming Fortune#Theoretical Maximum") -- Cocoa Beans a EN
@@ -391,7 +392,8 @@ export type FarmingRankingResult = {
   top_setup: any
 }
 
-export async function computeFarmingRanking(tier: FarmingTierKey, blockId: string): Promise<FarmingRankingResult> {
+export async function computeFarmingRanking(tier: FarmingTierKey, blockId: string, tierConfig?: SevenTierConfig): Promise<FarmingRankingResult> {
+  const resolvedTierConfig = tierConfig ?? (await loadSevenTierConfig())[tier]
   const { data: block } = await supabase
     .from('pluton_target_blocks')
     .select('*')
@@ -423,7 +425,7 @@ export async function computeFarmingRanking(tier: FarmingTierKey, blockId: strin
   let pestCoinsPerHour = 0
   let pestName: string | null = null
 
-  if (tier === 'end' || tier === 'late') {
+  if (INVESTMENT_MAX_TIERS.has(tier)) {
     const maxLayer = farmingMaxLayerFor(blockId)
     // Équipement swappé de Blossom Set vers Pesthunter's Set pour maximiser
     // le Bonus Pest Chance -- perte des +330 FF de Blossom (voir doc
@@ -433,7 +435,7 @@ export async function computeFarmingRanking(tier: FarmingTierKey, blockId: strin
     cropFortune = maxLayer.cropFortune
     armorSetPrefix = 'Helianthus'
     toolLevel = SPECIALIZED_TOOL_MAX_LEVEL
-    realCost = TIER_CONFIG[tier].max_gear_cost // plafond du tier, pas un total pièce par pièce (voir doc)
+    realCost = resolvedTierConfig.max_gear_cost // plafond du tier, pas un total pièce par pièce (voir doc)
 
     // Pest Farming (5 août, 3e et 4e passes) -- bonus additif, identique pour
     // toute culture (voir doc PESTS/BONUS_PEST_CHANCE ci-dessus). Taux réel =
@@ -448,23 +450,23 @@ export async function computeFarmingRanking(tier: FarmingTierKey, blockId: strin
     pestName = best.name
     pestCoinsPerHour = pestsPerHourTotal * best.evPerKill
     farmingFortune += pesthunterSteadyStateFF(pestsPerHourTotal)
-  } else if (tier === 'mid') {
-    const cfg = TIER_CONFIG.mid
-    const armor = await bestAffordableArmorTier(cfg.max_gear_cost)
+  } else if (MID_INVESTMENT_TIERS.has(tier)) {
+    const armor = await bestAffordableArmorTier(resolvedTierConfig.max_gear_cost)
     if (armor) { armorSetPrefix = armor.prefix; farmingFortune += armor.fmf; realCost += armor.cost }
     // Farming skill au niveau objectif du tier (formule réelle +4/niveau).
-    farmingFortune += cfg.target * 4
+    farmingFortune += resolvedTierConfig.target * 4
     // Outil spécialisé au même niveau objectif (formule réelle +4/niveau,
     // Crop Fortune crop-spécifique -- voir doc ci-dessus, pas de budget coins
     // possible pour cet item).
-    toolLevel = cfg.target
+    toolLevel = resolvedTierConfig.target
     cropFortune += toolLevel * SPECIALIZED_TOOL_FMF_PER_LEVEL
   }
-  // early : aucune branche -- Garden interdit à ce tier (TIER_CONFIG.early.forbidden),
-  // Farming Fortune sans effet hors Garden (wiki "Farming Fortune"), donc
-  // top_setup reste null ci-dessous, honnêtement non éligible.
+  // starter/amateur : aucune branche -- Garden interdit a ces 2 tiers (meme
+  // money_making_tier_key='early' que TIER_CONFIG.early.forbidden), Farming
+  // Fortune sans effet hors Garden (wiki "Farming Fortune"), donc top_setup
+  // reste null ci-dessous, honnetement non eligible.
 
-  if (tier === 'early') {
+  if (EARLY_INVESTMENT_TIERS.has(tier)) {
     return { target_block: block.block_name, target_block_id: block.id, tier, top_setup: null }
   }
 
@@ -517,9 +519,10 @@ export async function computeAndPersistAllFarmingRankings(): Promise<PersistedFa
   await supabase.from('pluton_rankings').delete().eq('activity_key', 'farming')
   await supabase.from('pluton_setups').delete().eq('activity_key', 'farming')
 
+  const sevenTierConfig = await loadSevenTierConfig()
   for (const tier of ALL_FARMING_TIER_KEYS) {
     for (const blockId of blockIds) {
-      const result = await computeFarmingRanking(tier, blockId)
+      const result = await computeFarmingRanking(tier, blockId, sevenTierConfig[tier])
 
       if (!result.top_setup) {
         out.push({ tier, block_id: blockId, target_block: result.target_block, has_setup: false, coins_per_hour_raw_block_only: null })
@@ -539,8 +542,8 @@ export async function computeAndPersistAllFarmingRankings(): Promise<PersistedFa
           total_mining_fortune: Math.round(s.total_fortune),
           total_breaking_power: 0,
           real_cost: s.real_cost,
-          pet_id: (tier === 'end' || tier === 'late') ? 'ROSE_DRAGON' : null,
-          pet_rarity: (tier === 'end' || tier === 'late') ? 'LEGENDARY' : null,
+          pet_id: INVESTMENT_MAX_TIERS.has(tier) ? 'ROSE_DRAGON' : null,
+          pet_rarity: INVESTMENT_MAX_TIERS.has(tier) ? 'LEGENDARY' : null,
           accessories: [],
         })
         .select('id')

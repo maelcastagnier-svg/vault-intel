@@ -57,8 +57,8 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { loadPricedItems, type PricedItem } from './gear-pricing'
-import { TIER_CONFIG, type TierKey } from './money-making-constants'
-import { recombobulatedRarity, CITRINE_PERFECT_BY_RARITY } from './pluton-engine'
+import type { SevenTierConfig } from './money-making-constants'
+import { recombobulatedRarity, CITRINE_PERFECT_BY_RARITY, SEVEN_TIER_KEYS, type SevenTier, loadSevenTierConfig, INVESTMENT_MAX_TIERS } from './pluton-engine'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -66,11 +66,12 @@ const supabase = createClient(
 )
 
 export const FORAGING_TARGET_BLOCK_IDS = ['FIG_LOG', 'MANGROVE_LOG', 'HELIX_LOG'] as const
-// Basic foraging deja accessible EARLY (TIER_CONFIG.early.access), contrairement
-// a Farming ou Garden est explicitement interdit -- les 4 tiers reels sont
-// eligibles, le filtre de budget suffit a exclure naturellement le gear
-// hors de portee (meme mecanisme que Mining, aucun forbidden explicite requis).
-export const FORAGING_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
+// Basic foraging deja accessible des Starter (TIER_CONFIG.early.access),
+// contrairement a Farming ou Garden est explicitement interdit -- les 7
+// tiers reels sont eligibles, le filtre de budget suffit a exclure
+// naturellement le gear hors de portee (meme mecanisme que Mining, aucun
+// forbidden explicite requis). 7 tiers reels (starter->master, 23 aout).
+export const FORAGING_TIER_KEYS: readonly SevenTier[] = SEVEN_TIER_KEYS
 
 // Plafond moteur Minecraft (20 TPS) -- voir doc d'en-tete, identique au
 // principe deja valide et approuve par l'utilisateur pour Farming.
@@ -211,7 +212,7 @@ function citrineForagingFortuneBonus(toolItemId: string, armorSetPrefix: string)
 export type ForagingRankingResult = {
   target_block: string
   target_block_id: number
-  tier: TierKey
+  tier: SevenTier
   top_setup: {
     armor_set: string
     tool: string
@@ -302,21 +303,21 @@ export async function applyForagingPetsAndAccessories(
   }
 }
 
-export async function computeForagingRanking(tier: TierKey, blockId: string): Promise<ForagingRankingResult> {
-  const [{ data: block }, { data: toolStats }, { data: armorStats }, priced] = await Promise.all([
+export async function computeForagingRanking(tier: SevenTier, blockId: string, tierConfig?: SevenTierConfig): Promise<ForagingRankingResult> {
+  const [{ data: block }, { data: toolStats }, { data: armorStats }, priced, resolvedTierConfig] = await Promise.all([
     supabase.from('pluton_target_blocks').select('*').eq('activity_key', 'foraging').eq('block_id', blockId).single(),
     supabase.from('pluton_foraging_tool_stats').select('*').eq('verified', true),
     supabase.from('pluton_foraging_armor_stats').select('*'),
     loadPricedItems(),
+    tierConfig ? Promise.resolve(tierConfig) : loadSevenTierConfig().then(cfg => cfg[tier]),
   ])
 
   if (!block) throw new Error(`Unknown target block: ${blockId}`)
 
   const toughness = Number(block.block_strength) || 1
   const priceById = new Map<string, PricedItem>(priced.map(p => [p.item_id, p]))
-  const tierConfig = TIER_CONFIG[tier]
-  const armorMax = tierConfig.max_gear_cost * 3
-  const toolMax = tierConfig.max_gear_cost * 3
+  const armorMax = resolvedTierConfig.max_gear_cost * 3
+  const toolMax = resolvedTierConfig.max_gear_cost * 3
   // Pas de plancher de prix -- meme raisonnement que Mining (5 aout) :
   // Foraging n'a que 3 sets d'armure et 6 outils reels connus (categorie
   // clairsemee), un plancher exclurait a tort le meilleur set/outil reel a
@@ -380,7 +381,7 @@ export async function computeForagingRanking(tier: TierKey, blockId: string): Pr
     // deja des Fig/mid-tier). Voir doc de citrineForagingFortuneBonus.
     finalFF += citrineForagingFortuneBonus(topSetup.tool_item_id, topSetup.armor_set)
 
-    if (tier === 'end' || tier === 'late') {
+    if (INVESTMENT_MAX_TIERS.has(tier)) {
       maxInvestmentBonus = maxInvestmentSweepBonus(blockId)
       finalSweep += maxInvestmentBonus
       // Frenzy (item ability outil, PERMANENT une fois le seuil de logs
@@ -427,7 +428,7 @@ export async function computeForagingRanking(tier: TierKey, blockId: string): Pr
 }
 
 export type PersistedForagingResult = {
-  tier: TierKey
+  tier: SevenTier
   block_id: string
   target_block: string
   has_setup: boolean
@@ -440,9 +441,10 @@ export async function computeAndPersistAllForagingRankings(): Promise<PersistedF
   await supabase.from('pluton_rankings').delete().eq('activity_key', 'foraging')
   await supabase.from('pluton_setups').delete().eq('activity_key', 'foraging')
 
+  const sevenTierConfig = await loadSevenTierConfig()
   for (const tier of FORAGING_TIER_KEYS) {
     for (const blockId of FORAGING_TARGET_BLOCK_IDS) {
-      const result = await computeForagingRanking(tier, blockId)
+      const result = await computeForagingRanking(tier, blockId, sevenTierConfig[tier])
 
       if (!result.top_setup) {
         out.push({ tier, block_id: blockId, target_block: result.target_block, has_setup: false, coins_per_hour_raw_block_only: null })

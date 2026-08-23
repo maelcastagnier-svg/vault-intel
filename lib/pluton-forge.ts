@@ -25,22 +25,29 @@
 // placeholders explicites (meme pattern deja utilise par Fishing/Slayer pour
 // les colonnes Mining-only NOT NULL heritees).
 import { createClient } from '@supabase/supabase-js'
-import type { TierKey } from './money-making-constants'
+import { SEVEN_TIER_KEYS, type SevenTier } from './pluton-engine'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// Quick Forge : reduction de temps reelle par tier. Niveau assume ~10 (mi-
-// parcours) pour MID, niveau max 20 (30%) pour END/LATE -- meme hypothese
-// "skill/perk progresse en parallele du tier" que les autres activites.
-const QUICK_FORGE_REDUCTION_PCT: Record<TierKey, number> = {
-  early: 0,
-  mid: 10 + 0.5 * 10, // niveau 10 -> 15%
-  end: 30,
-  late: 30,
+// Quick Forge : reduction de temps reelle par NIVEAU (hotm_perks.quick_forge,
+// stat_formula sourcee litteralement : 10+0.5*niveau pour niveau<20, plafond
+// 30% au niveau max 20). Migre au systeme 7-tiers (23 aout) -- le niveau de
+// perk assume par tier est interpole lineairement (0->10->20, meme
+// hypothese "skill/perk progresse en parallele du tier" que le reste de
+// Pluton), la reduction elle-meme reste calculee via la VRAIE formule a
+// chaque niveau -- jamais un pourcentage invente.
+function quickForgeReductionPct(level: number): number {
+  return level >= 20 ? 30 : 10 + 0.5 * level
 }
+const QUICK_FORGE_LEVEL_BY_TIER: Record<SevenTier, number> = {
+  starter: 0, amateur: 0, intermediate: 5, skilled: 10, expert: 15, professional: 20, master: 20,
+}
+const QUICK_FORGE_REDUCTION_PCT: Record<SevenTier, number> = Object.fromEntries(
+  SEVEN_TIER_KEYS.map(t => [t, quickForgeReductionPct(QUICK_FORGE_LEVEL_BY_TIER[t])])
+) as Record<SevenTier, number>
 
 type ForgeRecipe = {
   item_id: string
@@ -179,7 +186,7 @@ export async function computeAndPersistForgeRankings(): Promise<{ recipes: numbe
       .single()
     if (blockErr || !block) continue
 
-    const entries = (['early', 'mid', 'end', 'late'] as TierKey[]).map(tier => {
+    const entries = SEVEN_TIER_KEYS.map(tier => {
       const reduction = QUICK_FORGE_REDUCTION_PCT[tier] / 100
       const effectiveHours = m.forge_time_hours * (1 - reduction)
       const profitPerHour = effectiveHours > 0 ? m.profit / effectiveHours : 0
@@ -192,13 +199,13 @@ export async function computeAndPersistForgeRankings(): Promise<{ recipes: numbe
         activity_key: 'mining',
         tier: e.tier,
         investment_level: 'optimal',
-        armor_set_prefix: `Aucune (Forge -- Quick Forge niveau ${e.tier === 'early' ? 0 : e.tier === 'mid' ? 10 : 20})`,
+        armor_set_prefix: `Aucune (Forge -- Quick Forge niveau ${QUICK_FORGE_LEVEL_BY_TIER[e.tier]})`,
         tool_item_id: 'FORGE_NO_TOOL',
         total_mining_speed: 0,
         total_mining_fortune: 0,
         total_breaking_power: 0,
         real_cost: m.cost,
-        accessories: [{ source_id: '__forge_method__', quick_forge_reduction_pct: QUICK_FORGE_REDUCTION_PCT[e.tier as TierKey] }],
+        accessories: [{ source_id: '__forge_method__', quick_forge_reduction_pct: QUICK_FORGE_REDUCTION_PCT[e.tier] }],
       })))
       .select('id')
     if (setupErr || !insertedSetups) continue

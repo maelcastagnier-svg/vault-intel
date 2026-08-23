@@ -58,7 +58,7 @@
 // recent" en JS) puis calculer en memoire, sans aucun aller-retour DB dans
 // la boucle de calcul.
 import { createClient } from '@supabase/supabase-js'
-import { TIER_CONFIG, type TierKey } from './money-making-constants'
+import { SEVEN_TIER_KEYS, type SevenTier, INVESTMENT_MAX_TIERS } from './pluton-engine'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -69,7 +69,7 @@ export const DUNGEONS_TARGET_BLOCK_IDS = [
   'F1_CLEAR_SPLUS', 'F2_CLEAR_SPLUS', 'F3_CLEAR_SPLUS', 'F4_CLEAR_SPLUS',
   'F5_CLEAR_SPLUS', 'F6_CLEAR_SPLUS', 'F7_CLEAR_SPLUS',
 ] as const
-export const DUNGEONS_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
+export const DUNGEONS_TIER_KEYS: readonly SevenTier[] = SEVEN_TIER_KEYS
 
 // Seuils reels source page wiki "Dungeon Score" -- Speed=100 si T<480 avec
 // T=TotalSeconds-offset (offset variable par etage). Utilise comme temps de
@@ -138,7 +138,7 @@ async function loadPriceCache(itemIds: string[]): Promise<Map<string, number>> {
 export type DungeonsRankingResult = {
   target_block: string
   target_block_id: number
-  tier: TierKey
+  tier: SevenTier
   top_setup: {
     chest_tier: string
     run_time_seconds: number
@@ -160,7 +160,7 @@ type ChestMeta = { base_cost: number | string }
 type TargetBlock = { id: number; block_name: string }
 
 function computeFromLoaded(
-  tier: TierKey,
+  tier: SevenTier,
   blockId: string,
   targetBlock: TargetBlock,
   chestMeta: ChestMeta,
@@ -170,7 +170,7 @@ function computeFromLoaded(
 ): DungeonsRankingResult {
   const floor = floorFromBlockId(blockId)
   const config = FLOOR_CONFIG[floor]
-  const useMaxBonus = tier === 'end' || tier === 'late'
+  const useMaxBonus = INVESTMENT_MAX_TIERS.has(tier)
 
   let expectedValue = 0
   let expectedAddedCost = 0
@@ -207,7 +207,7 @@ function computeFromLoaded(
 
 // Conserve pour compatibilite/tests unitaires cibles -- recharge tout pour un
 // seul combo (pas utilise par le chemin batch de computeAndPersistAllDungeonsRankings).
-export async function computeDungeonsRanking(tier: TierKey, blockId: string): Promise<DungeonsRankingResult> {
+export async function computeDungeonsRanking(tier: SevenTier, blockId: string): Promise<DungeonsRankingResult> {
   const { data: targetBlock } = await supabase
     .from('pluton_target_blocks')
     .select('id, block_name')
@@ -232,7 +232,7 @@ export async function computeDungeonsRanking(tier: TierKey, blockId: string): Pr
 }
 
 export type PersistedDungeonsResult = {
-  tier: TierKey
+  tier: SevenTier
   block_id: string
   target_block: string
   has_setup: boolean
@@ -263,7 +263,7 @@ export async function computeAndPersistAllDungeonsRankings(): Promise<PersistedD
 
   const out: PersistedDungeonsResult[] = []
   const setupsToInsert: any[] = []
-  const setupMeta: { tier: TierKey; blockId: string; result: DungeonsRankingResult }[] = []
+  const setupMeta: { tier: SevenTier; blockId: string; result: DungeonsRankingResult }[] = []
 
   for (const tier of DUNGEONS_TIER_KEYS) {
     for (const blockId of DUNGEONS_TARGET_BLOCK_IDS) {

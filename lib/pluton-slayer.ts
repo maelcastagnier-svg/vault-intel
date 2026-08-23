@@ -81,9 +81,10 @@
 // etait toujours immediatement disponible -- une metrique partielle/idealisee,
 // documentee comme telle, pas un cycle de jeu complet realiste.
 import { createClient } from '@supabase/supabase-js'
-import { TIER_CONFIG, type TierKey } from './money-making-constants'
 import {
   fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH, WITHER_FORBIDDEN_STRENGTH_MAX,
+  SEVEN_TIER_KEYS, type SevenTier, oldTierBucket,
+  SHARPNESS_PCT_BY_TIER, CRITICAL_PCT_BY_TIER, POTATO_BOOK_USES_BY_TIER,
 } from './pluton-engine'
 
 const supabase = createClient(
@@ -115,9 +116,14 @@ export const SLAYER_TARGET_BLOCK_IDS = [
 // niveau" de Shaman/Pooch Sword (wiki) -- MID = palier minimum reellement
 // requis pour debloquer Shaman Sword (WS3, hypothese conservative "juste
 // debloque"), END/LATE = niveau max reellement documente dans la table de
-// deblocage Wolf Slayer (WS9 "Alpha Wolf", jamais invente).
-const WOLF_COLLECTION_LEVEL_BY_TIER: Partial<Record<TierKey, number>> = { mid: 3, end: 9, late: 9 }
-export const SLAYER_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
+// deblocage Wolf Slayer (WS9 "Alpha Wolf", jamais invente). Interpolation
+// sur 7 paliers (23 aout) -- ancres reelles preservees : skilled=ancien mid
+// (WS3), professional/master=ancien end/late (WS9 max).
+const WOLF_COLLECTION_LEVEL_BY_TIER: Partial<Record<SevenTier, number>> = {
+  intermediate: 3, skilled: 3, expert: 9, professional: 9, master: 9,
+}
+// 7 tiers reels (starter->master, 23 aout).
+export const SLAYER_TIER_KEYS: readonly SevenTier[] = SEVEN_TIER_KEYS
 
 // Couche NBT (22 aout, meme methode acceleree que lib/pluton-combat.ts --
 // extraction groupee + tri agent + UN SEUL cycle de verification pour les 4
@@ -127,24 +133,19 @@ export const SLAYER_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
 // complete est un chantier separe (deja note dans pluton-combat.ts), ne pas
 // le conflater avec l'ajout NBT demande ici.
 //
-// Sharpness/Critical -- universels, memes tables que lib/pluton-combat.ts
-// (Sharpness additif 5/10/15/20/30/40/50%, Critical CritDamage 10/20/30/40/
-// 50/70/100%), palier III(early)/V(mid)/VII(end+late) -- end et late
-// partagent deja le meme gear dans GEAR_BY_SLAYER_TIER (seule Enrage/toggle
-// differe), meme logique appliquee ici.
-const SHARPNESS_PCT_BY_TIER: Record<TierKey, number> = { early: 15, mid: 30, end: 50, late: 50 }
-const CRITICAL_PCT_BY_TIER: Record<TierKey, number> = { early: 30, mid: 50, end: 100, late: 100 }
-
-// Enchant vs-type-de-mob specifique -- verifie AVANT de coder (agent dedie,
-// 22 aout) : seuls Spider (Bane of Arthropods, meme table 5-50%, "applied
-// to Weapons" -- couvre les dagues) et Enderman (Ender Slayer, meme table,
+// Sharpness/Critical -- universels, memes tables centralisees dans
+// pluton-engine.ts (23 aout, migration 7 tiers). Enchant vs-type-de-mob
+// specifique -- verifie AVANT de coder (agent dedie, 22 aout) : seuls
+// Spider (Bane of Arthropods, meme table que Sharpness, "applied to
+// Weapons" -- couvre les dagues) et Enderman (Ender Slayer, meme table,
 // confirme applicable aux katanas -- leur page wiki declare `type=Sword`
 // malgre le nom cosmetique "Katana") ont un vrai enchant dedie a leur type
-// de mob. Wolf et Blaze n'en ont AUCUN (confirme par recherche directe,
-// aucune correspondance) -- 0% ici n'est pas un trou, une verite reelle.
-const MOB_TYPE_ENCHANT_PCT_BY_TIER: Partial<Record<string, Record<TierKey, number>>> = {
-  spider: { early: 15, mid: 30, end: 50, late: 50 }, // Bane of Arthropods
-  enderman: { early: 15, mid: 30, end: 50, late: 50 }, // Ender Slayer
+// de mob -- memes valeurs que Sharpness, reutilise directement. Wolf et
+// Blaze n'en ont AUCUN (confirme par recherche directe, aucune
+// correspondance) -- 0% ici n'est pas un trou, une verite reelle.
+const MOB_TYPE_ENCHANT_PCT_BY_TIER: Partial<Record<string, Record<SevenTier, number>>> = {
+  spider: SHARPNESS_PCT_BY_TIER, // Bane of Arthropods
+  enderman: SHARPNESS_PCT_BY_TIER, // Ender Slayer
 }
 
 // Essence Shop "Bane" (Spider Essence Shop, NPC Spider Tamer) -- 22 aout,
@@ -156,9 +157,12 @@ const MOB_TYPE_ENCHANT_PCT_BY_TIER: Partial<Record<string, Record<TierKey, numbe
 // Catacombs" -- verifie explicitement avant d'ajouter, celles-ci restent
 // hors-scope Slayer/Bestiary a raison). MULTIPLICATIVE (meme bucket "vs
 // type de mob" que le bonus arme/armure deja code, confirme par la doc
-// d'en-tete de ce fichier). Palier par tier, meme convention que les
-// autres enchants/bonus deja scales dans ce fichier.
-const BANE_PCT_BY_TIER: Record<TierKey, number> = { early: 3, mid: 9, end: 15, late: 15 }
+// d'en-tete de ce fichier). Interpolation sur 7 paliers (23 aout) -- ancres
+// reelles preservees : amateur=ancien early(3%), skilled=ancien mid(9%),
+// professional/master=ancien end/late(15% max).
+const BANE_PCT_BY_TIER: Record<SevenTier, number> = {
+  starter: 2, amateur: 3, intermediate: 6, skilled: 9, expert: 12, professional: 15, master: 15,
+}
 
 // Gemmes Jasper (Strength) -- verifie AVANT de coder (agent dedie) : seuls
 // ces 5 items ont un vrai emplacement Jasper/Combat exploitable pour le DPS
@@ -185,10 +189,8 @@ const JASPER_SLOTS_BY_WEAPON: Record<string, number> = {
 }
 
 // Hot Potato Book / Fuming Potato Book -- universel (voir doc complete dans
-// lib/pluton-combat.ts), meme palier +2 Force/+2 Degats par usage. early=5
-// usages (HPB seul, peu couteux), mid=10 (HPB max), end/late=15 (10 HPB+5
-// FPB, investissement max -- end et late partagent deja le meme gear ici).
-const POTATO_BOOK_USES_BY_TIER: Record<TierKey, number> = { early: 5, mid: 10, end: 15, late: 15 }
+// lib/pluton-combat.ts), meme palier +2 Force/+2 Degats par usage, table
+// centralisee dans pluton-engine.ts (23 aout, migration 7 tiers).
 const POTATO_BOOK_BONUS_PER_USE = 2
 
 const BASE_STRENGTH = 0
@@ -221,7 +223,7 @@ function computeDps(
 export type SlayerRankingResult = {
   target_block: string
   target_block_id: number
-  tier: TierKey
+  tier: SevenTier
   top_setup: {
     weapon: string
     weapon_item_id: string
@@ -245,7 +247,10 @@ export type SlayerRankingResult = {
 // le wiki) -- l'architecture "budget AH combinatoire" des autres activites
 // Pluton ne s'applique pas ici, mapping direct a la place (meme raison que
 // Farming pour son Specialized Farming Tool).
-const GEAR_BY_SLAYER_TIER: Record<string, Record<TierKey, { weapons: string[]; armor: string | null; enrage: boolean }>> = {
+// Gear collection-gated -- garde la structure early/mid/end/late (le vrai
+// axe de deblocage, voir doc oldTierBucket dans pluton-engine.ts), lookup
+// via oldTierBucket(tier) plutot que directement par tier reel.
+const GEAR_BY_SLAYER_TIER: Record<string, Record<'early' | 'mid' | 'end' | 'late', { weapons: string[]; armor: string | null; enrage: boolean }>> = {
   zombie: {
     early: { weapons: ['UNDEAD_SWORD'], armor: null, enrage: false },
     mid: { weapons: ['REVENANT_SWORD'], armor: 'REVENANT', enrage: false },
@@ -289,7 +294,7 @@ const GEAR_BY_SLAYER_TIER: Record<string, Record<TierKey, { weapons: string[]; a
   },
 }
 
-export async function computeSlayerRanking(tier: TierKey, blockId: string): Promise<SlayerRankingResult> {
+export async function computeSlayerRanking(tier: SevenTier, blockId: string): Promise<SlayerRankingResult> {
   const [slayerKeyRaw, tierPart] = blockId.split('_T')
   const slayerKey = slayerKeyRaw.toLowerCase()
   const slayerTier = Number(tierPart)
@@ -312,7 +317,7 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
   const weaponById = new Map((weapons || []).map(w => [w.item_id, w]))
   const armorByPrefix = new Map((armors || []).map(a => [a.set_prefix, a]))
 
-  const gearConfig = GEAR_BY_SLAYER_TIER[slayerKey]?.[tier]
+  const gearConfig = GEAR_BY_SLAYER_TIER[slayerKey]?.[oldTierBucket(tier)]
   if (!gearConfig) return { target_block: boss.boss_name, target_block_id: targetBlock.id, tier, top_setup: null }
 
   const armor = gearConfig.armor ? armorByPrefix.get(gearConfig.armor) : null
@@ -511,7 +516,7 @@ export async function computeSlayerRanking(tier: TierKey, blockId: string): Prom
 }
 
 export type PersistedSlayerResult = {
-  tier: TierKey
+  tier: SevenTier
   block_id: string
   target_block: string
   has_setup: boolean

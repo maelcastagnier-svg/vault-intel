@@ -53,8 +53,8 @@
 // forcés -- vraie extension future (8.x), pas un chantier "rapide".
 import { createClient } from '@supabase/supabase-js'
 import { loadPricedItems, type PricedItem } from './gear-pricing'
-import { TIER_CONFIG, type TierKey } from './money-making-constants'
-import { recombobulatedRarity } from './pluton-engine'
+import type { SevenTierConfig } from './money-making-constants'
+import { recombobulatedRarity, SEVEN_TIER_KEYS, type SevenTier, loadSevenTierConfig, INVESTMENT_MAX_TIERS } from './pluton-engine'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -64,7 +64,7 @@ const supabase = createClient(
 export type MiningRankingResult = {
   target_block: string
   target_block_id: number
-  tier: string
+  tier: SevenTier
   top_setup: {
     armor_set: string
     tool: string
@@ -111,22 +111,23 @@ export const MINING_TARGET_BLOCK_IDS = [
   'REDSTONE_ORE', 'EMERALD_ORE', 'QUARTZ_ORE', 'LAPIS_ORE', 'SULPHUR_ORE',
 ] as const
 
-export const MINING_TIER_KEYS: TierKey[] = ['early', 'mid', 'end', 'late']
+// 7 tiers reels (starter->master, 23 aout) -- voir doc pluton-engine.ts.
+export const MINING_TIER_KEYS: readonly SevenTier[] = SEVEN_TIER_KEYS
 
-export async function computeMiningRanking(tier: TierKey, blockId: string): Promise<MiningRankingResult> {
-  const [{ data: block }, { data: toolStats }, { data: armorStats }, priced] = await Promise.all([
+export async function computeMiningRanking(tier: SevenTier, blockId: string, tierConfig?: SevenTierConfig): Promise<MiningRankingResult> {
+  const [{ data: block }, { data: toolStats }, { data: armorStats }, priced, resolvedTierConfig] = await Promise.all([
     supabase.from('pluton_target_blocks').select('*').eq('activity_key', 'mining').eq('block_id', blockId).single(),
     supabase.from('pluton_mining_tool_stats').select('*').eq('verified', true),
     supabase.from('pluton_mining_armor_stats').select('*'),
     loadPricedItems(),
+    tierConfig ? Promise.resolve(tierConfig) : loadSevenTierConfig().then(cfg => cfg[tier]),
   ])
 
   if (!block) throw new Error(`Unknown target block: ${blockId}`)
 
   const priceById = new Map<string, PricedItem>(priced.map(p => [p.item_id, p]))
-  const tierConfig = TIER_CONFIG[tier]
-  const armorMax = tierConfig.max_gear_cost * 3
-  const toolMax  = tierConfig.max_gear_cost * 3
+  const armorMax = resolvedTierConfig.max_gear_cost * 3
+  const toolMax  = resolvedTierConfig.max_gear_cost * 3
   // Pas de plancher de prix sur l'armure (ni sur les outils, voir plus bas)
   // -- seulement un plafond. Le plancher budget/25 hérité de Money Making
   // (catalogue général dense à tous les paliers de prix) a produit un vrai
@@ -301,7 +302,7 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
     // Appliquée seulement END/LATE (investissement réaliste à ces tiers) --
     // écart de 60x+ confirmé entre le calcul sans cette couche et un setup
     // end-game réel en jeu (voir commentaire de applyMaxInvestmentLayer).
-    if (tier === 'end' || tier === 'late') {
+    if (INVESTMENT_MAX_TIERS.has(tier)) {
       const { data: armorRarityRow } = await supabase.from('item_stats').select('rarity').eq('item_id', topSetup.armor_piece_ids[0]).maybeSingle()
       const { data: toolRarityRow } = await supabase.from('item_stats').select('rarity').eq('item_id', topSetup.tool_item_id).maybeSingle()
       const maxLayer = await applyMaxInvestmentLayer(
@@ -368,7 +369,7 @@ export async function computeMiningRanking(tier: TierKey, blockId: string): Prom
 // bas budget) produiront honnêtement top_setup:null / eligible_combos:0
 // -- pas persistées (rien à classer), pas un bug.
 export type PersistedMiningResult = {
-  tier: TierKey
+  tier: SevenTier
   block_id: string
   target_block: string
   has_setup: boolean
@@ -783,9 +784,10 @@ export async function computeAndPersistAllMiningRankings(): Promise<PersistedMin
   await supabase.from('pluton_rankings').delete().eq('activity_key', 'mining')
   await supabase.from('pluton_setups').delete().eq('activity_key', 'mining')
 
+  const sevenTierConfig = await loadSevenTierConfig()
   for (const tier of MINING_TIER_KEYS) {
     for (const blockId of MINING_TARGET_BLOCK_IDS) {
-      const result = await computeMiningRanking(tier, blockId)
+      const result = await computeMiningRanking(tier, blockId, sevenTierConfig[tier])
 
       if (!result.top_setup) {
         out.push({ tier, block_id: blockId, target_block: result.target_block, has_setup: false, coins_per_hour_raw_block_only: null })

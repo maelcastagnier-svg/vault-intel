@@ -11,11 +11,88 @@
 // pluton_setups/pluton_rankings. Premiere consommation : Kuudra
 // (lib/pluton-kuudra.ts), meme mecanique EV-sur-table-de-loot que Dungeons.
 import { createClient } from '@supabase/supabase-js'
+import { SEVEN_TIER_KEYS, buildSevenTierConfig, type SevenTierConfig, type MilestoneTierRow } from './money-making-constants'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+// ============================================================
+// Migration 4 tiers (early/mid/end/late) -> 7 tiers reels (starter->master),
+// 23 aout -- correction explicite de l'utilisateur : "on a 7 tiers de money
+// making maintenant... je ne veux plus de trou". L'infrastructure 7-tiers
+// (SEVEN_TIER_KEYS/buildSevenTierConfig, lib/money-making-constants.ts)
+// existait deja (17 aout) mais n'etait consommee QUE par l'ancien systeme
+// Money Making (money-making-agent/setup-generate-agent) -- jamais par
+// aucun calculateur Pluton, qui tournaient tous encore sur les 4 anciens
+// tiers. Chaque calculateur Pluton migre desormais vers SEVEN_TIER_KEYS,
+// avec un budget/cible reellement distinct par tier (interpolation
+// proportionnelle sur les vraies bornes networth de `milestone_tier_totals`,
+// jamais un chiffre invente -- voir buildSevenTierConfig).
+//
+// Mapping vers l'ancien decoupage (pour la logique de gating "investissement
+// max" deja validee formule par formule, PAS reinventee ici -- seule la
+// granularite du budget change, jamais les formules elles-memes) :
+// early={starter,amateur}, mid={intermediate,skilled}, end={expert,
+// professional}, late={master}.
+export type SevenTier = (typeof SEVEN_TIER_KEYS)[number]
+export { SEVEN_TIER_KEYS }
+
+export async function loadSevenTierConfig(): Promise<Record<SevenTier, SevenTierConfig>> {
+  const { data, error } = await supabase
+    .from('milestone_tier_totals')
+    .select('tier, tier_order, networth_min, networth_max, money_making_tier_key')
+    .order('tier_order')
+  if (error || !data || data.length === 0) throw new Error(`milestone_tier_totals load failed: ${error?.message}`)
+  return buildSevenTierConfig(data as MilestoneTierRow[]) as Record<SevenTier, SevenTierConfig>
+}
+
+// Meme frontiere qualitative que l'ancien tier==='end'||tier==='late' (couche
+// "investissement maximal atteignable" -- HOTM/HOTF/Essence Shops/gemmes
+// parfaites/reforges haut de gamme...), reappliquee aux 3 tiers reels qui
+// correspondent (Expert/Professional=ancien "end", Master=ancien "late").
+export const INVESTMENT_MAX_TIERS: ReadonlySet<SevenTier> = new Set(['expert', 'professional', 'master'])
+// Ancien tier==='mid'.
+export const MID_INVESTMENT_TIERS: ReadonlySet<SevenTier> = new Set(['intermediate', 'skilled'])
+// Ancien tier==='early'.
+export const EARLY_INVESTMENT_TIERS: ReadonlySet<SevenTier> = new Set(['starter', 'amateur'])
+
+// Pour les paliers de gear GATES (collection-gated, pas un budget continu --
+// ex: Undead Sword->Revenant Falchion->Reaper Falchion des 5 Slayers/
+// Bestiary/Sea Creature kills) : impossible d'interpoler un objet
+// intermediaire qui n'existe pas dans le jeu, donc les 2 tiers reels qui
+// partagent le meme ancien money_making_tier_key heritent du MEME palier de
+// gear (seul le budget/les NBT annexes -- reforge/enchants/gemmes -- varient
+// reellement entre eux, voir les paliers gradues dedies plus bas).
+export function oldTierBucket(tier: SevenTier): 'early' | 'mid' | 'end' | 'late' {
+  if (EARLY_INVESTMENT_TIERS.has(tier)) return 'early'
+  if (MID_INVESTMENT_TIERS.has(tier)) return 'mid'
+  if (tier === 'master') return 'late'
+  return 'end' // expert, professional
+}
+
+// ============================================================
+// Paliers NBT Combat partages (Sharpness/Smite/Critical/Potato Books) --
+// dupliques a l'identique dans pluton-combat.ts/pluton-slayer.ts/
+// pluton-bestiary.ts/pluton-sea-creatures.ts jusqu'au 23 aout, centralises
+// ici lors de la migration 7 tiers pour eviter 4 copies divergentes.
+// Interpolation sur 7 paliers, ancres reelles des 4 anciens tiers
+// PRESERVEES EXACTEMENT (amateur=ancien early, skilled=ancien mid,
+// professional ET master=ancien end/late -- jamais une valeur inventee,
+// seule la granularite entre les anciennes ancres est nouvelle).
+export const SHARPNESS_PCT_BY_TIER: Record<SevenTier, number> = {
+  starter: 10, amateur: 15, intermediate: 22, skilled: 30, expert: 40, professional: 50, master: 50,
+}
+export const SMITE_PCT_BY_TIER: Record<SevenTier, number> = {
+  starter: 10, amateur: 15, intermediate: 22, skilled: 30, expert: 40, professional: 50, master: 50,
+}
+export const CRITICAL_PCT_BY_TIER: Record<SevenTier, number> = {
+  starter: 20, amateur: 30, intermediate: 40, skilled: 50, expert: 75, professional: 100, master: 100,
+}
+export const POTATO_BOOK_USES_BY_TIER: Record<SevenTier, number> = {
+  starter: 3, amateur: 5, intermediate: 8, skilled: 10, expert: 13, professional: 15, master: 15,
+}
 
 // Charge le prix le plus recent de chaque item_id demande en 2 requetes
 // batchees (Bazaar d'abord, fallback AH nostar_norecomb) plutot qu'un

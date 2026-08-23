@@ -27,20 +27,25 @@
 import { createClient } from '@supabase/supabase-js'
 import {
   computeCombatDps, fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH, WITHER_FORBIDDEN_STRENGTH_MAX,
+  SEVEN_TIER_KEYS, type SevenTier, oldTierBucket,
+  SHARPNESS_PCT_BY_TIER, SMITE_PCT_BY_TIER, CRITICAL_PCT_BY_TIER, POTATO_BOOK_USES_BY_TIER,
 } from './pluton-engine'
-import type { TierKey } from './money-making-constants'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const COMBAT_GEAR_BY_TIER: Record<TierKey, { weaponId: string; armorPrefix: string | null }> = {
+// Gate GEAR reel (progression Undead Sword->Revenant->Reaper, gatee par
+// collection pas par prix) -- pas interpolable, reste sur l'ancien bucket
+// 4-tiers via oldTierBucket() (meme pattern que pluton-sea-creatures.ts).
+const COMBAT_GEAR_BY_OLD_TIER: Record<'early' | 'mid' | 'end' | 'late', { weaponId: string; armorPrefix: string | null }> = {
   early: { weaponId: 'UNDEAD_SWORD', armorPrefix: null },
   mid: { weaponId: 'REVENANT_SWORD', armorPrefix: 'REVENANT' },
   end: { weaponId: 'REAPER_SWORD', armorPrefix: 'REAPER' },
   late: { weaponId: 'REAPER_SWORD', armorPrefix: 'REAPER' },
 }
+const COMBAT_GEAR_BY_TIER = (tier: SevenTier) => COMBAT_GEAR_BY_OLD_TIER[oldTierBucket(tier)]
 
 // Couche NBT (22 aout, recadrage "aucune activite Combat laissee de cote") --
 // Bestiary reutilise le meme gear que la chaine Zombie (UNDEAD_SWORD/
@@ -50,12 +55,9 @@ const COMBAT_GEAR_BY_TIER: Record<TierKey, { weaponId: string; armorPrefix: stri
 // War/Potato Books) -- trou reel trouve en auditant "les 5 Slayers sont-ils
 // vraiment la seule activite Combat ?" (non -- Dungeons et Bestiary aussi,
 // tous deux 'built'). Memes constantes/valeurs deja sourcees et verifiees
-// pour Zombie (lib/pluton-combat.ts/pluton-slayer.ts), reutilisees ici
-// telles quelles plutot que re-sourcees.
-const SHARPNESS_PCT_BY_TIER: Record<TierKey, number> = { early: 15, mid: 30, end: 50, late: 50 }
-const SMITE_PCT_BY_TIER: Record<TierKey, number> = { early: 15, mid: 30, end: 50, late: 50 }
-const CRITICAL_PCT_BY_TIER: Record<TierKey, number> = { early: 30, mid: 50, end: 100, late: 100 }
-const POTATO_BOOK_USES_BY_TIER: Record<TierKey, number> = { early: 5, mid: 10, end: 15, late: 15 }
+// pour Zombie (lib/pluton-combat.ts/pluton-slayer.ts), reutilisees telles
+// quelles via lib/pluton-engine.ts (partagees avec Slayer/Sea Creatures,
+// migrees au systeme 7-tiers le 23 aout).
 const POTATO_BOOK_BONUS_PER_USE = 2
 const WEAPON_RARITY: Record<string, string> = { UNDEAD_SWORD: 'COMMON', REVENANT_SWORD: 'RARE', REAPER_SWORD: 'EPIC' }
 const ARMOR_RARITY: Record<string, string> = { REVENANT: 'EPIC', REAPER: 'LEGENDARY' }
@@ -211,8 +213,8 @@ export async function computeAndPersistBestiaryRankings(): Promise<{ candidates:
       .single()
     if (blockErr || !block) continue
 
-    const entries = await Promise.all((['early', 'mid', 'end', 'late'] as TierKey[]).map(async tier => {
-      const gear = COMBAT_GEAR_BY_TIER[tier]
+    const entries = await Promise.all(SEVEN_TIER_KEYS.map(async tier => {
+      const gear = COMBAT_GEAR_BY_TIER(tier)
       const weapon = weaponById.get(gear.weaponId)
       const armor = gear.armorPrefix ? armorByPrefix.get(gear.armorPrefix) : null
       if (!weapon) return null
