@@ -235,12 +235,55 @@ Rabbit Mafioso (30 898 coins/h), early/UNCOMMON = Rabbit Cat (78 842
 coins/h) — cohérent (rareté supérieure = meilleur prix malgré un temps de
 capture plus long). Route de debug temporaire supprimée après validation.
 
-**Reste ouvert** : Fishing — 80 créatures à sourcer sur 10 pools
-`sea_creature_pools` jamais couvertes (HP/mob_type/loot par créature,
-aucune donnée structurée en base contrairement à Mining/Hunting, sourcing
-individuel par page wiki nécessaire comme pour les 10 créatures "basic"
-déjà faites le 21 août) — agent de recherche dédié lancé en arrière-plan
-le 23 août, résultat pas encore intégré.
+### ✅ Fishing — 10 pools Sea Creatures supplémentaires, vérifié (23 août)
+
+Agent de recherche dédié (lecture seule, pages wiki individuelles) a
+sourcé les 74 noms uniques des 80 lignes `sea_creature_pools` jamais
+couvertes (bayou/crimson_isle/hotspot/lotus/moonglade_marsh/shark/special/
+spooky/torrhus_canyon/winter) — PV/mob_type/table de loot, aucune valeur
+devinée. `lib/pluton-sea-creatures.ts` généralisé de "1 pool basic en dur"
+à `POOLS: Record<string, Pool>`, même moteur DPS/TTK (gear Zombie Slayer)
+réutilisé tel quel. 1 `pluton_target_block` par pool (11 au total),
+persistance manuelle globale-puis-scopée (purge unique des vieux
+`pluton_setups` par `tool_item_id='ZOMBIE_SLAYER_GEAR_REUSED'` avant la
+boucle, delete par `target_block_id` dans la boucle — jamais un delete par
+`activity_key` seul, même piège que le 21 août).
+
+**6 créatures exclues, documentées** : Puddle Jumper/Reindrake/Grinch —
+mécanique incompatible avec le modèle HP/DPS standard (mini-jeu de hooks,
+"N Hits" où la vitesse d'attaque compte seule, pas le DPS) ; Agarimoo/
+Carrot King/Plhlegblast — `base_weight IS NULL` en base (spawn
+conditionnel type Chumcap Bucket, aucune probabilité naturelle sourcée,
+pas inventée). **4 pools conditionnées à un évènement/objet, INCLUSES
+avec label explicite** (`event_gated`, pas exclues) : shark (Fishing
+Festival), spooky (Spooky Festival), winter (Jerry's Workshop) — coins/h à
+lire comme "pendant l'évènement actif", pas une moyenne annualisée (aucun
+taux de fréquence sourcé).
+
+**🔴 2 vrais bugs trouvés et corrigés en vérifiant en prod** :
+1. Item_id erroné pour le drop "Nether Quartz" d'Abyssal Miner (pool
+   special) : `QUARTZ_ORE` (le bloc minable, déjà utilisé pour la
+   cible Mining du même nom) au lieu de `QUARTZ` (le Nether Quartz brut
+   réellement droppé). `QUARTZ_ORE` porte une entrée AH aberrante
+   (`price_history_ah_variant_base`, ~5-25M coins, item sans rapport
+   partageant cet id) — a fait remonter la pool special à ~172M coins/h de
+   moyenne (400x les autres pools) au lieu de ~8.7K coins/h réels. Trouvé
+   en comparant les ordres de grandeur entre pools, pas suppose correct.
+2. **Cache Next.js sur la route de debug** — le premier redéploiement
+   après le fix #1 n'a montré AUCUN changement en base malgré 2 déploiements
+   distincts confirmés `READY` sur Vercel. Root cause : la route (`GET`
+   sans état dépendant de la requête aux yeux de l'analyse statique de
+   Next.js, malgré des appels Supabase réellement dynamiques) était
+   silencieusement mise en cache. Corrigé avec `export const dynamic =
+   'force-dynamic'` — revérifié après : les 44 combos changent bien de
+   valeur. **Règle retenue pour toute future route de debug Pluton** :
+   ajouter `dynamic = 'force-dynamic'` par défaut, ne jamais supposer
+   qu'un redéploiement suffit à invalider un cache de route GET.
+
+**Vérifié en base, cycle unique pour les 10 pools** : 44/44 combos (11
+pools × 4 tiers), ordre de grandeur cohérent partout (32K-1.5M coins/h
+selon pool/tier, scaling early<mid<end=late attendu). Route de debug
+temporaire supprimée après validation finale.
 
 ## 🚧 Pluton — reconnexion Système A/B, Phase 1 terminée (21 août)
 
