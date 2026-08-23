@@ -86,6 +86,79 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
+## ✅ Pluton — migration complete systeme 4-tiers -> 7-tiers reels (23 août)
+
+**Correction architecturale majeure, demandee explicitement par l'utilisateur**
+("pareil pourquoi tu me parle de late, alors qu'on a 7 tiers de money making
+maintenant... je ne veux plus de trou sois plus rigoureux, arrete de
+construire a moitier, prend tout ce que ta besoin pour construire et ne me
+fait pas de compte rendu temps que c'est pas niquel") : tous les
+calculateurs Pluton (Mining/Farming/Foraging/Fishing/Sea Creatures/Slayer/
+Kuudra/Hunting/Bestiary/Forge/Dungeons — 11 fichiers) tournaient depuis leur
+construction sur `TIER_CONFIG`/`TierKey` (early/mid/end/late, 4 paliers)
+alors qu'un vrai systeme a 7 tiers (`SEVEN_TIER_KEYS`/`buildSevenTierConfig`,
+starter→master, ancre sur `milestone_tier_totals`) existe dans le projet
+depuis le 17 août — jamais consomme par Pluton avant ce jour (confirme par
+grep : uniquement utilise par les anciennes routes Money Making agent).
+
+**Infra centralisee ajoutee dans `lib/pluton-engine.ts`** : `loadSevenTierConfig()`
+(fetch `milestone_tier_totals`, interpolation proportionnelle deja geree par
+`buildSevenTierConfig`, jamais une valeur inventee), `INVESTMENT_MAX_TIERS`/
+`MID_INVESTMENT_TIERS`/`EARLY_INVESTMENT_TIERS` (remplacent les checks
+`tier==='end'||'late'` etc.), `oldTierBucket()` (pour les gates gear
+DISCRETS non-interpolables — ex. progression d'arme Slayer Undead Sword→
+Revenant→Reaper, gatee par collection pas par prix — mappe chaque nouveau
+tier vers son ancien bucket 4-tiers), et les paliers NBT communs (Sharpness/
+Smite/Critical/Potato Books) desormais a 7 granularites au lieu de 4.
+
+**Methode d'interpolation retenue partout** : chaque ancre reelle de
+l'ancien systeme est preservee EXACTEMENT au nouveau tier correspondant
+(convention `money_making_tier_key` deja existante : old-early→amateur,
+old-mid→skilled, old-end/late→professional/master) — seule la granularite
+intermediaire (starter/intermediate/expert) est interpolee lineairement,
+jamais une valeur de jeu inventee au-dela de ce que la source documente
+deja (regle #7).
+
+**2 vraies donnees reelles restaurees au passage** (perdues par la
+compression 5→4 de l'ancien systeme, retrouvees gratuitement par le passage
+a 7 tiers, pas cherchees activement) : **Large Huntrap** (RETIA_ROBUSTA,
+-20%, sautee entre Medium et Greater dans l'ancien decoupage 4-tiers —
+desormais au tier `expert`) et un **niveau Quick Forge intermediaire**
+calcule via sa vraie formule sourcee (`10+0.5×niveau`, niveau 5 au tier
+`intermediate`).
+
+**Deploiement et verification** : migration en un seul cycle (11 fichiers
+edites, type-check local propre avant push), verifiee par re-calcul complet
+de chaque activite contre la base reelle (routes de debug temporaires,
+scindees en groupes individuels apres qu'un premier essai combine ait
+depasse le budget 280s d'une seule Vercel Function — 7 tiers = +75% de
+combos par rapport aux 4 tiers d'origine, cause reelle du timeout, pas un
+bug). **3 recoupements manuels independants, tous exacts** : Farming
+(starter/amateur correctement non-eligibles, 0 ligne en base, Garden
+toujours interdit aux 2 premiers tiers) ; Hunting sur Molthorn (les 6
+valeurs de reduction Huntrap+Trapped recalculees a la main toutes exactes,
+`master`=791 861,80 coins/h — **identique bit a bit** a l'ancienne valeur
+`late` deja documentee le 22 août, confirmant que l'ancre reelle a bien ete
+preservee) ; Kuudra sur Basic (les 4 ancres CANNONEER — amateur=44.44s,
+skilled=4.55s, professional=1.28s, master=1.0s — toutes exactes au calcul a
+la main). **196+7+77+91+21+154+49+35+2240+107 = 2977 lignes** recalculees
+au total sur les 11 activites (`pluton_rankings`), toutes sur des valeurs
+`tier` du nouveau vocabulaire (`starter`...`master`), 0 valeur `early`/
+`mid`/`end`/`late` residuelle.
+
+**Cron manquant ferme au passage** : `pluton-kuudra-refresh` n'existait pas
+depuis la construction de Kuudra le 23 août (jamais automatise) — ajoute
+(`vercel.json`, quotidien 5h50).
+
+**Maintenance operationnelle** : `maxDuration` augmente sur 7 des crons
+Pluton (Mining 280→300, Farming/Slayer 120→220, Dungeons 120→200,
+Foraging 120→180, Bestiary 60→100, Hunting 30→90) — marge de securite pour
+le volume de calcul +75% desormais recurrent en prod, aucune formule
+changee. `lib/pluton-combat.ts` (Zombie Slayer v2, architecture Phase 3
+"Systeme B refondu") confirme **hors-scope de cette migration** — utilise
+deja nativement l'echelle 1-7 de `pluton_elements` (`PLAYER_TIERS=['1'..'7']`),
+un systeme distinct et deja conforme, pas touche.
+
 ## ✅ Compte rendu final — audit corruption des sources + fermeture HOTM/HOTF (23 août)
 
 Suite directe de la demande explicite de l'utilisateur : "je veux que tu ne
