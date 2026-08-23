@@ -190,7 +190,63 @@ masquait (un Rare bien pricé peut battre un Legendary faible), exactement
 le genre de comparaison croisée que l'exhaustivité par item est censée
 produire. Route de debug temporaire supprimée après validation.
 
-### 🔴 Kuudra -- débloqué (mob stats/loot/mécanique canon réels trouvés), 2 ancres de temps encore manquantes, recherche dédiée en cours
+### ✅ Kuudra -- construit et vérifié, phase de combat 100% calculée depuis le setup (23 août)
+
+Suite de la réinvestigation (voir sous-section ci-dessous pour l'historique
+complet de la découverte). **Nouveau fichier `lib/pluton-kuudra.ts`**, 5
+tiers (Basic→Infernal) comme `pluton_target_blocks` distincts -- même
+principe de regroupement que les 5 boss Slayer (mécanisme de combat
+littéralement partagé, paramétré par tier, un vrai cas de regroupement
+légitime selon la règle du jour "grouper seulement si le mécanisme de farm
+est partagé").
+
+**Insight clé qui a débloqué le calcul** : la table Perk Shop complète
+(I-VII, sourcée mot pour mot) montre que les dégâts du canon contre Kuudra
+sont **% des PV MAX + flat** ("Cannon Proficiency") -- le nombre de tirs
+pour tuer Kuudra est donc INDÉPENDANT de ses PV absolus (jamais sourcés) et
+**identique quel que soit le tier Kuudra** à investissement égal (le %
+domine, le flat est ignoré -- simplification documentée, sous-estime
+légèrement). Formule : `cycles = 100 / (CannonProficiency% × Multi-Shot ×
+(1+SteadyAim%))`, `temps = cycles × cooldown Rapid Fire`. Palier
+d'investissement par tier joueur (early=aucun perk, late=Cannoneer maxé
+VII).
+
+**🔴 2 bugs réels trouvés et corrigés avant validation finale** :
+1. **Fausse hypothèse "Crimson Essence/Kraken Shard non-tradeables"**,
+   corrigée après que l'utilisateur a explicitement demandé de revérifier
+   ("arrête de dire n'importe quoi, tout ce que Kuudra donne est priceable
+   Bazaar ou AH") -- la 1re passe avait cherché le mauvais item_id
+   (`KRAKEN_SHARD` au lieu du vrai `SHARD_KRAKEN`) et n'avait pas cherché
+   `ESSENCE_CRIMSON` avec le bon pattern. Les 3 items du loot garanti sont
+   en réalité tous les 3 réellement pricés (Essence Crimson ~925,
+   Kuudra Teeth ~6000, Kraken Shard ~180 811).
+2. **`sell_price` utilisé pour le coût des ingrédients de la Kuudra Key**
+   (Enchanted Red Sand/Nether Star, des items qu'on ACHÈTE) au lieu de
+   `buy_price` -- corrigé (même convention que `lib/pluton-forge.ts`).
+   Un 1er redéploiement a semblé ne rien changer (cache de fetch Next.js
+   sur les appels Supabase internes à la route, distinct du cache de route
+   déjà rencontré sur Sea Creatures -- `dynamic='force-dynamic'` seul n'a
+   pas suffi cette fois, résolu apres un nouveau cycle de verification) --
+   revérifié : keyCost Basic passe de 223 024 (sell_price, faux) à 232 255
+   (buy_price, correct, cohérent avec le calcul manuel).
+
+**Loot garanti UNIQUEMENT** (même discipline que les 5 Slayers) -- le pool
+RNG (armures Aurora/Crimson/Fervor/Hollow/Terror, accessoires Molten,
+enchant books) reste un gap honnête documenté, pas inventé.
+`coins_per_hour_boss_phase_only` = phase de combat SEULE (Phases 1-3 de
+collecte non chronométrées, aucune ancre de temps base 0%-perk trouvée
+malgré une recherche dédiée -- voir ci-dessous).
+
+**Vérifié en base** : 20 combos (5 tiers Kuudra × 4 tiers joueur). Basic
+ressort positif à tous les tiers joueur (jusqu'à 107.9M/h en late/Basic,
+combat_s=1s cohérent avec le calcul manuel : 100/(4×6×1.25)=3.33 cycles ×
+0.3s=1s) -- les 4 autres tiers Kuudra ressortent négatifs sur le loot
+garanti seul (coût de Key qui monte plus vite que le loot garanti ne
+scale), même signature honnête que Zombie Slayer (vraie rentabilité dans
+le pool RNG non pricé ici). Route de debug temporaire supprimée après
+validation.
+
+### 🔴 Kuudra -- découverte de la mécanique de combat (historique de la réinvestigation, 23 août)
 
 Réinvestigation demandée par l'utilisateur ("il y a pas le kuudra run") --
 l'ancien verdict "ancre de temps introuvable" (21 août) était incomplet :
