@@ -215,12 +215,32 @@ tombés au même plancher (~0.10 coin) au moment du calcul, confirmé par
 requête directe sur `price_history`. Route de debug temporaire supprimée
 après validation.
 
-**Reste ouvert, prochaine étape actée** : Fishing (80 créatures à sourcer
-sur 10 pools `sea_creature_pools` jamais couvertes — HP/dégâts/loot par
-créature, aucune donnée structurée en base contrairement à Mining, sourcing
+### ✅ Hunting — Trap Hunting explosé par rareté, vérifié (23 août)
+
+`TRAP_HUNTING` (1 seule ligne agrégée "meilleur shard toutes raretés
+confondues") remplacé par 5 `pluton_target_blocks` (`TRAP_HUNTING_COMMON`
+→ `TRAP_HUNTING_LEGENDARY`), même granularité que les 17+10 matériaux
+Mining. **Choix de granularité justifié, pas arbitraire** : la RARETÉ est
+le vrai axe mécanique distinctif (formule de temps de capture différente
+par rareté, même rôle que le type de bloc pour Mining) — le shard précis
+choisi à l'intérieur d'une rareté (parmi 320 réels, tous pricés) reste un
+détail d'implémentation du setup, pas une activité distincte. Exploser les
+320 shards individuellement aurait été une fausse granularité (même formule
+répétée 320 fois, aucune variation mécanique réelle entre deux shards de
+même rareté) — décision documentée en tête de fichier. Zéro changement de
+formule, seule la structure de persistance change.
+
+**Vérifié en base** : 20 combos (5 raretés × 4 tiers), ex. early/COMMON =
+Rabbit Mafioso (30 898 coins/h), early/UNCOMMON = Rabbit Cat (78 842
+coins/h) — cohérent (rareté supérieure = meilleur prix malgré un temps de
+capture plus long). Route de debug temporaire supprimée après validation.
+
+**Reste ouvert** : Fishing — 80 créatures à sourcer sur 10 pools
+`sea_creature_pools` jamais couvertes (HP/mob_type/loot par créature,
+aucune donnée structurée en base contrairement à Mining/Hunting, sourcing
 individuel par page wiki nécessaire comme pour les 10 créatures "basic"
-déjà faites le 21 août) et Hunting (exploser "meilleur shard" en lignes
-individuelles par shard/rareté, même granularité que les gemmes Mining).
+déjà faites le 21 août) — agent de recherche dédié lancé en arrière-plan
+le 23 août, résultat pas encore intégré.
 
 ## 🚧 Pluton — reconnexion Système A/B, Phase 1 terminée (21 août)
 
