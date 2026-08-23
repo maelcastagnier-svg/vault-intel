@@ -495,7 +495,7 @@ const POOLS: Record<string, Pool> = {
         { entry_item_id: 'ROUGH_AMETHYST_GEM', entry_qty: 20, chance_pct: 100 },
         { entry_item_id: 'ROUGH_JADE_GEM', entry_qty: 20, chance_pct: 100 },
         { entry_item_id: 'ROUGH_SAPPHIRE_GEM', entry_qty: 20, chance_pct: 100 },
-        { entry_item_id: 'QUARTZ_ORE', entry_qty: 10, chance_pct: 100 },
+        { entry_item_id: 'QUARTZ', entry_qty: 10, chance_pct: 100 },
       ]},
     ],
   },
