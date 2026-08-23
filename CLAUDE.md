@@ -159,6 +159,69 @@ mécanique fondamentale, jamais une activité autonome), reconfirmée ici en
 vérifiant qu'aucun des 2 fichiers `.ts` touchés ne tente de pricer ces
 monnaies directement (seuls leurs perks/effets dérivés sont modélisés).
 
+## 🚧 Audit exhaustivité "toute activité qui découle d'un skill" (23 août, en cours)
+
+**Recadrage majeur de l'utilisateur**, plus strict que l'audit "toutes les
+activités du skill" du 22 août : "quand on a du mining ou autre tu prend
+tout ce qui concerne le mining de près ou de loin... miner du ruby est une
+activité en soi comme miner du charbon... tout ce qui est extrait depuis la
+cartographie doit être utilisé comme matière première directe à Pluton...
+rien de côté, pas de mise à l'écart". Fausse route initiale corrigée
+immédiatement : Claude a d'abord annoncé "Farming 3/13 cultures couvertes"
+sans vérifier `pluton_target_blocks` directement (confondant le nombre
+d'exemples cités dans le texte CLAUDE.md du 5 août avec le scope réel) —
+**vérifié et infirmé** : Farming est déjà à 13/13 cultures réelles, Foraging
+à 3/3 arbres réels, Combat/Bestiary déjà à 63 mobs individuels. Leçon
+retenue : toujours vérifier `pluton_target_blocks` en base, jamais le
+narratif d'une session passée.
+
+**Audit réel mené par requêtes directes sur les tables sources** (pas par
+supposition) sur les 6 skills `built` :
+
+| Skill | État réel vérifié |
+|---|---|
+| Farming | ✅ 13/13 cultures déjà couvertes |
+| Foraging | ✅ 3/3 arbres réels déjà couverts |
+| Combat/Bestiary | ✅ 63 mobs individuels déjà couverts |
+| Mining | 🔴 17/27 matériaux minables → fermé ce jour (voir ci-dessous) |
+| Fishing | 🔴 1/11 pools de Sea Creatures (`sea_creature_pools`) → gap réel, sourcing 80 créatures nécessaire, pas fermé |
+| Hunting | 🔴 Trap Hunting réduit à "meilleur shard" au lieu d'exploser par shard/rareté comme Mining → pas fermé |
+
+### ✅ Mining — 10 matériaux minables réels ajoutés, vérifié (23 août)
+
+Sourcé directement depuis les 2 pages wiki déjà utilisées pour construire
+tout Mining à l'origine (`block_strength`, `breaking_power`, déjà en cache)
+— jamais deviné. 10 blocs confirmés minables et pricés en live, absents de
+`MINING_TARGET_BLOCK_IDS` : Cobblestone/Netherrack/End Stone/Hard Stone/
+Obsidian (blocs "filler" non-Ore, instamine 30x) + Redstone/Emerald/Nether
+Quartz/Lapis Lazuli Ore (vraies Ores, instamine 60x) + Sulphur Ore.
+**Extension triviale** : `computeAndPersistAllMiningRankings()` était déjà
+générique sur `MINING_TARGET_BLOCK_IDS` — seule la constante + les 10 lignes
+`pluton_target_blocks` (block_strength/required_breaking_power réels,
+sell_item_id Bazaar vérifié) ont été ajoutées, zéro changement de formule.
+
+**2 exclusions documentées, pas des oublis** : `STONE` (aucun prix Bazaar
+live trouvé, gap de donnée) ; `CHLORONITE` (même palier Breaking Power que
+Cobblestone dans la table source, mais zone d'origine et statut Bazaar
+jamais vérifiés — laissé de côté explicitement). `TITANIUM_ORE` reste
+volontairement standalone-exclu (déjà décidé le 5 août : remplacement rare
+0.5% sur Mithril, pas une cible autonome — pas rouvert ici).
+
+**Vérifié en base** : 39/40 combos (10 blocs × 4 tiers, Sulphur Ore
+non-éligible en EARLY, honnête — BP=8 hors de portée). Coïncidence de
+marché notée en vérifiant (pas un bug) : Netherrack et Hard Stone affichent
+exactement le même coins/h à plusieurs tiers — les deux prix Bazaar sont
+tombés au même plancher (~0.10 coin) au moment du calcul, confirmé par
+requête directe sur `price_history`. Route de debug temporaire supprimée
+après validation.
+
+**Reste ouvert, prochaine étape actée** : Fishing (80 créatures à sourcer
+sur 10 pools `sea_creature_pools` jamais couvertes — HP/dégâts/loot par
+créature, aucune donnée structurée en base contrairement à Mining, sourcing
+individuel par page wiki nécessaire comme pour les 10 créatures "basic"
+déjà faites le 21 août) et Hunting (exploser "meilleur shard" en lignes
+individuelles par shard/rareté, même granularité que les gemmes Mining).
+
 ## 🚧 Pluton — reconnexion Système A/B, Phase 1 terminée (21 août)
 
 Audit général demandé par l'utilisateur après la fermeture du backlog
