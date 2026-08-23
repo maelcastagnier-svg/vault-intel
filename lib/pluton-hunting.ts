@@ -31,15 +31,29 @@
 // wiki cache ("multiplicateur hf" jamais formule). Documente comme gap
 // mecanique reel plutot que force.
 //
-// Strategie retenue : parmi TOUS les Attribute Shards reels (321, table
-// attribute_shards, rarete+prix Bazaar deja sources), le joueur rationnel
-// pose ses trap sur la localisation du shard le plus rentable a son palier
-// de trap -- on calcule coins/h pour chaque shard price, on retient le
-// meilleur par tier. La page wiki "Huntraps#Locations" elle-meme est
-// marquee {{Sectionstub}} (liste reconnue incomplete par le wiki source) --
-// utiliser le catalogue complet attribute_shards plutot qu'une
+// Strategie retenue : parmi TOUS les Attribute Shards reels (320 pricees,
+// table attribute_shards, rarete+prix Bazaar deja sources), le joueur
+// rationnel pose ses trap sur la localisation du shard le plus rentable a
+// son palier de trap -- on calcule coins/h pour chaque shard price, on
+// retient le meilleur par tier. La page wiki "Huntraps#Locations" elle-meme
+// est marquee {{Sectionstub}} (liste reconnue incomplete par le wiki
+// source) -- utiliser le catalogue complet attribute_shards plutot qu'une
 // transcription manuelle partielle de cette liste est documente comme un
 // choix deliberement plus large, pas une invention.
+//
+// **Granularite par RARETE, pas par shard individuel (23 aout, audit
+// exhaustivite utilisateur)** : contrairement a la 1re version qui
+// collapsait les 320 shards en une seule ligne "meilleur shard toutes
+// raretes confondues", chaque RARETE est desormais sa propre activite
+// (`pluton_target_blocks`), meme granularite que les 17 materiaux Mining --
+// la rarete est le vrai axe mecanique distinctif ici (formule de temps de
+// capture differente par rarete, meme role que le type de bloc pour
+// Mining), alors que le shard PRECIS choisi a l'interieur d'une rarete est
+// un detail d'implementation du setup (equivalent du choix d'armure/outil
+// a l'interieur d'un meme bloc cible), pas une activite distincte -- 320
+// lignes individuelles auraient ete une fausse granularite (meme formule
+// de capture repetee 320 fois, aucune variation mecanique reelle entre
+// deux shards de meme rarete).
 import { createClient } from '@supabase/supabase-js'
 import type { TierKey } from './money-making-constants'
 
@@ -73,8 +87,12 @@ const TRAP_BY_TIER: Record<TierKey, { itemId: string; name: string; reductionPct
 // d'item comme le Sharpening Shard de Foraging).
 const TRAPPED_REDUCTION_PCT_MAX = 5
 
+const SHARD_RARITIES = ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY'] as const
+export type ShardRarity = (typeof SHARD_RARITIES)[number]
+
 export type TrapHuntingResult = {
   tier: TierKey
+  rarity: ShardRarity
   trap_name: string
   best_shard: string
   shard_rarity: string
@@ -102,19 +120,21 @@ export async function computeTrapHuntingRankings(): Promise<TrapHuntingResult[]>
   const results: TrapHuntingResult[] = []
   for (const tier of ['early', 'mid', 'end', 'late'] as TierKey[]) {
     const trap = TRAP_BY_TIER[tier]
-    let best: TrapHuntingResult | null = null
-    for (const s of shards as { display_name: string; rarity: string; bazaar_stock_id: string | null }[]) {
-      if (!s.bazaar_stock_id) continue
-      const price = priceCache.get(s.bazaar_stock_id)
-      const baseHours = BASE_HOURS_BY_RARITY[s.rarity]
-      if (!price || !baseHours) continue
-      const captureHours = baseHours * (1 - (trap.reductionPct + TRAPPED_REDUCTION_PCT_MAX) / 100)
-      const coinsPerHour = price / captureHours
-      if (!best || coinsPerHour > best.coins_per_hour) {
-        best = { tier, trap_name: trap.name, best_shard: s.display_name, shard_rarity: s.rarity, shard_price: price, capture_hours: captureHours, coins_per_hour: coinsPerHour }
+    for (const rarity of SHARD_RARITIES) {
+      let best: TrapHuntingResult | null = null
+      for (const s of shards as { display_name: string; rarity: string; bazaar_stock_id: string | null }[]) {
+        if (s.rarity !== rarity || !s.bazaar_stock_id) continue
+        const price = priceCache.get(s.bazaar_stock_id)
+        const baseHours = BASE_HOURS_BY_RARITY[s.rarity]
+        if (!price || !baseHours) continue
+        const captureHours = baseHours * (1 - (trap.reductionPct + TRAPPED_REDUCTION_PCT_MAX) / 100)
+        const coinsPerHour = price / captureHours
+        if (!best || coinsPerHour > best.coins_per_hour) {
+          best = { tier, rarity, trap_name: trap.name, best_shard: s.display_name, shard_rarity: s.rarity, shard_price: price, capture_hours: captureHours, coins_per_hour: coinsPerHour }
+        }
       }
+      if (best) results.push(best)
     }
-    if (best) results.push(best)
   }
   return results
 }
@@ -130,21 +150,27 @@ export async function computeAndPersistTrapHuntingRankings(): Promise<TrapHuntin
     await supabase.from('pluton_target_blocks').delete().in('id', existingIds)
   }
 
-  const { data: block, error: blockErr } = await supabase
-    .from('pluton_target_blocks')
-    .insert({
-      activity_key: 'hunting',
-      block_id: 'TRAP_HUNTING',
-      block_name: 'Trap Hunting -- meilleur Attribute Shard disponible',
-      block_strength: 0,
-      required_breaking_power: 0,
-      sell_item_id: 'NONE',
-      base_drop_count: 1,
-      pricing_note: `1re activite Pluton pour le skill Hunting (jamais couvert avant). Formule reelle "Huntraps" (wiki, citations Discord dev mrkeith) : temps de capture par rarete de shard (Common 8-12h ... Legendary 16-24h) reduit par le palier de Huntrap (Small 0% / Medium -10% / Greater -35% / Astral -50%). Parmi les 321 Attribute Shards reels pricees (table attribute_shards), retient le meilleur coins/h par tier. Charm Hunting explicitement PAS modelise -- modificateur passif sur du combat existant (chance de shard bonus au kill), pas une activite autonome, et la relation Hunter Fortune->nombre de shards par proc n'est chiffree nulle part dans le wiki source. Forest/Water/Combat Hunting restent des gaps reels (stamina/pull/vitesse de capture non formules, {{confirm}} explicite cote wiki).`,
-    })
-    .select('id')
-    .single()
-  if (blockErr || !block) throw new Error(`pluton_target_blocks insert failed: ${blockErr?.message}`)
+  // 1 target_block par RARETE (5, voir doc plus haut) -- remplace l'ancien
+  // bloc unique "TRAP_HUNTING" agrege.
+  const blockByRarity = new Map<ShardRarity, number>()
+  for (const rarity of SHARD_RARITIES) {
+    const { data: block, error: blockErr } = await supabase
+      .from('pluton_target_blocks')
+      .insert({
+        activity_key: 'hunting',
+        block_id: `TRAP_HUNTING_${rarity}`,
+        block_name: `Trap Hunting -- Attribute Shard ${rarity.charAt(0) + rarity.slice(1).toLowerCase()}`,
+        block_strength: 0,
+        required_breaking_power: 0,
+        sell_item_id: 'NONE',
+        base_drop_count: 1,
+        pricing_note: `Activite Pluton Hunting (skill neuf 2025/2026), granularite par rarete (23 aout -- 1 activite par rarete, meme principe que les materiaux Mining). Formule reelle "Huntraps" (wiki, citations Discord dev mrkeith) : temps de capture par rarete de shard (Common 8-12h ... Legendary 16-24h) reduit par le palier de Huntrap (Small 0% / Medium -10% / Greater -35% / Astral -50%) + Trapped (Forest Essence Shop, -5%). Parmi les Attribute Shards ${rarity} reels pricees (table attribute_shards), retient le meilleur coins/h par tier. Charm Hunting explicitement PAS modelise -- modificateur passif sur du combat existant, pas une activite autonome. Forest/Water/Combat Hunting restent des gaps reels (mecaniques non chiffrees, {{confirm}} explicite cote wiki).`,
+      })
+      .select('id')
+      .single()
+    if (blockErr || !block) throw new Error(`pluton_target_blocks insert failed for ${rarity}: ${blockErr?.message}`)
+    blockByRarity.set(rarity, block.id)
+  }
 
   const setupsToInsert = results.map(r => ({
     activity_key: 'hunting',
@@ -164,7 +190,7 @@ export async function computeAndPersistTrapHuntingRankings(): Promise<TrapHuntin
   const rankingsToInsert = results.map((r, i) => ({
     activity_key: 'hunting',
     tier: r.tier,
-    target_block_id: block.id,
+    target_block_id: blockByRarity.get(r.rarity)!,
     setup_id: insertedSetups[i].id,
     rank: 1,
     mining_time_seconds: r.capture_hours * 3600,
