@@ -471,8 +471,31 @@ export type PersistedFishingResult = {
 export async function computeAndPersistAllFishingRankings(): Promise<PersistedFishingResult[]> {
   const out: PersistedFishingResult[] = []
 
-  await supabase.from('pluton_rankings').delete().eq('activity_key', 'fishing')
-  await supabase.from('pluton_setups').delete().eq('activity_key', 'fishing')
+  // 🔴 Bug réel trouvé le 23 août (audit exhaustivité, même famille que le
+  // fix appliqué à lib/pluton-mining.ts le même jour) : ce DELETE était
+  // scopé sur activity_key='fishing' SEUL -- or Sea Creature kills
+  // (lib/pluton-sea-creatures.ts, 21 août) partage cette même activity_key
+  // (11 pools distinctes) sans que ce fichier-ci en tienne compte. Tout
+  // appel isolé de computeAndPersistAllFishingRankings() effaçait
+  // silencieusement les rankings Sea Creatures déjà en base sans les
+  // reconstruire. Corrigé en scopant le DELETE au seul target_block réel de
+  // Fishing (WATER_POOL), jamais un blanket activity_key -- même discipline
+  // déjà appliquée par Sea Creatures lui-même sur ses propres lignes.
+  const { data: fishingBlocks } = await supabase
+    .from('pluton_target_blocks')
+    .select('id')
+    .eq('activity_key', 'fishing')
+    .in('block_id', FISHING_TARGET_BLOCK_IDS)
+  const fishingBlockIds = (fishingBlocks || []).map(b => b.id)
+  if (fishingBlockIds.length > 0) {
+    const { data: staleRankings } = await supabase
+      .from('pluton_rankings')
+      .select('setup_id')
+      .in('target_block_id', fishingBlockIds)
+    const staleSetupIds = (staleRankings || []).map(r => r.setup_id).filter(Boolean)
+    await supabase.from('pluton_rankings').delete().in('target_block_id', fishingBlockIds)
+    if (staleSetupIds.length > 0) await supabase.from('pluton_setups').delete().in('id', staleSetupIds)
+  }
 
   const sevenTierConfig = await loadSevenTierConfig()
   for (const tier of FISHING_TIER_KEYS) {

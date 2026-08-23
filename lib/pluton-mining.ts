@@ -781,8 +781,36 @@ export async function computeAndPersistAllMiningRankings(): Promise<PersistedMin
   // silencieusement accumulée au lieu de remplacer. pluton_rankings référence
   // pluton_setups par setup_id (FK) donc les 2 tables doivent être vidées
   // ensemble, rankings d'abord (dépend de setups).
-  await supabase.from('pluton_rankings').delete().eq('activity_key', 'mining')
-  await supabase.from('pluton_setups').delete().eq('activity_key', 'mining')
+  //
+  // 🔴 2e bug réel trouvé le 23 août (audit exhaustivité) : le DELETE
+  // ci-dessus était scopé sur activity_key='mining' SEUL -- or Forge
+  // (lib/pluton-forge.ts) partage cette même activity_key depuis le 21 août
+  // (blocs FORGE_*, architecture "multi-méthodes" déjà établie sur Sea
+  // Creatures/Dungeons) sans que ce fichier-ci en tienne compte. Tout appel
+  // isolé de computeAndPersistAllMiningRankings() (hors du cron production
+  // qui enchaîne toujours Mining PUIS Forge dans la même invocation)
+  // effaçait silencieusement les rankings/setups Forge déjà en base, sans
+  // les reconstruire -- trouvé en vérifiant l'état réel après un appel
+  // isolé pendant la migration 7-tiers (0 ligne Forge restante). Corrigé en
+  // scopant le DELETE aux seuls target_blocks RÉELLEMENT miniers
+  // (MINING_TARGET_BLOCK_IDS), jamais un blanket activity_key -- même
+  // discipline "delete scopé par méthode" déjà appliquée à Forge lui-même
+  // et à Sea Creatures/Dungeons.
+  const { data: miningBlocks } = await supabase
+    .from('pluton_target_blocks')
+    .select('id')
+    .eq('activity_key', 'mining')
+    .in('block_id', MINING_TARGET_BLOCK_IDS)
+  const miningBlockIds = (miningBlocks || []).map(b => b.id)
+  if (miningBlockIds.length > 0) {
+    const { data: staleRankings } = await supabase
+      .from('pluton_rankings')
+      .select('setup_id')
+      .in('target_block_id', miningBlockIds)
+    const staleSetupIds = (staleRankings || []).map(r => r.setup_id).filter(Boolean)
+    await supabase.from('pluton_rankings').delete().in('target_block_id', miningBlockIds)
+    if (staleSetupIds.length > 0) await supabase.from('pluton_setups').delete().in('id', staleSetupIds)
+  }
 
   const sevenTierConfig = await loadSevenTierConfig()
   for (const tier of MINING_TIER_KEYS) {
