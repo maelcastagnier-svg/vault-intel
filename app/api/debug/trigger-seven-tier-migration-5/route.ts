@@ -6,7 +6,7 @@ import { computeAndPersistTrapHuntingRankings } from '../../../../lib/pluton-hun
 import { computeAndPersistBestiaryRankings } from '../../../../lib/pluton-bestiary'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 280
+export const maxDuration = 300
 
 export async function GET() {
   const out: Record<string, any> = {}

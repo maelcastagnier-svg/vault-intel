@@ -1,22 +1,19 @@
-// TEMPORAIRE -- route de debug pour verifier la migration 4-tiers -> 7-tiers
-// Groupe 1/5 : Mining + Forge (meme regroupement que le cron production,
-// meme budget 280s). A supprimer apres verification complete des 5 groupes.
+// TEMPORAIRE -- migration 4-tiers -> 7-tiers, Groupe 1a : Mining SEUL.
+// Separe de Forge (le combo Mining+Forge a 7 tiers depasse 280s -- 7 tiers
+// = 75% de combos en plus par rapport aux 4 tiers d'origine, budget par
+// fonction augmente a 300s, le max deja valide sur ce projet -- Mining
+// seul d'abord pour isoler si Mining a lui seul suffit a saturer ce budget).
 import { NextResponse } from 'next/server'
 import { computeAndPersistAllMiningRankings } from '../../../../lib/pluton-mining'
-import { computeAndPersistForgeRankings } from '../../../../lib/pluton-forge'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 280
+export const maxDuration = 300
 
 export async function GET() {
-  const out: Record<string, any> = {}
   try {
     const mining = await computeAndPersistAllMiningRankings()
-    out.mining = { ok: true, count: mining.length, with_setup: mining.filter((r: any) => r.has_setup).length }
-  } catch (e: any) { out.mining = { ok: false, error: e.message } }
-  try {
-    const forge = await computeAndPersistForgeRankings()
-    out.forge = { ok: true, ...forge }
-  } catch (e: any) { out.forge = { ok: false, error: e.message } }
-  return NextResponse.json(out)
+    return NextResponse.json({ mining: { ok: true, count: mining.length, with_setup: mining.filter((r: any) => r.has_setup).length } })
+  } catch (e: any) {
+    return NextResponse.json({ mining: { ok: false, error: e.message } })
+  }
 }
