@@ -159,7 +159,58 @@ mécanique fondamentale, jamais une activité autonome), reconfirmée ici en
 vérifiant qu'aucun des 2 fichiers `.ts` touchés ne tente de pricer ces
 monnaies directement (seuls leurs perks/effets dérivés sont modélisés).
 
-## 🚧 Audit exhaustivité "toute activité qui découle d'un skill" (23 août, en cours)
+## 🚧 Recadrage exhaustivité #2 -- granularité PAR ITEM, pas par groupe mécanique (23 août)
+
+**Correction explicite de l'utilisateur** après le premier lot de fermetures
+du jour : "toute item farmable activement reste une activité... tu peux
+grouper si le farm est groupable avec d'autres items comme les tables
+Slayers, mais sinon les items farmables individuellement tu le fais à la
+main". Ça invalide la décision "Hunting = 5 activités par rareté" prise
+plus tôt le même jour (raisonnement : la rareté déterminait le temps de
+capture, jugé comme LE vrai axe mécanique) -- l'utilisateur tranche que
+chaque shard individuellement chassable (320, chacun avec son propre prix
+réel) est sa propre activité, exactement comme Ruby vs Coal en Mining.
+**Règle de regroupement clarifiée** : ne grouper QUE quand le mécanisme de
+farm est LITTÉRALEMENT partagé entre plusieurs items (les 5 boss Slayer
+partagent le même combat/la même formule paramétrée par tier -- un vrai
+regroupement légitime) -- jamais parce que la formule de RENDEMENT est la
+même (Hunting : la formule de temps de capture était identique par rareté,
+mais chaque shard reste une action de farm distincte).
+
+### ✅ Hunting -- Trap Hunting explosé par shard individuel, vérifié (23 août)
+
+`TRAP_HUNTING_<RARETÉ>` (5 blocs, construits une heure plus tôt le même
+jour) remplacé par `TRAP_HUNTING_<item_id>` -- **320 activités** (une par
+Attribute Shard réellement pricé), zéro changement de formule. **Vérifié
+en base** : 1280 combos (320 shards × 4 tiers), LATE top 5 = Molthorn
+(Legendary, 791 861 coins/h -- cohérent avec le repère du 22 août :
+7,07M/9h≈785K), **Bitbug (Rare) bat 3 Legendary différents** (Paragon/
+Starborn/Primordial) -- révèle un vrai insight que la version "par rareté"
+masquait (un Rare bien pricé peut battre un Legendary faible), exactement
+le genre de comparaison croisée que l'exhaustivité par item est censée
+produire. Route de debug temporaire supprimée après validation.
+
+### 🔴 Nouveaux gaps trouvés dans l'audit général du jour, pas encore fermés
+
+- **Greenhouse Mutations (Farming)** -- `Chloronite` (mutation réelle,
+  poussée en croisant Coalroot+Thornshade en Greenhouse, rendement
+  dépendant de Mining Fortune du joueur -- formule sourcée wiki, citation
+  Discord `mrkeith`) confirmée Bazaar-tradeable. Sa page mentionne
+  explicitement que Chloronite sert à fabriquer Chorus Fruit et Glasscorn
+  -- système Greenhouse/Mutations plus large jamais cartographié comme
+  activité Pluton. Pas construit ce jour, scope pas encore mesuré.
+- **Tree Gift loot direct (Foraging)** -- mécanique de récompense
+  sourcée (`tree_gifts` + 3 pages par arbre) : 1 Tree Gift par arbre
+  intégralement coupé, palier selon % de contribution du joueur (10%=
+  normal, 20%=+50%, 33%+=double) × multiplicateur de taille d'arbre
+  (1x-20x). **Bloqué** : convertir "logs/heure" (déjà modélisé) en
+  "arbres abattus/heure" nécessiterait une taille moyenne d'arbre en
+  logs, jamais sourcée -- pas inventée.
+- **Kuudra / Dungeons F7 frag run** -- reconfirmés bloqués après nouvelle
+  vérification ce jour (voir sections dédiées ci-dessous si investigation
+  relancée).
+
+## ✅ Audit exhaustivité "toute activité qui découle d'un skill" (23 août, en cours)
 
 **Recadrage majeur de l'utilisateur**, plus strict que l'audit "toutes les
 activités du skill" du 22 août : "quand on a du mining ou autre tu prend
