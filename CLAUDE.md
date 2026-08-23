@@ -190,6 +190,52 @@ masquait (un Rare bien pricé peut battre un Legendary faible), exactement
 le genre de comparaison croisée que l'exhaustivité par item est censée
 produire. Route de debug temporaire supprimée après validation.
 
+### 🔴 Kuudra -- débloqué (mob stats/loot/mécanique canon réels trouvés), 2 ancres de temps encore manquantes, recherche dédiée en cours
+
+Réinvestigation demandée par l'utilisateur ("il y a pas le kuudra run") --
+l'ancien verdict "ancre de temps introuvable" (21 août) était incomplet :
+la page wiki principale `kuudra` (jamais lue en entier avant) contient en
+fait énormément de matière jamais exploitée : PV/dégâts réels de tous les
+mobs par tier (`kuudra_mob_stats`, 5 tiers complets), table de loot
+complète par tier avec vrais poids (`kuudra_ui`), et surtout la mécanique
+du canon contre Kuudra lui-même -- **dégâts = % des PV MAX de Kuudra +
+flat**, qui monte par palier de perk "Cannon Proficiency" (I confirmé
+1%+100k, II confirmé 1.5%+300k) -- ça rend le nombre de tirs nécessaires
+pour tuer Kuudra a peu près FIXE, independant de ses PV absolus, un vrai
+levier de modélisation jamais vu avant. "Seconds Per Wave" par tier
+(Basic=35s...Infernal=15s) déjà sourcé aussi.
+
+**2 vraies ancres encore manquantes, recherche dédiée lancée (agent en
+arrière-plan, 23 août)** : (1) le temps de BASE (sans aucun perk acheté)
+pour compléter les phases 1-3 (Crates/Ballista/Fuel) -- seuls des bonus
+RELATIFS par palier de perk sont sourcés, jamais le temps de référence
+0% sur lequel ils s'appliquent ; (2) le nombre réel de vagues nécessaires
+pour vaincre Kuudra par tier -- la table de vagues s'arrête à la vague 21
+avec un `{{InfoNeeded}}` sur la dernière ligne, mais un texte de Perk Shop
+mentionne "Revive Final Killed -- Unlockable after Wave 35 !", suggérant
+qu'un run va bien au-delà. Pas construit tant que ces 2 chiffres ne sont
+pas trouvés ou honnêtement déclarés introuvables.
+
+### 🔴 `dungeon_classes` (15 lignes) -- table suspecte, probablement fabriquée, PAS une vraie source
+
+Trouvé en creusant Dungeons F7 frag run (demandé explicitement par
+l'utilisateur). `dungeon_class_milestones` (630 lignes, `source_page=
+"Class Milestones"`, seuils XP réels genre "60K"/"300K"/"3M") est une
+vraie table sourcée. **Mais `dungeon_classes` (15 lignes, 1 par classe ×
+3 niveaux-clé) n'a AUCUNE colonne `source_page`/`source_table`, et son
+contenu ("key_ability": "Melee damage focus, self-healing on hit") est un
+texte générique paraphrasé, sans un seul chiffre/formule/citation --
+totalement différent du style de toutes les autres tables réellement
+sourcées de ce projet.** Confirme le constat déjà noté le 3 août
+("dungeon_classes -- contenu a l'air écrit à la main, aucune source
+trouvée") -- cette table semble être un stub jamais nettoyé, pas une vraie
+extraction. **PAS utilisée pour construire quoi que ce soit** -- le vrai
+système de scaling des Classes (formules par niveau, bonus % réels) reste
+un gap honnête, pas comblé par cette table qui ressemble à du contenu
+halluciné. Décision à prendre avec l'utilisateur : supprimer cette table
+(action destructive sur la base, pas faite unilatéralement ici) ou la
+garder marquée comme non-fiable.
+
 ### 🔴 Nouveaux gaps trouvés dans l'audit général du jour, pas encore fermés
 
 - **Greenhouse Mutations (Farming)** -- `Chloronite` (mutation réelle,
