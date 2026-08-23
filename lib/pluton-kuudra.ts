@@ -124,13 +124,28 @@ export type KuudraResult = {
 }
 
 export async function computeKuudraRankings(): Promise<KuudraResult[]> {
-  const priceIds = ['ESSENCE_CRIMSON', 'KUUDRA_TEETH', 'SHARD_KRAKEN', 'ENCHANTED_RED_SAND', 'CORRUPTED_NETHER_STAR']
-  const priceCache = await loadPriceCache(priceIds)
+  // Loot (vendu) -- sell_price via loadPriceCache, deja la convention du
+  // moteur partage.
+  const priceCache = await loadPriceCache(['ESSENCE_CRIMSON', 'KUUDRA_TEETH', 'SHARD_KRAKEN'])
   const crimsonEssencePrice = priceCache.get('ESSENCE_CRIMSON') || 0
   const kuudraTeethPrice = priceCache.get('KUUDRA_TEETH') || 0
   const krakenShardPrice = priceCache.get('SHARD_KRAKEN') || 0
-  const ersPrice = priceCache.get('ENCHANTED_RED_SAND') || 0
-  const netherStarPrice = priceCache.get('CORRUPTED_NETHER_STAR') || 0
+
+  // Ingredients de la Key (achetes) -- buy_price, PAS loadPriceCache (qui ne
+  // porte que sell_price) -- meme convention que lib/pluton-forge.ts pour
+  // les couts d'ingredients a l'instabuy.
+  const since = new Date(Date.now() - 5 * 86_400_000).toISOString().split('T')[0]
+  const { data: buyRows } = await supabase
+    .from('price_history')
+    .select('item_id, buy_price, bucket_date')
+    .in('item_id', ['ENCHANTED_RED_SAND', 'CORRUPTED_NETHER_STAR'])
+    .gte('bucket_date', since)
+    .gt('buy_price', 0)
+    .order('bucket_date', { ascending: false })
+  const buyCache = new Map<string, number>()
+  for (const row of buyRows || []) if (!buyCache.has(row.item_id)) buyCache.set(row.item_id, Number(row.buy_price))
+  const ersPrice = buyCache.get('ENCHANTED_RED_SAND') || 0
+  const netherStarPrice = buyCache.get('CORRUPTED_NETHER_STAR') || 0
 
   const results: KuudraResult[] = []
   for (const playerTier of ['early', 'mid', 'end', 'late'] as TierKey[]) {
