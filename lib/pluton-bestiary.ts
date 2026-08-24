@@ -29,6 +29,8 @@ import {
   computeCombatDps, fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH, WITHER_FORBIDDEN_STRENGTH_MAX,
   SEVEN_TIER_KEYS, type SevenTier, oldTierBucket,
   SHARPNESS_PCT_BY_TIER, SMITE_PCT_BY_TIER, CRITICAL_PCT_BY_TIER, POTATO_BOOK_USES_BY_TIER,
+  THUNDERLORD_PCT_BY_TIER, FIRE_ASPECT_PCT_PER_SEC_BY_TIER, FIRE_ASPECT_DURATION_S_BY_TIER,
+  INFERNO_MULT_BY_TIER, TABASCO_FLAT_DAMAGE_BY_TIER, LOOTING_PCT_BY_TIER, SCAVENGER_FLAT_COINS_BY_TIER,
 } from './pluton-engine'
 
 const supabase = createClient(
@@ -246,11 +248,20 @@ export async function computeAndPersistBestiaryRankings(): Promise<{ candidates:
       }
 
       const strengthBeforeReforge = baseStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH + WITHER_FORBIDDEN_STRENGTH_MAX
-      const baseDamage = Number(weapon.base_damage) + potatoFlat
+      // Tabasco (23 aout) -- +2/+3 degats plats, aucun pet Combat modele
+      // actuellement donc toujours applicable. Thunderlord/Fire Aspect/
+      // Inferno -- memes moyennes que pluton-slayer.ts, voir doc des
+      // constantes (pluton-engine.ts). Habanero Tactics NON applicable ici
+      // (wiki explicite : "Slayer weapons" uniquement, pas Bestiary).
+      const baseDamage = Number(weapon.base_damage) + potatoFlat + TABASCO_FLAT_DAMAGE_BY_TIER[tier]
       const additivePct = sharpnessPct + smitePct
+      const thunderlordMult = 1 + THUNDERLORD_PCT_BY_TIER[tier] / 100 / 3
+      const fireAspectMult = 1 + (FIRE_ASPECT_PCT_PER_SEC_BY_TIER[tier] / 100) * FIRE_ASPECT_DURATION_S_BY_TIER[tier]
+      const infernoMult = 1 + (INFERNO_MULT_BY_TIER[tier] - 1) / 10
+      const multsWithEnchants = [...mults, thunderlordMult, fireAspectMult, infernoMult]
 
       const scoreWeapon = (d: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
-        computeCombatDps(baseDamage, strengthBeforeReforge + d.strength, mults, additivePct, criticalPct + d.crit_damage, d.crit_chance, d.bonus_attack_speed)
+        computeCombatDps(baseDamage, strengthBeforeReforge + d.strength, multsWithEnchants, additivePct, criticalPct + d.crit_damage, d.crit_chance, d.bonus_attack_speed)
       const weaponReforges = weaponRecombRarity ? await fetchReforges('SWORD/ROD', weaponRecombRarity) : []
       const bestWeaponReforge = pickBestReforge(weaponReforges, 1, scoreWeapon)
 
@@ -262,7 +273,7 @@ export async function computeAndPersistBestiaryRankings(): Promise<{ candidates:
         const wCD = criticalPct + (bestWeaponReforge?.delta.crit_damage || 0)
         const wAS = bestWeaponReforge?.delta.bonus_attack_speed || 0
         const scoreArmor = (d: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
-          computeCombatDps(baseDamage, wStrength + d.strength, mults, additivePct, wCD + d.crit_damage, wCC + d.crit_chance, wAS + d.bonus_attack_speed)
+          computeCombatDps(baseDamage, wStrength + d.strength, multsWithEnchants, additivePct, wCD + d.crit_damage, wCC + d.crit_chance, wAS + d.bonus_attack_speed)
         const best = pickBestReforge(armorReforges, 4, scoreArmor)
         if (best) armorDelta = best.delta
       }
@@ -272,7 +283,7 @@ export async function computeAndPersistBestiaryRankings(): Promise<{ candidates:
       const finalCD = criticalPct + (bestWeaponReforge?.delta.crit_damage || 0) + armorDelta.crit_damage
       const finalAS = (bestWeaponReforge?.delta.bonus_attack_speed || 0) + armorDelta.bonus_attack_speed
 
-      const dps = computeCombatDps(baseDamage, finalStrength, mults, additivePct, finalCD, finalCC, finalAS)
+      const dps = computeCombatDps(baseDamage, finalStrength, multsWithEnchants, additivePct, finalCD, finalCC, finalAS)
       const ttk = c.hp / dps
       return { tier, ttk, weaponName: weapon.display_name, armorName: armor?.set_name ?? null }
     }))
@@ -295,17 +306,26 @@ export async function computeAndPersistBestiaryRankings(): Promise<{ candidates:
       .select('id')
     if (setupErr || !insertedSetups) continue
 
-    const rankingsToInsert = entriesFiltered.map((e, i) => ({
-      activity_key: 'combat',
-      tier: e.tier,
-      target_block_id: block.id,
-      setup_id: insertedSetups[i].id,
-      rank: 1,
-      mining_time_seconds: e.ttk,
-      actions_per_hour: 3600 / Math.max(e.ttk, 0.01),
-      yield_per_hour: 3600 / Math.max(e.ttk, 0.01),
-      coins_per_hour_raw_block_only: (3600 / Math.max(e.ttk, 0.01)) * c.guaranteed_ev,
-    }))
+    const rankingsToInsert = entriesFiltered.map((e, i) => {
+      const killsPerHour = 3600 / Math.max(e.ttk, 0.01)
+      // Looting (23 aout) -- multiplie la quantite de drop GARANTI
+      // (FinalQty = BaseQty x (1+0.15xNiveau), formule reelle wiki),
+      // applicable a Bestiary (contrairement a Slayer, explicitement exclu
+      // -- voir doc pluton-slayer.ts). Scavenger -- coins plats/kill.
+      const lootingMult = 1 + LOOTING_PCT_BY_TIER[e.tier] / 100
+      const evWithLooting = c.guaranteed_ev * lootingMult + SCAVENGER_FLAT_COINS_BY_TIER[e.tier]
+      return {
+        activity_key: 'combat',
+        tier: e.tier,
+        target_block_id: block.id,
+        setup_id: insertedSetups[i].id,
+        rank: 1,
+        mining_time_seconds: e.ttk,
+        actions_per_hour: killsPerHour,
+        yield_per_hour: killsPerHour,
+        coins_per_hour_raw_block_only: killsPerHour * evWithLooting,
+      }
+    })
     await supabase.from('pluton_rankings').insert(rankingsToInsert)
   }
 

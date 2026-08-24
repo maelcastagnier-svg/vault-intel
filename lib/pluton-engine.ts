@@ -94,6 +94,83 @@ export const POTATO_BOOK_USES_BY_TIER: Record<SevenTier, number> = {
   starter: 3, amateur: 5, intermediate: 8, skilled: 10, expert: 13, professional: 15, master: 15,
 }
 
+// Enchants Combat jamais wires avant cet audit (23 aout, suite au recadrage
+// utilisateur "le nbt n'a ni les enchant ultimate ni tout les enchant") --
+// sources reelles wiki (game_mechanics_misc, category='game_wiki'/
+// 'enchant_wiki', jamais devine). Chaque table utilise les VRAIS paliers
+// numeriques de l'enchant (I-VII etc.), pas une interpolation lineaire --
+// quand l'enchant a exactement 7 paliers reels (Thunderlord), le mapping
+// tier_order->niveau est direct. Quand l'enchant a moins de 7 paliers et/ou
+// une vraie porte d'acces avancee (Kuudra/collection tardive), les tiers
+// bas restent a 0 (non invente) et les paliers reels sont distribues sur
+// les tiers hauts.
+
+// Thunderlord (SWORD/LONGSWORD/GAUNTLET) -- "frappe la foudre tous les 3
+// coups, X% des degats du coup sur LA CIBLE" (single-target, contrairement
+// a Thunderbolt qui est AoE -- mutuellement exclusifs, Thunderlord retenu
+// car toutes les activites Combat actuelles sont single-target boss/mob).
+// 7 paliers reels I-VII = mapping direct sur les 7 tiers joueur.
+export const THUNDERLORD_PCT_BY_TIER: Record<SevenTier, number> = {
+  starter: 8, amateur: 16, intermediate: 24, skilled: 32, expert: 40, professional: 50, master: 60,
+}
+
+// Fire Aspect (SWORD/LONGSWORD/GAUNTLET) -- "X% des degats du joueur par
+// seconde pendant Ys" (multiplicatif, confirme par l'historique wiki
+// "2022/Feb 2: Fire Aspect damage is now multiplicative"). 3 paliers reels
+// (III necessite un kill Blaze Slayer T3+) -- tiers bas a 0 (Blaze Slayer
+// T3 n'est pas garanti a starter/amateur).
+export const FIRE_ASPECT_PCT_PER_SEC_BY_TIER: Record<SevenTier, number> = {
+  starter: 0, amateur: 3, intermediate: 3, skilled: 6, expert: 6, professional: 9, master: 9,
+}
+export const FIRE_ASPECT_DURATION_S_BY_TIER: Record<SevenTier, number> = {
+  starter: 0, amateur: 3, intermediate: 3, skilled: 4, expert: 4, professional: 4, master: 4,
+}
+
+// Inferno (enchant ULTIMATE, emplacement ARME -- "1 seul ultimate par item"
+// donc compatible avec Habanero Tactics ci-dessous qui occupe l'emplacement
+// ARMURE) -- "tous les 10 coups, piege la cible 5s et inflige Xx des
+// degats de ce coup sur la duree du piege". 5 paliers reels (source :
+// Kuudra), tiers bas a 0 (Kuudra pas garanti accessible starter/amateur).
+export const INFERNO_MULT_BY_TIER: Record<SevenTier, number> = {
+  starter: 1, amateur: 1, intermediate: 1.25, skilled: 1.5, expert: 1.75, professional: 2, master: 2.25,
+}
+
+// Habanero Tactics (enchant ULTIMATE, emplacement ARMURE) -- "+Y% degats
+// avec les armes Slayer" (Slayer UNIQUEMENT, wiki explicite). Seulement 2
+// paliers reels (IV-V, "the only enchantments without tier 1" -- necessite
+// Chili Pepper VIII, collection Farming tres avancee) -- tiers bas a 0.
+export const HABANERO_TACTICS_SLAYER_DMG_PCT_BY_TIER: Record<SevenTier, number> = {
+  starter: 0, amateur: 0, intermediate: 0, skilled: 0, expert: 0, professional: 20, master: 25,
+}
+
+// Tabasco (universel, tout Weapon) -- "+2/+3 degats plats si pas de Dragon
+// Pet equipe" -- 2 paliers reels (II-III, 0 XP cost, Chili Pepper IX).
+// Aucun pet Combat modelise actuellement (voir gap stat_bonus_sources
+// Combat documente le meme jour) donc la condition "pas de Dragon Pet" est
+// toujours vraie dans l'etat actuel du moteur -- applique par defaut.
+export const TABASCO_FLAT_DAMAGE_BY_TIER: Record<SevenTier, number> = {
+  starter: 0, amateur: 0, intermediate: 2, skilled: 2, expert: 2, professional: 3, master: 3,
+}
+
+// Looting (SWORD/LONGSWORD/GAUNTLET/FISHING ROD) -- multiplie la quantite
+// de drop GARANTI (FinalQty = BaseQty x (1+0.15xNiveau), formule reelle
+// wiki). **Confirme explicitement NE PAS s'appliquer aux drops de
+// Slayer** ("Looting does NOT apply on Slayers nor Pet drops", wiki) --
+// donc jamais utilise dans lib/pluton-slayer.ts, seulement Bestiary/Sea
+// Creature kills (mobs "possedes", le Looting du tueur s'applique bien au
+// proprietaire du mob par la meme page). 5 paliers reels (V = experiment
+// rare) -- tiers bas a 0.
+export const LOOTING_PCT_BY_TIER: Record<SevenTier, number> = {
+  starter: 0, amateur: 15, intermediate: 30, skilled: 45, expert: 60, professional: 75, master: 75,
+}
+
+// Scavenger (SWORD/LONGSWORD/GAUNTLET) -- coins plats par kill, valeur
+// negligeable (<2 coins/kill) mais reelle et gratuite a appliquer -- 6
+// paliers reels, VI (Golden Bounty) applique au max investissement.
+export const SCAVENGER_FLAT_COINS_BY_TIER: Record<SevenTier, number> = {
+  starter: 0.3, amateur: 0.6, intermediate: 0.9, skilled: 1.2, expert: 1.5, professional: 1.8, master: 1.8,
+}
+
 // Charge le prix le plus recent de chaque item_id demande en 2 requetes
 // batchees (Bazaar d'abord, fallback AH nostar_norecomb) plutot qu'un
 // aller-retour par item -- meme pattern que loadPricedItems

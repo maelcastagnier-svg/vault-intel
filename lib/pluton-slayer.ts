@@ -85,6 +85,9 @@ import {
   fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH, WITHER_FORBIDDEN_STRENGTH_MAX,
   SEVEN_TIER_KEYS, type SevenTier, oldTierBucket,
   SHARPNESS_PCT_BY_TIER, CRITICAL_PCT_BY_TIER, POTATO_BOOK_USES_BY_TIER,
+  THUNDERLORD_PCT_BY_TIER, FIRE_ASPECT_PCT_PER_SEC_BY_TIER, FIRE_ASPECT_DURATION_S_BY_TIER,
+  INFERNO_MULT_BY_TIER, HABANERO_TACTICS_SLAYER_DMG_PCT_BY_TIER, TABASCO_FLAT_DAMAGE_BY_TIER,
+  SCAVENGER_FLAT_COINS_BY_TIER,
 } from './pluton-engine'
 
 const supabase = createClient(
@@ -404,12 +407,29 @@ export async function computeSlayerRanking(tier: SevenTier, blockId: string): Pr
     // 22 aout, memes sources/valeurs que lib/pluton-combat.ts (Zombie).
     const sharpnessPct = SHARPNESS_PCT_BY_TIER[tier]
     const mobEnchantPct = MOB_TYPE_ENCHANT_PCT_BY_TIER[slayerKey]?.[tier] ?? 0
-    const additivePct = COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT + sharpnessPct + mobEnchantPct
+    // Habanero Tactics (23 aout, audit exhaustivite enchants) -- "+Y% degats
+    // avec les armes Slayer", enchant ULTIMATE emplacement ARMURE, Slayer
+    // uniquement (wiki explicite) -- meme bucket additif que Sharpness/Smite.
+    const habaneroPct = HABANERO_TACTICS_SLAYER_DMG_PCT_BY_TIER[tier]
+    const additivePct = COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT + sharpnessPct + mobEnchantPct + habaneroPct
     critDamage += CRITICAL_PCT_BY_TIER[tier]
     const critChanceBeforeReforge = Math.min(100, BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS + weaponCritChance)
     const baneMult = slayerKey === 'spider' ? 1 + BANE_PCT_BY_TIER[tier] / 100 : 1
-    const multiplicativeFactors = [weaponMobTypeMult, armorMobTypeMult, octoMult, packMentalityMult, enrageMobTypeMult, baneMult]
-    const flatDamageTotal = enrageFlatDamage + collectionLevelFlatDamage + potatoFlat
+    // Thunderlord (single-target, mutuellement exclusif avec Thunderbolt qui
+    // est AoE -- retenu car toutes les activites Combat sont single-target) :
+    // frappe tous les 3 coups, moyenne = bonus/3. Fire Aspect (multiplicatif,
+    // confirme wiki) : X%/s pendant Ys, applique a chaque coup, moyenne =
+    // 1+(X%xYs). Inferno (ultimate ARME) : tous les 10 coups, moyenne =
+    // 1+(mult-1)/10. Tous sources wiki reelles, jamais devinees (23 aout).
+    const thunderlordMult = 1 + THUNDERLORD_PCT_BY_TIER[tier] / 100 / 3
+    const fireAspectMult = 1 + (FIRE_ASPECT_PCT_PER_SEC_BY_TIER[tier] / 100) * FIRE_ASPECT_DURATION_S_BY_TIER[tier]
+    const infernoMult = 1 + (INFERNO_MULT_BY_TIER[tier] - 1) / 10
+    const multiplicativeFactors = [weaponMobTypeMult, armorMobTypeMult, octoMult, packMentalityMult, enrageMobTypeMult, baneMult, thunderlordMult, fireAspectMult, infernoMult]
+    // Tabasco (23 aout) -- +2/+3 degats plats si pas de Dragon Pet equipe ;
+    // aucun pet Combat modelise actuellement (gap stat_bonus_sources
+    // documente le meme jour) donc toujours applicable dans l'etat actuel.
+    const tabascoFlat = TABASCO_FLAT_DAMAGE_BY_TIER[tier]
+    const flatDamageTotal = enrageFlatDamage + collectionLevelFlatDamage + potatoFlat + tabascoFlat
 
     // Reforge -- recherche reelle sur l'espace des candidats (table
     // `reforges`, rarete RECOMBOBULEE), jamais suppose. Arme x1, armure x4
@@ -490,7 +510,11 @@ export async function computeSlayerRanking(tier: SevenTier, blockId: string): Pr
   const dropPrice = Number(dropPriceRow?.sell_price) || 0
   const guaranteedDropValue = Number(boss.guaranteed_drop_qty_avg) * dropPrice
 
-  const coinsPerHour = (guaranteedDropValue - Number(boss.spawn_cost_coins)) * killsPerHour
+  // Scavenger (23 aout) -- coins plats par kill, valeur negligeable mais
+  // reelle et gratuite. Looting explicitement EXCLU des Slayers ("Looting
+  // does NOT apply on Slayers", wiki) -- jamais applique ici, pas un oubli.
+  const scavengerCoinsPerKill = SCAVENGER_FLAT_COINS_BY_TIER[tier]
+  const coinsPerHour = (guaranteedDropValue + scavengerCoinsPerKill - Number(boss.spawn_cost_coins)) * killsPerHour
 
   return {
     target_block: boss.boss_name,
@@ -560,7 +584,7 @@ export async function computeAndPersistAllSlayerRankings(): Promise<PersistedSla
           real_cost: 0, // gear gate par collection XP, pas par prix AH (voir doc)
           pet_id: null,
           pet_rarity: null,
-          accessories: [{ source_id: '__enrage_applied__', equip_slot: 'meta', enrage: s.enrage_applied, weapon_reforge: s.weapon_reforge, armor_reforge_x4: s.armor_reforge_x4, art_of_war: true, art_of_peace_x4: !!s.armor_set, recombobulated: true }],
+          accessories: [{ source_id: '__enrage_applied__', equip_slot: 'meta', enrage: s.enrage_applied, weapon_reforge: s.weapon_reforge, armor_reforge_x4: s.armor_reforge_x4, art_of_war: true, art_of_peace_x4: !!s.armor_set, recombobulated: true, thunderlord: true, fire_aspect: true, inferno_ultimate: true, habanero_tactics_ultimate: true, tabasco: true, scavenger: true }],
         })
         .select('id')
         .single()

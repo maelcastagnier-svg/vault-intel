@@ -74,6 +74,8 @@ import {
   computeCombatDps, fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH, WITHER_FORBIDDEN_STRENGTH_MAX,
   SEVEN_TIER_KEYS, type SevenTier, loadSevenTierConfig, oldTierBucket,
   SHARPNESS_PCT_BY_TIER, SMITE_PCT_BY_TIER, CRITICAL_PCT_BY_TIER, POTATO_BOOK_USES_BY_TIER,
+  THUNDERLORD_PCT_BY_TIER, FIRE_ASPECT_PCT_PER_SEC_BY_TIER, FIRE_ASPECT_DURATION_S_BY_TIER,
+  INFERNO_MULT_BY_TIER, TABASCO_FLAT_DAMAGE_BY_TIER, LOOTING_PCT_BY_TIER, SCAVENGER_FLAT_COINS_BY_TIER,
 } from './pluton-engine'
 
 const supabase = createClient(
@@ -132,12 +134,21 @@ async function computeEnrichedDps(tier: SevenTier, weapon: any, armor: any): Pro
   if (gear.armorPrefix && GEMSTONE_JASPER_SLOTS_ARMOR[gear.armorPrefix] && armorRecombRarity) gemstoneStrength += GEMSTONE_JASPER_SLOTS_ARMOR[gear.armorPrefix] * JASPER_PERFECT_BY_RARITY[armorRecombRarity]
 
   const strengthBeforeReforge = baseStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH + WITHER_FORBIDDEN_STRENGTH_MAX
-  const baseDamage = Number(weapon.base_damage) + potatoFlat
+  // Tabasco (23 aout) -- +2/+3 degats plats, aucun pet Combat modele
+  // actuellement donc toujours applicable.
+  const baseDamage = Number(weapon.base_damage) + potatoFlat + TABASCO_FLAT_DAMAGE_BY_TIER[tier]
+  // Thunderlord/Fire Aspect/Inferno (23 aout) -- memes moyennes que
+  // pluton-slayer.ts/pluton-bestiary.ts, voir doc des constantes
+  // (pluton-engine.ts). Habanero Tactics NON applicable (Slayer uniquement).
+  const thunderlordMult = 1 + THUNDERLORD_PCT_BY_TIER[tier] / 100 / 3
+  const fireAspectMult = 1 + (FIRE_ASPECT_PCT_PER_SEC_BY_TIER[tier] / 100) * FIRE_ASPECT_DURATION_S_BY_TIER[tier]
+  const infernoMult = 1 + (INFERNO_MULT_BY_TIER[tier] - 1) / 10
 
   async function bestDps(smitePct: number, mults: number[]): Promise<number> {
     const additivePct = sharpnessPct + smitePct
+    const multsWithEnchants = [...mults, thunderlordMult, fireAspectMult, infernoMult]
     const scoreWeapon = (d: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
-      computeCombatDps(baseDamage, strengthBeforeReforge + d.strength, mults, additivePct, criticalPct + d.crit_damage, d.crit_chance, d.bonus_attack_speed)
+      computeCombatDps(baseDamage, strengthBeforeReforge + d.strength, multsWithEnchants, additivePct, criticalPct + d.crit_damage, d.crit_chance, d.bonus_attack_speed)
     const weaponReforges = weaponRecombRarity ? await fetchReforges('SWORD/ROD', weaponRecombRarity) : []
     const bestWeaponReforge = pickBestReforge(weaponReforges, 1, scoreWeapon)
 
@@ -149,7 +160,7 @@ async function computeEnrichedDps(tier: SevenTier, weapon: any, armor: any): Pro
       const wCD = criticalPct + (bestWeaponReforge?.delta.crit_damage || 0)
       const wAS = bestWeaponReforge?.delta.bonus_attack_speed || 0
       const scoreArmor = (d: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
-        computeCombatDps(baseDamage, wStrength + d.strength, mults, additivePct, wCD + d.crit_damage, wCC + d.crit_chance, wAS + d.bonus_attack_speed)
+        computeCombatDps(baseDamage, wStrength + d.strength, multsWithEnchants, additivePct, wCD + d.crit_damage, wCC + d.crit_chance, wAS + d.bonus_attack_speed)
       const best = pickBestReforge(armorReforges, 4, scoreArmor)
       if (best) armorDelta = best.delta
     }
@@ -158,7 +169,7 @@ async function computeEnrichedDps(tier: SevenTier, weapon: any, armor: any): Pro
     const finalCC = (bestWeaponReforge?.delta.crit_chance || 0) + armorDelta.crit_chance
     const finalCD = criticalPct + (bestWeaponReforge?.delta.crit_damage || 0) + armorDelta.crit_damage
     const finalAS = (bestWeaponReforge?.delta.bonus_attack_speed || 0) + armorDelta.bonus_attack_speed
-    return computeCombatDps(baseDamage, finalStrength, mults, additivePct, finalCD, finalCC, finalAS)
+    return computeCombatDps(baseDamage, finalStrength, multsWithEnchants, additivePct, finalCD, finalCC, finalAS)
   }
 
   const dpsVsUndead = await bestDps(SMITE_PCT_BY_TIER[tier], [weaponMobTypeMult, armorMobTypeMult])
@@ -640,6 +651,13 @@ export async function computeSeaCreatureRanking(tier: SevenTier, poolKey: string
     weightedTtk += p * ttk
     weightedLootEv += p * expectedValue
   }
+
+  // Looting (23 aout) -- multiplie la quantite de drop GARANTI, applicable
+  // ici (mob "possede" par le tueur -- confirme explicitement par le wiki
+  // pour les Sea Creatures, contrairement a Slayer ou c'est exclu -- voir
+  // doc pluton-slayer.ts). Scavenger -- coins plats/kill, negligeable mais
+  // gratuit.
+  weightedLootEv = weightedLootEv * (1 + LOOTING_PCT_BY_TIER[tier] / 100) + SCAVENGER_FLAT_COINS_BY_TIER[tier]
 
   // SCC de base (stat "Sea Creature Chance", base 20 -- wiki "Fishing").
   // Volontairement PAS re-derive depuis le setup Fishing deja optimise
