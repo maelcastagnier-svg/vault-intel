@@ -76,6 +76,7 @@ import {
   SHARPNESS_PCT_BY_TIER, SMITE_PCT_BY_TIER, CRITICAL_PCT_BY_TIER, POTATO_BOOK_USES_BY_TIER,
   THUNDERLORD_PCT_BY_TIER, FIRE_ASPECT_PCT_PER_SEC_BY_TIER, FIRE_ASPECT_DURATION_S_BY_TIER,
   INFERNO_MULT_BY_TIER, TABASCO_FLAT_DAMAGE_BY_TIER, LOOTING_PCT_BY_TIER, SCAVENGER_FLAT_COINS_BY_TIER,
+  IMPALING_AQUATIC_PCT_BY_TIER,
 } from './pluton-engine'
 
 const supabase = createClient(
@@ -143,10 +144,14 @@ async function computeEnrichedDps(tier: SevenTier, weapon: any, armor: any): Pro
   const thunderlordMult = 1 + THUNDERLORD_PCT_BY_TIER[tier] / 100 / 3
   const fireAspectMult = 1 + (FIRE_ASPECT_PCT_PER_SEC_BY_TIER[tier] / 100) * FIRE_ASPECT_DURATION_S_BY_TIER[tier]
   const infernoMult = 1 + (INFERNO_MULT_BY_TIER[tier] - 1) / 10
+  // Impaling (23 aout) -- "+X% degats vs mobs Aquatic", multiplicatif. Tous
+  // les Sea Creatures sont de type Aquatic (confirme wiki depuis 0.23.3) --
+  // applicable a toutes les creatures de la pool, Undead ou non.
+  const impalingMult = 1 + IMPALING_AQUATIC_PCT_BY_TIER[tier] / 100
 
   async function bestDps(smitePct: number, mults: number[]): Promise<number> {
     const additivePct = sharpnessPct + smitePct
-    const multsWithEnchants = [...mults, thunderlordMult, fireAspectMult, infernoMult]
+    const multsWithEnchants = [...mults, thunderlordMult, fireAspectMult, infernoMult, impalingMult]
     const scoreWeapon = (d: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
       computeCombatDps(baseDamage, strengthBeforeReforge + d.strength, multsWithEnchants, additivePct, criticalPct + d.crit_damage, d.crit_chance, d.bonus_attack_speed)
     const weaponReforges = weaponRecombRarity ? await fetchReforges('SWORD/ROD', weaponRecombRarity) : []

@@ -47,7 +47,10 @@
 import { createClient } from '@supabase/supabase-js'
 import { loadPricedItems, type PricedItem } from './gear-pricing'
 import type { SevenTierConfig } from './money-making-constants'
-import { recombobulatedRarity, SEVEN_TIER_KEYS, type SevenTier, loadSevenTierConfig, INVESTMENT_MAX_TIERS } from './pluton-engine'
+import {
+  recombobulatedRarity, SEVEN_TIER_KEYS, type SevenTier, loadSevenTierConfig, INVESTMENT_MAX_TIERS,
+  ANGLER_SCC_PCT_BY_TIER, LUCK_OF_THE_SEA_TC_PCT_BY_TIER, ULTIMATE_FLASH_INSTANT_CHANCE_PCT_BY_TIER,
+} from './pluton-engine'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -116,11 +119,15 @@ const TICKS_PER_SECOND = 20
 const REEL_IN_SECONDS_BASE = 2.5 // moyenne du random 1-4s, non affectee par Fishing Speed
 const QUICK_BITE_MAX_REDUCTION = 0.25 // END/LATE uniquement
 
-function computeSecondsPerCatch(fishingSpeed: number, applyQuickBite: boolean): { biteSeconds: number; reelInSeconds: number; secondsPerCatch: number } {
+function computeSecondsPerCatch(fishingSpeed: number, applyQuickBite: boolean, instantChancePct: number = 0): { biteSeconds: number; reelInSeconds: number; secondsPerCatch: number } {
   const ticks = fishingSpeed >= FISHING_SPEED_CAP
     ? 0
     : Math.max(0, BASE_TICKS_AVG - (fishingSpeed / FISHING_SPEED_CAP) * BASE_TICKS_AVG)
-  const biteSeconds = ticks / TICKS_PER_SECOND
+  // Ultimate Flash (23 aout) -- "X% chance d'attraction instantanee" sourcee
+  // wiki (key='flash', ENCHANTMENT_ULTIMATE_FLASH) -- reduit le temps de
+  // morsure moyen : ExpectedTicks = (1-P)xTicks, une capture sur P% des
+  // essais saute directement la morsure.
+  const biteSeconds = (ticks / TICKS_PER_SECOND) * (1 - instantChancePct / 100)
   const reelInSeconds = REEL_IN_SECONDS_BASE * (applyQuickBite ? (1 - QUICK_BITE_MAX_REDUCTION) : 1)
   return { biteSeconds, reelInSeconds, secondsPerCatch: biteSeconds + reelInSeconds }
 }
@@ -403,6 +410,15 @@ export async function computeFishingRanking(tier: SevenTier, blockId: string, ti
     nbtModifiers.push(`Piscary (+${piscaryFs} Fishing Speed, sourcee wiki, palier ${tier})`)
     nbtModifiers.push(`Expertise (+${expertiseScc}% Sea Creature Chance, sourcee wiki, palier ${tier})`)
 
+    // Angler + Luck of the Sea (23 aout, audit exhaustivite enchants) --
+    // additifs simples, memes valeurs sourcees wiki que Piscary/Expertise.
+    const anglerScc = ANGLER_SCC_PCT_BY_TIER[tier]
+    const luckOfSeaTc = LUCK_OF_THE_SEA_TC_PCT_BY_TIER[tier]
+    finalScc += anglerScc
+    finalTc += luckOfSeaTc
+    nbtModifiers.push(`Angler (+${anglerScc}% Sea Creature Chance, sourcee wiki, palier ${tier})`)
+    nbtModifiers.push(`Luck of the Sea (+${luckOfSeaTc}% Treasure Chance, sourcee wiki, palier ${tier})`)
+
     // Reforge rod (Salty/Treacherous/Stiff/Lucky, +7 SCC flat, pas de table
     // par rarete sourcee -- voir doc) + reforge armure (Submerged, +4 SCC
     // x4 pieces) -- tous les tiers, cout d'application reel modique.
@@ -426,7 +442,12 @@ export async function computeFishingRanking(tier: SevenTier, blockId: string, ti
       nbtModifiers.push(`Gemme Aquamarine PERFECT x${gemSlots} (+${gemFs} Fishing Speed, sourcee table gemstones, rarete recombobulee)`)
     }
 
-    const { secondsPerCatch } = computeSecondsPerCatch(finalFs, applyQuickBite)
+    // Ultimate Flash (23 aout, enchant ULTIMATE emplacement ROD) -- "X%
+    // chance d'attraction instantanee", sourcee wiki, reduit le temps de
+    // morsure moyen.
+    const flashChancePct = ULTIMATE_FLASH_INSTANT_CHANCE_PCT_BY_TIER[tier]
+    nbtModifiers.push(`Ultimate Flash (+${flashChancePct}% chance d'attraction instantanee, sourcee wiki, palier ${tier})`)
+    const { secondsPerCatch } = computeSecondsPerCatch(finalFs, applyQuickBite, flashChancePct)
     const catchesPerHour = 3600 / secondsPerCatch
     const sccFraction = Math.min(1, finalScc / 100)
     const remaining = 1 - sccFraction

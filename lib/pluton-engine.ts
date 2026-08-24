@@ -171,6 +171,38 @@ export const SCAVENGER_FLAT_COINS_BY_TIER: Record<SevenTier, number> = {
   starter: 0.3, amateur: 0.6, intermediate: 0.9, skilled: 1.2, expert: 1.5, professional: 1.8, master: 1.8,
 }
 
+// Enchants Fishing jamais wires avant cet audit (23 aout, meme audit que
+// Combat ci-dessus). Sources reelles wiki (game_mechanics_misc,
+// category='game_wiki').
+
+// Angler (FISHING ROD/WEAPON) -- +1..6% Sea Creature Chance, additif,
+// 6 paliers reels I-VI (Enchanting niveau 4).
+export const ANGLER_SCC_PCT_BY_TIER: Record<SevenTier, number> = {
+  starter: 1, amateur: 2, intermediate: 3, skilled: 4, expert: 5, professional: 6, master: 6,
+}
+
+// Luck of the Sea (FISHING ROD/WEAPON) -- +0.5..3.5% Treasure Chance,
+// additif, 7 paliers reels I-VII -- mapping direct sur les 7 tiers joueur.
+export const LUCK_OF_THE_SEA_TC_PCT_BY_TIER: Record<SevenTier, number> = {
+  starter: 0.5, amateur: 1, intermediate: 1.5, skilled: 2, expert: 2.5, professional: 3, master: 3.5,
+}
+
+// Ultimate Flash (enchant ULTIMATE, emplacement ROD) -- "X% chance
+// d'attraction instantanee" (reduit le temps de morsure moyen). 5 paliers
+// reels (rare drop de Thunder, Enchanting niveau 30) -- tiers bas a 0.
+export const ULTIMATE_FLASH_INSTANT_CHANCE_PCT_BY_TIER: Record<SevenTier, number> = {
+  starter: 0, amateur: 0, intermediate: 1, skilled: 2, expert: 3, professional: 4, master: 5,
+}
+
+// Impaling (SWORD/BOW/FISHING ROD/WEAPON) -- "+X% degats vs mobs Aquatic",
+// multiplicatif (meme bucket que les autres bonus vs-type-de-mob). Sea
+// Creatures = type Aquatic (confirme wiki, depuis patch 0.23.3) --
+// applicable a Sea Creature kills (arme Zombie Slayer reutilisee est un
+// SWORD), pas a Slayer/Bestiary (mobs non-Aquatic). 5 paliers reels I-V.
+export const IMPALING_AQUATIC_PCT_BY_TIER: Record<SevenTier, number> = {
+  starter: 5, amateur: 10, intermediate: 15, skilled: 20, expert: 20, professional: 30, master: 30,
+}
+
 // Charge le prix le plus recent de chaque item_id demande en 2 requetes
 // batchees (Bazaar d'abord, fallback AH nostar_norecomb) plutot qu'un
 // aller-retour par item -- meme pattern que loadPricedItems
