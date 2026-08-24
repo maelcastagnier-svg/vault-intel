@@ -168,6 +168,18 @@ const HOTF_SWEEP_MAX = 50 // perk "sweep", niveau 50 * 1
 const HOTF_FORAGING_FORTUNE_MAX = 150 // perk "foraging_fortune", niveau 50 * 3
 const HOTF_FORAGING_MADNESS = { sweep: 10, fortune: 50 } // palier unique
 
+// "Logger" -- gap reel trouve (24 aout, audit exhaustivite ressources) :
+// chaque niveau de Foraging accorde +4 Foraging Fortune (sourcee wiki page
+// "Foraging" + table foraging_leveling_rewards, "{{Stat|foraging_fortune|
+// +4}}" par niveau), cumulatif jusqu'au niveau max actuel 57 = +228 FF --
+// jamais modelise, alors que cette source depasse a elle seule HOTF+
+// Lumberjack+Citrine combines. Meme convention que MINING_SKILL_60_FORTUNE/
+// niveau Combat max ailleurs dans Pluton (skill suppose progresse en
+// parallele du joueur) -- applique seulement en investissement max
+// (comme HOTF juste au-dessus), pas une valeur inventee par tier
+// intermediaire faute d'une courbe de progression Foraging reelle sourcee.
+const LOGGER_FORAGING_FORTUNE_MAX = 228 // +4/niveau x 57 niveaux max
+
 // Center of the Forest (23 aout, trouve en corrigeant la corruption
 // "[object Object]" de hotf_perks.lore -- lore reconstruite depuis la
 // vraie page wiki "Heart of the Forest#Tier 5" apres avoir trouve que
@@ -439,6 +451,8 @@ export async function computeForagingRanking(tier: SevenTier, blockId: string, t
       // Forest Essence Shop, "Lumberjack" -- meme discipline "investissement
       // max END/LATE" que HOTF (voir doc de la constante).
       finalFF += LUMBERJACK_FORAGING_FORTUNE_MAX
+      // "Logger" (niveau de skill Foraging) -- voir doc de la constante.
+      finalFF += LOGGER_FORAGING_FORTUNE_MAX
       // Center of the Forest (HOTF, perk permanent) -- multiplicatif,
       // applique apres tous les bonus additifs de Sweep (voir doc constante).
       finalSweep *= CENTER_OF_THE_FOREST_SWEEP_MULT
