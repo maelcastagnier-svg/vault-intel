@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server'
 import { computeAndPersistAllSlayerRankings } from '../../../../lib/pluton-slayer'
 import { computeAndPersistBestiaryRankings } from '../../../../lib/pluton-bestiary'
 import { computeAndPersistSeaCreatureRankings } from '../../../../lib/pluton-sea-creatures'
+import { computeAndPersistAllFishingRankings } from '../../../../lib/pluton-fishing'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -19,6 +20,10 @@ export async function GET() {
     const bestiary = await computeAndPersistBestiaryRankings()
     out.bestiary = { ok: true, ...bestiary }
   } catch (e: any) { out.bestiary = { ok: false, error: e.message } }
+  try {
+    const fishing = await computeAndPersistAllFishingRankings()
+    out.fishing = { ok: true, count: fishing.length }
+  } catch (e: any) { out.fishing = { ok: false, error: e.message } }
   try {
     const sc = await computeAndPersistSeaCreatureRankings()
     out.sea_creatures = { ok: true, count: sc.length }
