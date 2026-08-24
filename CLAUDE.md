@@ -86,6 +86,41 @@ temporaire qui l'appelle directement (contourne les chaînages coûteux type
 supprimée après validation. Quand ce pattern est mentionné ci-dessous simplement
 comme "vérifié en prod", c'est cette méthode.
 
+## ✅ Pluton — audit exhaustivite NBT (enchants/gemmes/accessoires) + 2 bugs critiques (23-24 août)
+
+**Recadrage explicite de l'utilisateur** après la migration 7-tiers : *"le systeme na aucun trou... les setups tont vraiment complet ??"* puis, après une 1re réponse honnête listant les trous connus : *"on utilise qu'un peux a chaque fois pas tout... cherche les trous, comble correctement, ne compte rendu que quan c'est finis... tu as open bar."* Mandat : travail autonome prolongé, zéro check-in intermédiaire, fermeture réelle plutôt qu'un audit superficiel.
+
+**Méthode** : requêtes SQL directes sur `game_mechanics_misc` (`game_wiki`/`enchant_wiki`/`accessory_wiki`, contenu déjà caché) pour lire le contenu RÉEL de chaque enchant/gemme/accessoire jamais évalué — jamais une valeur devinée (règle #7). Agents dédiés pour Fishing (réussi) et accessoires/pets Combat (échec 1re fois sur limite de session, relancé avec succès) ; reste fait directement par Claude Code.
+
+### Fermetures réelles (nouvelles constantes centralisées `lib/pluton-engine.ts`)
+
+**Combat** (Slayer/Bestiary/Sea Creature kills/Zombie Slayer v2, 4 fichiers) :
+- **Thunderlord** (single-target, préféré à Thunderbolt qui est AoE) — frappe tous les 3 coups, moyenne=bonus/3, jusqu'à +20% DPS à master (7 paliers réels I-VII)
+- **Fire Aspect** (multiplicatif, confirmé par l'historique wiki) — X%/s pendant Ys, jusqu'à +36% DPS à master
+- **Inferno** (ultimate ARME, source Kuudra) — tous les 10 coups, jusqu'à +12.5% DPS à master
+- **Habanero Tactics** (ultimate ARMURE, **Slayer UNIQUEMENT** — wiki explicite "Slayer weapons") — +25% additif à master
+- **Tabasco** — +2/+3 dégâts plats (condition "pas de Dragon Pet" toujours vraie, aucun pet modélisé avant ce lot)
+- **Looting** — multiplie le drop garanti ; **exclu des Slayers par le wiki** ("does NOT apply on Slayers"), appliqué Bestiary/Sea Creature seulement
+- **Scavenger** — coins plats/kill, négligeable mais gratuit
+- **Impaling** — +dégâts vs Aquatic, Sea Creatures=Aquatic (confirmé depuis 0.23.3) — Sea Creature kills uniquement
+- **Accessoires/pet universels** (gap le plus important — `stat_bonus_sources` n'avait AUCUNE ligne strength/crit_damage/crit_chance/bonus_attack_speed pour Combat, contrairement à Mining/Foraging/Fishing) : Pet Griffin (Str+50/CC+10/CD+50/BonusAS+25), The Primordial (belt, Str+15/CD+20%), Annihilation Cloak (cloak, Str+20/CD+20%), Manticore Claw (bracelet, Str+20/BonusAS+2.5%), Molten Necklace (Str+20), Red Claw Artifact (accessory_bag, CD+5%) — item_id vérifié contre `items_catalog`, gate investissement max
+
+**Fishing** : Angler (+SCC), Luck of the Sea (+TC), Ultimate Flash (ultimate ROD, +chance attraction instantanée). **Mining** : Flowstate (ultimate, +1-3 Mining Speed/bloc consécutif, plafond 200, steady-state). **Foraging** : First Impression (ultimate AXE, +Sweep sur Log Breaks).
+
+**Essence Shops — 12 boutiques auditées** (9 restaient) : Crimson/Dragon/Ice/Gold/Fossil/Safari + Sun Gecko (nouvelle, Rift-exclusive) lues intégralement. Rien de câblable de plus sauf 2 gaps `excluded_complex` : One Punch (Dragon, +dégâts flat 1er coup vs Enderman, dilue sur combat long) et Two-Headed Strike (Dragon, +BonusAS sur reforges Renowned/Spiked).
+
+**Nouvelle table `pluton_mechanic_coverage`** — classification interrogeable par skill (statut `wired`/`excluded_*`/`not_yet_audited`, raison, source), remplace le suivi en commentaires, backfillée (~100 lignes).
+
+### 🔴 2 bugs réels critiques trouvés en vérifiant (pas des artefacts des ajouts du jour)
+
+**1. Zombie négligé dans `lib/pluton-slayer.ts` depuis le 22 août** — `UNDEAD_SWORD`/`REVENANT_SWORD`/`REAPER_SWORD`/`REAPER_SCYTHE` et `REVENANT`/`REAPER` étaient absents de `WEAPON_RARITY`/`ARMOR_RARITY_BY_PREFIX`/`JASPER_SLOTS_BY_WEAPON` — Zombie n'a **jamais eu de reforge ni de gemme Jasper** dans ce fichier, contrairement aux 4 autres Slayers ET à `pluton-combat.ts`/`pluton-bestiary.ts`/`pluton-sea-creatures.ts`. **Smite** aussi totalement absent (`MOB_TYPE_ENCHANT_PCT_BY_TIER` n'avait que spider/enderman). Root cause probable : attention allée vers `pluton-combat.ts` (censé remplacer à terme la portion Zombie de ce fichier) sans rétro-porter vers la portion Zombie active en parallèle. Corrigé, rareté vérifiée via `item_stats`. DPS Zombie T1/master : 277 828 → **712 768** (+156%, écart réel confirmé).
+
+**2. Doublons massifs, invocations HTTP chevauchées sur les routes de debug** — un `curl` local qui "termine" ne garantit PAS que l'invocation Vercel serveur s'arrête (continue jusqu'à `maxDuration`). Plusieurs appels successifs sur des routes side-effecting (DELETE-puis-INSERT) se sont chevauchés en horloge réelle → doublons authentiques sur Mining/Slayer/Fishing (126/121/83 lignes en trop). Trouvé via un TTK Zombie T1/master absurde (0.0018s, coins/h à -3,4 milliards) — **valeur mathématiquement correcte en réalité** (boss T1=500 PV réels, DPS élevé=TTK quasi-nul ; limitation pré-existante, "phase de farm non modélisée" déjà documentée ailleurs). Nettoyé par migration SQL (garde la ligne la plus récente par groupe), 0 doublon restant vérifié. **Règle retenue, même famille que le piège du 13 août (routes Haiku)** : jamais de route side-effecting à `maxDuration` élevé relancée sans signal de fin serveur — vérification de déploiement désormais via l'API Vercel, pas en curlant la route.
+
+**Gaps NOT_FOUND** (aucun contenu wiki caché) : cubism/divine_gift/life_steal/vampirism/knockback/mana_steal/magmarizer/syphon/luck (Combat) ; caster/frail/lure/magnet/spiked_hook/corruption/blessing (Fishing) ; efficiency/lapidary/fortune/smelting_touch/compact/paleontologist/silk_touch (Mining) ; absorb/missile (Foraging). **Gap pas fermé** : Ultimate Enchant "One For All" (+500% additif, retire tous les autres enchants) jamais comparé tête-à-tête avec la pile actuelle — potentiellement supérieur à haut tier.
+
+**Toujours `not_yet_audited`** : gemmes/reforges/stars Hunting/Kuudra/Dungeons ; "Powers" accessory_bag (MP-cible non sourcée) ; Bat Person/Gravity Talisman/Reaper Orb. Pas terminé — `pluton_mechanic_coverage` est l'outil pour continuer.
+
 ## ✅ Pluton — migration complete systeme 4-tiers -> 7-tiers reels (23 août)
 
 **Correction architecturale majeure, demandee explicitement par l'utilisateur**
@@ -1019,29 +1054,7 @@ Trap Hunting 4 tiers (19h/17h/12h/9h de capture, tous exacts avec le
 +5% Trapped additionné au palier de trap). Route de debug temporaire
 supprimée après validation.
 
-### 🔴 Essence Shops — nouvelle surface d'audit trouvée, seulement 2/11 boutiques vérifiées (22 août)
-
-La question HOTM/HOTF de l'utilisateur a fait remonter une **catégorie
-entière jamais auditée cette session** : 11 Essence Shops (Undead/Wither/
-Dragon/Spider/Crimson/Ice/Gold/Diamond/Forest/Fossil/Safari), chacune avec
-plusieurs perks à paliers, échangés contre une monnaie Essence dédiée.
-
-**2 boutiques vérifiées jusqu'ici** :
-- **Undead** — Strength/Defense/Health/Intelligence/Critical Essence
-  explicitement qualifiées **"while in The Catacombs"** par le wiki lui-
-  même — confirmé hors-scope Slayer/Bestiary (pas de restriction de lieu
-  levée), et non applicable non plus à la méthode Dungeons actuelle
-  (ancrée sur le score, ne modélise aucune stat joueur) -- **rien à
-  fermer ici**, vérifié plutôt que supposé.
-- **Spider** — **"Bane" (+dmg vs Spiders, I+3%→V+15%, SANS restriction de
-  lieu) réel et fermé** : ajouté comme facteur multiplicatif (même bucket
-  "vs type de mob" que l'arme/l'armure), palier par tier. Vérifié en base :
-  DPS Spider LATE 135 573.30395→155 909.2995425 exact (×1.15 pile).
-
-**9 boutiques restantes jamais vérifiées** : Wither/Dragon/Crimson/Ice/
-Gold/Diamond/Forest/Fossil/Safari — Gold est déjà partiellement couverte
-(Eager Miner, déjà dans Mining), les 8 autres totalement inconnues à ce
-stade. Chantier distinct explicitement pas terminé, pas caché.
+### 🔴 Essence Shops — 2/11 vérifiées ici (22 août) — **audit complet des 12 terminé le 23-24 août, voir en tête de fichier, pas dupliqué ici**
 
 ### ✅ Foraging — Heart of the Forest (HOTF), 2e vrai trou trouvé le même jour (22 août)
 
