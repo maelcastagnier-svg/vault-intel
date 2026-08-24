@@ -203,6 +203,18 @@ export const IMPALING_AQUATIC_PCT_BY_TIER: Record<SevenTier, number> = {
   starter: 5, amateur: 10, intermediate: 15, skilled: 20, expert: 20, professional: 30, master: 30,
 }
 
+// Flowstate (enchant ULTIMATE Mining, emplacement PICKAXE/DRILL/GAUNTLET) --
+// "+1-3 Mining Speed par bloc casse consecutivement, plafond 200 blocs,
+// reinitialise apres 10s d'inactivite". 3 paliers reels (I-III, drop rare
+// Mining Event, Enchanting niveau 15) -- tiers bas a 0. Modelise en
+// steady-state (plafond 200 blocs atteint -- une session de grind reelle
+// dure bien plus longtemps que la rampe de montee, meme convention que le
+// steady-state Little's Law deja utilise pour Pesthunter Phillip/Farming).
+export const FLOWSTATE_SPEED_PER_BLOCK_BY_TIER: Record<SevenTier, number> = {
+  starter: 0, amateur: 0, intermediate: 1, skilled: 1, expert: 2, professional: 3, master: 3,
+}
+export const FLOWSTATE_CAP_BLOCKS = 200
+
 // Charge le prix le plus recent de chaque item_id demande en 2 requetes
 // batchees (Bazaar d'abord, fallback AH nostar_norecomb) plutot qu'un
 // aller-retour par item -- meme pattern que loadPricedItems

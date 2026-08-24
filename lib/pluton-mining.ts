@@ -54,7 +54,10 @@
 import { createClient } from '@supabase/supabase-js'
 import { loadPricedItems, type PricedItem } from './gear-pricing'
 import type { SevenTierConfig } from './money-making-constants'
-import { recombobulatedRarity, SEVEN_TIER_KEYS, type SevenTier, loadSevenTierConfig, INVESTMENT_MAX_TIERS } from './pluton-engine'
+import {
+  recombobulatedRarity, SEVEN_TIER_KEYS, type SevenTier, loadSevenTierConfig, INVESTMENT_MAX_TIERS,
+  FLOWSTATE_SPEED_PER_BLOCK_BY_TIER, FLOWSTATE_CAP_BLOCKS,
+} from './pluton-engine'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -274,6 +277,14 @@ export async function computeMiningRanking(tier: SevenTier, blockId: string, tie
     let finalSpeed = layer.total_mining_speed
     let finalFortune = layer.total_mining_fortune
     let pristineMult = 1
+
+    // Flowstate (23 aout, audit exhaustivite enchants) -- enchant ULTIMATE
+    // Mining (PICKAXE/DRILL/GAUNTLET), "+1-3 Mining Speed par bloc casse
+    // consecutivement, plafond 200 blocs" -- modelise en steady-state
+    // (plafond atteint, voir doc de la constante). S'applique a tous les
+    // tiers (pas seulement investissement max), c'est un enchant applicable
+    // des l'obtention, pas un palier d'investissement continu.
+    finalSpeed += FLOWSTATE_SPEED_PER_BLOCK_BY_TIER[tier] * FLOWSTATE_CAP_BLOCKS
     let gemstoneBonus: GemstoneBonusLayer | null = null
     let petGemstoneFortune = 0
     if (isGemstoneTarget) {
