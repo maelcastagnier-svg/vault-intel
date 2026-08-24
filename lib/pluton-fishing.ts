@@ -102,6 +102,7 @@ const ARMOR_REFORGE_SUBMERGED_BY_RARITY: Record<string, { fishingSpeed: number; 
 // etablie (meme categorie de defaut deja utilisee pour FISHING_ROD).
 const ARMOR_RARITY: Record<string, string> = {
   ANGLER: 'COMMON', BACKWATER: 'UNCOMMON', DIVER: 'EPIC', SPONGE: 'EPIC', SHARK_SCALE: 'LEGENDARY', ABYSSAL: 'LEGENDARY',
+  THUNDER: 'EPIC', MAGMA_LORD: 'LEGENDARY',
 }
 // Aquamarine PERFECT par rarete (table `gemstones`, verifiee 22 aout).
 const AQUAMARINE_PERFECT_BY_RARITY: Record<string, number> = { COMMON: 2.5, UNCOMMON: 2.5, RARE: 3.5, EPIC: 4, LEGENDARY: 4.5, MYTHIC: 5 }
@@ -292,26 +293,45 @@ export async function applyFishingPetsAndAccessories(
 
   const rows = sources || []
 
-  // Equipement/accessory_bag/passive -- tous additifs (un seul candidat deja
-  // pre-selectionne par necklace/cloak/belt/bracelet, accessory_bag/passive
-  // n'ont jamais de competition -- voir doc migration).
-  const bySource = new Map<string, { equip_slot: string; fs: number; scc: number; tc: number }>()
+  // 🔴 CORRIGE (24 aout, audit exhaustivite ressources nuit) : le commentaire
+  // d'origine ("un seul candidat deja pre-selectionne par slot") etait une
+  // hypothese non garantie -- necklace/cloak/belt/bracelet ont chacun
+  // max_count=1 reel (meme discipline que le fix Mining/Foraging plus tot
+  // cette nuit). Sommer tous les candidats du meme slot porterait 2 colliers
+  // a la fois des qu'un 2e candidat existe pour le meme equip_slot. Arbitrage
+  // desormais par impact reel coins/h (via scoreCandidate, deja definie plus
+  // haut). accessory_bag reste additif sans arbitrage (empilable, mecanique
+  // reelle confirmee ailleurs dans le projet).
+  const grouped = new Map<string, { equip_slot: string; source_id: string; fs: number; scc: number; tc: number }>()
   for (const r of rows) {
     if (r.equip_slot === 'pet') continue
     const key = `${r.equip_slot}:${r.source_id}`
-    const cur = bySource.get(key) || { equip_slot: r.equip_slot, fs: 0, scc: 0, tc: 0 }
+    const cur = grouped.get(key) || { equip_slot: r.equip_slot, source_id: r.source_id, fs: 0, scc: 0, tc: 0 }
     if (r.stat_name === 'fishing_speed') cur.fs = Number(r.bonus_numeric)
     if (r.stat_name === 'sea_creature_chance') cur.scc = Number(r.bonus_numeric)
     if (r.stat_name === 'treasure_chance') cur.tc = Number(r.bonus_numeric)
-    bySource.set(key, cur)
+    grouped.set(key, cur)
   }
-  const accessories = Array.from(bySource.entries()).map(([key, v]) => ({
-    source_id: key.split(':')[1], equip_slot: v.equip_slot,
-    fishing_speed: v.fs, sea_creature_chance: v.scc, treasure_chance: v.tc,
-  }))
-  const accFs = accessories.reduce((s, a) => s + a.fishing_speed, 0)
-  const accScc = accessories.reduce((s, a) => s + a.sea_creature_chance, 0)
-  const accTc = accessories.reduce((s, a) => s + a.treasure_chance, 0)
+  const candidates = Array.from(grouped.values())
+  const accessories: FishingPetAndAccessoryLayer['accessories'] = []
+  let accFs = 0, accScc = 0, accTc = 0
+  for (const c of candidates.filter(c => c.equip_slot === 'accessory_bag')) {
+    accessories.push({ source_id: c.source_id, equip_slot: c.equip_slot, fishing_speed: c.fs, sea_creature_chance: c.scc, treasure_chance: c.tc })
+    accFs += c.fs; accScc += c.scc; accTc += c.tc
+  }
+  const bestBySlot = new Map<string, typeof candidates[number]>()
+  for (const c of candidates.filter(c => c.equip_slot !== 'accessory_bag')) {
+    const score = await scoreCandidate(baseFs + accFs + c.fs, baseScc + accScc + c.scc, baseTc + accTc + c.tc, treasureEV, fishEV, applyQuickBite)
+    const current = bestBySlot.get(c.equip_slot)
+    const currentScore = current
+      ? await scoreCandidate(baseFs + accFs + current.fs, baseScc + accScc + current.scc, baseTc + accTc + current.tc, treasureEV, fishEV, applyQuickBite)
+      : -1
+    if (!current || score > currentScore) bestBySlot.set(c.equip_slot, c)
+  }
+  for (const c of bestBySlot.values()) {
+    accessories.push({ source_id: c.source_id, equip_slot: c.equip_slot, fishing_speed: c.fs, sea_creature_chance: c.scc, treasure_chance: c.tc })
+    accFs += c.fs; accScc += c.scc; accTc += c.tc
+  }
 
   // Pets -- competitifs (un seul actif), compares sur leur impact REEL en
   // coins/h (meme methode que Mining/Foraging, jamais juste la somme brute).
