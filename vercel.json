@@ -29,6 +29,7 @@
     { "path": "/api/cron/pluton-bestiary-refresh", "schedule": "35 5 * * *" },
     { "path": "/api/cron/pluton-hunting-refresh", "schedule": "40 5 * * *" },
     { "path": "/api/cron/pluton-combat-refresh", "schedule": "45 5 * * *" },
-    { "path": "/api/cron/pluton-kuudra-refresh", "schedule": "50 5 * * *" }
+    { "path": "/api/cron/pluton-kuudra-refresh", "schedule": "50 5 * * *" },
+    { "path": "/api/cron/pluton-classification-sync", "schedule": "10 6 * * 1" }
   ]
 }
