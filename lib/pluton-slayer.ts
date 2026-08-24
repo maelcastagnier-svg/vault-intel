@@ -85,6 +85,7 @@ import {
   fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH, WITHER_FORBIDDEN_STRENGTH_MAX,
   SEVEN_TIER_KEYS, type SevenTier, oldTierBucket,
   SHARPNESS_PCT_BY_TIER, CRITICAL_PCT_BY_TIER, POTATO_BOOK_USES_BY_TIER,
+  SMITE_PCT_BY_TIER,
   THUNDERLORD_PCT_BY_TIER, FIRE_ASPECT_PCT_PER_SEC_BY_TIER, FIRE_ASPECT_DURATION_S_BY_TIER,
   INFERNO_MULT_BY_TIER, HABANERO_TACTICS_SLAYER_DMG_PCT_BY_TIER, TABASCO_FLAT_DAMAGE_BY_TIER,
   SCAVENGER_FLAT_COINS_BY_TIER, INVESTMENT_MAX_TIERS,
@@ -99,13 +100,30 @@ const supabase = createClient(
 
 // Rarete reelle (item_stats, verifiee 22 aout) -- necessaire pour Reforge
 // (table `reforges`, keyee par rarete) et Recombobulator (decale d'1 cran).
+// 🔴 Bug reel trouve le 23 aout en verifiant le lot enchants/accessoires --
+// UNDEAD_SWORD/REVENANT_SWORD/REAPER_SWORD/REAPER_SCYTHE et REVENANT/REAPER
+// (armure) etaient ABSENTS de ces 2 maps depuis la construction du 22 aout
+// (Reforge+Recombobulator), silencieusement : weaponRarity=undefined ->
+// weaponRecombRarity=undefined -> gemstoneStrength=0 ET
+// weaponReforgeCandidates=[] -> AUCUN reforge/gemme Jasper jamais applique
+// a la chaine Zombie dans ce fichier (contrairement aux 4 autres Slayers,
+// et contrairement a pluton-bestiary.ts/pluton-sea-creatures.ts qui, eux,
+// avaient bien ces valeurs). Rarete reelle verifiee (`item_stats`, meme
+// source que le reste du projet) : UNDEAD_SWORD=COMMON (item_stats.rarity
+// null mais item starter gratuit, meme convention deja utilisee sans
+// contestation par pluton-bestiary.ts/pluton-sea-creatures.ts),
+// REVENANT_SWORD=RARE, REAPER_SWORD=EPIC (confirmes identiques a ces 2
+// fichiers), REAPER_SCYTHE=LEGENDARY (nouvelle donnee, jamais verifiee
+// avant), REVENANT=EPIC, REAPER=LEGENDARY.
 const WEAPON_RARITY: Record<string, string> = {
+  UNDEAD_SWORD: 'COMMON', REVENANT_SWORD: 'RARE', REAPER_SWORD: 'EPIC', REAPER_SCYTHE: 'LEGENDARY',
   SPIDER_SWORD: 'COMMON', RECLUSE_FANG: 'UNCOMMON', TARANTULA_FANG: 'RARE', SCORPION_FOIL: 'EPIC', STING: 'LEGENDARY',
   SHAMAN_SWORD: 'EPIC', POOCH_SWORD: 'LEGENDARY',
   VOIDWALKER_KATANA: 'UNCOMMON', VOIDEDGE_KATANA: 'RARE', ATOMSPLIT_KATANA: 'LEGENDARY',
   MAWDUST_DAGGER: 'RARE', HEARTMAW_DAGGER: 'LEGENDARY',
 }
 const ARMOR_RARITY_BY_PREFIX: Record<string, string> = {
+  REVENANT: 'EPIC', REAPER: 'LEGENDARY',
   TARANTULA: 'EPIC', PRIMORDIAL: 'LEGENDARY', MASTIFF: 'EPIC', FINAL_DESTINATION: 'LEGENDARY',
 }
 
@@ -148,7 +166,16 @@ export const SLAYER_TIER_KEYS: readonly SevenTier[] = SEVEN_TIER_KEYS
 // de mob -- memes valeurs que Sharpness, reutilise directement. Wolf et
 // Blaze n'en ont AUCUN (confirme par recherche directe, aucune
 // correspondance) -- 0% ici n'est pas un trou, une verite reelle.
+//
+// 🔴 Zombie (Smite, vs Undead/Wither/Skeletal) manquait ici -- bug reel
+// trouve le 23 aout en verifiant le lot enchants/accessoires (meme famille
+// que le bug WEAPON_RARITY/JASPER_SLOTS_BY_WEAPON ci-dessus -- Zombie
+// neglige dans ce fichier au profit de pluton-combat.ts, sa "v2" qui, elle,
+// applique bien Smite). Smite deja documente et applique par
+// pluton-combat.ts/pluton-bestiary.ts/pluton-sea-creatures.ts depuis le
+// 22 aout, jamais reporte ici.
 const MOB_TYPE_ENCHANT_PCT_BY_TIER: Partial<Record<string, Record<SevenTier, number>>> = {
+  zombie: SMITE_PCT_BY_TIER, // Smite
   spider: SHARPNESS_PCT_BY_TIER, // Bane of Arthropods
   enderman: SHARPNESS_PCT_BY_TIER, // Ender Slayer
 }
@@ -185,12 +212,24 @@ const BANE_PCT_BY_TIER: Record<SevenTier, number> = {
 // Nombre d'emplacements Jasper par arme (verifie AVANT de coder) -- valeur
 // reelle = JASPER_PERFECT_BY_RARITY a la rarete RECOMBOBULEE (voir plus bas,
 // Recombobulator toujours applique), pas a la rarete de base.
+// 🔴 REAPER_SWORD manquait ici aussi (meme bug que WEAPON_RARITY ci-dessus,
+// 23 aout) -- 1 emplacement Jasper-only, EPIC, deja confirme et applique
+// par pluton-combat.ts/pluton-bestiary.ts/pluton-sea-creatures.ts depuis
+// le 22 aout, jamais reporte dans ce fichier.
 const JASPER_SLOTS_BY_WEAPON: Record<string, number> = {
+  REAPER_SWORD: 1, // EPIC, 1 emplacement Jasper-only
   STING: 2, // LEGENDARY, 2 emplacements Combat
   TARANTULA_FANG: 1, // RARE, 1 emplacement Combat gratuit
   POOCH_SWORD: 1, // LEGENDARY, 1 emplacement Jasper-only
   ATOMSPLIT_KATANA: 1, // LEGENDARY, 1 emplacement Jasper (2 Sapphire ignores, sans effet DPS)
   VOIDEDGE_KATANA: 1, // RARE, 1 emplacement Jasper (1 Sapphire ignore)
+}
+// Reaper Armor -- SEULE armure de ces 5 Slayers avec un vrai emplacement
+// Jasper confirme (1, Combat universel, LEGENDARY) -- Mastiff/Primordial
+// n'en ont aucun d'utilisable (deja verifie et documente le 22 aout).
+// Jamais reporte dans ce fichier (meme bug), corrige le 23 aout.
+const JASPER_SLOTS_BY_ARMOR: Record<string, number> = {
+  REAPER: 1,
 }
 
 // Hot Potato Book / Fuming Potato Book -- universel (voir doc complete dans
@@ -359,7 +398,10 @@ export async function computeSlayerRanking(tier: SevenTier, blockId: string): Pr
     const armorRecombRarity = armorRarity ? recombobulatedRarity(armorRarity) : undefined
 
     const jasperSlots = JASPER_SLOTS_BY_WEAPON[weaponId] ?? 0
-    const gemstoneStrength = jasperSlots && weaponRecombRarity ? jasperSlots * JASPER_PERFECT_BY_RARITY[weaponRecombRarity] : 0
+    const armorJasperSlots = armor?.set_prefix ? (JASPER_SLOTS_BY_ARMOR[armor.set_prefix] ?? 0) : 0
+    const gemstoneStrength =
+      (jasperSlots && weaponRecombRarity ? jasperSlots * JASPER_PERFECT_BY_RARITY[weaponRecombRarity] : 0) +
+      (armorJasperSlots && armorRecombRarity ? armorJasperSlots * JASPER_PERFECT_BY_RARITY[armorRecombRarity] : 0)
     const potatoUses = POTATO_BOOK_USES_BY_TIER[tier]
     const potatoFlat = potatoUses * POTATO_BOOK_BONUS_PER_USE
     let totalStrength = BASE_STRENGTH + Number(weapon.base_strength) + armorStrength + enrageStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH + WITHER_FORBIDDEN_STRENGTH_MAX
