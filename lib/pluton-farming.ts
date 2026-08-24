@@ -411,6 +411,63 @@ async function bestAffordableArmorTier(maxBudget: number): Promise<{ prefix: str
   return best
 }
 
+// Équipement (necklace/cloak/belt/bracelet) -- gap réel trouvé (24 aout,
+// audit exhaustivite ressources nuit) : ces 4 emplacements ne sont JAMAIS
+// recherchés/achetés aux tiers MID (seulement absorbés dans la constante
+// figée FARMING_FORTUNE_MAX_PERMANENT au tier MAX, via Blossom Set déjà
+// documenté dans son détail plus haut). Un joueur MID a un budget réel
+// (`resolvedTierConfig.max_gear_cost`) qui permet souvent Peony (~16M) ou
+// Blossom (~64.5M) -- jamais modélisé avant ce fix. Chaîne à 2 paliers
+// réels (item_id vérifiés wiki "Necklaces" + familles Belts/Cloaks/
+// Bracelets), stats confirmées : Peony +5 FF/pièce, Blossom +7 FF/pièce
+// (base, hors bonus "Salesperson" scalant avec les visiteurs Garden --
+// non modélisé, contexte non-continu comme les autres Temporary Sources
+// déjà exclues). PAS appliqué au tier MAX (déjà compté dans le total wiki
+// "Theoretical Maximum" ci-dessus, l'ajouter là-bas doublerait le compte).
+const ACCESSORY_TIERS: Array<{ prefix: string; necklace: string; cloak: string; belt: string; bracelet: string; ffPerPiece: number }> = [
+  { prefix: 'Peony', necklace: 'LOTUS_NECKLACE', cloak: 'LOTUS_CLOAK', belt: 'LOTUS_BELT', bracelet: 'LOTUS_BRACELET', ffPerPiece: 5 },
+  { prefix: 'Blossom', necklace: 'BLOSSOM_NECKLACE', cloak: 'BLOSSOM_CLOAK', belt: 'BLOSSOM_BELT', bracelet: 'BLOSSOM_BRACELET', ffPerPiece: 7 },
+]
+// Farming Talisman -- +3 FF universel, accessory_bag (empilable, aucun
+// arbitrage de slot nécessaire), coût modique. Chaîne Cropie Talisman/
+// Squash Ring (Crop Fortune crop-spécifique, gate crop-category différente
+// du regroupement generic/carrolyn/cocoa_beans déjà utilisé) volontairement
+// PAS incluse ici -- nécessiterait un remaniement du mapping crop-category,
+// gain marginal (+10 à +30) très inférieur au gap fermé ci-dessus, documenté
+// comme limite plutôt que masqué.
+const FARMING_TALISMAN_FF = 3
+const FARMING_TALISMAN_ITEM_ID = 'FARMING_TALISMAN'
+
+async function bestAffordableAccessorySet(maxBudget: number): Promise<{ prefix: string; ff: number; cost: number } | null> {
+  const since = new Date(Date.now() - 4 * 86_400_000).toISOString().split('T')[0]
+  const { data: prices } = await supabase
+    .from('price_history_ah')
+    .select('base_item_id, avg_price, bucket_date')
+    .eq('variant_key', '__all_variants_blended__')
+    .eq('granularity', 'DAILY')
+    .gte('bucket_date', since)
+    .gt('avg_price', 0)
+    .order('bucket_date', { ascending: false })
+
+  const latest = new Map<string, number>()
+  for (const p of prices || []) {
+    if (!latest.has(p.base_item_id)) latest.set(p.base_item_id, Number(p.avg_price))
+  }
+
+  let best: { prefix: string; ff: number; cost: number } | null = null
+  for (const set of ACCESSORY_TIERS) {
+    const pieces = [set.necklace, set.cloak, set.belt, set.bracelet]
+    const costs = pieces.map(p => latest.get(p))
+    if (costs.some(c => c == null)) continue
+    const cost = costs.reduce((a, b) => a! + b!, 0)!
+    const ff = set.ffPerPiece * 4
+    if (cost <= maxBudget && (!best || ff > best.ff)) {
+      best = { prefix: set.prefix, ff, cost }
+    }
+  }
+  return best
+}
+
 export type FarmingRankingResult = {
   target_block: string
   target_block_id: number
@@ -486,6 +543,46 @@ export async function computeFarmingRanking(tier: FarmingTierKey, blockId: strin
     // possible pour cet item).
     toolLevel = resolvedTierConfig.target
     cropFortune += toolLevel * SPECIALIZED_TOOL_FMF_PER_LEVEL
+
+    // Équipement necklace/cloak/belt/bracelet (Peony/Blossom) + Farming
+    // Talisman -- gap réel ferme cette nuit, voir doc ACCESSORY_TIERS.
+    // Budget restant après l'armure (même discipline que Mining : chaque
+    // couche consomme le budget réel, pas un budget séparé par slot).
+    const remainingBudget = resolvedTierConfig.max_gear_cost - (armor?.cost ?? 0)
+    const accessorySet = await bestAffordableAccessorySet(remainingBudget)
+    if (accessorySet) { farmingFortune += accessorySet.ff; realCost += accessorySet.cost }
+    const { data: talismanPriceRow } = await supabase
+      .from('price_history_ah_variant_base')
+      .select('avg_price')
+      .eq('base_item_id', FARMING_TALISMAN_ITEM_ID)
+      .gt('avg_price', 0)
+      .order('bucket_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const talismanCost = Number(talismanPriceRow?.avg_price) || 0
+    if (talismanCost > 0 && talismanCost <= remainingBudget - (accessorySet?.cost ?? 0)) {
+      farmingFortune += FARMING_TALISMAN_FF
+      realCost += talismanCost
+    }
+
+    // Pest Farming -- 🔴 gap réel ferme cette nuit : jamais calculé aux
+    // tiers MID alors que l'armure Cropie/Squash/Fermento (déjà utilisée à
+    // ces tiers via bestAffordableArmorTier) porte un vrai Bonus Pest
+    // Chance non nul (12.5/15/17.5 par pièce respectivement, sourcé wiki
+    // audit exhaustivite nuit). Seuls ces 3 tiers ont une valeur BPC
+    // reellement sourcee -- Farmhand/Haymaker/Sprout/Tater laisses a 0,
+    // jamais invente faute de donnee.
+    const armorBpcPerPiece: Record<string, number> = { Cropie: 12.5, Squash: 15, Fermento: 17.5 }
+    const bpc = armorSetPrefix ? armorBpcPerPiece[armorSetPrefix] : undefined
+    if (bpc) {
+      const bpcTotal = bpc * 4
+      const pestsPerSpawnEventMid = 1 + Math.floor(bpcTotal / 100) + (bpcTotal % 100) / 100
+      const pestsPerHourTotal = PESTS_PER_HOUR * pestsPerSpawnEventMid + TRAPS_PESTS_PER_HOUR
+      const best = await bestPestKillEV(farmingFortune)
+      pestName = best.name
+      pestCoinsPerHour = pestsPerHourTotal * best.evPerKill
+      farmingFortune += pesthunterSteadyStateFF(pestsPerHourTotal)
+    }
   }
   // starter/amateur : aucune branche -- Garden interdit a ces 2 tiers (meme
   // money_making_tier_key='early' que TIER_CONFIG.early.forbidden), Farming
