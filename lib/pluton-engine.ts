@@ -215,6 +215,18 @@ export const FLOWSTATE_SPEED_PER_BLOCK_BY_TIER: Record<SevenTier, number> = {
 }
 export const FLOWSTATE_CAP_BLOCKS = 200
 
+// First Impression (enchant ULTIMATE Foraging, emplacement AXE) -- "+X
+// Sweep sur les Log Breaks au corps a corps, et le 1er coup contre un
+// arbre donne +Y Sweep" -- modelise en steady-state (grind continu, le
+// bonus "1er coup" devient negligeable face au flat "+X par log break" sur
+// une session longue -- seul le terme +X est retenu, jamais le bonus
+// ponctuel du 1er coup, sous-estime legerement, meme discipline que les
+// autres simplifications "jamais surestimer"). 5 paliers reels (source :
+// Tree Gift) -- tiers bas a 0.
+export const FIRST_IMPRESSION_SWEEP_BY_TIER: Record<SevenTier, number> = {
+  starter: 0, amateur: 0, intermediate: 1, skilled: 2, expert: 3, professional: 4, master: 5,
+}
+
 // Charge le prix le plus recent de chaque item_id demande en 2 requetes
 // batchees (Bazaar d'abord, fallback AH nostar_norecomb) plutot qu'un
 // aller-retour par item -- meme pattern que loadPricedItems

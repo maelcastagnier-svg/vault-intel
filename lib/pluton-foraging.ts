@@ -58,7 +58,10 @@
 import { createClient } from '@supabase/supabase-js'
 import { loadPricedItems, type PricedItem } from './gear-pricing'
 import type { SevenTierConfig } from './money-making-constants'
-import { recombobulatedRarity, CITRINE_PERFECT_BY_RARITY, SEVEN_TIER_KEYS, type SevenTier, loadSevenTierConfig, INVESTMENT_MAX_TIERS } from './pluton-engine'
+import {
+  recombobulatedRarity, CITRINE_PERFECT_BY_RARITY, SEVEN_TIER_KEYS, type SevenTier, loadSevenTierConfig, INVESTMENT_MAX_TIERS,
+  FIRST_IMPRESSION_SWEEP_BY_TIER,
+} from './pluton-engine'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -380,6 +383,11 @@ export async function computeForagingRanking(tier: SevenTier, blockId: string, t
     // (contrairement au Sharpening Shard ci-dessous, ces slots existent
     // deja des Fig/mid-tier). Voir doc de citrineForagingFortuneBonus.
     finalFF += citrineForagingFortuneBonus(topSetup.tool_item_id, topSetup.armor_set)
+
+    // First Impression (23 aout, audit exhaustivite enchants) -- enchant
+    // ULTIMATE Foraging (AXE), +Sweep sur les Log Breaks -- applique a tous
+    // les tiers (pas seulement investissement max), voir doc de la constante.
+    finalSweep += FIRST_IMPRESSION_SWEEP_BY_TIER[tier]
 
     if (INVESTMENT_MAX_TIERS.has(tier)) {
       maxInvestmentBonus = maxInvestmentSweepBonus(blockId)
