@@ -6,6 +6,7 @@ import { computeAndPersistAllSlayerRankings } from '../../../../lib/pluton-slaye
 import { computeAndPersistBestiaryRankings } from '../../../../lib/pluton-bestiary'
 import { computeAndPersistSeaCreatureRankings } from '../../../../lib/pluton-sea-creatures'
 import { computeAndPersistAllFishingRankings } from '../../../../lib/pluton-fishing'
+import { computeAndPersistZombieSlayerRankings } from '../../../../lib/pluton-combat'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -16,6 +17,10 @@ export async function GET() {
     const slayer = await computeAndPersistAllSlayerRankings()
     out.slayer = { ok: true, count: slayer.length }
   } catch (e: any) { out.slayer = { ok: false, error: e.message } }
+  try {
+    const zombieV2 = await computeAndPersistZombieSlayerRankings()
+    out.zombie_slayer_v2 = { ok: true, ...zombieV2 }
+  } catch (e: any) { out.zombie_slayer_v2 = { ok: false, error: e.message } }
   try {
     const bestiary = await computeAndPersistBestiaryRankings()
     out.bestiary = { ok: true, ...bestiary }
