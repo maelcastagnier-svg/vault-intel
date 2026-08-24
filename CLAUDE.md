@@ -58,6 +58,98 @@ finale en cron hebdomadaire une fois le moteur validé sur au moins un cas
 connu — voir le plan `joyful-shimmying-finch.md` pour le détail complet
 des phases en cours.
 
+## 🔴 Constat majeur — le pipeline n'était PAS respecté à la lettre (24 août)
+
+**Correction fondamentale demandée par l'utilisateur**, après plusieurs tours
+d'audits ponctuels dans la même journée : *"on reprend tout, c'est bien de
+s'en rendre compte, on respecte le plan a la lettre, meme si sa doit
+modifier toute la methode de traitement, trouve une architecture qui
+respecte le plan final."* Vérifié directement en base plutôt que supposé :
+
+- **`pluton_elements` (184 416 lignes) — 69% jamais classé par skill**
+  (`activity IS NULL` sur 127 160 lignes). Seul `element_type='item'`
+  (49 628 lignes) a été classé en Phase 1 (21 août) — tout le reste
+  (`mechanic_formula` 36 912, `mob_zone_data` 24 017, `progression_
+  milestone` 15 578, `general_mechanic` 12 940) n'a jamais été rattaché à
+  un skill.
+- **Même les lignes déjà classées Mining (2 342) sont 63% sans tier**
+  (`tier IS NULL` sur 1 466 lignes) — impossible de dire fiablement "voici
+  100% de ce qu'un joueur tier N doit savoir sur Mining" avec ces trous.
+- **Aucun calculateur (sauf `pluton-combat.ts`/Zombie Slayer) ne consulte
+  `pluton_elements`** — le "Système A" (cartographie classée) et le
+  "Système B" (calculateurs, tables dédiées + lookups wiki ponctuels)
+  restent déconnectés, exactement le diagnostic du 21 août jamais refermé
+  au-delà de Zombie Slayer. Conséquence directe : les setups ont été
+  construits sur une petite liste de candidats choisis à la main
+  (`pluton_mining_armor_stats` etc.), jamais sur l'inventaire exhaustif
+  réellement cartographié — violation directe de la règle "setup optimal =
+  recherche réelle, pas un chemin canonique."
+
+**Architecture retenue pour corriger, sans tout réécrire à l'aveugle** :
+le moteur de recherche (combos armure×outil, garde le meilleur réel) était
+déjà correct dans son principe pour Mining — le vrai trou est la **taille
+du pool de candidats**. Plutôt que de forcer une classification complète
+des 127k lignes avant tout (des mois de travail, beaucoup de bruit réel —
+recettes de craft, Bits Shop, rolls d'event — mélangé aux vrais candidats),
+la méthode retenue : **auditer skill par skill, exhaustivement, l'inventaire
+`pluton_elements` déjà classé pour ce skill** (agent dédié, lecture des 767
+noms distincts pour Mining, triage bruit/réel, recoupement wiki+prix), puis
+**peupler les tables de candidats déjà consommées par le moteur** (`stat_
+bonus_sources`, `pluton_mining_armor_stats`, `pluton_mining_tool_stats`)
+avec tout ce qui est réel — pas une réécriture du moteur de calcul lui-même.
+
+### ✅ Mining — 1er skill traité selon cette méthode, vérifié en base
+
+Agent dédié : 767 noms distincts `pluton_elements` (`activity='mining'`,
+`element_type='item'`) triés intégralement (pas un échantillon), recoupés
+contre `game_mechanics_misc`/`items_catalog`/`price_history`. **Trouvailles
+réelles, toutes vérifiées et intégrées** :
+- **Trou structurel confirmé** : `applyPetsAndAccessories()` (déjà générique,
+  pilotée par `stat_bonus_sources`, pas hardcodée) sommait TOUS les candidats
+  du même `equip_slot` au lieu d'en arbitrer 1 seul — aurait porté 2 colliers/
+  2 capes simultanément dès qu'un 2e candidat existe dans le même slot
+  (`equip_slot_capacity` confirme max_count=1 réel pour necklace/cloak/belt/
+  bracelet). Corrigé : arbitrage par impact réel coins/h, même discipline que
+  le fix Foraging du même jour.
+- **22 lignes `stat_bonus_sources` réelles jamais insérées** : Amber Necklace,
+  Amethyst Gauntlet, chaînes Mithril/Titanium Belt/Cloak/Necklace/Gauntlet,
+  Glossy Mineral Talisman, Haste Ring.
+- **Gemstone Gauntlet** (BP=8/Speed=800, prix AH réel ~125M) absent des
+  candidats outil malgré une vraie donnée — ajouté.
+- **Doublon mort supprimé** : `pluton_mining_armor_stats` id=1 (`EMBER_ASH`)
+  pointait vers des item_id LEGACY non-tradeable, doublon exact de
+  Flamebreaker Armor (id=8, item_id actuels) — supprimé.
+- **Bingonimbus 2000** (Mining Fortune+100/Speed+1500, supérieur à Divan's
+  Drill) confirmé et **exclu explicitement** : soulbound sur profil Bingo
+  séparé, jamais transférable vers un profil normal — piège documenté, pas
+  un oubli. Pickonimbus 2000 (déjà en base, HOTM IV, tradeable) est le vrai
+  équivalent normal.
+- **2 gaps réels documentés, pas fermés** (`pluton_mechanic_coverage`) :
+  chaîne Drill Engine Mithril→Amber jamais scalée par tier (constante plate
+  actuelle) ; set bonus True Dwarf (4 pièces Titanium, +50 speed/+40 MF)
+  jamais modélisé (la recherche arbitre chaque slot indépendamment).
+
+**🔴 Incident opérationnel pendant cette passe** : le premier redéploiement
+a fait planter silencieusement `computeAndPersistAllMiningRankings()` aux
+tiers professional/master (0 ligne minage brut persistée, seulement Forge)
+— root cause confirmée après diagnostic isolé : la route de debug chaînait
+Mining derrière 4 autres activités dans la même invocation, le budget
+`maxDuration` partagé s'épuisait avant la fin de Mining (le plus lourd des
+5). Vercel coupe l'exécution sans lever d'exception JS catchable. Corrigé
+en isolant Mining dans sa propre invocation à budget plein — **196/196
+combos recalculés, 160 avec setup réel, master/professional retrouvent
+28/28 blocs bruts** (identique à intermediate/skilled/expert). Vérifié en
+base : accessoires now 1 seul par slot (Divan Pendant/Sapphire Cloak/Jade
+Belt/Dwarven Handwarmers à master, aucun doublon).
+
+**Ce qui N'A PAS été fait dans cette passe, honnêtement** : la classification
+complète des 127k lignes `pluton_elements` non taguées reste un chantier
+séparé, bien plus gros (12 autres skills, des dizaines de milliers de
+lignes chacun probablement). La méthode "agent dédié skill par skill sur
+l'inventaire déjà classé + peuplement des tables candidates" est reproductible
+et moins coûteuse que la classification complète préalable — c'est la voie
+retenue pour les 12 skills restants, pas encore commencée au-delà de Mining.
+
 ## Vision
 
 Plateforme SaaS d'intelligence économique gaming par abonnement, démarrage sur
@@ -120,6 +212,26 @@ comme "vérifié en prod", c'est cette méthode.
 **Gaps NOT_FOUND** (aucun contenu wiki caché) : cubism/divine_gift/life_steal/vampirism/knockback/mana_steal/magmarizer/syphon/luck (Combat) ; caster/frail/lure/magnet/spiked_hook/corruption/blessing (Fishing) ; efficiency/lapidary/fortune/smelting_touch/compact/paleontologist/silk_touch (Mining) ; absorb/missile (Foraging). **Gap pas fermé** : Ultimate Enchant "One For All" (+500% additif, retire tous les autres enchants) jamais comparé tête-à-tête avec la pile actuelle — potentiellement supérieur à haut tier.
 
 **Toujours `not_yet_audited`** : gemmes/reforges/stars Hunting/Kuudra/Dungeons ; "Powers" accessory_bag (MP-cible non sourcée) ; Bat Person/Gravity Talisman/Reaper Orb. Pas terminé — `pluton_mechanic_coverage` est l'outil pour continuer.
+
+## ✅ Pluton — audit "tout à la fois" (5 agents parallèles) + 5 bugs réels fermés (24 août)
+
+**Question directe de l'utilisateur** après le lot ci-dessus : *"tu utilise bien toute les ressources dispo pour les skills ? j'ai l'impression que tu fais que un peu a la fois et pas tout a la fois ?"* — réponse concrète : 6 agents `general-purpose` lancés en parallèle (arrière-plan), un par skill/ressource transversale (Farming, Kuudra, Dungeons, Hunting déjà traité avant compaction, `reforge_stones`/`star_upgrades` cross-skill, re-vérification pets Mining/Foraging/Fishing) plutôt qu'un audit séquentiel un skill à la fois. **5 bugs réels trouvés et fermés dans ce lot**, tous vérifiés contre une vraie table source avant correction (jamais une valeur devinée) :
+
+1. **Hunting — formule Trapped fausse depuis la construction du 22 août** : additive plate (`trap%+trapped%`) au lieu du vrai 2-étages multiplicatif `(1-trap%)×(1-trapped%)` sourcé wiki — surestimait le coins/h de +5.6% à master (0% à starter/amateur, croissant avec le tier).
+2. **Farming — "Rare Crop"/Overbloom jamais modélisé** : la page wiki source du "Theoretical Maximum" (base du calcul depuis le 5 août) porte désormais un bandeau `{{Outdated}}` — un patch a scindé ce mécanisme hors de Farming Fortune vers un stat "Overbloom" jamais intégré depuis. Fermé avec les 2 seules ancres réelles sourcées (chance base 2/4 et 4/4 pièces d'armure de progression par catégorie Cropie/Squash/Fermento/Helianthus, jamais un multiplicateur Overbloom inventé) — jusqu'à ~1.4M coins/h supplémentaires à master sur Helianthus, prix Bazaar réels vérifiés (Cropie≈24,3K, Squash≈73,7K, Fermento≈245,8K, Helianthus≈498,1K).
+3. **Fishing — reforges rod (Salty/Treacherous/Stiff/Lucky) et armure (Submerged) appliqués en flat MYTHIC à TOUS les tiers** : la doc affirmait "pas de table par rareté sourcée" — faux, `reforge_stones` (jamais consultée directement avant, seulement la page wiki de l'item) a un vrai jsonb complet par rareté. Corrigé : scale désormais par la rareté RECOMBOBULÉE réelle de la rod/armure choisie (COMMON→MYTHIC, 1/2/2/3/5/7% SCC) — surestimait jusqu'à +4.5%pts de SCC aux tiers bas. Fishing Speed de Submerged (jamais capté avant) ajouté au passage ; son Crit Chance reste hors-scope (aucun combat modélisé dans ce fichier).
+4. **Mining — reforge Jaded plafonné à LEGENDARY alors qu'un vrai palier MYTHIC existe** (60 vitesse/30 fortune par pièce, `reforge_stones`) — applicable à Divan's Armor (rareté de base Mythic confirmée ailleurs dans le fichier), jamais vu faute d'avoir consulté la table directement.
+5. **Foraging — bug structurel réel, le plus gros du lot** : `applyForagingPetsAndAccessories()` ne lisait QUE `stat_name='sweep'` depuis sa construction (17 août) — le Foraging Fortune de TOUS les accessoires/pets (Torrhus Belt +10, Moonglade Belt +5, Veilshroom Bracelet +25, Mangrove Locket/Vine +5 chacun, pet JADE_DRAGON +50, pet MONKEY +60 — MONKEY n'était même jamais fetché, 0 ligne sweep) était silencieusement ignoré. Corrigé : chaque candidat par slot désormais retenu par son impact RÉEL en coins/h (Sweep+FF combinés), pas le Sweep seul — 3 lignes `stat_bonus_sources` manquantes ajoutées (Torrhus/Moonglade Belt, Veilshroom Bracelet FF, jamais saisies en base du tout).
+
+**`reforge_stones` (84 lignes) et `star_upgrades` (4 lignes) audités en entier** (jamais consultés directement avant, seulement via les pages wiki individuelles des items) — confirme les 3 bugs reforge ci-dessus + inventaire complet des 84 reforges par catégorie (Combat/Farming/Dungeons niche documentés dans `pluton_mechanic_coverage`, rien câblé au-delà de ce qui est déjà pertinent aux calculateurs actuels). `star_upgrades` confirmé n'être PAS une table de bonus par item (juste une légende de symboles ✪) — aucun bonus d'étoile chiffré trouvé pour aucune chaîne Slayer/Dungeons/Mining/Foraging/Fishing sauf Master Star (+5%/palier cumulatif, **Master Mode uniquement**, hors-scope de tous les calculateurs actuels qui restent en Normal Mode) — rien à intégrer sans inventer.
+
+**Kuudra ré-audité en entier** : les 4 stats Cannoneer (Cannon Proficiency/Multi-Shot/Rapid Fire/Steady Aim) recroisées exactes contre la vraie table `kuudra_perk_shop` (jamais relue en entier depuis la construction du 23 août) — 0 erreur trouvée. Loot garanti + coût Key recroisés ligne par ligne, également exacts. **3 gaps réels documentés, pas fermés** (`pluton_mechanic_coverage`) : Accelerated Shot (vitesse projectile, aucune formule reliant à une distance d'arène réelle) ; Blast Radius (AoE uniquement, hors-scope du modèle boss-HP-seul) ; route Specialist/Bomberman jamais comparée tête-à-tête avec Cannoneer (choisi par lecture directe, pas par vraie recherche comparative).
+
+**Dungeons ré-audité en entier** : la formule de score (Skill/Explore/Speed/Bonus) confirmée déterministe à S+ indépendamment du gear — aucun facteur gear caché, les seuils `runSeconds` par étage revérifiés exacts sur la formule complète. **2 gaps réels trouvés, pas fermés** : (1) l'accès à chaque étage est gaté par un vrai niveau Catacombs (`reqs={{skl|cata|N}}` : Floor I=1, II=3, III=5, IV=9, V=14, VI=19, VII=24) jamais modélisé — starter et master obtiennent aujourd'hui le même accès Floor VII ; pas fermé faute d'un mapping sourcé niveau-Catacombs→tier-Pluton (inventer violerait la règle #7) ; (2) Class Milestone 2 requis pour ouvrir le moindre coffre Post-Boss (0 sinon) — seuils réels existent (`dungeon_class_milestones`, 630 lignes) mais probablement jamais bloquants pour un clear 100% déjà assumé par le modèle, priorité basse. **`dungeon_classes` (15 lignes, contenu prose sans source vérifiable, non référencée en code) supprimée** — `dungeon_class_milestones` couvre déjà tout ce qui est réellement exploitable.
+
+**1 gap Foraging supplémentaire documenté, pas fermé** : Junk Artifact/Ring/Talisman (Treasure Chance, jusqu'à 37x le candidat actuel) trouvés mais conditionnés "while on Backwater Bayou" — même statut que les pools `event_gated` déjà traitées ailleurs (inclus avec label, pas exclu silencieusement), décision utilisateur à prendre avant d'intégrer.
+
+**12 nouvelles lignes `pluton_mechanic_coverage`** (5 `wired` pour les bugs fermés + 7 gaps documentés `not_yet_audited`/`excluded_complex`/`excluded_not_relevant`). Vérifié en base (route de debug temporaire, un seul cycle pour les 5 fichiers touchés) avant suppression de la route.
 
 ## ✅ Pluton — migration complete systeme 4-tiers -> 7-tiers reels (23 août)
 
@@ -1626,233 +1738,6 @@ l'utilisateur** : le frag run Floor VI/Sadan (2e méthode réelle, valide
 l'architecture multi-méthodes avec 2 méthodes distinctes sur le même
 étage — nécessitera de sourcer le système de Classes, DPS-dépendant cette
 fois), avec la même rigueur d'exhaustivité que Slayer.
-
-## ✅ Pluton Slayer — construit et validé, Zombie/Spider/Enderman/Blaze T1-T5/T4 + Wolf T1-T4 (18 août)
-
-5e activité généralisée, et la **première nécessitant un vrai moteur de
-combat** (temps de kill via dégâts/seconde réels) plutôt qu'un rendement par
-action — prérequis explicitement identifié par le gap Sea Creature de
-Fishing. Démarré sur un seul Slayer (Zombie/Revenant Horror, scope acté via
-`AskUserQuestion`), **étendu à Spider (Tarantula Broodfather) le même jour**
-après un recadrage explicite de l'utilisateur sur l'exhaustivité de la
-matière première (voir mémoire `feedback_exhaustivite_matiere_premiere_
-pluton` — extraire toute la source dispo par activité, jamais un
-sous-ensemble curaté par commodité). `activity_key='slayer'` générique,
-`pluton_slayer_boss_tiers`/`_weapon_stats`/`_armor_stats` portent une colonne
-`slayer_key` pour accueillir Wolf/Enderman/Blaze/Vampire sans migration.
-
-**Formule de dégâts réelle, corrigée après une 2e lecture complète** (page
-"Damage" pour la formule générale + page "Damage Calculation" pour la
-classification Additive/Multiplicative, jamais lue en entier au premier jet) :
-`DamageDealt = (5+BaseDamage+FlatDamageBonuses)×(1+Force/100)×
-AdditiveMultiplier×MultiplicativeMultiplier×(1+CritDamage/100 si critique)`.
-**🔴 Bug réel trouvé+corrigé avant tout redéploiement** : les bonus "+X%
-dégâts vs type de mob" (armes ET armure) sont **Multiplicative** (chaque
-source son propre facteur ×, confirmé explicitement sur le wiki pour
-Halberd of the Shredded +250%Undead=×3.5 et Tarantula/Primordial Armor
-Octodexterity=×2/×1.5), **pas additifs entre eux** comme codé au premier
-jet (`×(1+200%+100%)=×4.0` au lieu de `×3.0×2.0=×6.0` pour Reaper
-Falchion+Reaper Armor — écart réel de +50% sur les tiers END/LATE Zombie,
-recalculé). Seul le perk Warrior du niveau Combat est Additive (confirmé).
-Le bonus "+100 Damage" d'Enrage est un ajout **plat** à `BaseDamage`, pas un
-%. Cadence d'attaque réelle (wiki live "Bonus Attack Speed", pas encore
-cachée côté `hypixelskyblock_wiki`, fetchée en direct) :
-`Ticks = floor(10/(1+BonusAttackSpeed/100))`, 20 TPS, base 2 coups/s à 0 AS,
-plafond réel 4 coups/s (AS≥82). Stats de base réelles (wiki "Stats#Combat
-Stats") : PV=100, Force=0, Crit Chance=30%, Crit Damage=50%. Bonus de niveau
-Combat réel (table `skills`, perk "Warrior") : +210% dégâts (Additive) +
-+30% Crit Chance au niveau 60 max — modélisé à niveau max pour tous les
-tiers, même hypothèse "skill progressé en parallèle" que Mining/Farming.
-
-**Armes/armures réelles sourcées** — Zombie : Undead Sword(dmg30,+100%Undead,
-libre)→Revenant Falchion(dmg90,force+50,+150%,gate ZS3)→Reaper Falchion
-(dmg120,force+100,+200%,gate ZS6)/Reaper Scythe(dmg333,gate ZS7) ; Revenant
-Armor(0 offensif, survie pure)→Reaper Armor(force+75,+100%,ability Enrage
-+100dmg-plat/+100force/+100vit 6s/25s cooldown, LATE uniquement, moyenne
-pondérée par uptime — même méthode que Mining Speed Boost). Spider : Spider
-Sword(dmg30,+100%Arthropod,libre)→Recluse Fang(dmg60,force+30,+150%,gate
-ZS2)→Tarantula Fang(dmg90,force+45,+200%,gate ZS4)→Scorpion Foil(dmg120,
-force+60,+250%,gate ZS6)→Sting(dmg150,force+75,+300%,gate ZS8, ability
-Stinger="toujours critique" — modélisé en forçant `critChance=100`) ;
-Tarantula Armor(0 force,Octodexterity×2 confirmé wiki,Radioactive +1 Crit
-Damage/10 Force plafond+100)→Primordial Armor(0 force,Octodexterity×1.5
-confirmé,Radioactive +1.5/10 Force plafond+150). **Gear gaté par XP de
-collection, jamais par prix AH** (la plupart `salable=no`/`n` confirmé) —
-mapping direct par (slayer, tier joueur) plutôt que la recherche
-combinatoire budget-AH des autres activités (même raison que l'outil
-spécialisé de Farming).
-
-**🔴 2 gaps documentés, pas des oublis** (identiques aux deux Slayers) :
-- Seul le drop garanti (pool "Token", `odds=Guaranteed` explicite) compte
-  dans `coins_per_hour_boss_phase_only` — tous les autres drops (Catalysts/
-  Runes/enchant books/Scythe Blade/Shards...) suivent un système de poids
-  multi-pool par kill dont la conversion poids→probabilité exacte n'est pas
-  proprement sourcée (le `requirement` du wiki gate un palier de
-  reward-track, pas un poids RNG directement utilisable) — même discipline
-  que le taux de coffre au trésor de Mining, ou Sea Creature de Fishing.
-- La phase de farm de mobs (XP Combat nécessaire pour faire spawn le boss)
-  n'est **pas modélisée** — nécessiterait un 2e mini-modèle de combat (PV/
-  loot des mobs de base, non sourcé). `coins_per_hour_boss_phase_only`
-  représente donc uniquement la phase "combat contre le boss déjà spawné",
-  extrapolée à l'heure comme si un nouveau boss était toujours immédiatement
-  disponible — métrique partielle/idéalisée, documentée comme telle.
-
-**3 vrais bugs trouvés et corrigés en vérifiant en prod** (au-delà de la
-correction Additive/Multiplicative ci-dessus) :
-1. `armor_set_prefix` (`NOT NULL`) recevait `null` au tier EARLY (aucune
-   armure gérée à ce palier) — corrigé par un libellé explicite.
-2. `pluton_rankings.target_block_id` référence `pluton_target_blocks(id)`,
-   **pas** `pluton_slayer_boss_tiers(id)` — le code utilisait ce dernier,
-   "marchait" pour Zombie par pure coïncidence d'ids (1-5 déjà utilisés par
-   d'autres activités dans `pluton_target_blocks`, donc silencieusement
-   liés aux MAUVAISES lignes), a explosé en violation de contrainte dès
-   Spider (ids 6-10 inexistants). 10 vraies lignes `pluton_target_blocks`
-   (`activity_key='slayer'`) ajoutées, jointure corrigée.
-3. `SPIDER_SWORD` sourcée mais jamais insérée en base — EARLY Spider
-   ressortait `has_setup:false` sur les 5 paliers, corrigé.
-
-**État final vérifié en base** (recoupé par calcul manuel indépendant sur
-mid/SPIDER_T1 — 497 388 calculé à la main vs 497 790 réel, cohérent à
-l'arrondi près) : **40 combos tier×palier** (`pluton_rankings`
-`activity_key='slayer'`, 0 `has_setup:false`). Zombie reste négatif sur les
-20 combos (coût de spawn > valeur de la chair garantie seule, honnête vu le
-gap RNG documenté) — **Spider ressort positif sur plusieurs combos**
-(mid/end/late T1-T3, jusqu'à ~9.4M/h en end/late T2) grâce au prix Tarantula
-Web (~1016) très supérieur à Revenant Flesh (~140), différence réelle entre
-Slayers, pas un artefact. Cron `pluton-slayer-refresh` (quotidien 5h20,
-`vercel.json`, déjà générique — aucune modif nécessaire pour Spider) rejoue
-les deux Slayers. Route de debug temporaire supprimée après validation.
-
-**Wolf Slayer (Sven Packmaster) ajouté juste après** ("continue sur les
-autres slayers"), même rigueur d'exhaustivité. Seulement **4 paliers réels**
-(pas 5, confirmé wiki — cohérent avec `TIER_CONFIG` qui note déjà "Wolf
-T3-T4 (MAX)"). **Aucune arme Wolf gratuite n'existe** (rien avant Shaman
-Sword @ Wolf Slayer 3, contrairement à Undead Sword/Spider Sword) — EARLY
-honnêtement non éligible (`top_setup:null`), pas un oubli. Armes : Shaman
-Sword(dmg100,force+20,+100%vs Wolves,gate WS3)→Pooch Sword(dmg160,force+80,
-+200%vs Wolves,gate WS6) — **2 mécaniques réelles inédites** : Bonus Attack
-Speed direct sur l'arme (+5%, premier cas réel pour Pluton, jusqu'ici
-toujours 0) et un bonus plat "+10/+20 Damage par niveau de collection Wolf
-Slayer" (niveau assumé = palier minimum requis pour MID/WS3, niveau max
-documenté WS9 "Alpha Wolf" pour END/LATE, jamais inventé). Armure : Mastiff
-Armor (0 Force/mob-type — design de spécialisation survie confirmé, Crit
-Damage plat +60) préférée à Armor of the Pack (son seul bonus offensif est
-multijoueur-conditionnel, exclu comme Dolphin Pet de Fishing). **Pack
-Mentality** (Pooch Sword : +100% vs Wolves si Mastiff/Armor of the Pack
-complet) vérifiée explicitement plutôt que supposée. Vérifié en base (calcul
-manuel indépendant sur mid/WOLF_T1 — DPS=3705.4 calculé à la main, exact) :
-16 combos supplémentaires (12 avec setup + 4 EARLY `null`), **56 combos au
-total** pour les 3 Slayers. Wolf ressort positif sur T2/T3 en END/LATE
-(jusqu'à ~1.78M/h), même schéma que Spider.
-
-**Enderman Slayer (Voidgloom Seraph) ajouté juste après**, même rigueur.
-Seulement 4 paliers réels (pas 5, comme Wolf). Armes : Voidwalker
-Katana(dmg105,force+40,CD+15%,+150%Endermen,gate ES1,quasi-libre)→Voidedge
-Katana(dmg155,force+60,CD+25%,gate ES3)→Atomsplit Katana(dmg305,force+100,
-CD+50%,+300%Endermen,gate ES6 — Vorpal Katana intermédiaire volontairement
-sauté, même simplification que Reaper Scythe/Sting). Armure : Final
-Destination Armor (0 Force directe, survie pure) avec **Vivacious
-Darkness** (toggle continu coût Soulflow, pas une ability à cooldown —
-modélisée avec `duration=cooldown=1` réutilisant le mécanisme d'Enrage pour
-encoder un uptime réel de 100%, LATE uniquement) : Force+30, Bonus Attack
-Speed+20, +100% dégâts vs Endermen. **Malevolent Hitshield** — mécanique
-réelle inédite : le boss encaisse un nombre fixe de coups (15/30/60/100
-selon palier) à 3 déclenchements réels (spawn+2/3+1/3 PV) sans perdre de
-PV — modélisée comme temps d'attaque directement ajouté au TTK plutôt
-qu'ignorée. Yang Glyphs/Nukekubi Fixations/Broken Heart Radiation exclues
-(mécaniques de survie/réaction joueur, pas de ralentissement réel du DPS).
-
-**🔴 1 vrai oubli trouvé en vérifiant Enderman en prod** : les armes Spider
-ET Enderman ont chacune leur propre stat Crit Damage (Recluse Fang+10%,
-Tarantula Fang+20%, Scorpion Foil+30%, Sting+40%, Voidwalker+15%,
-Voidedge+25%, Atomsplit+50%) — sourcée en lisant les pages armes, jamais
-câblée dans le calcul jusqu'ici (Zombie/Wolf non affectés, 0 sur leurs
-armes). Colonne `base_crit_damage` ajoutée, recalcul complet, revérifié
-(EARLY/ENDERMAN_T1 : DPS=3318.2 calculé à la main = 3318 en base après
-correction, exact — était 3103 sans le fix, écart réel confirmé).
-
-**État à ce stade** : 72 combos pour les 4 Slayers construits. Enderman
-ressort toujours négatif (bosses très chers en PV/temps de Hitshield, drop
-Null Sphere ~225 coins, pas assez pour compenser) — cohérent avec le gap RNG
-documenté, pas un signal d'erreur.
-
-**Blaze Slayer (Inferno Demonlord) ajouté juste après**, même rigueur.
-Seulement 4 paliers réels (pas 5, comme Wolf/Enderman). **Aucune dague Blaze
-gratuite/starter n'existe** (confirmé wiki : rien avant Firedust/Twilight
-Dagger @ Blaze Slayer 2) — EARLY honnêtement non éligible, comme Wolf.
-**Aucune armure Blaze Slayer n'existe non plus** — confirmé explicitement
-par le wiki, seul Slayer dans ce cas ("the only Slayer that does not reward
-an exclusive set of armor, instead using Subzero Wisp Pet as a main scaling
-slayer item" — pet non modélisé, même gap pets déjà documenté ailleurs).
-Armes : Twilight Dagger(dmg90,force+45,+50%vs Blazes,CritDamage+15%,gate
-BS2)→Deathripper Dagger(dmg160,force+75,+250%vs Blazes,CritDamage+25%,
-**CritChance+10%**,gate BS6) — choisies contre Firedust/Pyrochaos par
-comparaison réelle (mêmes stats brutes, bonus Infernal strictement
-supérieur sur Twilight/Deathripper, pas un coup de dé).
-
-**2 mécaniques réelles inédites** : **Demonsplit** — le boss se scinde en 2
-sous-boss (Quazii+Typhoeus) avec de vrais PV propres à 50% PV (T1/T2,
-scission simple) ou 2/3 et 1/3 PV (T3/T4, double scission) — modélisée en
-additionnant les PV réels totaux des démons directement dans `health` du
-boss stocké (T1: 2.5M+500k+500k=3.5M ; T2: 10M+1.75M+1.75M=13.5M ; T3:
-45M+5M+5M×2=65M ; T4: 150M+10M+10M×2=190M) plutôt que le PV affiché du boss
-seul. **Hellion Shield** (T2+) — 99% de réduction de dégâts sauf en
-attaquant avec une Dague dont l'attunement courant (1 de 4 couleurs,
-rotation toutes les 8 coups) correspond à celui du bouclier ; chaque vraie
-dague ne couvre que 2 des 4 couleurs (Twilight/Deathripper : Spirit+Crystal)
-— modélisée via une nouvelle colonne `damage_uptime_pct` sur
-`pluton_slayer_boss_tiers` (100 pour T1 sans bouclier, 50 pour T2-T4),
-multipliant le DPS effectif avant calcul du TTK — même discipline que le
-Malevolent Hitshield d'Enderman (temps/effet réel quantifié, jamais ignoré).
-
-**🔴 1 vrai oubli trouvé en vérifiant Blaze en prod, même famille que le
-bug Crit Damage d'Enderman** : Deathripper Dagger a aussi une vraie stat
-Crit Chance propre (+10%, wiki), jamais câblée au calcul (Twilight n'en a
-pas, valeur wiki confirmée à 0). Colonne `base_crit_chance` ajoutée
-(NOT NULL DEFAULT 0), backfill Deathripper=10, recalcul complet. Revérifié
-par calcul manuel indépendant sur end/BLAZE_T1 : DPS=9555.46 calculé à la
-main = 9555 en base après correction (était 9086 sans le fix, écart réel
-+5.2% confirmé, cohérent avec le ratio de multiplicateur crit
-`(1+0.70×0.75)/(1+0.60×0.75)`) ; mid/BLAZE_T1 (Twilight, non affecté par ce
-bug) confirmé exact indépendamment (DPS=1780.7≈1781).
-
-**État final vérifié en base** : **88 combos au total** pour les 5 Slayers
-construits (Zombie/Spider/Wolf/Enderman/Blaze). **Blaze ressort positif sur
-tous ses combos MID/END/LATE** (ex: end/late BLAZE_T1 ~19.8K/h,
-mid/BLAZE_T1 ~3.7K/h) — premier Slayer sans aucun combo négatif, cohérent
-avec le prix élevé de Derelict Ashe (~1717 coins/unité) largement supérieur
-à son coût de spawn, différence réelle entre Slayers plutôt qu'un signal
-d'erreur (même lecture que Spider/Wolf déjà positifs sur plusieurs paliers).
-Cron `pluton-slayer-refresh` (quotidien 5h20, déjà générique) rejoue les 5
-Slayers. Route de debug temporaire supprimée après validation.
-
-**🔴 Vampire Slayer (Riftstalker Bloodfiend) — gap structurel réel, pas
-construit, décision explicite de l'utilisateur (`AskUserQuestion`)** :
-sourcé exhaustivement avant de conclure (page boss, `Vampire Slayer`
-overview, les 2 Karambit, les 2 Steak Stake, les 3 pièces d'armure — pas un
-vrai set 4 pièces, `Coven Seal`, page stat `Rift Damage`) — **2 murs
-structurels réels, pas un raccourci de confort** :
-1. Coût de spawn ET drop garanti (`Coven Seal`) sont libellés en **Motes**
-   (monnaie exclusive au Rift Dimension), pas en coins — `Coven Seal` n'est
-   même pas auctionable/tradeable (`salable=yes` contre 10 Motes
-   uniquement) — aucun taux de conversion Motes→coins sourcé nulle part.
-2. Le Rift utilise sa propre stat **Rift Damage** (base 20, sources listées
-   sur sa page dédiée : armes/armure/équipement/consommables) **à la place**
-   de Force/Crit Chance/Crit Damage — le wiki confirme explicitement que
-   "le skill Combat n'a aucun effet dans le Rift". Contrairement au monde
-   principal (pages "Damage"/"Damage Calculation" avec formule complète),
-   **aucune formule sourcée** ne relie Rift Damage aux dégâts réels infligés
-   — pages "Rift Stat"/"Rift Speed" cherchées, absentes du cache wiki.
-Bâtir un calculateur ici nécessiterait d'inventer soit un multiplicateur
-Rift Damage→dégâts, soit un taux Motes→coins — les deux violent la règle
-"jamais de constante de jeu inventée". Documenté honnêtement comme gap
-structurel (même catégorie que le Rift historiquement incomplet dans Vault,
-cf `rift_motes` seul mappé/11 sous-systèmes vides). L'utilisateur a acté de
-passer directement à Dungeons plutôt que de construire une approximation.
-
-**Prochaine étape actée par l'utilisateur** : Dungeons (dernière activité de
-la liste actée le 17 août). `activity_key='slayer'` reste prêt à accueillir
-Vampire Slayer si une formule Rift Damage venait à être sourcée plus tard.
 
 ## ✅ Pluton Fishing — construit et validé (17 août)
 

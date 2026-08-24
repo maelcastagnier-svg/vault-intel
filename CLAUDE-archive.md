@@ -2460,3 +2460,237 @@ OK, sans session 401, email injecté ignoré), liaison Hypixel + rejets 400/409.
 DEFINER`) bypasse le RLS de `method_feedback`, impact nul tant que la table
 est vide (voir Prochaines étapes #7).
 
+
+## Pluton Slayer — construction complète 5 boss (18 août) — archivé le 24 août
+
+> Déplacé depuis CLAUDE.md (3e vague d'archivage, seuil 150k) — narratif de
+> construction uniquement, état actuel déjà résumé dans la section "audit
+> exhaustivite NBT" du 23-24 août restée en tête de CLAUDE.md.
+
+## ✅ Pluton Slayer — construit et validé, Zombie/Spider/Enderman/Blaze T1-T5/T4 + Wolf T1-T4 (18 août)
+
+5e activité généralisée, et la **première nécessitant un vrai moteur de
+combat** (temps de kill via dégâts/seconde réels) plutôt qu'un rendement par
+action — prérequis explicitement identifié par le gap Sea Creature de
+Fishing. Démarré sur un seul Slayer (Zombie/Revenant Horror, scope acté via
+`AskUserQuestion`), **étendu à Spider (Tarantula Broodfather) le même jour**
+après un recadrage explicite de l'utilisateur sur l'exhaustivité de la
+matière première (voir mémoire `feedback_exhaustivite_matiere_premiere_
+pluton` — extraire toute la source dispo par activité, jamais un
+sous-ensemble curaté par commodité). `activity_key='slayer'` générique,
+`pluton_slayer_boss_tiers`/`_weapon_stats`/`_armor_stats` portent une colonne
+`slayer_key` pour accueillir Wolf/Enderman/Blaze/Vampire sans migration.
+
+**Formule de dégâts réelle, corrigée après une 2e lecture complète** (page
+"Damage" pour la formule générale + page "Damage Calculation" pour la
+classification Additive/Multiplicative, jamais lue en entier au premier jet) :
+`DamageDealt = (5+BaseDamage+FlatDamageBonuses)×(1+Force/100)×
+AdditiveMultiplier×MultiplicativeMultiplier×(1+CritDamage/100 si critique)`.
+**🔴 Bug réel trouvé+corrigé avant tout redéploiement** : les bonus "+X%
+dégâts vs type de mob" (armes ET armure) sont **Multiplicative** (chaque
+source son propre facteur ×, confirmé explicitement sur le wiki pour
+Halberd of the Shredded +250%Undead=×3.5 et Tarantula/Primordial Armor
+Octodexterity=×2/×1.5), **pas additifs entre eux** comme codé au premier
+jet (`×(1+200%+100%)=×4.0` au lieu de `×3.0×2.0=×6.0` pour Reaper
+Falchion+Reaper Armor — écart réel de +50% sur les tiers END/LATE Zombie,
+recalculé). Seul le perk Warrior du niveau Combat est Additive (confirmé).
+Le bonus "+100 Damage" d'Enrage est un ajout **plat** à `BaseDamage`, pas un
+%. Cadence d'attaque réelle (wiki live "Bonus Attack Speed", pas encore
+cachée côté `hypixelskyblock_wiki`, fetchée en direct) :
+`Ticks = floor(10/(1+BonusAttackSpeed/100))`, 20 TPS, base 2 coups/s à 0 AS,
+plafond réel 4 coups/s (AS≥82). Stats de base réelles (wiki "Stats#Combat
+Stats") : PV=100, Force=0, Crit Chance=30%, Crit Damage=50%. Bonus de niveau
+Combat réel (table `skills`, perk "Warrior") : +210% dégâts (Additive) +
++30% Crit Chance au niveau 60 max — modélisé à niveau max pour tous les
+tiers, même hypothèse "skill progressé en parallèle" que Mining/Farming.
+
+**Armes/armures réelles sourcées** — Zombie : Undead Sword(dmg30,+100%Undead,
+libre)→Revenant Falchion(dmg90,force+50,+150%,gate ZS3)→Reaper Falchion
+(dmg120,force+100,+200%,gate ZS6)/Reaper Scythe(dmg333,gate ZS7) ; Revenant
+Armor(0 offensif, survie pure)→Reaper Armor(force+75,+100%,ability Enrage
++100dmg-plat/+100force/+100vit 6s/25s cooldown, LATE uniquement, moyenne
+pondérée par uptime — même méthode que Mining Speed Boost). Spider : Spider
+Sword(dmg30,+100%Arthropod,libre)→Recluse Fang(dmg60,force+30,+150%,gate
+ZS2)→Tarantula Fang(dmg90,force+45,+200%,gate ZS4)→Scorpion Foil(dmg120,
+force+60,+250%,gate ZS6)→Sting(dmg150,force+75,+300%,gate ZS8, ability
+Stinger="toujours critique" — modélisé en forçant `critChance=100`) ;
+Tarantula Armor(0 force,Octodexterity×2 confirmé wiki,Radioactive +1 Crit
+Damage/10 Force plafond+100)→Primordial Armor(0 force,Octodexterity×1.5
+confirmé,Radioactive +1.5/10 Force plafond+150). **Gear gaté par XP de
+collection, jamais par prix AH** (la plupart `salable=no`/`n` confirmé) —
+mapping direct par (slayer, tier joueur) plutôt que la recherche
+combinatoire budget-AH des autres activités (même raison que l'outil
+spécialisé de Farming).
+
+**🔴 2 gaps documentés, pas des oublis** (identiques aux deux Slayers) :
+- Seul le drop garanti (pool "Token", `odds=Guaranteed` explicite) compte
+  dans `coins_per_hour_boss_phase_only` — tous les autres drops (Catalysts/
+  Runes/enchant books/Scythe Blade/Shards...) suivent un système de poids
+  multi-pool par kill dont la conversion poids→probabilité exacte n'est pas
+  proprement sourcée (le `requirement` du wiki gate un palier de
+  reward-track, pas un poids RNG directement utilisable) — même discipline
+  que le taux de coffre au trésor de Mining, ou Sea Creature de Fishing.
+- La phase de farm de mobs (XP Combat nécessaire pour faire spawn le boss)
+  n'est **pas modélisée** — nécessiterait un 2e mini-modèle de combat (PV/
+  loot des mobs de base, non sourcé). `coins_per_hour_boss_phase_only`
+  représente donc uniquement la phase "combat contre le boss déjà spawné",
+  extrapolée à l'heure comme si un nouveau boss était toujours immédiatement
+  disponible — métrique partielle/idéalisée, documentée comme telle.
+
+**3 vrais bugs trouvés et corrigés en vérifiant en prod** (au-delà de la
+correction Additive/Multiplicative ci-dessus) :
+1. `armor_set_prefix` (`NOT NULL`) recevait `null` au tier EARLY (aucune
+   armure gérée à ce palier) — corrigé par un libellé explicite.
+2. `pluton_rankings.target_block_id` référence `pluton_target_blocks(id)`,
+   **pas** `pluton_slayer_boss_tiers(id)` — le code utilisait ce dernier,
+   "marchait" pour Zombie par pure coïncidence d'ids (1-5 déjà utilisés par
+   d'autres activités dans `pluton_target_blocks`, donc silencieusement
+   liés aux MAUVAISES lignes), a explosé en violation de contrainte dès
+   Spider (ids 6-10 inexistants). 10 vraies lignes `pluton_target_blocks`
+   (`activity_key='slayer'`) ajoutées, jointure corrigée.
+3. `SPIDER_SWORD` sourcée mais jamais insérée en base — EARLY Spider
+   ressortait `has_setup:false` sur les 5 paliers, corrigé.
+
+**État final vérifié en base** (recoupé par calcul manuel indépendant sur
+mid/SPIDER_T1 — 497 388 calculé à la main vs 497 790 réel, cohérent à
+l'arrondi près) : **40 combos tier×palier** (`pluton_rankings`
+`activity_key='slayer'`, 0 `has_setup:false`). Zombie reste négatif sur les
+20 combos (coût de spawn > valeur de la chair garantie seule, honnête vu le
+gap RNG documenté) — **Spider ressort positif sur plusieurs combos**
+(mid/end/late T1-T3, jusqu'à ~9.4M/h en end/late T2) grâce au prix Tarantula
+Web (~1016) très supérieur à Revenant Flesh (~140), différence réelle entre
+Slayers, pas un artefact. Cron `pluton-slayer-refresh` (quotidien 5h20,
+`vercel.json`, déjà générique — aucune modif nécessaire pour Spider) rejoue
+les deux Slayers. Route de debug temporaire supprimée après validation.
+
+**Wolf Slayer (Sven Packmaster) ajouté juste après** ("continue sur les
+autres slayers"), même rigueur d'exhaustivité. Seulement **4 paliers réels**
+(pas 5, confirmé wiki — cohérent avec `TIER_CONFIG` qui note déjà "Wolf
+T3-T4 (MAX)"). **Aucune arme Wolf gratuite n'existe** (rien avant Shaman
+Sword @ Wolf Slayer 3, contrairement à Undead Sword/Spider Sword) — EARLY
+honnêtement non éligible (`top_setup:null`), pas un oubli. Armes : Shaman
+Sword(dmg100,force+20,+100%vs Wolves,gate WS3)→Pooch Sword(dmg160,force+80,
++200%vs Wolves,gate WS6) — **2 mécaniques réelles inédites** : Bonus Attack
+Speed direct sur l'arme (+5%, premier cas réel pour Pluton, jusqu'ici
+toujours 0) et un bonus plat "+10/+20 Damage par niveau de collection Wolf
+Slayer" (niveau assumé = palier minimum requis pour MID/WS3, niveau max
+documenté WS9 "Alpha Wolf" pour END/LATE, jamais inventé). Armure : Mastiff
+Armor (0 Force/mob-type — design de spécialisation survie confirmé, Crit
+Damage plat +60) préférée à Armor of the Pack (son seul bonus offensif est
+multijoueur-conditionnel, exclu comme Dolphin Pet de Fishing). **Pack
+Mentality** (Pooch Sword : +100% vs Wolves si Mastiff/Armor of the Pack
+complet) vérifiée explicitement plutôt que supposée. Vérifié en base (calcul
+manuel indépendant sur mid/WOLF_T1 — DPS=3705.4 calculé à la main, exact) :
+16 combos supplémentaires (12 avec setup + 4 EARLY `null`), **56 combos au
+total** pour les 3 Slayers. Wolf ressort positif sur T2/T3 en END/LATE
+(jusqu'à ~1.78M/h), même schéma que Spider.
+
+**Enderman Slayer (Voidgloom Seraph) ajouté juste après**, même rigueur.
+Seulement 4 paliers réels (pas 5, comme Wolf). Armes : Voidwalker
+Katana(dmg105,force+40,CD+15%,+150%Endermen,gate ES1,quasi-libre)→Voidedge
+Katana(dmg155,force+60,CD+25%,gate ES3)→Atomsplit Katana(dmg305,force+100,
+CD+50%,+300%Endermen,gate ES6 — Vorpal Katana intermédiaire volontairement
+sauté, même simplification que Reaper Scythe/Sting). Armure : Final
+Destination Armor (0 Force directe, survie pure) avec **Vivacious
+Darkness** (toggle continu coût Soulflow, pas une ability à cooldown —
+modélisée avec `duration=cooldown=1` réutilisant le mécanisme d'Enrage pour
+encoder un uptime réel de 100%, LATE uniquement) : Force+30, Bonus Attack
+Speed+20, +100% dégâts vs Endermen. **Malevolent Hitshield** — mécanique
+réelle inédite : le boss encaisse un nombre fixe de coups (15/30/60/100
+selon palier) à 3 déclenchements réels (spawn+2/3+1/3 PV) sans perdre de
+PV — modélisée comme temps d'attaque directement ajouté au TTK plutôt
+qu'ignorée. Yang Glyphs/Nukekubi Fixations/Broken Heart Radiation exclues
+(mécaniques de survie/réaction joueur, pas de ralentissement réel du DPS).
+
+**🔴 1 vrai oubli trouvé en vérifiant Enderman en prod** : les armes Spider
+ET Enderman ont chacune leur propre stat Crit Damage (Recluse Fang+10%,
+Tarantula Fang+20%, Scorpion Foil+30%, Sting+40%, Voidwalker+15%,
+Voidedge+25%, Atomsplit+50%) — sourcée en lisant les pages armes, jamais
+câblée dans le calcul jusqu'ici (Zombie/Wolf non affectés, 0 sur leurs
+armes). Colonne `base_crit_damage` ajoutée, recalcul complet, revérifié
+(EARLY/ENDERMAN_T1 : DPS=3318.2 calculé à la main = 3318 en base après
+correction, exact — était 3103 sans le fix, écart réel confirmé).
+
+**État à ce stade** : 72 combos pour les 4 Slayers construits. Enderman
+ressort toujours négatif (bosses très chers en PV/temps de Hitshield, drop
+Null Sphere ~225 coins, pas assez pour compenser) — cohérent avec le gap RNG
+documenté, pas un signal d'erreur.
+
+**Blaze Slayer (Inferno Demonlord) ajouté juste après**, même rigueur.
+Seulement 4 paliers réels (pas 5, comme Wolf/Enderman). **Aucune dague Blaze
+gratuite/starter n'existe** (confirmé wiki : rien avant Firedust/Twilight
+Dagger @ Blaze Slayer 2) — EARLY honnêtement non éligible, comme Wolf.
+**Aucune armure Blaze Slayer n'existe non plus** — confirmé explicitement
+par le wiki, seul Slayer dans ce cas ("the only Slayer that does not reward
+an exclusive set of armor, instead using Subzero Wisp Pet as a main scaling
+slayer item" — pet non modélisé, même gap pets déjà documenté ailleurs).
+Armes : Twilight Dagger(dmg90,force+45,+50%vs Blazes,CritDamage+15%,gate
+BS2)→Deathripper Dagger(dmg160,force+75,+250%vs Blazes,CritDamage+25%,
+**CritChance+10%**,gate BS6) — choisies contre Firedust/Pyrochaos par
+comparaison réelle (mêmes stats brutes, bonus Infernal strictement
+supérieur sur Twilight/Deathripper, pas un coup de dé).
+
+**2 mécaniques réelles inédites** : **Demonsplit** — le boss se scinde en 2
+sous-boss (Quazii+Typhoeus) avec de vrais PV propres à 50% PV (T1/T2,
+scission simple) ou 2/3 et 1/3 PV (T3/T4, double scission) — modélisée en
+additionnant les PV réels totaux des démons directement dans `health` du
+boss stocké (T1: 2.5M+500k+500k=3.5M ; T2: 10M+1.75M+1.75M=13.5M ; T3:
+45M+5M+5M×2=65M ; T4: 150M+10M+10M×2=190M) plutôt que le PV affiché du boss
+seul. **Hellion Shield** (T2+) — 99% de réduction de dégâts sauf en
+attaquant avec une Dague dont l'attunement courant (1 de 4 couleurs,
+rotation toutes les 8 coups) correspond à celui du bouclier ; chaque vraie
+dague ne couvre que 2 des 4 couleurs (Twilight/Deathripper : Spirit+Crystal)
+— modélisée via une nouvelle colonne `damage_uptime_pct` sur
+`pluton_slayer_boss_tiers` (100 pour T1 sans bouclier, 50 pour T2-T4),
+multipliant le DPS effectif avant calcul du TTK — même discipline que le
+Malevolent Hitshield d'Enderman (temps/effet réel quantifié, jamais ignoré).
+
+**🔴 1 vrai oubli trouvé en vérifiant Blaze en prod, même famille que le
+bug Crit Damage d'Enderman** : Deathripper Dagger a aussi une vraie stat
+Crit Chance propre (+10%, wiki), jamais câblée au calcul (Twilight n'en a
+pas, valeur wiki confirmée à 0). Colonne `base_crit_chance` ajoutée
+(NOT NULL DEFAULT 0), backfill Deathripper=10, recalcul complet. Revérifié
+par calcul manuel indépendant sur end/BLAZE_T1 : DPS=9555.46 calculé à la
+main = 9555 en base après correction (était 9086 sans le fix, écart réel
++5.2% confirmé, cohérent avec le ratio de multiplicateur crit
+`(1+0.70×0.75)/(1+0.60×0.75)`) ; mid/BLAZE_T1 (Twilight, non affecté par ce
+bug) confirmé exact indépendamment (DPS=1780.7≈1781).
+
+**État final vérifié en base** : **88 combos au total** pour les 5 Slayers
+construits (Zombie/Spider/Wolf/Enderman/Blaze). **Blaze ressort positif sur
+tous ses combos MID/END/LATE** (ex: end/late BLAZE_T1 ~19.8K/h,
+mid/BLAZE_T1 ~3.7K/h) — premier Slayer sans aucun combo négatif, cohérent
+avec le prix élevé de Derelict Ashe (~1717 coins/unité) largement supérieur
+à son coût de spawn, différence réelle entre Slayers plutôt qu'un signal
+d'erreur (même lecture que Spider/Wolf déjà positifs sur plusieurs paliers).
+Cron `pluton-slayer-refresh` (quotidien 5h20, déjà générique) rejoue les 5
+Slayers. Route de debug temporaire supprimée après validation.
+
+**🔴 Vampire Slayer (Riftstalker Bloodfiend) — gap structurel réel, pas
+construit, décision explicite de l'utilisateur (`AskUserQuestion`)** :
+sourcé exhaustivement avant de conclure (page boss, `Vampire Slayer`
+overview, les 2 Karambit, les 2 Steak Stake, les 3 pièces d'armure — pas un
+vrai set 4 pièces, `Coven Seal`, page stat `Rift Damage`) — **2 murs
+structurels réels, pas un raccourci de confort** :
+1. Coût de spawn ET drop garanti (`Coven Seal`) sont libellés en **Motes**
+   (monnaie exclusive au Rift Dimension), pas en coins — `Coven Seal` n'est
+   même pas auctionable/tradeable (`salable=yes` contre 10 Motes
+   uniquement) — aucun taux de conversion Motes→coins sourcé nulle part.
+2. Le Rift utilise sa propre stat **Rift Damage** (base 20, sources listées
+   sur sa page dédiée : armes/armure/équipement/consommables) **à la place**
+   de Force/Crit Chance/Crit Damage — le wiki confirme explicitement que
+   "le skill Combat n'a aucun effet dans le Rift". Contrairement au monde
+   principal (pages "Damage"/"Damage Calculation" avec formule complète),
+   **aucune formule sourcée** ne relie Rift Damage aux dégâts réels infligés
+   — pages "Rift Stat"/"Rift Speed" cherchées, absentes du cache wiki.
+Bâtir un calculateur ici nécessiterait d'inventer soit un multiplicateur
+Rift Damage→dégâts, soit un taux Motes→coins — les deux violent la règle
+"jamais de constante de jeu inventée". Documenté honnêtement comme gap
+structurel (même catégorie que le Rift historiquement incomplet dans Vault,
+cf `rift_motes` seul mappé/11 sous-systèmes vides). L'utilisateur a acté de
+passer directement à Dungeons plutôt que de construire une approximation.
+
+**Prochaine étape actée par l'utilisateur** : Dungeons (dernière activité de
+la liste actée le 17 août). `activity_key='slayer'` reste prêt à accueillir
+Vampire Slayer si une formule Rift Damage venait à être sourcée plus tard.
+
