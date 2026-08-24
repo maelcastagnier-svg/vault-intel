@@ -420,25 +420,57 @@ export async function applyPetsAndAccessories(
 
   const rows = sources || []
 
-  // Accessoires -- slots non-compétitifs, prend un représentant par équip_slot
-  // (le meilleur si jamais plusieurs candidats existaient un jour dans le même
-  // slot ; aujourd'hui un seul item connu par slot).
-  const bySlot = new Map<string, typeof rows>()
+  // Accessoires -- 🔴 CORRIGE (24 aout, audit exhaustivite ressources Mining) :
+  // le commentaire d'origine ("un seul item connu par slot") est devenu faux
+  // des qu'un 2e candidat existe pour le meme equip_slot (necklace/cloak/belt/
+  // bracelet ont chacun max_count=1 reel, confirme `equip_slot_capacity` --
+  // Amber Necklace vs Divan Pendant, Titanium vs Mithril vs Sapphire Cloak,
+  // etc.) -- sommer TOUS les candidats du meme slot porterait 2 colliers/2
+  // capes a la fois, un etat impossible en jeu. `accessory_bag` reste
+  // additif sans arbitrage (max_count=8, mecanique reelle "tout ce qui est
+  // dans le sac agit en permanence", confirme `equip_slot_capacity`).
+  const grouped = new Map<string, typeof rows>()
   for (const r of rows) {
     if (r.equip_slot === 'pet') continue
-    const arr = bySlot.get(`${r.equip_slot}:${r.source_id}`) || []
+    const arr = grouped.get(`${r.equip_slot}:${r.source_id}`) || []
     arr.push(r)
-    bySlot.set(`${r.equip_slot}:${r.source_id}`, arr)
+    grouped.set(`${r.equip_slot}:${r.source_id}`, arr)
+  }
+  const candidates = Array.from(grouped.entries()).map(([key, group]) => {
+    const [equip_slot, source_id] = key.split(':')
+    const speed = Number(group.find(g => g.stat_name === 'mining_speed')?.bonus_numeric || 0)
+    const fortune = Number(group.find(g => g.stat_name === 'mining_fortune')?.bonus_numeric || 0)
+    return { source_id, equip_slot, mining_speed: speed, mining_fortune: fortune }
+  })
+  const localScore = (speed: number, fortune: number) => {
+    const ticks = Math.max(Math.round((blockStrength * 30) / speed), 4)
+    return (3600 / (ticks / 20)) * (1 + fortune / 100) * sellPrice
   }
   const accessories: PetAndAccessoryLayer['accessories'] = []
   let accSpeed = 0, accFortune = 0
-  for (const [key, group] of bySlot) {
-    const speed = group.find(g => g.stat_name === 'mining_speed')?.bonus_numeric || 0
-    const fortune = group.find(g => g.stat_name === 'mining_fortune')?.bonus_numeric || 0
-    const [equip_slot, source_id] = key.split(':')
-    accessories.push({ source_id, equip_slot, mining_speed: Number(speed), mining_fortune: Number(fortune) })
-    accSpeed += Number(speed)
-    accFortune += Number(fortune)
+  // accessory_bag -- additif, pas de competition.
+  for (const c of candidates.filter(c => c.equip_slot === 'accessory_bag')) {
+    accessories.push(c)
+    accSpeed += c.mining_speed
+    accFortune += c.mining_fortune
+  }
+  // necklace/cloak/belt/bracelet -- 1 seul par slot, retenu par impact REEL
+  // en coins/h (formule Mining Speed/Fortune non lineaire), pas la somme brute.
+  const bestBySlot = new Map<string, typeof candidates[number]>()
+  for (const c of candidates.filter(c => c.equip_slot !== 'accessory_bag')) {
+    const testSpeed = baseMiningSpeed + accSpeed + c.mining_speed
+    const testFortune = baseMiningFortune + accFortune + c.mining_fortune
+    const score = testSpeed > 0 ? localScore(testSpeed, testFortune) : -1
+    const current = bestBySlot.get(c.equip_slot)
+    const currentScore = current
+      ? localScore(baseMiningSpeed + accSpeed + current.mining_speed, baseMiningFortune + accFortune + current.mining_fortune)
+      : -1
+    if (!current || score > currentScore) bestBySlot.set(c.equip_slot, c)
+  }
+  for (const c of bestBySlot.values()) {
+    accessories.push(c)
+    accSpeed += c.mining_speed
+    accFortune += c.mining_fortune
   }
 
   // Pets -- compétitifs entre eux (un seul actif), comparés sur leur impact
