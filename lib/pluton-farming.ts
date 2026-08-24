@@ -56,6 +56,32 @@ const supabase = createClient(
 const CROPS_PER_SECOND_ENGINE_CAP = 20
 const ACTIONS_PER_HOUR_FIXED = CROPS_PER_SECOND_ENGINE_CAP * 3600 // 72 000
 
+// Rare Crop bonus drops ("Overbloom") -- 24 aout, audit exhaustivite
+// ressources Farming. Gap reel trouve : la page wiki source du
+// "Theoretical Maximum" (base du calcul ci-dessous depuis le 5 aout) porte
+// un bandeau {{Outdated}} -- un patch a scinde ce mecanisme hors de Farming
+// Fortune vers un stat "Overbloom" jamais modelisee depuis, laissant ce
+// revenu entierement absent (jusqu'a ~1.38M coins/h au tier master sur
+// Helianthus seul). Chance de drop BASE (independante d'un multiplicateur
+// Overbloom non sourcee, jamais invente -- regle #7) par piece d'armure de
+// PROGRESSION reelle portee, sourcee wiki page de chaque Rare Crop -- 2
+// ancres seulement (2/4 et 4/4 pieces), interpolation lineaire interdite
+// faute d'un 3e point, donc traitee comme un palier binaire MID/MAX comme
+// le reste des bonus "investissement" de ce fichier -- conservateur,
+// sous-estime le vrai total si Overbloom scale au-dela de ces 2 points.
+const RARE_CROP_BY_CATEGORY: Record<string, { itemId: string; chance2of4Pct: number; chance4of4Pct: number }> = {
+  CROPIE: { itemId: 'CROPIE', chance2of4Pct: 0.03, chance4of4Pct: 0.05 },
+  SQUASH: { itemId: 'SQUASH', chance2of4Pct: 0.01, chance4of4Pct: 0.03 },
+  FERMENTO: { itemId: 'FERMENTO', chance2of4Pct: 0.005, chance4of4Pct: 0.007 },
+  HELIANTHUS: { itemId: 'HELIANTHUS', chance2of4Pct: 0.002, chance4of4Pct: 0.004 },
+}
+const CROP_TO_RARE_CROP_CATEGORY: Record<string, keyof typeof RARE_CROP_BY_CATEGORY> = {
+  WHEAT: 'CROPIE', CARROT: 'CROPIE', POTATO: 'CROPIE',
+  PUMPKIN: 'SQUASH', MELON_SLICE: 'SQUASH', COCOA_BEANS: 'SQUASH',
+  CACTUS: 'FERMENTO', SUGAR_CANE: 'FERMENTO', MUSHROOM: 'FERMENTO', NETHER_WART: 'FERMENTO',
+  SUNFLOWER: 'HELIANTHUS', MOONFLOWER: 'HELIANTHUS', WILD_ROSE: 'HELIANTHUS',
+}
+
 // 7 tiers reels (starter->master, 23 aout) -- starter/amateur restent
 // toujours non eligibles en pratique (voir doc plus bas, Garden interdit a
 // ces 2 tiers, meme mecanique que l'ancien 'early').
@@ -470,12 +496,35 @@ export async function computeFarmingRanking(tier: FarmingTierKey, blockId: strin
     return { target_block: block.block_name, target_block_id: block.id, tier, top_setup: null }
   }
 
+  // Rare Crop bonus drops ("Overbloom") -- meme convention additive que Pest
+  // Farming ci-dessus, palier binaire MID (2/4 pieces)/MAX (4/4 pieces),
+  // voir doc RARE_CROP_BY_CATEGORY.
+  let rareCropName: string | null = null
+  let rareCropCoinsPerHour = 0
+  const rareCropCategory = CROP_TO_RARE_CROP_CATEGORY[blockId]
+  if (rareCropCategory && (MID_INVESTMENT_TIERS.has(tier) || INVESTMENT_MAX_TIERS.has(tier))) {
+    const rareCrop = RARE_CROP_BY_CATEGORY[rareCropCategory]
+    const chancePct = INVESTMENT_MAX_TIERS.has(tier) ? rareCrop.chance4of4Pct : rareCrop.chance2of4Pct
+    const { data: rareCropPriceRow } = await supabase
+      .from('price_history')
+      .select('sell_price, bucket_date')
+      .eq('item_id', rareCrop.itemId)
+      .gt('sell_price', 0)
+      .order('bucket_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const rareCropPrice = Number(rareCropPriceRow?.sell_price) || 0
+    rareCropName = rareCrop.itemId
+    rareCropCoinsPerHour = ACTIONS_PER_HOUR_FIXED * (chancePct / 100) * rareCropPrice
+  }
+
   const totalFortune = farmingFortune + cropFortune
   const yieldPerHour = ACTIONS_PER_HOUR_FIXED * baseDropCount * (1 + totalFortune / 100)
-  // Pest income additionné directement (même convention que le bonus
-  // Titanium de Mining sur Mithril Ore -- un revenu secondaire réel qui
-  // accompagne la boucle principale, pas une méthode concurrente).
-  const coinsPerHourRawBlockOnly = yieldPerHour * sellPrice + pestCoinsPerHour
+  // Pest income + Rare Crop income additionnés directement (même convention
+  // que le bonus Titanium de Mining sur Mithril Ore -- des revenus
+  // secondaires réels qui accompagnent la boucle principale, pas des
+  // méthodes concurrentes).
+  const coinsPerHourRawBlockOnly = yieldPerHour * sellPrice + pestCoinsPerHour + rareCropCoinsPerHour
 
   return {
     target_block: block.block_name,

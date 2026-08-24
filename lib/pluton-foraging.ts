@@ -227,9 +227,9 @@ export type ForagingRankingResult = {
     actions_per_hour: number
     yield_per_hour: number
     coins_per_hour_raw_block_only: number
-    pet?: { source_id: string; rarity: string | null; sweep: number } | null
+    pet?: { source_id: string; rarity: string | null; sweep: number; foraging_fortune: number } | null
     pet_candidates_checked?: number
-    accessories?: { source_id: string; equip_slot: string; sweep: number }[]
+    accessories?: { source_id: string; equip_slot: string; sweep: number; foraging_fortune: number }[]
     max_investment_sweep_bonus?: number
   } | null
   eligible_combos_count: number
@@ -241,68 +241,103 @@ export type ForagingRankingResult = {
 // candidat connu -- Necklace/Belt/Bracelet ont chacun 2 items reels en
 // concurrence, voir migration insert_pluton_foraging_extra_gear) -- pilote
 // par stat_bonus_sources, jamais une liste presupposee.
+//
+// 🔴 Bug reel corrige (24 aout, audit exhaustivite ressources) : cette
+// fonction ne lisait QUE stat_name='sweep' -- le Foraging Fortune de TOUS
+// les accessoires/pets/passifs (Torrhus Belt +10FF, Veilshroom Bracelet
+// +25FF, Mangrove Locket/Vine/Grippers +5FF chacun, JADE_DRAGON pet +50FF,
+// MONKEY pet +60FF, reforges Groovy/Moonglade +7/+15FF, enchant Absorb
+// +20FF) etait silencieusement ignore -- seul le Sweep de ces memes items
+// etait compare/applique, le meilleur item par slot pouvait donc etre
+// choisi a tort sur le Sweep seul en ignorant une FF superieure d'un
+// candidat concurrent. Corrige : chaque candidat par slot est desormais
+// retenu par son impact REEL en coins/h (Sweep+FF combines), pas par le
+// Sweep seul -- meme discipline "recherche reelle" deja appliquee aux pets.
+// PERFECT_CITRINE_GEMSTONE exclu explicitement (deja modelise separement
+// via citrineForagingFortuneBonus/CITRINE_PERFECT_BY_RARITY, eviterait un
+// double-compte sinon).
 export type ForagingPetAndAccessoryLayer = {
-  best_pet: { source_id: string; rarity: string | null; sweep: number } | null
+  best_pet: { source_id: string; rarity: string | null; sweep: number; foraging_fortune: number } | null
   pet_candidates_checked: number
-  accessories: { source_id: string; equip_slot: string; sweep: number }[]
+  accessories: { source_id: string; equip_slot: string; sweep: number; foraging_fortune: number }[]
   total_sweep: number
+  total_foraging_fortune: number
 }
 
 export async function applyForagingPetsAndAccessories(
   baseSweep: number,
+  baseForagingFortune: number,
   toughness: number,
   sellPrice: number
 ): Promise<ForagingPetAndAccessoryLayer> {
   const { data: sources } = await supabase
     .from('stat_bonus_sources')
     .select('source_id, equip_slot, stat_name, rarity, bonus_numeric')
-    .eq('stat_name', 'sweep')
+    .in('stat_name', ['sweep', 'foraging_fortune'])
     .in('equip_slot', ['pet', 'necklace', 'cloak', 'belt', 'bracelet', 'passive'])
 
-  const rows = sources || []
+  const rows = (sources || []).filter(r => r.source_id !== 'PERFECT_CITRINE_GEMSTONE')
 
-  // Accessoires + enchant/milestone/consommable ('passive') -- best-per-slot
-  // reel (Honeycomb Necklace bat Mangrove Locket, Torrhus Belt bat Moonglade
-  // Belt, Veilshroom Bracelet bat Mangrove Grippers -- valeurs verifiees en
-  // base, pas devinees), 'passive' n'a qu'un candidat par source_id donc
-  // toujours additif (pas de competition, plusieurs sources 'passive'
-  // distinctes coexistent : enchant + milestone + consommable).
-  const bestBySlot = new Map<string, { source_id: string; equip_slot: string; sweep: number }>()
-  for (const r of rows) {
-    if (r.equip_slot === 'pet') continue
-    const key = r.equip_slot === 'passive' ? `passive:${r.source_id}` : r.equip_slot
-    const val = Number(r.bonus_numeric) || 0
-    const current = bestBySlot.get(key)
-    if (!current || val > current.sweep) {
-      bestBySlot.set(key, { source_id: r.source_id, equip_slot: r.equip_slot, sweep: val })
-    }
+  const localScore = (sweep: number, ff: number) => {
+    const logsPerSwing = computeLogsPerSwing(sweep, toughness)
+    return ACTIONS_PER_HOUR_FIXED * logsPerSwing * (1 + ff / 100) * sellPrice
   }
-  const accessories = Array.from(bestBySlot.values())
-  const accSweep = accessories.reduce((s, a) => s + a.sweep, 0)
 
-  // Pets -- compares sur leur impact REEL en coins/h (formule Sweep non
-  // lineaire, meme methode que Mining/applyPetsAndAccessories).
-  const petRows = rows.filter(r => r.equip_slot === 'pet')
+  // Regroupe chaque (slot, source_id, rarity) sur ses 2 stats potentielles.
+  type Combined = { source_id: string; equip_slot: string; rarity: string | null; sweep: number; foraging_fortune: number }
+  const bySlotSource = new Map<string, Combined>()
+  for (const r of rows) {
+    const key = `${r.equip_slot}:${r.source_id}:${r.rarity}`
+    const cur = bySlotSource.get(key) || { source_id: r.source_id, equip_slot: r.equip_slot, rarity: r.rarity ?? null, sweep: 0, foraging_fortune: 0 }
+    if (r.stat_name === 'sweep') cur.sweep = Number(r.bonus_numeric) || 0
+    if (r.stat_name === 'foraging_fortune') cur.foraging_fortune = Number(r.bonus_numeric) || 0
+    bySlotSource.set(key, cur)
+  }
+  const combined = Array.from(bySlotSource.values())
+
+  // Accessoires (necklace/cloak/belt/bracelet) -- 1 seul candidat retenu par
+  // slot, arbitre par impact REEL en coins/h (Sweep+FF combines), pas par le
+  // Sweep seul (voir doc du type ci-dessus).
+  const bestBySlot = new Map<string, Combined>()
+  for (const c of combined) {
+    if (c.equip_slot === 'pet' || c.equip_slot === 'passive') continue
+    const score = localScore(baseSweep + c.sweep, baseForagingFortune + c.foraging_fortune)
+    const current = bestBySlot.get(c.equip_slot)
+    const currentScore = current ? localScore(baseSweep + current.sweep, baseForagingFortune + current.foraging_fortune) : -1
+    if (!current || score > currentScore) bestBySlot.set(c.equip_slot, c)
+  }
+  // 'passive' -- toujours additif (plusieurs sources distinctes coexistent :
+  // enchant + milestone + consommable + reforge), pas de competition.
+  const passiveItems = combined.filter(c => c.equip_slot === 'passive')
+
+  const accessories = [...Array.from(bestBySlot.values()), ...passiveItems]
+    .map(c => ({ source_id: c.source_id, equip_slot: c.equip_slot, sweep: c.sweep, foraging_fortune: c.foraging_fortune }))
+  const accSweep = accessories.reduce((s, a) => s + a.sweep, 0)
+  const accFF = accessories.reduce((s, a) => s + a.foraging_fortune, 0)
+
+  // Pets -- compares sur leur impact REEL en coins/h (Sweep+FF combines,
+  // meme methode que les accessoires ci-dessus -- corrige le meme bug pour
+  // MONKEY, pet Foraging Fortune pur sans aucun Sweep, jamais comparable
+  // avant ce fix car la requete ne fetchait meme pas sa ligne).
+  const petCombined = combined.filter(c => c.equip_slot === 'pet')
   let bestPet: ForagingPetAndAccessoryLayer['best_pet'] = null
   let bestScore = -1
-  const petIds = new Set(petRows.map(r => `${r.source_id}:${r.rarity}`))
-  for (const key of petIds) {
-    const [source_id, rarity] = key.split(':')
-    const sweep = Number(petRows.find(r => r.source_id === source_id && r.rarity === rarity)?.bonus_numeric || 0)
-    const testSweep = baseSweep + accSweep + sweep
-    const logsPerSwing = computeLogsPerSwing(testSweep, toughness)
-    const score = ACTIONS_PER_HOUR_FIXED * logsPerSwing * sellPrice
+  for (const p of petCombined) {
+    const testSweep = baseSweep + accSweep + p.sweep
+    const testFF = baseForagingFortune + accFF + p.foraging_fortune
+    const score = localScore(testSweep, testFF)
     if (score > bestScore) {
       bestScore = score
-      bestPet = { source_id, rarity: rarity === 'null' ? null : rarity, sweep }
+      bestPet = { source_id: p.source_id, rarity: p.rarity, sweep: p.sweep, foraging_fortune: p.foraging_fortune }
     }
   }
 
   return {
     best_pet: bestPet,
-    pet_candidates_checked: petIds.size,
+    pet_candidates_checked: petCombined.length,
     accessories,
     total_sweep: baseSweep + accSweep + (bestPet?.sweep || 0),
+    total_foraging_fortune: baseForagingFortune + accFF + (bestPet?.foraging_fortune || 0),
   }
 }
 
@@ -373,9 +408,9 @@ export async function computeForagingRanking(tier: SevenTier, blockId: string, t
 
   let topSetup: any = scored[0] ?? null
   if (topSetup) {
-    const layer = await applyForagingPetsAndAccessories(topSetup.total_sweep, toughness, sellPrice)
+    const layer = await applyForagingPetsAndAccessories(topSetup.total_sweep, topSetup.total_foraging_fortune, toughness, sellPrice)
     let finalSweep = layer.total_sweep
-    let finalFF = topSetup.total_foraging_fortune
+    let finalFF = layer.total_foraging_fortune
     let maxInvestmentBonus: number | undefined
 
     // Gemmes Citrine (Foraging Fortune) -- appliquees des que l'outil/

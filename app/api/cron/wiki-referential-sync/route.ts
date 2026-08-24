@@ -2124,8 +2124,9 @@ async function syncDungeonChestComboChances(): Promise<number> {
 // ============================================================
 // dungeon_class_milestones -- Class Milestones (630 lignes : 2 modes Normal/Master ×
 // 5 classes Berserk/Mage/Archer/Tank/Healer × 7 étages × 9 paliers). Système entier
-// jamais mappé -- distinct de `dungeon_classes` (contenu par NIVEAU de classe, sans
-// source connue) : celui-ci couvre les SEUILS de dégâts/heal par ÉTAGE pour ouvrir le
+// jamais mappé -- distinct de `dungeon_classes` (supprimée le 24 août, audit
+// exhaustivité ressources Dungeons : contenu par NIVEAU de classe sans source
+// vérifiable, non référencée ailleurs) : celui-ci couvre les SEUILS de dégâts/heal par ÉTAGE pour ouvrir le
 // Post-Boss Chest et éviter la pénalité d'XP dungeon, vérifié sans recouvrement avant de
 // construire. Table wide (Floor + 9 colonnes de palier) "fondue" en format long.
 // Bug réel trouvé et corrigé en local avant tout déploiement : le premier tab de chaque

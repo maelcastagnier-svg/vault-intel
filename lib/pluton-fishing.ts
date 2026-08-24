@@ -79,19 +79,30 @@ const PISCARY_FS_BY_TIER: Record<SevenTier, number> = {
 const EXPERTISE_SCC_BY_TIER: Record<SevenTier, number> = {
   starter: 0.6, amateur: 1.8, intermediate: 3.0, skilled: 4.2, expert: 5.4, professional: 6.0, master: 6.0,
 }
-// Reforges rod (Salty/Treacherous/Stiff/Lucky, page wiki dediee
-// "reforge_stones_fishing_rod" + section Reforges de "sea_creature_chance")
-// -- **PAS de table par rarete sourcee** (contrairement aux reforges Combat/
-// `reforges` qui ont un jsonb par rarete) : seule la valeur MAX ("+7 SCC")
-// est documentee, valeur plate non-scalee par rarete. Cout d'application
-// reel modique (2.5k-600k selon le reforge, wiki "Cost to Apply") --
-// applique a TOUS les tiers (pas de raison reelle de le reserver a end/
-// late, contrairement a Piscary/Expertise qui ont un vrai palier de niveau
-// gate par Enchanting/drop rare).
-const ROD_REFORGE_SCC = 7
-// Submerged (armure, +1% SCC/piece, x4 pieces) -- meme raisonnement, cout
-// modique, applique a tous les tiers.
-const ARMOR_REFORGE_SCC = 4
+// Reforges rod (Salty/Treacherous/Stiff/Lucky) et armure (Submerged) --
+// 🔴 CORRIGE (24 aout, audit exhaustivite reforge_stones/star_upgrades) :
+// la version precedente affirmait "pas de table par rarete sourcee,
+// seule la valeur MAX (+7 SCC) documentee" -- FAUX, la vraie table
+// `reforge_stones` a un jsonb complet par rarete pour les 4 reforges rod
+// (COMMON->MYTHIC, tous identiques en SCC : 1/2/2/3/5/7) et pour Submerged
+// (armure). Le code appliquait donc la valeur MYTHIC a TOUS les tiers,
+// surestimant le SCC reel aux tiers bas (starter/amateur, rod/armure encore
+// COMMON/UNCOMMON) de jusqu'a +4.5%pts. Desormais scale par la rarete
+// RECOMBOBULEE de l'item reellement choisi (meme discipline que la gemme
+// Aquamarine juste en dessous). Submerged porte aussi du Fishing Speed
+// (jamais capte avant ce fix) et du Crit Chance (hors-scope, aucun combat
+// modelise dans ce fichier) -- seuls SCC+FS sont donc appliques ici.
+const ROD_REFORGE_SCC_BY_RARITY: Record<string, number> = { COMMON: 1, UNCOMMON: 2, RARE: 2, EPIC: 3, LEGENDARY: 5, MYTHIC: 7 }
+const ARMOR_REFORGE_SUBMERGED_BY_RARITY: Record<string, { fishingSpeed: number; scc: number }> = {
+  COMMON: { fishingSpeed: 1, scc: 0.5 }, UNCOMMON: { fishingSpeed: 1, scc: 0.6 }, RARE: { fishingSpeed: 2, scc: 0.7 },
+  EPIC: { fishingSpeed: 3, scc: 0.8 }, LEGENDARY: { fishingSpeed: 4, scc: 0.9 }, MYTHIC: { fishingSpeed: 5, scc: 1.0 },
+}
+// Rarete de base des 6 armures Fishing -- absente de item_stats pour Angler
+// (item starter jamais catalogue avec stats), COMMON de notoriete Skyblock
+// etablie (meme categorie de defaut deja utilisee pour FISHING_ROD).
+const ARMOR_RARITY: Record<string, string> = {
+  ANGLER: 'COMMON', BACKWATER: 'UNCOMMON', DIVER: 'EPIC', SPONGE: 'EPIC', SHARK_SCALE: 'LEGENDARY', ABYSSAL: 'LEGENDARY',
+}
 // Aquamarine PERFECT par rarete (table `gemstones`, verifiee 22 aout).
 const AQUAMARINE_PERFECT_BY_RARITY: Record<string, number> = { COMMON: 2.5, UNCOMMON: 2.5, RARE: 3.5, EPIC: 4, LEGENDARY: 4.5, MYTHIC: 5 }
 // Emplacements de gemme reels par rod -- verifie AVANT de coder (agent
@@ -104,7 +115,7 @@ const AQUAMARINE_PERFECT_BY_RARITY: Record<string, number> = { COMMON: 2.5, UNCO
 // applicable aux rods, aucune exclusion documentee contrairement a Hot
 // Potato Book/The Art of War -- voir plus bas).
 const ROD_GEM_SLOTS: Record<string, number> = { CHAMP_ROD: 1, LEGEND_ROD: 2, ROD_OF_THE_SEA: 2 }
-const ROD_RARITY: Record<string, string> = { CHALLENGE_ROD: 'UNCOMMON', CHAMP_ROD: 'RARE', LEGEND_ROD: 'EPIC', ROD_OF_THE_SEA: 'LEGENDARY' }
+const ROD_RARITY: Record<string, string> = { FISHING_ROD: 'COMMON', CHALLENGE_ROD: 'UNCOMMON', CHAMP_ROD: 'RARE', LEGEND_ROD: 'EPIC', ROD_OF_THE_SEA: 'LEGENDARY' }
 // Hot Potato Book/The Art of War -- confirmes EXCLUS des rods (textes wiki
 // respectifs : "Swords and Armor" / "Weapons/Axes", aucune mention Rods) --
 // verifie explicitement, pas suppose. Non appliques ici, a dessein.
@@ -355,7 +366,7 @@ export async function computeFishingRanking(tier: SevenTier, blockId: string, ti
   const applyQuickBite = INVESTMENT_MAX_TIERS.has(tier)
 
   const combos: {
-    armor_set: string; rod: string; rod_item_id: string
+    armor_set: string; armor_set_prefix: string; rod: string; rod_item_id: string
     total_fs: number; total_scc: number; total_tc: number
     real_cost: number
   }[] = []
@@ -375,6 +386,7 @@ export async function computeFishingRanking(tier: SevenTier, blockId: string, ti
 
       combos.push({
         armor_set: armor.set_name,
+        armor_set_prefix: armor.set_prefix,
         rod: rod.display_name,
         rod_item_id: rod.item_id,
         total_fs: Number(rod.base_fishing_speed),
@@ -419,12 +431,19 @@ export async function computeFishingRanking(tier: SevenTier, blockId: string, ti
     nbtModifiers.push(`Angler (+${anglerScc}% Sea Creature Chance, sourcee wiki, palier ${tier})`)
     nbtModifiers.push(`Luck of the Sea (+${luckOfSeaTc}% Treasure Chance, sourcee wiki, palier ${tier})`)
 
-    // Reforge rod (Salty/Treacherous/Stiff/Lucky, +7 SCC flat, pas de table
-    // par rarete sourcee -- voir doc) + reforge armure (Submerged, +4 SCC
-    // x4 pieces) -- tous les tiers, cout d'application reel modique.
-    finalScc += ROD_REFORGE_SCC + ARMOR_REFORGE_SCC
-    nbtModifiers.push(`Reforge rod (Salty/Treacherous/Stiff/Lucky, +${ROD_REFORGE_SCC}% SCC, sourcee wiki)`)
-    nbtModifiers.push(`Reforge armure Submerged x4 (+${ARMOR_REFORGE_SCC}% SCC, sourcee wiki)`)
+    // Reforge rod (Salty/Treacherous/Stiff/Lucky) + reforge armure
+    // (Submerged) -- scale par la rarete RECOMBOBULEE reelle de l'item
+    // choisi (voir doc des constantes, corrige le flat-MYTHIC applique a
+    // tous les tiers avant ce fix).
+    const rodRarityForReforge = recombobulatedRarity(ROD_RARITY[topSetup.rod_item_id] ?? 'COMMON')
+    const rodReforgeScc = ROD_REFORGE_SCC_BY_RARITY[rodRarityForReforge] ?? 0
+    const armorRarityForReforge = recombobulatedRarity(ARMOR_RARITY[topSetup.armor_set_prefix] ?? 'COMMON')
+    const armorReforge = ARMOR_REFORGE_SUBMERGED_BY_RARITY[armorRarityForReforge] ?? { fishingSpeed: 0, scc: 0 }
+    const armorReforgeScc = armorReforge.scc * 4
+    finalScc += rodReforgeScc + armorReforgeScc
+    finalFs += armorReforge.fishingSpeed * 4
+    nbtModifiers.push(`Reforge rod Salty (${rodRarityForReforge}, +${rodReforgeScc}% SCC, sourcee reforge_stones)`)
+    nbtModifiers.push(`Reforge armure Submerged x4 (${armorRarityForReforge}, +${armorReforgeScc}% SCC / +${armorReforge.fishingSpeed * 4} Fishing Speed, sourcee reforge_stones)`)
 
     // Gemme Aquamarine -- UNIQUEMENT si la rod reellement choisie a un vrai
     // emplacement (verifie AVANT de coder, voir doc) -- corrige un bug reel

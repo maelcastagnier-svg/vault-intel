@@ -121,7 +121,18 @@ export async function computeTrapHuntingRankings(): Promise<TrapHuntingResult[]>
       const price = priceCache.get(s.bazaar_stock_id as string)
       if (!price) continue
       const baseHours = BASE_HOURS_BY_RARITY[s.rarity]
-      const captureHours = baseHours * (1 - (trap.reductionPct + TRAPPED_REDUCTION_PCT_MAX) / 100)
+      // 🔴 Bug reel trouve le 24 aout (agent de recherche dedie, relecture
+      // complete de la page wiki "Huntraps") : la formule sourcee dit "The
+      // bonus from the Huntrap Tier is calculated first THEN MULTIPLIED
+      // with all other modifiers which stack additively [entre eux]" -- un
+      // vrai facteur a 2 etages (palier Huntrap x (1-Sigma autres
+      // modificateurs)), pas une simple soustraction additive plate entre
+      // le palier et Trapped. Trapped est un "autre modificateur" au meme
+      // titre que Desert Temple/Forest Trap/Combat Trap (2e facteur),
+      // jamais additionne directement au palier Huntrap lui-meme. Ecart
+      // reel trouve : jusqu'a +5.6% de coins_per_hour surestime a master
+      // (Astral) avant ce fix.
+      const captureHours = baseHours * (1 - trap.reductionPct / 100) * (1 - TRAPPED_REDUCTION_PCT_MAX / 100)
       const coinsPerHour = price / captureHours
       results.push({
         tier, shard_item_id: s.bazaar_stock_id as string, shard_name: s.display_name, shard_rarity: s.rarity,

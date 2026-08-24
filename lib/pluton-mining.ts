@@ -606,14 +606,32 @@ const RHINESTONE_INFUSION_GEMSTONE_FORTUNE_MAX = 20
 // une variante de Gemstone Fortune, un vrai bonus de Mining Speed conditionnel
 // à la cible Gemstone, jusqu'ici totalement absent du calcul.
 const PROFESSIONAL_MAX_SPEED_ON_GEMSTONES = 140 * 5 + 50
-const JADED_ARMOR_LEGENDARY = { speed: 45 * 4, fortune: 25 * 4 } // 4 pieces
+// Reforge Jaded (armure) -- table reelle par rarete trouvee dans
+// `reforge_stones` (24 aout, audit exhaustivite reforge_stones/star_upgrades)
+// -- corrige une fausse limite documentee jusqu'ici ("stats sourcees
+// seulement a LEGENDARY, pas de donnee MYTHIC pour l'extrapoler") : la
+// table reelle a bien un palier MYTHIC (60 speed/30 fortune par piece),
+// jamais vu faute d'avoir consulte `reforge_stones` directement plutot que
+// de relire seulement la page wiki de l'item. Applicable a Divan's Armor
+// (rarete de BASE Mythic, confirmee ailleurs dans ce fichier) SANS
+// recombobulation -- la table couvre deja Mythic nativement, la
+// recombobulation (LEGENDARY->MYTHIC) reste reservee au lookup GEMME (qui
+// n'a pas de donnee MYTHIC native pour ce cas precis).
+const JADED_ARMOR_BY_RARITY: Record<string, { speed: number; fortune: number }> = {
+  LEGENDARY: { speed: 45 * 4, fortune: 25 * 4 },
+  MYTHIC: { speed: 60 * 4, fortune: 30 * 4 },
+}
 // Efficiency X (+210) + Amber-Polished Drill Engine (+600) + Divan's Powder
 // Coating (+500) + 5x Polarvoid Books (+50) -- tous sourcés "Achieving Maximum
 // Mining Speed" (Divan's Drill), ajoutés le 5 août après l'écart de 60x+ confirmé.
 const DRILL_UPGRADES = { speed: 210 + 600 + 500 + 50, fortune: 45 + 5, gemstoneFortuneOnGemstones: 50, speedOnGemstones: 100 }
-// Reforge foret -- choix réel entre Ambered (+200 vitesse) et Glacial (+223
-// fortune, conditionnel à Cold -99, atteignable en jeu réel donc pas exclu comme
-// les bonus d'event) -- un seul reforge par outil, jamais les deux à la fois.
+// Reforge foret -- choix réel entre Ambered et Glacial (+223 fortune,
+// conditionnel à Cold -99, atteignable en jeu réel donc pas exclu comme les
+// bonus d'event) -- un seul reforge par outil, jamais les deux à la fois.
+// Ambered +200 = valeur DIVINE de la vraie table `reforge_stones` (confirmee
+// 24 aout, pas LEGENDARY=100 comme le nom de la constante le laissait croire
+// avant verification) -- coherente avec Divan's Drill recombobule vers
+// DIVINE (voir commentaire recombobulatedRarity plus bas), pas une erreur.
 const DRILL_REFORGE_AMBERED = { speed: 200, fortune: 0 }
 const DRILL_REFORGE_GLACIAL = { speed: 0, fortune: 223 }
 // Eager Miner (Essence Shops#Gold, niveau 10) -- sourcé "Achieving Maximum
@@ -696,9 +714,9 @@ export async function applyMaxInvestmentLayer(
 
   // Recombobulator 3000 (22 aout, trouve en auditant "toutes les activites/
   // tout le NBT du skill") -- sourcee wiki, meme mecanique que Combat/
-  // Fishing : decale la rarete d'1 cran pour le lookup GEMME uniquement
-  // (jamais le reforge Jaded ci-dessous, dont les stats ne sont sourcees
-  // qu'a LEGENDARY -- pas de donnee MYTHIC/DIVINE pour l'extrapoler).
+  // Fishing : decale la rarete d'1 cran pour le lookup GEMME (le reforge
+  // Jaded a maintenant sa propre table par rarete native, voir
+  // JADED_ARMOR_BY_RARITY -- pas besoin de recombobulation pour lui).
   // RARITY_ORDER etendu a DIVINE dans pluton-engine.ts specifiquement pour
   // ce cas -- Divan's Drill a une rarete de BASE Mythic (confirme wiki),
   // recombobule vers Divine (table gemstones confirmee couvrir Divine).
@@ -710,9 +728,10 @@ export async function applyMaxInvestmentLayer(
     const g = await computeGemSocketBonus(pieceId, armorGemRarity)
     speed += g.speed; fortune += g.fortune; pristine += g.pristine
   }
-  // Reforge Jaded -- seulement si armure LEGENDARY (constantes validées pour
-  // cette rareté ; pas extrapolé à d'autres raretés faute de source).
-  if (armorRarity === 'LEGENDARY') { speed += JADED_ARMOR_LEGENDARY.speed; fortune += JADED_ARMOR_LEGENDARY.fortune }
+  // Reforge Jaded -- LEGENDARY et MYTHIC tous deux sourcés réellement
+  // (voir JADED_ARMOR_BY_RARITY), pas extrapolé au-delà.
+  const jaded = armorRarity ? JADED_ARMOR_BY_RARITY[armorRarity] : undefined
+  if (jaded) { speed += jaded.speed; fortune += jaded.fortune }
 
   // Sockets -- foret, y compris le slot MINING combo. Confirmé wiki "Divan's
   // Drill" (tips) : "The 5th slot of the drill is a universal mining slot,
