@@ -142,13 +142,127 @@ combos recalculés, 160 avec setup réel, master/professional retrouvent
 base : accessoires now 1 seul par slot (Divan Pendant/Sapphire Cloak/Jade
 Belt/Dwarven Handwarmers à master, aucun doublon).
 
-**Ce qui N'A PAS été fait dans cette passe, honnêtement** : la classification
-complète des 127k lignes `pluton_elements` non taguées reste un chantier
-séparé, bien plus gros (12 autres skills, des dizaines de milliers de
-lignes chacun probablement). La méthode "agent dédié skill par skill sur
-l'inventaire déjà classé + peuplement des tables candidates" est reproductible
-et moins coûteuse que la classification complète préalable — c'est la voie
-retenue pour les 12 skills restants, pas encore commencée au-delà de Mining.
+**Mise à jour (nuit du 24 au 25 août)** : la classification complète des
+127k lignes a depuis été terminée (voir section dédiée ci-dessous,
+`activity IS NULL` = 0/184 416) et 6 skills supplémentaires ont reçu le
+même traitement "agent dédié + peuplement des tables candidates" que
+Mining — voir "🌙 Nuit du 24 au 25 août" ci-dessous pour le détail complet.
+
+## 🌙 Nuit du 24 au 25 août — travail en autonomie complète, mandat utilisateur
+
+**Contexte** : après le constat ci-dessus, l'utilisateur a explicitement
+mandaté un travail autonome nocturne (*"travail en full autonomie jusqu'a
+demain matin... pas de demande d'accés a me faire... je veux un vrai
+avancement sur le plan finale... architecture propre, automatisation
+pensé pour plus tard, respect du plan"*), puis (*"crée un systeme pensé
+pour etre automatisé avec haiku plus tard ou sans si tu peux, qui retrie
+les données extraites et les classe dans chaque tier de chaque skills...
+c'est necessaire pour avancer"*) et enfin (*"travail jusqu'a ta limite de
+session et recommence... je veux un compte rendu de toute tes session de
+cette nuit demain matin a 8h avec un vrai progrés"*).
+
+### ✅ 1. Moteur de classification `pluton_elements.activity` — 100% terminé
+
+Table `pluton_classification_rules` créée (rejouable, inspectable, 2
+`rule_type` : `source_table` pour les tables dédiées déjà skill-connues,
+`keyword` pour les préfixes de page wiki + marqueurs bulk
+`__element_type_X__` appliqués uniquement après échantillonnage manuel
+confirmant l'homogénéité du contenu). `lib/pluton-classification.ts`
+(`runActivityClassification()`, idempotent) + cron hebdomadaire
+`pluton-classification-sync` (lundi 6h10, après wiki-referential-sync/
+skyhanni-repo-sync) pour automatisation future — voie Haiku laissée
+ouverte (`sampleUnclassifiedPageTitles()`) mais pas utilisée cette nuit
+(travail fait par Claude Code, coût nul, mémoire `feedback_budget_api_
+claude`). **127 160 → 0 ligne `activity IS NULL` (100%)**, `__none__`
+103 900 (56.3%, contenu confirmé non-skill : cosmétique/événementiel/
+NPC dialogue/générique compte, échantillonné avant tout bulk), reste
+réparti sur les 13 skills réels + zones spéciales. Expansion réelle par
+skill vs avant cette nuit : combat 5459→25740 (+371%), dungeoneering
+2349→8499 (+262%), mining 2342→8068 (+245%), fishing 2784→7853 (+182%),
+farming 2364→5636 (+138%), foraging 1040→3186 (+206%), hunting 1417→2745
+(+94%).
+
+### ✅ 2. Audits exhaustifs "candidats réels" — 7 skills traités (agents dédiés)
+
+Méthode Mining (voir "Constat majeur" ci-dessus) reproduite skill par
+skill : agent dédié lit tout l'inventaire `pluton_elements` déjà classé
+pour ce skill, trie bruit/réel, recoupe wiki+prix, rapport structuré —
+puis fermeture directe (moi, pas l'agent) des trous confirmés dans le
+code + les tables candidates déjà consommées par chaque moteur.
+
+- **Foraging** — gap "Logger" (niveau skill Foraging, +4 FF/niveau,
+  jusqu'à +228 à niveau 57 max) jamais modélisé, source à elle seule plus
+  grosse que HOTF+Lumberjack+Citrine combinés — fermé. 2 items déjà en
+  base avec une stat manquante corrigés (Honeycomb Necklace Sweep 5→2 réel
+  + FF+25 absente, David's Cloak FF+50 absente), 1 doublon obsolète
+  supprimé (Mangrove Vine, renommé Moonglade Belt).
+- **Farming** — gap structurel majeur : les 4 slots équipement (necklace/
+  cloak/belt/bracelet, chaîne Peony~16M/Blossom~64.5M) n'étaient JAMAIS
+  achetés aux tiers MID (seulement absorbés dans la constante figée du
+  tier MAX) — fermé, budget réel du tier MID désormais utilisé. 2e gap
+  même famille : le revenu Pest Farming n'était calculé qu'au tier MAX
+  alors que l'armure Cropie/Squash/Fermento déjà utilisée à MID porte un
+  vrai Bonus Pest Chance (12.5/15/17.5 par pièce) jamais exploité — fermé
+  pour ces 3 tiers d'armure.
+- **Fishing** — 2 armures réelles jamais évaluées, toutes deux supérieures
+  à Abyssal (SCC+8%, meilleur choix actuel) : Thunder Armor (SCC+16%,
+  Fishing 36) et Magma Lord Armor (SCC+18%, Fishing 45) — ajoutées. Bug
+  structurel confirmé (même famille que Mining/Foraging) : aucune
+  compétition réelle par slot necklace/cloak/belt/bracelet, ne produisait
+  pas encore de résultat faux uniquement parce qu'1 seul candidat existait
+  par slot — corrigé avant d'ajouter 10 nouvelles lignes `stat_bonus_
+  sources` (chaîne Angler/Backwater cheap-tier, Prismarine Necklace),
+  sinon le bug se serait immédiatement révélé.
+- **Mining** — voir section "Constat majeur" ci-dessus (fait avant le
+  reste de la nuit).
+- **Combat/Slayer** — 🔴 trouvaille principale : **Halberd of the
+  Shredded** (`AXE_OF_THE_SHREDDED`, upgrade de Reaper Falchion, Zombie
+  Slayer 8) bat Reaper Falchion d'environ +35% DPS (Damage+140/Force+115/
+  +250% Undead contre 120/100/+200%, 2 emplacements gemme contre 1) —
+  jamais considérée. Gate ZS8 vérifiée réelle et atteignable (contenu
+  wiki complet récupéré, table "Leveling Rewards" montre un niveau IX
+  au-delà). Ajoutée au palier "late" de `GEAR_BY_SLAYER_TIER.zombie`,
+  évaluée par le moteur de recherche DPS déjà existant. 2 gaps
+  supplémentaires documentés, pas fermés cette nuit (complexité/heure
+  tardive) : slot "Gloves" entièrement absent des 4 fichiers Combat
+  (candidat fort identifié : Demonslayer Gauntlet, CD+25% inconditionnel,
+  Blaze Slayer 4) ; 3 dagues Blaze alternatives (Kindlebane/Mawdredge/
+  Pyrochaos) à applicabilité "Infernal" non confirmée.
+- **Hunting** — ré-audité en entier (2e passe indépendante), **0 nouveau
+  gap trouvé** : les 5 paliers Huntrap confirmés exhaustifs, `stat_bonus_
+  sources` confirmé structurellement vide (rien à câbler), Forest/Water/
+  Combat Hunting et Charm Hunting reconfirmés bloqués (aucune formule de
+  conversion sourcée, pas une recherche insuffisante). 1 nouveau gap
+  documenté (Hunter Fortune→quantité de shards, jamais vu avant).
+- **Kuudra** — ré-audité, **0 nouveau gap actionnable**, confirmations
+  utiles : route Specialist/Bomberman toujours non-fermable (aucune base
+  chiffrée), gear layer confirmé structurellement absent à raison (le
+  loot Kuudra EST la sortie, pas une entrée de setup).
+- **Dungeons** — ré-audité, **1 découverte réelle non-actionnable
+  immédiatement** : formules de scaling par niveau chiffrées trouvées
+  pour 3/5 Classes (Tank/Archer/Mage), jamais consommées — pertinent pour
+  un futur "frag run" DPS-dépendant (Floor VI/Sadan), pas la méthode
+  actuelle "clear complet S+" qui ne dépend pas du gear/classe. Gap
+  floor-access-gate reconfirmé non-fermable (SkyBlock Guide donne une
+  correspondance statique niveau↔tier mais aucun taux de progression).
+
+### Ce qui reste, honnêtement, pour la suite
+
+6 skills `built` non encore audités selon cette méthode cette nuit :
+Enchanting/Alchemy/Taming/Necromancy/Carpentry/Runecrafting (déjà classés
+`excluded_low_value` ou hors-scope money-making par décision utilisateur
+antérieure — probablement pas prioritaires). Le slot "Gloves" Combat et
+les 2 gaps Blaze/Kuudra/Dungeons documentés ci-dessus restent à fermer.
+Toutes les fermetures de cette nuit vérifiées en base (persist réel,
+combos recalculés), y compris Combat/Slayer : Halberd correctement
+sélectionné par le moteur de recherche DPS aux 5 paliers Zombie du tier
+master (`tool_item_id='AXE_OF_THE_SHREDDED'` confirmé en base). Note
+honnête : `coins_per_hour_raw_block_only` reste négatif sur les 5 (encore
+plus négatif qu'avant Halberd) — cohérent avec la limitation déjà
+documentée le 18 août ("Zombie reste négatif sur les 20 combos, coût de
+spawn > valeur de la chair garantie seule, honnête vu le gap RNG
+documenté") : tuer plus vite un boss à EV négative sur le loot garanti
+aggrave mathématiquement la perte/heure, pas un nouveau bug.
 
 ## Vision
 
@@ -658,637 +772,6 @@ pools × 4 tiers), ordre de grandeur cohérent partout (32K-1.5M coins/h
 selon pool/tier, scaling early<mid<end=late attendu). Route de debug
 temporaire supprimée après validation finale.
 
-## 🚧 Pluton — reconnexion Système A/B, Phase 1 terminée (21 août)
-
-Audit général demandé par l'utilisateur après la fermeture du backlog
-(section ci-dessous) : Pluton avait en réalité **deux systèmes jamais
-reliés**. Système A (cartographie→extraction→classification,
-`pluton_elements`, 183 384 lignes, échelle 1-7 réelle) et Système B (les
-calculateurs money-making, tous construits en lisant le wiki à la main avec
-des tables dédiées par activité, échelle 4 tiers). Vérifié par grep sur les
-10 fichiers `lib/pluton-*.ts` : aucun ne lit `pluton_elements`. Cause racine
-confirmée par requête directe : sur les 49 628 lignes `element_type='item'`,
-**0 avaient une colonne `activity` renseignée** — le lien skill↔item n'a
-jamais existé dans la classification. Décision de l'utilisateur : corriger
-la classification puis reconnecter (voir plan `joyful-shimmying-finch.md`
-pour l'architecture cible complète — 1 calculateur par skill, pas par
-activité, consommant `pluton_elements`).
-
-**🔴 Incident réel pendant cette phase — leçon retenue pour tout le
-projet** : une 1re tentative a écrit une route Haiku (`claude-haiku-4-5`,
-batch=25) pour tagger les 49 628 items par skill. Testée sur 500 items
-(~0,085 USD, extrapolé ~8,44 USD pour le tout), lancée sur le reste sans
-re-vérification du solde réel — le run s'est arrêté sec après avoir
-consommé l'intégralité du solde API Anthropic du projet ("credit balance
-too low"), les crons automatiques du projet (`money-making-agent`/
-`radar-agent`/`setup-generate-agent`/`patch-analysis-agent`/
-`pluton-weekly-sync`) ayant probablement déjà entamé ce solde en tâche de
-fond, invisible depuis cette session. **Correction explicite de
-l'utilisateur** : Claude Code (cette session) tourne sur l'abonnement Claude
-Pro, pas sur le solde API — je m'étais trompé en supposant le contraire.
-Règle retenue (mémoire `feedback_budget_api_claude`) : pour tout travail de
-classement/jugement ponctuel (pas une automatisation récurrente en prod),
-le faire soi-même en tant que Claude Code (lecture MCP/SQL, jugement direct,
-écriture SQL) plutôt que d'écrire une route qui appelle Haiku — coût
-marginal nul. Réservé aux seules automatisations qui doivent réellement
-tourner en prod sans intervention humaine.
-
-**Phase 1 terminée sans dépense API supplémentaire** : les ~7 139 items
-restants après l'arrêt du run Haiku classés directement par moi (Claude
-Code) via des passes SQL groupées (`UPDATE ... WHERE element_name/
-classification_reason ILIKE '%mot-clé skill-spécifique%'`) — chaque règle
-ancrée sur un vrai signal déjà présent dans le texte extrait (noms de stats
-comme "Mining Fortune"/"Farming Fortune", noms de boss/zones comme "Slayer"/
-"Kuudra"/"Catacombs", mots-clés d'équipement comme "Sword"/"Halberd"),
-jamais un skill deviné au hasard. **État final vérifié** : 49 628/49 628
-items classés (0 restant NULL), 24 135 `__none__` (cross-skill/générique/
-événementiel honnêtement exclus — armures génériques sans stat spécifique,
-Minions, Jerry Box, Dark Auction, Ananke Feather...), 25 493 répartis sur
-les 13 skills réels (Combat 5380, Fishing 2722, Alchemy 2606, Enchanting
-2455, Dungeoneering 2341, Farming 2297, Mining 2276, Taming 2259, Hunting
-1367, Foraging 978, Runecrafting 297, Carpentry 275, Social 240 — somme
-exacte 49 628, vérifiée).
-
-**Prochaine étape actée** : Phase 2 (fermer le gap NEU-REPO/SkyHanni sur la
-cartographie continue), puis Phase 3 (refonte des calculateurs, 1 par
-skill, consommant `pluton_elements`) — voir le plan complet.
-
-### ✅ Phase 4 — 7 vues tier créées et vérifiées
-
-`pluton_tier_starter`...`pluton_tier_master` (noms réels tirés de
-`milestone_tier_totals`) + `pluton_non_client_mechanics` (miroir,
-`element_type='admin_excluded'`, 736 lignes). Vues plutôt que 7 tables
-physiques — évite la classe de bug réelle (doublons cross-table) qui avait
-forcé l'abandon de l'architecture 7-tables originale le 17 août. Croissance
-cumulative vérifiée (starter 148 824 → master 183 680, +736 non-client =
-184 416 total exact). Limite documentée : la séparation client/non-client
-ne repose que sur `admin_excluded` pour l'instant — à affiner si besoin.
-
-### 🚧 Phase 5 — composition NBT, 3 enchants fusionnés dans le DPS (22 août)
-
-**Méthode accélérée, décidée par l'utilisateur en cours de route** ("ne fait
-pas 1 enchant à la fois, construit plus vite, trouve la manière la plus
-rapide et optimisée de construire et tester") : abandon du cycle 1
-enchant → 1 push → 1 déploiement Vercel → 1 curl → 1 persist → 1 nettoyage.
-Nouvelle méthode, réutilisable pour tout le reste de Phase 5/6 :
-1. **Extraction groupée** — toutes les pages wiki candidates fetchées en UNE
-   requête SQL (`game_mechanics_misc`), triage fait par un agent dédié
-   (lecture seule, hors du contexte principal) qui rapporte pour chaque
-   enchant : table de bonus exacte, additif/multiplicatif si confirmé par
-   le wiki, applicabilité, et un verdict SIMPLE (multiplicateur plat,
-   composable tout de suite) vs COMPLEX (scaling dynamique/DoT/ability —
-   mis de côté, documenté).
-2. **Tri par pertinence à l'activité réelle**, pas exhaustivité aveugle des
-   40 enchants d'épée existants — seuls ceux qui affectent vraiment Zombie
-   Slayer (mob Undead, single-target) sont intégrés maintenant ; les
-   enchants d'autre type de mob (Bane of Arthropods/Ender Slayer/Impaling)
-   sont de bons candidats pour Spider/Enderman/Fishing plus tard, pas ici.
-3. **Un seul cycle push/déploiement/vérification/persist/nettoyage pour
-   tout le lot**, pas un par enchant.
-
-**3 enchants composés dans ce lot** (tous sourcés wiki, `hypixelskyblock_
-wiki`, jamais devinés) :
-- **Sharpness** — bonus additif universel, I+5%→VII+50%, confirmé additif
-  explicitement par le wiki (`{{additive}}`).
-- **Smite** — bonus additif **spécifique vs Undead/Wither/Skeletal**
-  (depuis le patch 2025/08/14), mêmes valeurs que Sharpness, confirmé
-  additif explicitement par le wiki ("damage is now additive with other
-  enchantments") — directement pertinent à Zombie Slayer, s'additionne à
-  Sharpness dans le même bucket (`additionalAdditivePct`, pas un nouveau
-  paramètre moteur). Distinct du bonus "+X% vs Undead" intrinsèque à
-  l'arme/l'armure elle-même (déjà codé, Multiplicative, `findMobTypeBonus`)
-  — Smite est un enchant séparé, propre facteur.
-- **Critical** — augmente Crit Damage, I+10%→VII+100%. `computeCombatDps()`
-  (`lib/pluton-engine.ts`) étendu avec un 5e paramètre
-  `additionalCritDamagePct` (rétro-compatible, Bestiary inchangé — seul
-  autre appelant). Zombie Slayer n'a aucune stat Crit Damage intrinsèque
-  sur ses armes (contrairement à Spider/Enderman/Blaze déjà codés ailleurs)
-  — Critical est le 1er contributeur Crit Damage réel pour cette chaîne.
-
-Palier par tier joueur pour les 3 (III T1-3, V T4-6, VII T7), même
-convention "investissement croissant par tier" que Mining Speed Boost/
-Reaper Enrage.
-
-**9 candidats triés et écartés dans le même lot** (agent dédié, contenu
-wiki lu en entier, jamais deviné) :
-- Giant Killer/Titan Killer/Prosecute — bonus scalant dynamiquement avec
-  le % de vie ou la Defense de la cible, même famille qu'Execute déjà
-  écarté — nécessiterait d'intégrer le DPS sur la durée du combat, pas un
-  multiplicateur plat.
-- Lethality/Venomous — DoT à stacks (réduction de Defense/poison), pas un
-  multiplicateur instantané.
-- Vicious/Champion — pas des enchants de dégâts (Ferocity/XP-économie).
-- Cleave — dégâts de zone (AoE), n'affecte pas le DPS single-target d'un
-  boss Slayer.
-- First Strike (déjà noté avant ce lot) — bonus uniquement sur le 1er coup,
-  mécanique burst, formule d'intégration pas encore posée.
-
-**Vérifié en base, en un seul cycle** : DPS T7/ZOMBIE_SLAYER_T1 = 41 646.2748
-exact (calcul à la main : 149×2.99×4.10×6.0×1.9×2 — bucket additif 210+50+50
-=310% → ×4.10, Crit Damage 50+100=150% → multiplicateur crit ×1.9) —
-confirmé identique en base après persist (35 combos). Traçabilité complète :
-`pluton_rankings.accessories.nbt_modifiers` documente les 3 enchants
-appliqués par combo. Route de debug temporaire supprimée après validation.
-
-**2e lot, même jour, même cycle unique** — Gemmes + Hot/Fuming Potato Book :
-- **Gemmes** — vérifié AVANT de coder (pas supposé) : seuls Reaper Falchion
-  (1 emplacement Jasper-only, item EPIC) et Reaper Armor (1 emplacement
-  Combat universel, LEGENDARY) ont un vrai emplacement de gemme (infobox
-  wiki `gemstone_slots`) — Undead Sword/Revenant Falchion/Revenant Armor
-  n'en ont AUCUN, confirmé absent de leur infobox, pas un trou. Type
-  retenu = **Jasper** (Strength), choisi par vraie comparaison des 4 types
-  Combat disponibles sur l'emplacement universel de l'armure (Ruby=Health/
-  Sapphire=Intelligence/Amethyst=Defense, aucun effet sur le DPS) — 1er cas
-  concret de "recherche sur l'espace réel" plutôt qu'un choix suivi par
-  défaut. Qualité PERFECT (T7 uniquement, ces emplacements n'existent que
-  sur le gear Reaper). Valeurs sourcées table `gemstones` (déjà validée par
-  `lib/pluton-mining.ts`) : +11 Force (Jasper PERFECT @ EPIC, Falchion),
-  +13 Force (Jasper PERFECT @ LEGENDARY, Armor).
-- **Hot Potato Book / Fuming Potato Book** — modificateur **universel**
-  (toute épée/armure du jeu, pas spécifique à cette activité). **Contradiction
-  réelle trouvée dans la source wiki elle-même** (même famille que la
-  contradiction Execute déjà documentée) : la page Hot Potato Book a un
-  encadré-résumé "x10 → Str+10/Dmg+10" qui contredit sa propre table
-  détaillée (+2/usage, donc +20 à 10 usages par extrapolation linéaire).
-  Résolu en faveur de la page Fuming Potato Book, dont l'encadré combiné
-  est cohérent en interne sur 2 valeurs indépendantes (5 FPB seuls = +10,
-  10 HPB+5 FPB = +30, toutes deux = usages×2) — retenu comme la source la
-  plus fiable, pas le résumé isolé et incohérent. Palier 5/10/15 usages par
-  tier (T1-3/T4-6/T7).
-
-**Vérifié en base, même cycle unique push/déploiement/vérification/persist/
-nettoyage** : DPS T7/ZOMBIE_SLAYER_T1 = 59 067.2076 exact (calcul à la main :
-179×3.53×4.10×6.0×1.9×2, Force totale 253 = 100(arme)+75(armure)+24(Enrage
-moy.)+24(gemmes)+30(potato), Dégâts base 179 = 5+120+24(Enrage)+30(potato)) —
-confirmé identique en base après persist. `pluton_rankings.accessories.
-nbt_modifiers` trace les 6 modificateurs appliqués par combo.
-
-### ✅ Reforge + Recombobulator 3000 + The Art of War — fermeture complète, plus rien à moitié (22 août)
-
-**Recadrage explicite de l'utilisateur** : "ne fait pas les choses à
-moitié... si je suis starter et que je fais une certaine activité en
-fishing par exemple, je veux un setup vraiment complet" — après avoir noté
-Recombobulator/Art of War/Ability Scrolls comme "pas encore audités" et
-enchaîné sur un autre chantier, correction explicite : finir un audit
-avant de passer au suivant, pas laisser des items ouverts indéfiniment.
-
-**Audit réel (pas supposé)** : `grep "reforge"` sur `lib/pluton-combat.ts`
-et `lib/pluton-slayer.ts` → **0 résultat dans les deux fichiers**. Le
-Reforge — un des leviers NBT les plus impactants du jeu — n'était appliqué
-NULLE PART sur les 5 Slayers, malgré le plan Phase 5 le listant comme
-"déjà propre et complet, utilisable direct" (vrai pour la DONNÉE, faux pour
-l'INTÉGRATION — jamais câblé). Fermé complètement dans ce lot :
-
-- **Reforge — vraie recherche sur l'espace des candidats**, pas une
-  supposition ("Heroic"/"Legendary" auraient semblé évidents). Le moteur
-  simule le DPS de CHAQUE reforge candidat (table `reforges`, 9 par
-  catégorie SWORD/ROD ou ARMOR, à la rareté réelle de l'item) et retient
-  le meilleur réel. **Confirmé en pratique que le "meilleur" dépend de la
-  rareté** : les paliers d'Attack Speed (`floor(10/(1+AS/100))`, non-linéaire)
-  créent des sauts de valeur — ex. "Fast" (bonus AS pur) peut dominer un
-  reforge "évident" comme "Legendary" simplement en franchissant un palier
-  de tick. Armure = 4 pièces identiques reforgées (×4), simplification
-  documentée (le modèle ne différencie pas les 4 pièces).
-- **Recombobulator 3000** — sourcé wiki : augmente l'effet des Reforges et
-  Gemmes (décale la rareté d'un cran pour ces deux lookups), **aucun
-  downside réel documenté** ("Reforges appliqués avant ou après profitent
-  quand même du bonus") → toujours appliqué. N'affecte PAS les stats
-  intrinsèques de l'item (Damage/Force de base restent celles de la rareté
-  d'origine) — seul reforge+gemme en bénéficient ici, gap documenté
-  (bénéfice complet nécessiterait des stats de base recombobulées par
-  item, non sourcées).
-- **The Art of War** — sourcé wiki : +5 Force, universel (Weapons/Axes),
-  coût unique modique, appliqué par défaut.
-- **The Art of Peace** — sourcé wiki : +40 HP par pièce d'armure, documenté
-  dans le loadout (`nbtModifiers`/`accessories`) pour un setup complet,
-  **sans effet sur le calcul** (HP n'entre pas dans la formule DPS/coins-
-  par-heure) — inclus dans la description, pas dans le score, distinction
-  explicite plutôt qu'omis silencieusement.
-- **Ability Scrolls (Wither Scrolls)** — confirmé item-spécifique à la
-  famille Necron's Blade/Hyperion, absente des calculateurs actuels
-  (aucune arme en cours de scope n'y appartient) — hors-scope réel, vérifié
-  par recherche directe, pas une supposition.
-- **Power Scrolls** (`power_scroll_recipes`) — confirmé système distinct
-  (buff temporaire 5s sur activation d'ability), même famille qu'Execute/
-  First Strike déjà écartés (burst, pas un multiplicateur DPS soutenu).
-- **Dyes** — confirmé cosmétique pur (couleur uniquement), aucune donnée
-  de stat sur aucune des ~90 pages vérifiées.
-
-**2 trous structurels supplémentaires trouvés en construisant la recherche
-de reforge** (pas seulement le reforge lui-même) :
-1. `computeCombatDps()` (`lib/pluton-engine.ts`) n'avait AUCUN moyen de
-   composer un bonus de Crit Chance ni une vitesse d'attaque non-nulle —
-   étendu avec `additionalCritChancePct`/`bonusAttackSpeed` (rétro-
-   compatible, Bestiary inchangé).
-2. Crit Chance n'était jamais plafonnée à 100% (vraie limite du jeu) dans
-   AUCUN des deux fichiers — sans conséquence tant qu'aucune source ne
-   dépassait 100, mais Sharp/Pure reforge + Critical enchant peuvent
-   réellement y arriver (confirmé : combo Zombie T7 atteint exactement 108%
-   avant plafond) — corrigé dans les deux fichiers.
-
-**Vérifié en base, un seul cycle pour les 5 Slayers** (2 calculs complets à
-la main, tous deux exacts) :
-- Zombie T7/ZOMBIE_SLAYER_T1 : reforge arme=Fast (LEGENDARY, +50 AS),
-  reforge armure=Pure ×4 (MYTHIC, +40 Force/+48 CC/+40 CD/+20 AS) —
-  Crit Chance plafonnée à 100% (108% avant plafond, confirme le bug #2
-  ci-dessus était réel). DPS = 205 850.1432 exact (calcul à la main :
-  179×4.03×4.10×6.0×2.90×4.0, palier Attack Speed AS=70→ticks=5).
-- Spider END/SPIDER_T5 (Sting, `always_crit`) : reforge arme=Spicy (MYTHIC),
-  reforge armure=Fierce ×4 (MYTHIC) — Force totale 202 exact, DPS
-  135 573.30395 exact (calcul à la main, palier AS=15→ticks=8).
-
-Route de debug temporaire supprimée après validation.
-
-### ✅ Couche NBT étendue aux 4 autres Slayers, même jour (22 août)
-
-Décision explicite : plutôt que migrer Spider/Wolf/Enderman/Blaze vers
-`pluton_elements`/échelle 1-7 (chantier séparé, pas fait ici), la couche NBT
-(Sharpness/Critical/enchant vs-type-de-mob/gemmes/Potato Books) a été
-**ajoutée directement à `lib/pluton-slayer.ts`** (architecture early/mid/
-end/late + tables dédiées déjà validées le 18 août, inchangée sinon) — même
-discipline "ne pas conflater deux chantiers différents" que le reste de
-cette session.
-
-**Scoping fait AVANT tout code** (agent dédié, 14 items des 4 chaînes) :
-gemstones réelles pour seulement 5/14 items (Sting ×2 Jasper, Tarantula
-Fang ×1, Pooch Sword ×1, Atomsplit/Voidedge Katana ×1 chacun — Mastiff
-Armor a bien 4 emplacements mais tous Ruby-only = Health, sans effet DPS,
-ignorés ; Primordial Armor a un champ `gemstone_slots` présent mais
-**commenté par le wiki lui-même** `<!--...infoneeded-->`, traité comme
-absent) ; étoiles confirmées absentes des 14 items (mécanique non
-applicable, pas un gap) ; enchant vs-type-de-mob réel seulement pour
-Spider (Bane of Arthropods, "applied to Weapons" — couvre les dagues) et
-Enderman (Ender Slayer, confirmé applicable aux katanas malgré leur nom
-cosmétique — leur page wiki déclare `type=Sword`) — Wolf et Blaze n'en ont
-AUCUN, confirmé par recherche directe, pas un oubli.
-
-**Vérifié en base, un seul cycle pour les 4 slayers** (2 combos recalculés
-à la main, tous deux exacts) : Spider END/SPIDER_T5 (Sting+Primordial,
-`always_crit`) — Force totale 131 (75 arme+26 gemmes+30 potato), DPS
-50 637.86959 exact. Wolf LATE/WOLF_T4 (Pooch Sword+Mastiff, Pack Mentality
-×2) — Force totale 123 (80 arme+13 gemme+30 potato), DPS 90 716.4 exact.
-88 combos persistés (`activity_key='slayer'`, inchangé). Route de debug
-temporaire supprimée après validation.
-
-### ✅ Pluton Fishing — couche NBT complétée à tous les tiers (22 août)
-
-**Exemple donné explicitement par l'utilisateur** en poursuivant le
-recadrage "ne rien laisser à moitié" : "si je suis starter et que je fais
-une certaine activité en fishing, je veux un setup vraiment complet" —
-audit de `lib/pluton-fishing.ts` (construit le 17 août) a confirmé le même
-type de trou que Combat avant sa fermeture.
-
-**Avant ce lot** : Piscary (enchant, +Fishing Speed)/Expertise (enchant,
-+Sea Creature Chance)/reforge rod (Salty/Treacherous/Stiff/Lucky)/reforge
-armure (Submerged)/gemme Aquamarine n'étaient ajoutés QUE si `tier==='end'
-||'late'` — un joueur starter/mid avait un setup strictement dépourvu de
-ces 5 modificateurs. Sourcés wiki (agent dédié) : Piscary (I-VII, +1 à +7
-Fishing Speed, additif confirmé "Fs stacks additively"), Expertise (I-X,
-+0.6% à +6% Sea Creature Chance) — tous deux avec un vrai palier de niveau
-(Enchanting/drop rare pour VI/VII), désormais scalés par tier comme
-Sharpness Combat (jamais 0). Reforges rod/armure : **pas de table par
-rareté sourcée** (contrairement aux reforges Combat) — seule la valeur MAX
-documentée ("+7%"/"Cost to Apply" 2.5k-600k, wiki dédié) — appliqués
-désormais à TOUS les tiers (coût réel modique, aucune raison de les
-réserver à end/late).
-
-**🔴 2 bugs réels trouvés et corrigés, pas seulement le trou de tier** :
-1. **Gemme Aquamarine appliquée sans vérifier la rod** — la version
-   précédente ajoutait `PERFECT_AQUAMARINE_GEMSTONE_FS` inconditionnellement
-   en end/late, sans vérifier que la rod réellement choisie par la
-   recherche budgétaire avait un emplacement. Vérifié AVANT de recoder :
-   seules Rod of Champions (1)/Rod of Legends (2)/Rod of the Sea (2) ont un
-   vrai emplacement — Fishing Rod/Challenging Rod n'en ont AUCUN. Calculé
-   désormais par rod réellement sélectionnée + rareté RECOMBOBULÉE
-   (Recombobulator confirmé applicable aux rods, aucune exclusion
-   documentée).
-2. **Double-comptage réel, pré-existant, découvert en vérifiant en prod
-   après le premier fix** : `applyFishingPetsAndAccessories()` tirait déjà
-   ces 5 sources (`stat_bonus_sources`, `equip_slot='passive'`) à TOUS les
-   tiers via son filtre générique (jamais tier-gaté) — combiné à l'ancien
-   bloc "end/late only" qui les ajoutait une 2e fois, **Fishing
-   double-comptait déjà ces 5 sources en END/LATE avant même cette
-   session**. `'passive'` exclu du filtre générique — la nouvelle logique
-   explicite (palier par tier + vérification rod) devient la seule source.
-3. Hot Potato Book/The Art of War confirmés exclus des rods (textes wiki
-   respectifs : "Swords and Armor"/"Weapons/Axes", aucune mention Rods) —
-   vérifié explicitement, non appliqués, pas un oubli.
-
-**Vérifié en base, un seul cycle** (2 combos recalculés à la main, tous
-deux exacts) : EARLY/WATER_POOL (Challenging Rod, sans emplacement gemme) —
-Fishing Speed 141.4 (35 base+68.4 accessoires+35 pet+3 Piscary), Sea
-Creature Chance 28.6 (10 base+5.8 accessoires+1.8 Expertise+7 reforge
-rod+4 reforge armure) — exact. Route de debug temporaire supprimée après
-validation.
-
-### ✅ Audit "toutes les activités du skill" — Bestiary + Sea Creature kills fermés (22 août)
-
-**Question explicite de l'utilisateur** en poursuivant le recadrage : "les
-5 Slayers sont-ils vraiment la seule activité Combat ?? vérifie bien que
-pour chaque skill tu as bien TOUTE les activités possibles." Vérifié contre
-`pluton_skill_activities` (table d'inventaire officielle du projet, pas
-redevinée) — réponse : **non**. Combat a 2 autres activités `built` jamais
-touchées par la fermeture NBT : Dungeons (Floor I-VII Normal) et Bestiary/
-grind mob générique. Fishing a une 2e activité `built` (Sea Creature kills,
-distincte de la Pêche) dans le même cas.
-
-- **Bestiary** (`lib/pluton-bestiary.ts`) — appelait `computeCombatDps()`
-  avec 0 des couches NBT construites pour Slayer, malgré une réutilisation
-  directe du même gear Zombie. Fermé avec les mêmes valeurs déjà sourcées
-  (Sharpness/Smite si Undead/Critical/reforge recherché/Recombobulator/
-  gemme Jasper/Potato Books/The Art of War) — 63 mobs viables inchangés
-  (aucune régression sur le filtrage déjà validé le 21 août).
-- **Sea Creature kills** (`lib/pluton-sea-creatures.ts`) — pire cas : avait
-  sa PROPRE copie locale de la formule de base (`computeDps`), dupliquée
-  avant même que `computeCombatDps` existe dans le moteur partagé,
-  strictement sans Crit Chance/Attack Speed composables. Remplacée par
-  `computeCombatDps()` du moteur partagé + même couche NBT complète.
-- **Dungeons (Floor I-VII)** — vérifié par lecture directe du code (pas
-  supposé) : aucune logique DPS/Strength/reforge n'existe dans ce fichier,
-  confirmant la doc déjà en place (méthode ancrée sur le score/temps de run
-  externe, **ne dépend pas du gear du joueur** par construction) — hors
-  scope de cette fermeture NBT à raison, pas un trou oublié.
-
-**Vérifié en base** : Bestiary 63/107 mobs viables (identique à la
-construction du 21 août, filtrage non régressé) ; Sea Creature kills 4
-combos (early/mid/end/late), TTK/coins-par-heure cohérents avec la
-progression de gear déjà validée (TTK LATE=0.58s vs EARLY=21.58s). Route
-de debug temporaire supprimée après validation.
-
-**Prochaine étape actée** : même audit "toutes les activités du skill"
-pour Mining/Farming/Foraging/Hunting (les seuls autres skills `built`) —
-vérifier si leurs calculateurs ont bien tout le NBT skill-approprié
-(enchants/reforges/gemmes spécifiques à chaque skill) appliqué, ou si le
-même écart "documenté mais pas câblé" existe ailleurs.
-
-### ✅ Mining audité — déjà quasi-complet, 1 vrai trou fermé (Recombobulator) (22 août)
-
-Contrairement à Combat/Fishing, `lib/pluton-mining.ts` (construit/calibré
-le 5 août contre un vrai repère en jeu, écart -4.7% documenté) s'est avéré
-**déjà rigoureux** : HOTM maxé, sockets de gemmes réels (3 slots
-Amber/Jade/Topaz + arbitrage réel du 5e slot combo par impact sur le
-rendement, pas une supposition), reforge Jaded (armure) et arbitrage réel
-Ambered-vs-Glacial (foret), Hephaestus Relic, Drill Engine, Eager Miner,
-niveau Mining 60. Aucune réécriture nécessaire.
-
-**Seul trou réel trouvé** : `computeGemSocketBonus()` utilisait toujours la
-rareté de BASE de l'armure/l'outil, jamais recombobulée — Recombobulator
-3000 (déjà modélisé comme toujours appliqué pour Combat/Fishing, aucun
-downside réel documenté) n'était pas câblé ici. **Corrigé uniquement pour
-le lookup gemme** (jamais le reforge Jaded, dont les stats ne sont
-sourcées qu'à LEGENDARY — pas de donnée MYTHIC/DIVINE à extrapoler,
-contrairement aux gemmes qui ont une vraie table complète par rareté).
-
-**Trouvaille en cours de route** : `RARITY_ORDER` (moteur partagé) plafonnait
-à MYTHIC — étendu à DIVINE après avoir confirmé que **Divan's Drill a une
-rareté de BASE Mythic** (le seul cas parmi tout Pluton jusqu'ici, confirmé
-explicitement par le wiki Recombobulator lui-même : "the only items with an
-intentional base Mythic rarity are Divan's Drill...") — sans cette
-extension, le Drill n'aurait reçu aucun bénéfice de Recombobulator du tout.
-Table `gemstones` confirmée couvrir DIVINE (Amber/Jade/Topaz) avant
-d'étendre.
-
-**🔴 Incident opérationnel réel pendant la vérification** : le run de
-persist complet (72 combos, tous tiers×blocs) a timeout à 2 reprises
-(maxDuration 60 puis 280 insuffisants au premier essai) — `sync_log`
-confirme que les runs réels de ce cron tournaient DÉJÀ à 111-120s AVANT ce
-changement (contre une limite de 120s), donc déjà à la marge. Un run réel
-du cron programmé (4h30 UTC) a percuté mes tests concurrents et est resté
-bloqué en `status='running'` sans jamais finir (id 42126, jamais nettoyé
-par son propre `finishSync`). **Vérifié avant toute correction** : la
-table `pluton_rankings` (activity_key='mining') était retombée à 42/65
-lignes après mes tentatives échouées (DELETE committé, INSERT partiel
-tué par le timeout) — un vrai risque de données incomplètes en prod,
-pas juste un ratage de test. Corrigé : relancé un persist complet propre
-(65/65 lignes restaurées, vérifié), `maxDuration` du cron production
-120→280 (marge de sécurité, aucune formule changée), ligne `sync_log`
-bloquée marquée `error` manuellement plutôt que laissée `running` pour
-toujours.
-
-**Vérifié en base** : Ruby Gemstone LATE 46.2M/h (5 août) → 57.68M/h
-(22 août) — **+24.8%, cohérent avec le saut exact Amber/Jade LEGENDARY
-→MYTHIC (80→100 et 40→50, tous deux exactement +25%)**, confirme le
-mécanisme sans avoir eu besoin de recalculer à la main les 15+ couches
-imbriquées du fichier. Route de debug temporaire supprimée après validation.
-
-### ✅ Farming audité — déjà complet (aucun trou trouvé) (22 août)
-
-`lib/pluton-farming.ts` (construit le 5 août, **4 passes d'audit déjà
-demandées par l'utilisateur** à l'époque — "es-tu sûr d'avoir tout maxé ?",
-Pest Farming ajouté après avoir été signalé comme omis, Bonus Pest Chance
-corrigé après un chiffre challengé "40M+/h en vrai") s'est confirmé
-**déjà au même niveau d'exigence** que ce chantier demande : reprend le
-"Theoretical Maximum" déjà publié et vérifié par le wiki lui-même (armure
-Helianthus **déjà explicitement recombobulée** dans ce total officiel, pas
-une omission), Pest Farming avec formules réelles (Bonus Pest Chance,
-Pesthunter Phillip en régime permanent via Little's Law, pièges). Aucune
-réécriture nécessaire — contrairement à Combat/Fishing, la structure
-"total wiki déjà publié" de ce fichier n'a pas le même point de défaillance
-("documenté mais pas câblé pièce par pièce") que les calculateurs Combat.
-
-### ✅ Foraging — Citrine (gemmes) + Frenzy (item ability), jamais modélisés (22 août)
-
-Contrairement à Farming, **trou réel trouvé** (agent dédié, 6 items
-vérifiés — 3 outils + 3 armures) : Foraging n'avait NI gemmes NI item
-ability modélisés du tout, alors que les deux existent réellement.
-
-- **Citrine** (Foraging Fortune, pas Sweep) — emplacements réels vérifiés
-  AVANT de coder : Fig Hew=1, Figstone Splitter=2, Helix Chopper=2
-  (outils) ; Canopy=0 (confirmé absent de l'infobox), Fig=1, Helix=2
-  (armure — 1 seul champ `gemstone_slots` par SET sur la page wiki, pas
-  par pièce, traité comme un total pour l'objet armure complet, même
-  convention que Reaper Armor/Combat). Appliqué à TOUS les tiers où
-  l'item concerné est réellement choisi par la recherche budgétaire
-  (contrairement au Sharpening Shard déjà codé, ces emplacements existent
-  dès Fig/mid-tier, pas seulement Helix/end-late).
-- **Frenzy** (item ability outil, PERMANENT une fois un seuil de logs
-  coupés atteint) : Fig Hew +1 Sweep/2000 logs (max 20), Figstone
-  Splitter +1/10000 (max 20, **plus lent malgré l'upgrade** — vérifié tel
-  quel contre le wiki, pas une contradiction supposée), Helix Chopper
-  +1/20000 (max 40, soit 800 000 logs coupés pour le cap) — investissement
-  réel très important, même discipline "investissement max END/LATE" que
-  le Sharpening Shard déjà codé.
-
-`CITRINE_PERFECT_BY_RARITY` ajouté au moteur partagé (`pluton-engine.ts`),
-même pattern que Jasper/Aquamarine.
-
-**Vérifié en base, un seul cycle** : LATE/HELIX_LOG — Foraging Fortune
-32 exact (16 Citrine outil + 16 Citrine armure, tous deux Helix
-EPIC→recombobulé LEGENDARY=8×2), Sweep 583 exact (393 base déjà documentée
-+150 Sharpening Shard existant +40 Frenzy nouveau — recoupe exactement la
-valeur déjà publiée le 17 août avant cette session). Route de debug
-temporaire supprimée après validation.
-
-### ✅ Essence Shops — audit des 11 boutiques terminé, 4 vrais trous fermés (22-23 août)
-
-Suite de la section précédente. Les 9 boutiques restantes (Wither/Dragon/
-Crimson/Ice/Gold/Diamond/Forest/Fossil/Safari) vérifiées via agent dédié
-puis **recoupées manuellement contre le wikitext brut avant tout code** —
-discipline qui a payé : le rapport de l'agent affirmait *"Frozen Skin (Ice
-Essence Shop) = +5 Crit Chance"*, contredit par la source elle-même
-(`{{stat|cr}}`) — vérifié directement : `cr` = **Cold Resistance** (page
-wiki dédiée confirmée, sans rapport avec le combat), **pas intégré**.
-Même discipline sur "Dwarven Expertise" (Fossil, stat `dmf`) : ni la page
-wiki "Mining Fortune" ni "Gemstone Fortune" ne citent Fossil Essence Shop
-dans leur `ways_to_increase` — stat non-classifiable avec confiance,
-**laissé de côté plutôt que deviné**.
-
-**4 vrais trous fermés, chacun confirmé indépendamment avant d'écrire du
-code** :
-- **Wither — "Forbidden Strength"** : +1/2/3/4/5 Force (5 paliers,
-  niveau max), **aucune restriction de lieu** (contrairement aux 4 perks
-  soeurs Health/Defense/Speed/Intelligence de la même boutique, non
-  suivies par Pluton) — universel Combat, appliqué dans les 4 fichiers
-  (`pluton-combat.ts`/`pluton-slayer.ts`/`pluton-bestiary.ts`/`pluton-
-  sea-creatures.ts`) exactement comme The Art of War déjà codé.
-- **Diamond — "Rhinestone Infusion"** : +2..+20 Gemstone Fortune (10
-  paliers), "while on Mining Islands" — **confirmé par cross-référence**
-  (la page wiki "Gemstone Fortune" cite explicitement "Diamond Essence
-  Shop" dans ses `ways_to_increase`, pas une supposition depuis le nom).
-- **Forest — "Lumberjack"** : +2..+20 Foraging Fortune (10 paliers),
-  aucune restriction (vérifié distinct de sa "sœur" Forest Training,
-  elle explicitement "while on Foraging Islands").
-- **Forest — "Trapped"** : +1..+5% vitesse de capture Huntrap (5
-  paliers), stack ADDITIVEMENT avec le palier de trap (formule déjà
-  documentée en tête de `pluton-hunting.ts` — "calculated first then
-  multiplied with all other modifiers which stack additively").
-
-Toutes ces monnaies (Essence comme Powder) confirmées non-tradeable (0
-`item_id` catalogué, vérifié avant même de commencer l'audit) — traitées
-partout comme HOTM/HOTF : niveau max assumé atteignable, jamais un prix
-sur la monnaie elle-même.
-
-**Vérifié en base, un seul cycle pour les 7 fichiers touchés** : Zombie
-T7 DPS 205 850.1432→208 404.1152 exact (+5 Force), Mining Ruby LATE
-57 683 461→58 164 959 (+0.83%, cohérent avec +20 Gemstone Fortune sur
-~2296 de base), Foraging LATE Foraging Fortune 232→252 exact (+20),
-Trap Hunting 4 tiers (19h/17h/12h/9h de capture, tous exacts avec le
-+5% Trapped additionné au palier de trap). Route de debug temporaire
-supprimée après validation.
-
-### 🔴 Essence Shops — 2/11 vérifiées ici (22 août) — **audit complet des 12 terminé le 23-24 août, voir en tête de fichier, pas dupliqué ici**
-
-### ✅ Foraging — Heart of the Forest (HOTF), 2e vrai trou trouvé le même jour (22 août)
-
-**Question directe de l'utilisateur** après le premier bilan ("on a bien
-pris en compte tout, même les HOTM et HOTF ??") — a immédiatement fait
-remonter un 2e trou réel, la preuve que le premier bilan n'était pas encore
-complet. Vérifié : Mining a bien HOTM (`HOTM_MAX`, confirmé), **Foraging
-n'avait JAMAIS touché HOTF** (`hotf_perks`, 30 lignes, arbre analogue à
-HOTM sur les Foraging Islands, monnaie Forest Whispers) — 0 référence dans
-tout le fichier malgré la table déjà en base depuis la cartographie.
-
-3 perks directs/permanents retenus (niveau max END/LATE, même convention
-que `HOTM_MAX`) : `sweep` (niveau 50, +50 Sweep), `foraging_fortune`
-(niveau 50, +150 FF), `foraging_madness` (palier unique, +10 Sweep/+50 FF).
-Exclus et documentés, pas inventés : `forest_strength` (jusqu'à +1000
-Sweep/+1000 FF mais conditionnel à la stat Strength du joueur, jamais
-trackée par ce calculateur Foraging pur — aucune valeur de référence
-sourcée, inventer un total violerait la règle #7), `half_full`/`half_empty`
-(nécessitent un 2e joueur à proximité), `early_bird` (+20 Sweep/+100 FF
-mais seulement les 250 premiers arbres/jour, fraction négligeable du
-volume horaire visé), `collector` (drop différent, hors scope logs).
-
-**Vérifié en base** : LATE/HELIX_LOG — Sweep 583→643 exact (+50+10),
-Foraging Fortune 32→232 exact (+150+50). Route de debug temporaire
-supprimée après validation.
-
-### ✅ Hunting audité — déjà correctement scopé (22 août)
-
-`lib/pluton-hunting.ts` (Trap Hunting, seule activité `built` du skill)
-vérifié : pas de gemstone/reforge applicable (le Huntrap est un objet posé
-dans le monde, pas du gear porté — infobox wiki confirmée sans champ de
-stats combat/gemstone). Les 3 exclusions déjà documentées dans le fichier
-(Desert Temple -25% bonus de localisation, Forest/Combat Trap -10%
-spécifiques au type de shard, Charm Hunting) restent des vrais choix
-raisonnés — pas des oublis : `attribute_shards` n'a aucune colonne
-type-Forest/Water/Combat exploitable pour les conditionner par shard
-individuellement, et la page wiki "Huntraps#Locations" elle-même est
-marquée `{{Sectionstub}}` (liste reconnue incomplète par le wiki source).
-Aucun changement nécessaire.
-
-### 🎯 Bilan de l'audit "toutes les activités / tout le NBT" — 6 skills `built` couverts (22 août)
-
-Chantier complet demandé par l'utilisateur ("vérifie bien que pour chaque
-skill tu as bien TOUTE les activités possibles... rien laissé au hasard").
-Vérifié contre `pluton_skill_activities` (inventaire officiel, pas
-redeviné) — les 6 skills `built` couvrent en réalité **10 activités**, pas
-6 (plusieurs skills ont 2+ activités distinctes jamais auditées comme un
-groupe avant cette passe) :
-
-| Skill | Activités `built` | Trou trouvé | Statut |
-|---|---|---|---|
-| Combat | Slayer×5, Dungeons, Bestiary | Reforge absent (Slayer×5) ; NBT absent (Bestiary) | ✅ fermés |
-| Fishing | Pêche, Sea Creature kills | Tier zéro à early/mid ; formule dupliquée sans NBT | ✅ fermés |
-| Mining | Minage+Forge | Recombobulator non câblé sur les gemmes | ✅ fermé |
-| Farming | Culture+Pest | — | ✅ déjà complet |
-| Foraging | Coupe de bois | Gemmes+item ability jamais modélisés | ✅ fermés |
-| Hunting | Trap Hunting | — | ✅ déjà correctement scopé |
-
-Dungeons confirmé structurellement hors-scope (méthode ancrée sur le score,
-pas sur le gear — vérifié par lecture directe du code, pas supposé).
-
-Chaque fermeture suit la même discipline : scoping par agent dédié AVANT
-tout code (jamais une supposition), un seul cycle push/déploiement/
-vérification/persist/nettoyage par lot, au moins 1 calcul recoupé à la
-main par lot avant persist. 2 incidents opérationnels réels trouvés et
-corrigés en cours de route (Mining : timeout + sync_log bloqué + données
-partiellement effacées, restaurées) — documentés dans leurs sections
-respectives ci-dessus, pas cachés.
-
-**Explicitement hors scope de cette passe** : les activités `backlog`
-(Kuudra, Dungeons Master Mode, frag runs, Enchanted Books flip, Forest/
-Water/Combat Hunting) restent des gaps structurels réels déjà documentés
-individuellement (données manquantes à la source, pas un défaut
-d'application du NBT) — pas retouchées ici, chantier distinct.
-
-### 🚧 Phase 3 — Système B refondu, 1re tranche (Zombie Slayer) vérifiée
-
-`lib/pluton-combat.ts` — 1er fichier "1 skill = 1 calculateur" (remplace à
-terme `pluton-slayer.ts`+`pluton-dungeons.ts`+`pluton-bestiary.ts`, 3
-fichiers pour le même skill Combat). Gear sourcé **en direct** depuis
-`pluton_elements` (nouveaux helpers `getGearStatsFromElements`/
-`findBaseStat`/`findMobTypeBonus` dans `lib/pluton-engine.ts`), échelle
-tier joueur **1-7 réelle** (pas early/mid/end/late). Portée bornée à Zombie
-Slayer pour l'instant (1re tranche vérifiée avant d'étendre aux 4 autres
-Slayers/Dungeons/Bestiary) — `pluton-slayer.ts`/`pluton-dungeons.ts`/
-`pluton-bestiary.ts` restent actifs et inchangés, pas de retrait avant
-migration complète vérifiée.
-
-**2 vrais trous structurels trouvés dans le Système A en construisant
-ceci** (corrigés au cas par cas, pas masqués) :
-1. La classification originale ne tague AUCUN item par skill (0/49 628,
-   corrigé Phase 1) NI par tier sur les lignes `wiki_haiku_extract` qui
-   portent les vraies valeurs de stats (594/3890 seulement gérées à
-   l'origine) — corrigé pour Zombie Slayer en réutilisant la recherche déjà
-   validée cette session (paliers ZS3/ZS6 réels), jamais inventé.
-2. **Bug réel trouvé en vérifiant Reaper Falchion en prod** :
-   `stat_name="Damage"` porte à la fois la valeur plate (+120) et le bonus
-   vs type de mob (+200% "against Undead mobs") pour la même arme — la 1re
-   version de `getGearStatsFromElements` dédupliquait par `stat_name` (Map),
-   perdant silencieusement une des deux lignes selon l'ordre retourné par
-   SQL. Corrigé : retourne un tableau complet, `findBaseStat`/
-   `findMobTypeBonus` filtrent sur `stat_name` ET `condition_note`.
-   Recoupé à la main sur les 2 combos non-triviaux : Revenant Falchion+
-   Armor (95×1.5×3.1×2.5×1.3×2=2871.375 exact) et Reaper Falchion+Armor
-   (149×2.99×3.1×6.0×1.3×2=21544.8636 exact).
-
-**Gaps de données restants, documentés et retournés explicitement par le
-code** (`dataSourceGaps`, jamais masqués) : le bonus +100% Undead de Reaper
-Armor et le timing de l'ability Enrage restent introuvables dans
-`pluton_elements` même après recherche sur plusieurs pages candidates —
-fallback sur la valeur déjà validée (sourcée wiki à l'origine dans
-`lib/pluton-slayer.ts`), jamais une invention nouvelle. Force+75 de Reaper
-Armor est réellement présente dans `pluton_elements` mais sous
-`wiki_table_extract` (page "Strength", format `cells`/`headers` différent
-de `wiki_haiku_extract`) — `getGearStatsFromElements` n'interroge que
-`wiki_haiku_extract` pour l'instant, extension à faire.
-
-**Vérifié en base** : 35 combos (5 paliers boss Zombie × 7 tiers joueur),
-additif confirmé (22 blocs `slayer` + 63 `combat` Bestiary intacts après).
-Cron `pluton-combat-refresh` (quotidien 5h45) créé, couvre Zombie Slayer
-uniquement pour l'instant — à étendre au fur et à mesure de la migration.
-
 ## ✅ Pluton — fermeture complète du backlog (21 août, terminé)
 
 Recadrage explicite de l'utilisateur après Sea Creature kills : ne plus
@@ -1588,156 +1071,6 @@ est sourcée (wiki `game_mechanics_misc`/`pluton_elements`), jamais inventée :
 skills/activités du backlog (Kuudra "ressortira naturellement" en
 traitant Combat plus en profondeur) — pas de deep-dive isolé sur une seule
 activité pour l'instant.
-
-## ✅ Pluton Dungeons — Floor I clear complet S+, 1er consommateur de l'architecture multi-méthodes (18 août)
-
-6e activité généralisée, et **premier chantier qui recadre l'objectif réel de
-Pluton**. Jusqu'ici, Pluton calculait une seule méthode par (tier joueur ×
-cible) — le meilleur setup pour miner tel bloc, tuer tel boss Slayer à tel
-palier. En démarrant Dungeons, l'utilisateur a explicitement recadré la
-vision : Pluton doit être un moteur qui, pour chaque skill, décompose les
-activités/mécaniques/items à plus-value, produit des setups ET des méthodes
-de money-making réelles, classe le tout sur les 7 tiers du jeu, et identifie
-en continu ce qui est possible et optimal à l'instant T contre les vrais prix
-Bazaar/AH — avec, à terme, une capacité d'auto-alimentation en nouvelles
-méthodes. Exemple concret donné (Dungeons) : un "frag run" (rush une salle
-ciblée, tue un boss/mob spécifique pour son loot, sort) est une méthode
-solo-viable **distincte** d'un clear complet à 5 joueurs — les deux doivent
-pouvoir coexister et être comparées, plutôt qu'une seule méthode "clear
-complet" imposée par défaut.
-
-**Découverte architecturale clé (avant tout code)** : aucun changement de
-schéma n'était nécessaire. `pluton_target_blocks` (déjà la table "cible"
-partagée par toutes les activités) porte déjà `block_name` (label humain) et
-`pricing_note` (texte libre) — il suffit que ces deux colonnes décrivent une
-**méthode** plutôt qu'une simple cible ("Floor I — Clear complet (score S+)"
-au lieu d'un simple nom d'étage). `pluton_setups`/`pluton_rankings`
-fonctionnent déjà tels quels : rien n'empêche plusieurs lignes
-`pluton_target_blocks` pour le même `activity_key`+`tier` — le pattern
-"plusieurs méthodes par tier" était donc une question de **contenu**
-(combien de lignes on insère), pas d'architecture, déjà démontré
-implicitement par les 5 paliers de boss Slayer. **Décision explicite** :
-pas rétroactif sur Mining/Farming/Foraging/Fishing/Slayer (restent à une
-méthode par cible), seulement Dungeons et la suite — réutilisable plus tard
-sans migration si besoin.
-
-**Différence mécanique fondamentale avec Slayer** : un run de donjon n'a pas
-de formule DPS→temps-de-kill (navigation + puzzles + secrets + boss, aucune
-donnée sourcée ne permet de simuler ce temps réel). Le temps de run est donc
-**ancré sur un vrai seuil documenté** plutôt que dérivé d'un DPS simulé :
-page wiki "Dungeon Score" (formule complète Skill+Explore+Speed+Bonus, 6
-rangs D→S+, seuils 0/100/160/230/269.5/300) donne le seuil exact de temps
-pour Speed=100 par étage (Floor I : ≤600s). Vérifié déterministe : à ce
-temps, Skill=100 (0 mort/0 puzzle raté) + Explore=100 (100% clear, seuil
-secrets Floor I=30%) + Speed=100 = score 300 pile (S+), sans même compter le
-Bonus crypts — même logique que le plafond moteur 20 actions/sec de
-Farming/Foraging (un seuil réel, jamais une moyenne inventée), confirmée par
-l'utilisateur ("vise run S ou S+ à chaque fois").
-
-**Coffre de récompense = Obsidian** (meilleur coffre Floor I, pas de Bedrock
-avant Floor V) — **personnel par joueur**, pas de partage de loot à diviser
-entre le groupe (confirmé wiki "Dungeon Reward Chest" : chaque joueur ouvre
-son propre coffre, coût déduit de sa propre Purse/Bank). Party 2-5 requise
-pour le run (aucun solo possible Floor I) mais coins/h reste une valeur PAR
-JOUEUR, pas divisée.
-
-**Table de loot Floor I complète et réelle sourcée** (nouvelle table
-`pluton_dungeons_chest_loot`, 75 lignes, 5 coffres Wood/Gold/Diamond/
-Emerald/Obsidian) — extraite mot pour mot depuis la page wiki "The Catacombs
-- Floor I - Loot", qui documente déjà le résultat du vrai système
-weight/quality simulé par les éditeurs (`average_chance_no_bonuses`/
-`average_chance_max_bonuses`, jamais re-dérivé à la main ici). EARLY/MID
-utilisent `chance_no_bonus_pct` (aucun accessoire Treasure) ; END/LATE
-utilisent `chance_max_bonus_pct` (Treasure Artifact/Ring/Talisman + Boss
-Luck perk + Hideongeon Shard maxés — même convention "investissement max"
-que Mining/Foraging). **"Added Cost"** par entrée (ex: Bonzo's Staff +2M,
-Recombobulator 3000 +5M, Fuming Potato Book +1M, Bonzo's Mask +1M) — un
-surcoût réel payé SEULEMENT si l'item concerné est effectivement tiré,
-confirmé méthodologie explicite avec l'utilisateur : `E[coût] = coût de
-base du coffre + Σ(probabilité × added_cost)`.
-
-**🔴 1 fausse hypothèse corrigée avant le premier calcul** : l'Essence
-(Wither/Undead) semblait a priori non-priceable (sert à l'Essence Shop, pas
-un objet classique) — l'utilisateur a immédiatement corrigé ("ba si elle se
-revend l'essence ??"), vérifié : `ESSENCE_WITHER`/`ESSENCE_UNDEAD` ont bien
-un vrai prix Bazaar live (~2238/~610 coins), inclus dans le calcul plutôt
-qu'exclu à tort.
-
-**État Floor I initial vérifié** (recoupé par calcul manuel indépendant sur
-end/late : E[valeur]≈867 406, E[coût]≈670 034, net×6 runs/h≈1 184 232,
-cohérent à l'arrondi près avec les 1 184 185,97 persistés) : 4 combos
-initiaux, EARLY/MID≈122 490/h, END/LATE≈1 184 186/h.
-
-**Généralisation Floors II-VII (même jour, suite immédiate)** — l'utilisateur
-a tranché "généraliser Floor II-VII (même pattern)" plutôt que de construire
-le frag run Floor VI/Sadan en premier. Même méthode "clear complet visant
-S+" partout : temps de run ancré sur le vrai seuil Speed=100 par étage,
-sourcé page "Dungeon Score" (`<=600s` Floor I/II/III/V, `<=720s` Floor
-IV/VI, `<=840s` Floor VII — offsets réels différents par palier de la
-formule `T=TotalSeconds-offset`). **Coffre Bedrock choisi dès Floor V**
-(disponible à partir de cet étage, score S+ 300 déjà suffisant pour les
-deux, Bedrock strictement meilleur qu'Obsidian). Table de loot complète des
-6 étages restants sourcée mot pour mot depuis les pages wiki "Floor
-II/III/IV/V/VI/VII - Loot" (~230 lignes au total ; Floor VII, la plus
-volumineuse à 129 entrées/50 Ko de wikitext brut, extraite via un agent
-dédié pour ne pas saturer le contexte principal — même discipline
-d'exhaustivité que Floor I, aucune ligne inventée). Nouveaux items par
-étage (Adaptive gear Floor II-III, Spirit gear+pet Floor IV, Shadow Assassin
-Floor V, Necromancer Lord Floor VI, Wither gear+Necron parts Floor VII) tous
-vérifiés avec un vrai prix live (Bazaar puis fallback AH nostar_norecomb).
-**1 vrai gap documenté** : "Wither Shard" (Floor VII Bedrock) n'a aucune
-entrée `items_catalog` trouvée — `entry_item_id=NULL`, exclu proprement du
-calcul (ligne conservée en base pour traçabilité, contribue 0).
-
-**🔴 Bug de performance réel trouvé en vérifiant en prod** : la première
-version de `computeAndPersistAllDungeonsRankings()` faisait 1 requête
-Supabase par item × ligne de loot × combo tier/étage — jusqu'à plusieurs
-centaines de requêtes séquentielles, confirmé par les logs Vercel (dizaines
-de `504 Task timed out after 60 seconds` d'affilée). **Piège de sondage
-répété reproduit une seconde fois dans cette session** : une boucle de
-polling en arrière-plan a re-déclenché la route toutes les ~13s sans
-vérifier de statut réel côté serveur, exactement la règle déjà notée le 13
-août (curl répétés sans vérifier `sync_log`) — stoppée dès identifiée.
-Corrigé en réécrivant le moteur pour tout charger en quelques requêtes
-batchées (même pattern que `loadPricedItems` de `lib/gear-pricing.ts` — une
-requête large filtrée par date, réduite en `Map` "premier vu = plus récent"
-en JS), calcul entièrement en mémoire, inserts `pluton_setups`/
-`pluton_rankings` groupés au lieu d'un aller-retour par combo.
-`maxDuration` 60→120 en filet de sécurité additionnel.
-
-**État final vérifié en base après le fix** (recoupé par calcul manuel
-indépendant sur early/Floor VII Bedrock — le combo le plus complexe,
-dominé par les pièces Wither Helmet/Boots ~50-70M à ~6-8% de chance chacune
-et Necron's Handle 467M à 0.1%: E[valeur]≈13 460 910, E[coût]≈3 086 349,
-net×4.286 runs/h≈44 462 404, cohérent à l'arrondi près avec les
-44 460 637,25 persistés) : **28 combos** (7 étages × 4 tiers,
-`pluton_rankings` `activity_key='dungeons'`, 0 `has_setup:false`). Floor
-III/IV/V/VI ressortent négatifs en EARLY/MID (coût de base fixe du coffre
-pas compensé par les chances `no_bonus`, réduites sans investissement
-Treasure) mais positifs en END/LATE — écart réel, pas un artefact, cohérent
-avec le fait que ces étages nécessitent un vrai investissement Treasure
-accessories pour être rentables. Floor VII ressort massivement positif à
-tous les tiers (Wither armor/Necron parts, contenu post-F7 réputé lucratif
-en jeu, cohérent). Cron `pluton-dungeons-refresh` (quotidien 5h25,
-`vercel.json`) rejoue les 28 combos. Route de debug temporaire supprimée
-après validation.
-
-**🔴 Gap documenté, pas un oubli** : le système de Classes (Archer/Mage/
-Tank/Healer/Berserk, scaling de stats propre) n'est pas modélisé ici — cette
-méthode (ancrée sur le score, temps de run externe) ne dépend pas du DPS du
-joueur, donc le choix de classe n'affecte pas ce calcul. Un futur "frag run"
-ciblé (ex: Floor VI, boss Sadan/Blood Room, exemple cité par l'utilisateur)
-redeviendra DPS-dépendant et nécessitera de sourcer les Classes à ce
-moment-là — pas construit dans ce chantier.
-
-**Explicitement hors scope de ce chantier** : découverte continue
-automatisée de nouvelles méthodes (moteur Claude/Haiku façon
-`pluton-weekly-sync`, vision long terme de l'utilisateur) ; Master Mode ; le
-frag run Floor VI/Sadan cité en exemple. **Prochaine étape actée par
-l'utilisateur** : le frag run Floor VI/Sadan (2e méthode réelle, valide
-l'architecture multi-méthodes avec 2 méthodes distinctes sur le même
-étage — nécessitera de sourcer le système de Classes, DPS-dépendant cette
-fois), avec la même rigueur d'exhaustivité que Slayer.
 
 ## ✅ Pluton Fishing — construit et validé (17 août)
 
