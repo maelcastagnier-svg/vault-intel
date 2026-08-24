@@ -223,11 +223,17 @@ code + les tables candidates déjà consommées par chaque moteur.
   wiki complet récupéré, table "Leveling Rewards" montre un niveau IX
   au-delà). Ajoutée au palier "late" de `GEAR_BY_SLAYER_TIER.zombie`,
   évaluée par le moteur de recherche DPS déjà existant. 2 gaps
-  supplémentaires documentés, pas fermés cette nuit (complexité/heure
-  tardive) : slot "Gloves" entièrement absent des 4 fichiers Combat
-  (candidat fort identifié : Demonslayer Gauntlet, CD+25% inconditionnel,
-  Blaze Slayer 4) ; 3 dagues Blaze alternatives (Kindlebane/Mawdredge/
-  Pyrochaos) à applicabilité "Infernal" non confirmée.
+  supplémentaires documentés, pas fermés cette nuit : **correction d'une
+  fausse alerte de l'agent** — il affirmait le slot "Gloves" entièrement
+  absent (Demonslayer Gauntlet, CD+25%, Blaze Slayer 4, comme "ajout
+  gratuit") ; vérifié directement (contenu wiki complet) que c'est faux —
+  Manticore Claw occupe déjà ce slot (`type=Gloves`, Str+20/BonusAS+2.5%,
+  déjà dans `COMBAT_ACCESSORIES_TOTAL_*`). Demonslayer est un vrai
+  concurrent du MÊME slot (CD+25% contre Str+20/AS+2.5%), pas un ajout —
+  nécessite un calcul DPS réel par Slayer/tier pour trancher, pas fait
+  cette nuit (pas une simple substitution de constante) ; 3 dagues Blaze
+  alternatives (Kindlebane/Mawdredge/Pyrochaos) à applicabilité "Infernal"
+  non confirmée, non plus.
 - **Hunting** — ré-audité en entier (2e passe indépendante), **0 nouveau
   gap trouvé** : les 5 paliers Huntrap confirmés exhaustifs, `stat_bonus_
   sources` confirmé structurellement vide (rien à câbler), Forest/Water/
