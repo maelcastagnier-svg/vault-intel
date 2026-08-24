@@ -116,7 +116,7 @@ const supabase = createClient(
 // fichiers), REAPER_SCYTHE=LEGENDARY (nouvelle donnee, jamais verifiee
 // avant), REVENANT=EPIC, REAPER=LEGENDARY.
 const WEAPON_RARITY: Record<string, string> = {
-  UNDEAD_SWORD: 'COMMON', REVENANT_SWORD: 'RARE', REAPER_SWORD: 'EPIC', REAPER_SCYTHE: 'LEGENDARY',
+  UNDEAD_SWORD: 'COMMON', REVENANT_SWORD: 'RARE', REAPER_SWORD: 'EPIC', REAPER_SCYTHE: 'LEGENDARY', AXE_OF_THE_SHREDDED: 'LEGENDARY',
   SPIDER_SWORD: 'COMMON', RECLUSE_FANG: 'UNCOMMON', TARANTULA_FANG: 'RARE', SCORPION_FOIL: 'EPIC', STING: 'LEGENDARY',
   SHAMAN_SWORD: 'EPIC', POOCH_SWORD: 'LEGENDARY',
   VOIDWALKER_KATANA: 'UNCOMMON', VOIDEDGE_KATANA: 'RARE', ATOMSPLIT_KATANA: 'LEGENDARY',
@@ -218,6 +218,17 @@ const BANE_PCT_BY_TIER: Record<SevenTier, number> = {
 // le 22 aout, jamais reporte dans ce fichier.
 const JASPER_SLOTS_BY_WEAPON: Record<string, number> = {
   REAPER_SWORD: 1, // EPIC, 1 emplacement Jasper-only
+  // Halberd of the Shredded (24 aout, audit exhaustivite nuit -- agent
+  // dedie, verifie directement contre game_mechanics_misc) -- LEGENDARY,
+  // upgrade de Reaper Falchion, deblocage Zombie Slayer 8 (confirme reel
+  // et atteignable : table "Leveling Rewards" de la page Zombie Slayer
+  // montre un niveau IX au-dela, IL n'est pas le plafond). Damage+140/
+  // Force+115/+250% Undead (vs 120/100/+200% pour Reaper Falchion) -- bat
+  // Reaper Falchion d'environ +35% DPS (calcul recoupe a la main). 2
+  // emplacements gemme (1 Jasper-only + 1 Combat universel, Jasper
+  // toujours le meilleur choix Combat deja etabli le 22 aout) contre 1
+  // seul pour Reaper Falchion -- ecart encore plus grand en pratique.
+  AXE_OF_THE_SHREDDED: 2,
   STING: 2, // LEGENDARY, 2 emplacements Combat
   TARANTULA_FANG: 1, // RARE, 1 emplacement Combat gratuit
   POOCH_SWORD: 1, // LEGENDARY, 1 emplacement Jasper-only
@@ -299,7 +310,10 @@ const GEAR_BY_SLAYER_TIER: Record<string, Record<'early' | 'mid' | 'end' | 'late
     early: { weapons: ['UNDEAD_SWORD'], armor: null, enrage: false },
     mid: { weapons: ['REVENANT_SWORD'], armor: 'REVENANT', enrage: false },
     end: { weapons: ['REAPER_SWORD', 'REAPER_SCYTHE'], armor: 'REAPER', enrage: false },
-    late: { weapons: ['REAPER_SWORD', 'REAPER_SCYTHE'], armor: 'REAPER', enrage: true },
+    // Halberd of the Shredded (Zombie Slayer 8) -- gate de collection plus
+    // profond que Reaper Scythe (ZS7), reserve a "late" (palier
+    // d'investissement max), meme discipline que le reste du fichier.
+    late: { weapons: ['REAPER_SWORD', 'REAPER_SCYTHE', 'AXE_OF_THE_SHREDDED'], armor: 'REAPER', enrage: true },
   },
   spider: {
     early: { weapons: ['SPIDER_SWORD'], armor: null, enrage: false },
