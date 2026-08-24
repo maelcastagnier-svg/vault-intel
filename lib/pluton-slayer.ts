@@ -87,7 +87,9 @@ import {
   SHARPNESS_PCT_BY_TIER, CRITICAL_PCT_BY_TIER, POTATO_BOOK_USES_BY_TIER,
   THUNDERLORD_PCT_BY_TIER, FIRE_ASPECT_PCT_PER_SEC_BY_TIER, FIRE_ASPECT_DURATION_S_BY_TIER,
   INFERNO_MULT_BY_TIER, HABANERO_TACTICS_SLAYER_DMG_PCT_BY_TIER, TABASCO_FLAT_DAMAGE_BY_TIER,
-  SCAVENGER_FLAT_COINS_BY_TIER,
+  SCAVENGER_FLAT_COINS_BY_TIER, INVESTMENT_MAX_TIERS,
+  COMBAT_ACCESSORIES_TOTAL_STRENGTH, COMBAT_ACCESSORIES_TOTAL_CRIT_CHANCE,
+  COMBAT_ACCESSORIES_TOTAL_CRIT_DAMAGE, COMBAT_ACCESSORIES_TOTAL_BONUS_ATTACK_SPEED,
 } from './pluton-engine'
 
 const supabase = createClient(
@@ -360,7 +362,22 @@ export async function computeSlayerRanking(tier: SevenTier, blockId: string): Pr
     const gemstoneStrength = jasperSlots && weaponRecombRarity ? jasperSlots * JASPER_PERFECT_BY_RARITY[weaponRecombRarity] : 0
     const potatoUses = POTATO_BOOK_USES_BY_TIER[tier]
     const potatoFlat = potatoUses * POTATO_BOOK_BONUS_PER_USE
-    const totalStrength = BASE_STRENGTH + Number(weapon.base_strength) + armorStrength + enrageStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH + WITHER_FORBIDDEN_STRENGTH_MAX
+    let totalStrength = BASE_STRENGTH + Number(weapon.base_strength) + armorStrength + enrageStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH + WITHER_FORBIDDEN_STRENGTH_MAX
+    // Accessoires/pet Combat (23 aout, gap trouve en auditant -- aucun pet/
+    // accessoire Strength/Crit Damage/Crit Chance/Bonus Attack Speed n'etait
+    // jamais applique a Combat, contrairement a Mining/Foraging/Fishing).
+    // Griffin (pet) + The Primordial (belt) + Annihilation Cloak (cloak) +
+    // Manticore Claw (bracelet) + Molten Necklace (necklace) + Red Claw
+    // Artifact (accessory_bag) -- meilleurs candidats reels par slot,
+    // gates eleves (Spider Slayer VIII/Blaze Slayer VII), applique aux
+    // tiers d'investissement max uniquement, voir doc des constantes.
+    let accessoryCritChance = 0
+    let accessoryBonusAttackSpeed = 0
+    if (INVESTMENT_MAX_TIERS.has(tier)) {
+      totalStrength += COMBAT_ACCESSORIES_TOTAL_STRENGTH
+      accessoryCritChance = COMBAT_ACCESSORIES_TOTAL_CRIT_CHANCE
+      accessoryBonusAttackSpeed = COMBAT_ACCESSORIES_TOTAL_BONUS_ATTACK_SPEED
+    }
     const weaponMobTypeMult = 1 + Number(weapon.mob_type_damage_bonus_pct) / 100
 
     // Octodexterity (armure) -- deja fourni pre-moyenne par le wiki lui-meme
@@ -379,7 +396,7 @@ export async function computeSlayerRanking(tier: SevenTier, blockId: string): Pr
     // Radioactive (casque Tarantula/Primordial) -- Crit Damage bonus
     // proportionnel a la Force totale, plafond reel documente. Mastiff
     // Armor (wolf) a un bonus Crit Damage plat separe (set_crit_damage).
-    let critDamage = BASE_CRIT_DAMAGE + Number(weapon.base_crit_damage || 0) + (armor ? Number(armor.set_crit_damage) : 0)
+    let critDamage = BASE_CRIT_DAMAGE + Number(weapon.base_crit_damage || 0) + (armor ? Number(armor.set_crit_damage) : 0) + (INVESTMENT_MAX_TIERS.has(tier) ? COMBAT_ACCESSORIES_TOTAL_CRIT_DAMAGE : 0)
     if (armor?.radioactive_cd_per_10_str) {
       const bonus = Math.min(Number(armor.radioactive_cd_cap), Number(armor.radioactive_cd_per_10_str) * (totalStrength / 10))
       critDamage += bonus
@@ -400,7 +417,7 @@ export async function computeSlayerRanking(tier: SevenTier, blockId: string): Pr
     // plus des multiplicateurs deja presents, meme principe que Pack
     // Mentality (facteur multiplicatif propre, jamais somme avec les autres).
     const enrageMobTypeMult = 1 + enrageMobTypeMultPct / 100
-    const bonusAttackSpeed = Number(weapon.base_attack_speed || 0) + enrageAttackSpeed
+    const bonusAttackSpeed = Number(weapon.base_attack_speed || 0) + enrageAttackSpeed + accessoryBonusAttackSpeed
 
     // Sharpness + enchant vs-type-de-mob specifique (meme bucket additif,
     // voir doc des constantes) + Critical (Crit Damage) -- couche NBT ajoutee
@@ -413,7 +430,7 @@ export async function computeSlayerRanking(tier: SevenTier, blockId: string): Pr
     const habaneroPct = HABANERO_TACTICS_SLAYER_DMG_PCT_BY_TIER[tier]
     const additivePct = COMBAT_LEVEL_60_DAMAGE_ADDITIVE_PCT + sharpnessPct + mobEnchantPct + habaneroPct
     critDamage += CRITICAL_PCT_BY_TIER[tier]
-    const critChanceBeforeReforge = Math.min(100, BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS + weaponCritChance)
+    const critChanceBeforeReforge = Math.min(100, BASE_CRIT_CHANCE + COMBAT_LEVEL_60_CRIT_CHANCE_BONUS + weaponCritChance + accessoryCritChance)
     const baneMult = slayerKey === 'spider' ? 1 + BANE_PCT_BY_TIER[tier] / 100 : 1
     // Thunderlord (single-target, mutuellement exclusif avec Thunderbolt qui
     // est AoE -- retenu car toutes les activites Combat sont single-target) :

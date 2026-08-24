@@ -31,6 +31,8 @@ import { createClient } from '@supabase/supabase-js'
 import {
   getGearStatsFromElements, findMobTypeBonus, findBaseStat, computeCombatDps,
   fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH, WITHER_FORBIDDEN_STRENGTH_MAX,
+  COMBAT_ACCESSORIES_TOTAL_STRENGTH, COMBAT_ACCESSORIES_TOTAL_CRIT_CHANCE,
+  COMBAT_ACCESSORIES_TOTAL_CRIT_DAMAGE, COMBAT_ACCESSORIES_TOTAL_BONUS_ATTACK_SPEED,
 } from './pluton-engine'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
@@ -281,13 +283,24 @@ async function computeZombieSlayerCombo(playerTier: string, boss: { tier: number
   // identiques, simplification documentee -- voir pluton-engine.ts). Aucun
   // reforge n'etait applique avant cette passe -- trou reel trouve en
   // auditant "rien ne doit rester a moitie fait", pas seulement complete ici.
-  const strengthBeforeReforge = strength + enrageStrengthBonus + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH + WITHER_FORBIDDEN_STRENGTH_MAX
+  // Accessoires/pet Combat (23 aout, gap trouve en auditant -- voir doc des
+  // constantes pluton-engine.ts). Gates eleves, applique au tiers 5-7
+  // (equivalent expert/professional/master de l'echelle SevenTier,
+  // INVESTMENT_MAX_TIERS).
+  const isInvestmentMaxTier = Number(playerTier) >= 5
+  const accStrength = isInvestmentMaxTier ? COMBAT_ACCESSORIES_TOTAL_STRENGTH : 0
+  const accCritChance = isInvestmentMaxTier ? COMBAT_ACCESSORIES_TOTAL_CRIT_CHANCE : 0
+  const accCritDamage = isInvestmentMaxTier ? COMBAT_ACCESSORIES_TOTAL_CRIT_DAMAGE : 0
+  const accBonusAttackSpeed = isInvestmentMaxTier ? COMBAT_ACCESSORIES_TOTAL_BONUS_ATTACK_SPEED : 0
+  if (isInvestmentMaxTier) nbtModifiers.push(`Accessoires/pet Combat (Griffin+The Primordial+Annihilation Cloak+Manticore Claw+Molten Necklace+Red Claw Artifact, +${accStrength} Force/+${accCritChance} CC/+${accCritDamage} CD/+${accBonusAttackSpeed} AS, sourcee wiki)`)
+
+  const strengthBeforeReforge = strength + enrageStrengthBonus + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH + WITHER_FORBIDDEN_STRENGTH_MAX + accStrength
   const baseDamageBeforeReforge = baseDamage + flatDamageBonus + potatoFlat
   const additivePctBeforeReforge = sharpnessPct + smitePct
-  const critDamageBeforeReforge = criticalPct
+  const critDamageBeforeReforge = criticalPct + accCritDamage
 
   const scoreWeaponReforge = (delta: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
-    computeCombatDps(baseDamageBeforeReforge, strengthBeforeReforge + delta.strength, mults, additivePctBeforeReforge, critDamageBeforeReforge + delta.crit_damage, delta.crit_chance, delta.bonus_attack_speed)
+    computeCombatDps(baseDamageBeforeReforge, strengthBeforeReforge + delta.strength, mults, additivePctBeforeReforge, critDamageBeforeReforge + delta.crit_damage, accCritChance + delta.crit_chance, accBonusAttackSpeed + delta.bonus_attack_speed)
 
   const weaponReforgeCandidates = await fetchReforges('SWORD/ROD', weaponRecombRarity)
   const bestWeaponReforge = pickBestReforge(weaponReforgeCandidates, 1, scoreWeaponReforge)
@@ -296,9 +309,9 @@ async function computeZombieSlayerCombo(playerTier: string, boss: { tier: number
   if (armor && armorRecombRarity) {
     const armorReforgeCandidates = await fetchReforges('ARMOR', armorRecombRarity)
     const wStrength = strengthBeforeReforge + (bestWeaponReforge?.delta.strength || 0)
-    const wCritChance = bestWeaponReforge?.delta.crit_chance || 0
+    const wCritChance = accCritChance + (bestWeaponReforge?.delta.crit_chance || 0)
     const wCritDamage = critDamageBeforeReforge + (bestWeaponReforge?.delta.crit_damage || 0)
-    const wAttackSpeed = bestWeaponReforge?.delta.bonus_attack_speed || 0
+    const wAttackSpeed = accBonusAttackSpeed + (bestWeaponReforge?.delta.bonus_attack_speed || 0)
     const scoreArmorReforge = (delta: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
       computeCombatDps(baseDamageBeforeReforge, wStrength + delta.strength, mults, additivePctBeforeReforge, wCritDamage + delta.crit_damage, wCritChance + delta.crit_chance, wAttackSpeed + delta.bonus_attack_speed)
     const best = pickBestReforge(armorReforgeCandidates, 4, scoreArmorReforge)
@@ -310,9 +323,9 @@ async function computeZombieSlayerCombo(playerTier: string, boss: { tier: number
   }
 
   const finalStrength = strengthBeforeReforge + (bestWeaponReforge?.delta.strength || 0) + armorReforgeDelta.strength
-  const finalCritChance = (bestWeaponReforge?.delta.crit_chance || 0) + armorReforgeDelta.crit_chance
+  const finalCritChance = accCritChance + (bestWeaponReforge?.delta.crit_chance || 0) + armorReforgeDelta.crit_chance
   const finalCritDamage = critDamageBeforeReforge + (bestWeaponReforge?.delta.crit_damage || 0) + armorReforgeDelta.crit_damage
-  const finalAttackSpeed = (bestWeaponReforge?.delta.bonus_attack_speed || 0) + armorReforgeDelta.bonus_attack_speed
+  const finalAttackSpeed = accBonusAttackSpeed + (bestWeaponReforge?.delta.bonus_attack_speed || 0) + armorReforgeDelta.bonus_attack_speed
 
   const dps = computeCombatDps(
     baseDamageBeforeReforge,

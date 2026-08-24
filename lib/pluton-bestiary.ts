@@ -27,10 +27,12 @@
 import { createClient } from '@supabase/supabase-js'
 import {
   computeCombatDps, fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH, WITHER_FORBIDDEN_STRENGTH_MAX,
-  SEVEN_TIER_KEYS, type SevenTier, oldTierBucket,
+  SEVEN_TIER_KEYS, type SevenTier, oldTierBucket, INVESTMENT_MAX_TIERS,
   SHARPNESS_PCT_BY_TIER, SMITE_PCT_BY_TIER, CRITICAL_PCT_BY_TIER, POTATO_BOOK_USES_BY_TIER,
   THUNDERLORD_PCT_BY_TIER, FIRE_ASPECT_PCT_PER_SEC_BY_TIER, FIRE_ASPECT_DURATION_S_BY_TIER,
   INFERNO_MULT_BY_TIER, TABASCO_FLAT_DAMAGE_BY_TIER, LOOTING_PCT_BY_TIER, SCAVENGER_FLAT_COINS_BY_TIER,
+  COMBAT_ACCESSORIES_TOTAL_STRENGTH, COMBAT_ACCESSORIES_TOTAL_CRIT_CHANCE,
+  COMBAT_ACCESSORIES_TOTAL_CRIT_DAMAGE, COMBAT_ACCESSORIES_TOTAL_BONUS_ATTACK_SPEED,
 } from './pluton-engine'
 
 const supabase = createClient(
@@ -247,7 +249,15 @@ export async function computeAndPersistBestiaryRankings(): Promise<{ candidates:
         gemstoneStrength += GEMSTONE_JASPER_SLOTS_ARMOR[gear.armorPrefix] * JASPER_PERFECT_BY_RARITY[armorRecombRarity]
       }
 
-      const strengthBeforeReforge = baseStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH + WITHER_FORBIDDEN_STRENGTH_MAX
+      // Accessoires/pet Combat (23 aout, gap trouve en auditant -- voir doc
+      // des constantes pluton-engine.ts). Gates eleves, applique aux tiers
+      // d'investissement max uniquement.
+      const accStrength = INVESTMENT_MAX_TIERS.has(tier) ? COMBAT_ACCESSORIES_TOTAL_STRENGTH : 0
+      const accCritChance = INVESTMENT_MAX_TIERS.has(tier) ? COMBAT_ACCESSORIES_TOTAL_CRIT_CHANCE : 0
+      const accCritDamage = INVESTMENT_MAX_TIERS.has(tier) ? COMBAT_ACCESSORIES_TOTAL_CRIT_DAMAGE : 0
+      const accBonusAttackSpeed = INVESTMENT_MAX_TIERS.has(tier) ? COMBAT_ACCESSORIES_TOTAL_BONUS_ATTACK_SPEED : 0
+
+      const strengthBeforeReforge = baseStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH + WITHER_FORBIDDEN_STRENGTH_MAX + accStrength
       // Tabasco (23 aout) -- +2/+3 degats plats, aucun pet Combat modele
       // actuellement donc toujours applicable. Thunderlord/Fire Aspect/
       // Inferno -- memes moyennes que pluton-slayer.ts, voir doc des
@@ -261,7 +271,7 @@ export async function computeAndPersistBestiaryRankings(): Promise<{ candidates:
       const multsWithEnchants = [...mults, thunderlordMult, fireAspectMult, infernoMult]
 
       const scoreWeapon = (d: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
-        computeCombatDps(baseDamage, strengthBeforeReforge + d.strength, multsWithEnchants, additivePct, criticalPct + d.crit_damage, d.crit_chance, d.bonus_attack_speed)
+        computeCombatDps(baseDamage, strengthBeforeReforge + d.strength, multsWithEnchants, additivePct, criticalPct + accCritDamage + d.crit_damage, accCritChance + d.crit_chance, accBonusAttackSpeed + d.bonus_attack_speed)
       const weaponReforges = weaponRecombRarity ? await fetchReforges('SWORD/ROD', weaponRecombRarity) : []
       const bestWeaponReforge = pickBestReforge(weaponReforges, 1, scoreWeapon)
 
@@ -269,9 +279,9 @@ export async function computeAndPersistBestiaryRankings(): Promise<{ candidates:
       if (armorRecombRarity) {
         const armorReforges = await fetchReforges('ARMOR', armorRecombRarity)
         const wStrength = strengthBeforeReforge + (bestWeaponReforge?.delta.strength || 0)
-        const wCC = bestWeaponReforge?.delta.crit_chance || 0
-        const wCD = criticalPct + (bestWeaponReforge?.delta.crit_damage || 0)
-        const wAS = bestWeaponReforge?.delta.bonus_attack_speed || 0
+        const wCC = accCritChance + (bestWeaponReforge?.delta.crit_chance || 0)
+        const wCD = criticalPct + accCritDamage + (bestWeaponReforge?.delta.crit_damage || 0)
+        const wAS = accBonusAttackSpeed + (bestWeaponReforge?.delta.bonus_attack_speed || 0)
         const scoreArmor = (d: { strength: number; crit_chance: number; crit_damage: number; bonus_attack_speed: number }) =>
           computeCombatDps(baseDamage, wStrength + d.strength, multsWithEnchants, additivePct, wCD + d.crit_damage, wCC + d.crit_chance, wAS + d.bonus_attack_speed)
         const best = pickBestReforge(armorReforges, 4, scoreArmor)
@@ -279,9 +289,9 @@ export async function computeAndPersistBestiaryRankings(): Promise<{ candidates:
       }
 
       const finalStrength = strengthBeforeReforge + (bestWeaponReforge?.delta.strength || 0) + armorDelta.strength
-      const finalCC = (bestWeaponReforge?.delta.crit_chance || 0) + armorDelta.crit_chance
-      const finalCD = criticalPct + (bestWeaponReforge?.delta.crit_damage || 0) + armorDelta.crit_damage
-      const finalAS = (bestWeaponReforge?.delta.bonus_attack_speed || 0) + armorDelta.bonus_attack_speed
+      const finalCC = accCritChance + (bestWeaponReforge?.delta.crit_chance || 0) + armorDelta.crit_chance
+      const finalCD = criticalPct + accCritDamage + (bestWeaponReforge?.delta.crit_damage || 0) + armorDelta.crit_damage
+      const finalAS = accBonusAttackSpeed + (bestWeaponReforge?.delta.bonus_attack_speed || 0) + armorDelta.bonus_attack_speed
 
       const dps = computeCombatDps(baseDamage, finalStrength, multsWithEnchants, additivePct, finalCD, finalCC, finalAS)
       const ttk = c.hp / dps

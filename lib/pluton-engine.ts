@@ -227,6 +227,46 @@ export const FIRST_IMPRESSION_SWEEP_BY_TIER: Record<SevenTier, number> = {
   starter: 0, amateur: 0, intermediate: 1, skilled: 2, expert: 3, professional: 4, master: 5,
 }
 
+// Accessoires/pet Combat universels (23 aout, gap trouve en auditant --
+// stat_bonus_sources n'avait AUCUNE ligne strength/crit_damage/crit_chance/
+// bonus_attack_speed, contrairement a Mining/Foraging/Fishing qui consomment
+// deja ce registre pour pets/accessoires). Recherche dediee (agent, sourcage
+// wiki reel via game_mechanics_misc/pet_stat_progression, item_id verifie
+// contre items_catalog avant integration) -- meilleur candidat reel par
+// slot (pas suppose), memes valeurs pour tous les fichiers Combat
+// 7-tiers. Applique uniquement aux tiers d'investissement max (Spider
+// Slayer VIII/Blaze Slayer VII pour Primordial/Annihilation -- gates
+// eleves, meme convention "investissement max PROFESSIONAL/MASTER" que
+// HOTM/HOTF/Essence Shop ailleurs dans Pluton).
+//
+// Pet Griffin (LEGENDARY, confirme stats identiques toutes raretes) --
+// domine Golden Dragon/Tiger sur la combinaison des 4 stats Combat.
+export const GRIFFIN_PET_STRENGTH = 50
+export const GRIFFIN_PET_CRIT_CHANCE = 10
+export const GRIFFIN_PET_CRIT_DAMAGE = 50
+export const GRIFFIN_PET_BONUS_ATTACK_SPEED = 25
+// The Primordial (belt, LEGENDARY, Spider Slayer VIII).
+export const THE_PRIMORDIAL_BELT_STRENGTH = 15
+export const THE_PRIMORDIAL_BELT_CRIT_DAMAGE = 20
+// Annihilation Cloak (cloak, LEGENDARY, Blaze Slayer VII).
+export const ANNIHILATION_CLOAK_STRENGTH = 20
+export const ANNIHILATION_CLOAK_CRIT_DAMAGE = 20
+// Manticore Claw (bracelet/gloves, LEGENDARY, craftable -- Ferocity+4 non
+// modelise, computeCombatDps n'a pas de parametre Ferocity, gap documente).
+export const MANTICORE_CLAW_STRENGTH = 20
+export const MANTICORE_CLAW_BONUS_ATTACK_SPEED = 2.5
+// Molten Necklace (necklace, EPIC, Kuudra).
+export const MOLTEN_NECKLACE_STRENGTH = 20
+// Red Claw Artifact (accessory_bag, EPIC, chaine Wolf Slayer 5).
+export const RED_CLAW_ARTIFACT_CRIT_DAMAGE = 5
+
+export const COMBAT_ACCESSORIES_TOTAL_STRENGTH =
+  GRIFFIN_PET_STRENGTH + THE_PRIMORDIAL_BELT_STRENGTH + ANNIHILATION_CLOAK_STRENGTH + MANTICORE_CLAW_STRENGTH + MOLTEN_NECKLACE_STRENGTH
+export const COMBAT_ACCESSORIES_TOTAL_CRIT_CHANCE = GRIFFIN_PET_CRIT_CHANCE
+export const COMBAT_ACCESSORIES_TOTAL_CRIT_DAMAGE =
+  GRIFFIN_PET_CRIT_DAMAGE + THE_PRIMORDIAL_BELT_CRIT_DAMAGE + ANNIHILATION_CLOAK_CRIT_DAMAGE + RED_CLAW_ARTIFACT_CRIT_DAMAGE
+export const COMBAT_ACCESSORIES_TOTAL_BONUS_ATTACK_SPEED = GRIFFIN_PET_BONUS_ATTACK_SPEED + MANTICORE_CLAW_BONUS_ATTACK_SPEED
+
 // Charge le prix le plus recent de chaque item_id demande en 2 requetes
 // batchees (Bazaar d'abord, fallback AH nostar_norecomb) plutot qu'un
 // aller-retour par item -- meme pattern que loadPricedItems
