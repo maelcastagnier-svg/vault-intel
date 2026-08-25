@@ -710,6 +710,45 @@ ancien nom pas encore nettoyés en base (pas fait, priorité basse).
 saines : dernière sync réussie 24 août, cadence hebdomadaire respectée,
 aucun signe de staleness.
 
+### 🔴 4e source vérifiée -- l'API officielle Hypixel, sous-exploitée, bug réel majeur trouvé et corrigé
+
+Suite du mandat "vérifie qu'on a bien toutes les sources disponibles" --
+recherche web confirme 4 sources actives (wiki + NEU-REPO + SkyHanni-REPO
++ **API officielle Hypixel** `/v2/resources/skyblock/*`), pas 3. L'endpoint
+`/v2/resources/skyblock/items` (5 650 items, public, sans clé) expose des
+stats structurées et officielles (DAMAGE/STRENGTH/FEROCITY/INTELLIGENCE/
+CRITICAL_DAMAGE/...) pour chaque arme/armure -- une source strictement
+plus fiable que le parsing de wikitext.
+
+**Vérifié : cette source est déjà branchée (`skyblock-resources-sync`,
+quotidien) mais était sous-exploitée d'une façon inattendue** --
+`item_stats` (1 376 lignes) affichait **0 sur toutes les colonnes de
+stats pour 79% des lignes (1 093/1 376)** depuis la création du cron. 🔴
+**Cause réelle** : l'API Hypixel elle-même mélange des clés stats
+MAJUSCULES et minuscules selon l'item (confirmé en inspectant les items
+réels, pas une supposition) -- le code d'origine ne lisait que la casse
+minuscule, donc chaque item exposant ses stats en MAJUSCULES (Hyperion,
+Vorpal Katana, la plupart des armes/armures haut de gamme) recevait 0
+silencieusement. Corrigé (`readStat()`, lit les deux casses) + colonnes
+`damage`/`ferocity` ajoutées (absentes avant -- aucune arme n'avait jamais
+son dégât de base capturé dans cette table). **Vérifié en prod** : Hyperion
+Damage=260/Strength=150/Ferocity=30/Intelligence=350 exact ; Atomsplit
+Katana et Vorpal Katana cross-vérifiés **exacts** contre
+`pluton_slayer_weapon_stats` (source indépendante, wiki) -- confirmation
+croisée à 2 sources du fix Vorpal Katana du jour même.
+
+**Portée honnête** : `item_stats` reste aujourd'hui consommé UNIQUEMENT
+pour `rarity`/`display_name`/`default_color` ailleurs dans le code (8
+usages vérifiés, aucun ne lit les colonnes de stats numériques). Le
+bug est corrigé et la table est désormais fiable, mais **pas encore
+utilisée comme source de cross-vérification systématique** pour les
+tables spécialisées par skill (`pluton_slayer_weapon_stats`,
+`pluton_mining_tool_stats`, etc.) -- opportunité réelle et significative
+pour une prochaine session (l'API couvre aussi Mining/Foraging/Fishing/
+Farming Fortune, Sweep, Sea Creature/Treasure Chance, Bonus Pest Chance
+et les fortunes par culture, pas seulement le Combat), documentée dans
+`pluton_mechanic_coverage` plutôt que laissée implicite.
+
 ## Vision
 
 Plateforme SaaS d'intelligence économique gaming par abonnement, démarrage sur
