@@ -271,9 +271,20 @@ export async function computeMiningRanking(tier: SevenTier, blockId: string, tie
   if (topSetup) {
     // Couche pets + accessoires (5 août, Pluton V2) -- appliquée sur le
     // meilleur combo armure+outil, cross-catégorie via stat_bonus_sources.
-    const layer = await applyPetsAndAccessories(
-      topSetup.total_mining_speed, topSetup.total_mining_fortune, block.block_strength, sellPrice
-    )
+    // 🔴 BUG REEL CORRIGE (25 aout, trouve en verifiant les setups persistes
+    // demandes par l'utilisateur) : cette couche etait appliquee a TOUS les
+    // tiers sans aucune verification de budget -- Divan Pendant/Sapphire
+    // Cloak/Jade Belt/Dwarven Handwarmers (items tres haut de gamme) et le
+    // pet Scatha se retrouvaient dans le setup "optimal" starter, un etat
+    // totalement irrealiste (le meme genre de trou deja trouve et corrige
+    // sur le slot Gloves Combat le meme jour). Gate desormais a
+    // INVESTMENT_MAX_TIERS, meme convention que la couche investissement
+    // maximal juste en dessous (deja correcte) et que Combat/Slayer.
+    const layer = INVESTMENT_MAX_TIERS.has(tier)
+      ? await applyPetsAndAccessories(
+          topSetup.total_mining_speed, topSetup.total_mining_fortune, block.block_strength, sellPrice
+        )
+      : { best_pet: null, pet_candidates_checked: 0, accessories: [], total_mining_speed: topSetup.total_mining_speed, total_mining_fortune: topSetup.total_mining_fortune }
     let finalSpeed = layer.total_mining_speed
     let finalFortune = layer.total_mining_fortune
     let pristineMult = 1

@@ -448,7 +448,13 @@ export async function computeFishingRanking(tier: SevenTier, blockId: string, ti
 
   let topSetup: any = scored[0] ?? null
   if (topSetup) {
-    const layer = await applyFishingPetsAndAccessories(topSetup.total_fs, topSetup.total_scc, topSetup.total_tc, treasureEV, fishEV, applyQuickBite)
+    // 🔴 BUG REEL CORRIGE (25 aout, meme famille que Mining/Foraging/Combat) :
+    // cette couche etait appliquee a TOUS les tiers sans verification de
+    // budget -- pets/accessoires haut de gamme se retrouvaient dans le setup
+    // "optimal" starter, irrealiste. Gate desormais a INVESTMENT_MAX_TIERS.
+    const layer = INVESTMENT_MAX_TIERS.has(tier)
+      ? await applyFishingPetsAndAccessories(topSetup.total_fs, topSetup.total_scc, topSetup.total_tc, treasureEV, fishEV, applyQuickBite)
+      : { best_pet: null, pet_candidates_checked: 0, accessories: [], total_fishing_speed: topSetup.total_fs, total_sea_creature_chance: topSetup.total_scc, total_treasure_chance: topSetup.total_tc }
     let finalFs = layer.total_fishing_speed
     let finalScc = layer.total_sea_creature_chance
     let finalTc = layer.total_treasure_chance

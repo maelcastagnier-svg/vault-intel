@@ -420,7 +420,15 @@ export async function computeForagingRanking(tier: SevenTier, blockId: string, t
 
   let topSetup: any = scored[0] ?? null
   if (topSetup) {
-    const layer = await applyForagingPetsAndAccessories(topSetup.total_sweep, topSetup.total_foraging_fortune, toughness, sellPrice)
+    // 🔴 BUG REEL CORRIGE (25 aout, meme famille que Mining/Fishing/Combat) :
+    // cette couche etait appliquee a TOUS les tiers sans verification de
+    // budget -- des accessoires/pets tres haut de gamme (Torrhus Belt,
+    // Veilshroom Bracelet, pet Jade Dragon/Monkey...) se retrouvaient dans
+    // le setup "optimal" starter, irrealiste. Gate desormais a
+    // INVESTMENT_MAX_TIERS, meme convention que Mining/Combat.
+    const layer = INVESTMENT_MAX_TIERS.has(tier)
+      ? await applyForagingPetsAndAccessories(topSetup.total_sweep, topSetup.total_foraging_fortune, toughness, sellPrice)
+      : { best_pet: null, pet_candidates_checked: 0, accessories: [], total_sweep: topSetup.total_sweep, total_foraging_fortune: topSetup.total_foraging_fortune }
     let finalSweep = layer.total_sweep
     let finalFF = layer.total_foraging_fortune
     let maxInvestmentBonus: number | undefined
