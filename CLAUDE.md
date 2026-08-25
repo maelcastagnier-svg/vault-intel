@@ -563,6 +563,102 @@ et inspectables, pas des scripts one-shot.
    rankings`/`pluton_setups` (section 3) -- c'est la seule chose qui
    empêche de dire "Pluton est fini".
 
+## 🔴 2e passe d'audit — bug critique trouvé via les vrais setups, nettoyage, optimisation Haiku-zéro (25 août, suite)
+
+Correction explicite de l'utilisateur sur l'audit précédent : *"cette audit
+n'est pas ce que je te demande... je te demande TOI Claude Code pas Haiku,
+de me fournir les setups pour verifier la veracite de nos propos... nettoyer
+ce qui n'est pas necessaire... optimiser pour accueillir l'automatisation
+Haiku plus tard... automatisation prioritaire sans credit si possible."*
+Mandat : tout fait par moi directement, pas d'agent/Haiku délégué.
+
+### 🔴 Bug critique réel trouvé en fournissant les setups demandés
+
+En sortant le setup complet Mining (DIAMOND_ORE, 7 tiers) pour vérification,
+découverte d'un bug structurel réel : **`applyPetsAndAccessories()` (pet +
+necklace/cloak/belt/bracelet/accessory_bag) était appelée SANS AUCUNE
+gate de tier** -- Divan Pendant/Sapphire Cloak/Jade Belt/Dwarven
+Handwarmers + pet Scatha (items très haut de gamme, largement au-dessus du
+budget d'un joueur starter) apparaissaient identiques bit-à-bit dans le
+setup "optimal" à **tous les 7 tiers**, y compris starter. Vérifié : même
+bug, même cause, présent dans **Foraging et Fishing** (mêmes 3 fichiers
+construits avant la convention `INVESTMENT_MAX_TIERS` introduite par
+Combat le 22-23 août, jamais rétro-adaptés). Combat/Bestiary/Sea Creatures/
+Slayer étaient déjà corrects (vérifié directement dans leur code).
+
+**Corrigé dans les 3 fichiers** (`lib/pluton-mining.ts`/`pluton-foraging.
+ts`/`pluton-fishing.ts`) : la couche pets/accessoires est désormais gatée
+à `INVESTMENT_MAX_TIERS` (expert/professional/master), exactement la même
+convention déjà utilisée par la couche "investissement maximal" juste en
+dessous dans ces mêmes fichiers (qui, elle, était déjà correcte). **Vérifié
+en base** : starter/amateur/intermediate/skilled ont désormais 0
+accessoire/pas de pet (Mining DIAMOND_ORE starter : 388 526→148 888
+coins/h, une baisse, mais un chiffre enfin honnête) ; expert/professional/
+master strictement inchangés (Mining 13 199 vitesse exacte, Foraging
+FF=717 exact, Fishing fishing_speed=220 exact). C'est le bug le plus
+significatif trouvé sur tout Pluton depuis le début du projet -- un
+joueur starter n'aurait jamais eu accès à ces items, le "setup optimal"
+affiché aux tiers bas n'avait jamais été réaliste jusqu'ici.
+
+### Vérification système -- pas d'autre cas similaire trouvé
+
+Kuudra (scaling cannon-perk par tier, formule progressive, pas de
+convergence anormale vérifiée sur KUUDRA_BASIC : 2.4M→3.5M→16.2M→
+34.2M→64.6M→121.7M→155.7M coins/h, 7 valeurs distinctes) et Dungeons
+(2 paliers réels seulement -- `useMaxBonus` bascule entre `chance_max_
+bonus_pct`/`chance_no_bonus_pct`, contrainte de la source elle-même qui
+ne documente que 2 scénarios de Bonus Chest, pas un raccourci de code)
+vérifiés sans anomalie structurelle du même type.
+
+### Nettoyage réel effectué
+
+- **1 route morte supprimée** : `historic-import` (backfill historique
+  price_history/price_history_ah, confirmé 100% terminé --
+  `historic_import_progress` : 6246/6246 lignes `status='done'`, 0
+  référence de code restante).
+- **8 tables mortes supprimées en base** : `dungeon_data`/`fishing_data`/
+  `kuudra_data`/`mayors`/`rift_items`/`slayer_data`/`subscription`
+  (singulier, doublon de `subscriptions`) -- 0 ligne, 0 référence de code,
+  confirmé avant suppression (`kuudra_data`/`slayer_data` déjà notées
+  "stub Phase-0 mortes" depuis le 4 août, jamais réellement supprimées) ;
+  `dungeon_classes` -- décision de suppression déjà prise dans le code le
+  24 août (`wiki-referential-sync` ne l'alimente plus, commentaire dans
+  le code le confirme) mais jamais finalisée côté table, terminé ici.
+- **1 dossier de debug vide résiduel supprimé** (`app/api/debug/trigger-
+  pluton-dungeons-refresh`, artefact filesystem d'une session antérieure).
+- **1 index dupliqué supprimé** (`price_history_ah` avait deux index
+  strictement identiques sur `(granularity, bucket_date)` -- `get_
+  advisors` niveau performance, seul item non-INFO trouvé).
+- Advisors sécurité/performance repassés en entier : rien d'autre
+  d'actionnable (uniquement des INFO deja acceptés lors de l'audit du 17
+  août -- RLS sans policy sur tables service-role-only, FK non indexées à
+  faible volume).
+
+### Optimisation Haiku-zéro construite (pas juste recommandée)
+
+Le triage manuel du `discovery_queue` (294/414 résolus par simple pattern
+SQL cette session) a été transformé en automatisation réelle : nouvelle
+table `discovery_queue_noise_patterns` (9 regex, extraits du triage
+manuel) + `app/api/cron/discovery-scan/route.ts` modifié pour auto-
+résoudre le bruit connu **à l'insertion**, avant tout jugement humain/
+Claude Code/Haiku futur. **Vérifié en prod** : 3 nouvelles pages détectées
+(Changelogs août), 3/3 auto-résolues, 0 restée pending. Zéro coût API,
+extensible sans redéploiement (ajouter une ligne à la table suffit).
+Réduit d'autant le volume qui nécessitera un jour un vrai jugement Haiku.
+
+### Organisation de la cartographie -- vérifiée fonctionnelle mais non utilisée
+
+Les 7 vues SQL `pluton_tier_starter`...`pluton_tier_master` (Phase 4 du
+plan, créées le 21 août) existent toujours, requêtables, cohérentes.
+**Mais `grep` confirme 0 référence de code nulle part** -- comme
+`pluton_rankings`/`pluton_setups` (voir section précédente), cette couche
+d'organisation existe et fonctionne mais n'est consommée par rien
+actuellement. Cohérent avec la méthode retenue depuis le 24 août (peupler
+les tables spécialisées déjà consommées par chaque calculateur, pas
+brancher les calculateurs sur `pluton_elements` dynamiquement) -- pas un
+bug, mais confirme que cette couche reste un potentiel dormant, pas un
+maillon actif du pipeline.
+
 ## Vision
 
 Plateforme SaaS d'intelligence économique gaming par abonnement, démarrage sur
