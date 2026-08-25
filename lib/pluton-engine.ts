@@ -251,21 +251,24 @@ export const THE_PRIMORDIAL_BELT_CRIT_DAMAGE = 20
 // Annihilation Cloak (cloak, LEGENDARY, Blaze Slayer VII).
 export const ANNIHILATION_CLOAK_STRENGTH = 20
 export const ANNIHILATION_CLOAK_CRIT_DAMAGE = 20
-// Manticore Claw (bracelet/gloves, LEGENDARY, craftable -- Ferocity+4 non
-// modelise, computeCombatDps n'a pas de parametre Ferocity, gap documente).
-export const MANTICORE_CLAW_STRENGTH = 20
-export const MANTICORE_CLAW_BONUS_ATTACK_SPEED = 2.5
+// TEMPORAIRE (25 aout) -- test A/B slot Gloves : Demonslayer Gauntlet
+// (CD+25%, wiki confirme) substitue a Manticore Claw (Str+20/BonusAS+2.5%)
+// pour comparer le DPS reel sur les 5 Slayers avant de trancher. A
+// revert ou confirmer apres verification en prod.
+// export const MANTICORE_CLAW_STRENGTH = 20
+// export const MANTICORE_CLAW_BONUS_ATTACK_SPEED = 2.5
+export const DEMONSLAYER_GAUNTLET_CRIT_DAMAGE = 25
 // Molten Necklace (necklace, EPIC, Kuudra).
 export const MOLTEN_NECKLACE_STRENGTH = 20
 // Red Claw Artifact (accessory_bag, EPIC, chaine Wolf Slayer 5).
 export const RED_CLAW_ARTIFACT_CRIT_DAMAGE = 5
 
 export const COMBAT_ACCESSORIES_TOTAL_STRENGTH =
-  GRIFFIN_PET_STRENGTH + THE_PRIMORDIAL_BELT_STRENGTH + ANNIHILATION_CLOAK_STRENGTH + MANTICORE_CLAW_STRENGTH + MOLTEN_NECKLACE_STRENGTH
+  GRIFFIN_PET_STRENGTH + THE_PRIMORDIAL_BELT_STRENGTH + ANNIHILATION_CLOAK_STRENGTH + MOLTEN_NECKLACE_STRENGTH
 export const COMBAT_ACCESSORIES_TOTAL_CRIT_CHANCE = GRIFFIN_PET_CRIT_CHANCE
 export const COMBAT_ACCESSORIES_TOTAL_CRIT_DAMAGE =
-  GRIFFIN_PET_CRIT_DAMAGE + THE_PRIMORDIAL_BELT_CRIT_DAMAGE + ANNIHILATION_CLOAK_CRIT_DAMAGE + RED_CLAW_ARTIFACT_CRIT_DAMAGE
-export const COMBAT_ACCESSORIES_TOTAL_BONUS_ATTACK_SPEED = GRIFFIN_PET_BONUS_ATTACK_SPEED + MANTICORE_CLAW_BONUS_ATTACK_SPEED
+  GRIFFIN_PET_CRIT_DAMAGE + THE_PRIMORDIAL_BELT_CRIT_DAMAGE + ANNIHILATION_CLOAK_CRIT_DAMAGE + RED_CLAW_ARTIFACT_CRIT_DAMAGE + DEMONSLAYER_GAUNTLET_CRIT_DAMAGE
+export const COMBAT_ACCESSORIES_TOTAL_BONUS_ATTACK_SPEED = GRIFFIN_PET_BONUS_ATTACK_SPEED
 
 // Charge le prix le plus recent de chaque item_id demande en 2 requetes
 // batchees (Bazaar d'abord, fallback AH nostar_norecomb) plutot qu'un
