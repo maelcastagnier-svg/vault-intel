@@ -659,6 +659,57 @@ brancher les calculateurs sur `pluton_elements` dynamiquement) -- pas un
 bug, mais confirme que cette couche reste un potentiel dormant, pas un
 maillon actif du pipeline.
 
+### 🔴 Vérification directe contre le wiki live (pas juste discovery_queue) -- correction demandée par l'utilisateur
+
+L'utilisateur a précisé que "cartographie complète" veut dire vérifier
+contre le vrai internet, pas juste retrier notre propre queue interne.
+Fait : requête directe à l'API MediaWiki du wiki officiel
+(`hypixelskyblock.minecraft.wiki/api.php`, `action=query&list=allpages`,
+paginée en entier) -- **8 146 pages non-redirect réelles** existent dans
+l'espace de noms principal. Comparé aux **8 132 pages capturées** en base
+(`game_mechanics_misc`, `source='hypixelskyblock_wiki'`) : **99,83% de
+couverture réelle vérifiée**, pas supposée.
+
+**78 pages réellement jamais vues, diffées et triées** : la découverte la
+plus significative est `Damage Calculation/Multiplicative Sources`
+(jamais cartographiée) qui révèle la chaîne complète Voidwalker→Voidedge→
+**Vorpal Katana**→Atomsplit Katana pour Enderman Slayer -- **Vorpal Katana
+était totalement absente de `pluton_slayer_weapon_stats`** alors que
+Voidedge et Atomsplit (les paliers avant/après) y étaient déjà. Stats
+sourcées directement depuis l'infobox wiki réelle (Damage+190/Force+80/
+Crit Damage+30%/multiplicateur mob=250% vs Endermen, Enderman Slayer 5),
+ajoutée comme candidat réel au palier intermediate/skilled. **Vérifié en
+prod** : Vorpal Katana désormais sélectionnée sur les 4 paliers Enderman à
+intermediate/skilled, Voidedge Katana correctement dominé/écarté par le
+moteur de recherche -- exactement le genre de découverte "hors chemin
+canonique" que la Vision Pluton demande depuis le 21 août.
+
+Les 77 autres pages manquantes triées : majoritairement cosmétique/
+événementiel (Fire Sale par année 2020-2026, Helmet/Pet Skins par année,
+NPC/List par zone -- simples annuaires de lieu) ou vanilla Minecraft
+(Comparator, Farmland, Dispenser, Daylight Detector). **5 candidats
+documentés mais non fermés** : `Damage Calculation/Damage Cap` (bosses
+événementiels type Apex Dragon, pas les 5 boss Slayer actuels) et
+`Damage Calculation/Magic Resistance` (Dungeon Mobs -- non applicable au
+score S+ déterministe actuel de Dungeons) confirmés non-pertinents pour
+l'architecture actuelle ; `Glacial (Mob Type)` (mobs des Glacite
+Mineshafts, endommageables uniquement au Pickaxe/Drill -- un vrai combat
+pendant le minage jamais modélisé, Mining actuel = pur cassage de bloc)
+documenté comme backlog réel, scope non mesuré ; `Skill Tree`/`Item
+Types` confirmés être des pages méta/glossaire sans mécanique chiffrée
+nouvelle.
+
+**64 pages "en trop"** (capturées chez nous, plus trouvées sous ce nom
+sur le wiki live) confirmées être des renommages déjà retrouvés sous leur
+nouveau nom le même jour via le triage `discovery_queue` (Hunter Fortune→
+Hunting Fortune, Fishing Bait→Bait, Sweep/Foraging Fortune Booster→
+Common X Booster) -- pas une perte de contenu, juste des doublons sous
+ancien nom pas encore nettoyés en base (pas fait, priorité basse).
+
+**NEU-REPO/SkyHanni-REPO** (les 2 autres sources actives) reconfirmées
+saines : dernière sync réussie 24 août, cadence hebdomadaire respectée,
+aucun signe de staleness.
+
 ## Vision
 
 Plateforme SaaS d'intelligence économique gaming par abonnement, démarrage sur
