@@ -398,6 +398,171 @@ spawn > valeur de la chair garantie seule, honnête vu le gap RNG
 documenté") : tuer plus vite un boss à EV négative sur le loot garanti
 aggrave mathématiquement la perte/heure, pas un nouveau bug.
 
+## 🔎 Audit général complet — cartographie, système, démo, automatisation (25 août)
+
+Mandat explicite de l'utilisateur après la continuation matinale : vérifier
+l'exhaustivité réelle de la cartographie (100% des sources possibles),
+auditer le système "en somme" pour savoir où aller, démontrer un skill au
+hasard (activités par tier + setup complet), vérifier l'automatisation et
+penser optimisation (SQL/cron pur vs Haiku), avec pour seule contrainte
+20h le soir même. Travail en full autonomie, aucune limite de temps.
+
+### 1. Cartographie — PAS 100%, un vrai gap trouvé et en partie fermé
+
+**Le pipeline d'extraction est actuellement bloqué** : `pluton-weekly-sync`
+(le seul job qui découvre et classe du contenu VRAIMENT nouveau) a échoué
+le 24 août à 05h15 — `error: "Your credit balance is too low to access
+the Anthropic API"`. Crédits Haiku épuisés, confirmé en base
+(`sync_log.error`). Les crons `wiki-referential-sync`/`skyhanni-repo-sync`
+tournent bien chaque semaine mais ne font que RE-vérifier des tables déjà
+connues (mêmes row counts à chaque run depuis le 4 août) — ils ne
+découvrent rien de neuf.
+
+**🔴 Vrai trou trouvé** : table `discovery_queue` (alimentée par le cron
+`discovery-scan`, quotidien, indépendant de Haiku) contenait **414 pages
+wiki détectées comme nouvelles mais jamais triées** — le contenu existait
+déjà dans `game_mechanics_misc` (donc déjà "cartographié" au sens brut)
+mais jamais classé ni évalué pour savoir si c'est une vraie mécanique ou
+du bruit. Triage fait manuellement (moi, zéro coût API, même discipline
+que d'habitude) : **294 résolus** (bruit confirmé -- blocs/outils/teintures
+vanilla Minecraft, changelogs, travel scrolls, ou déjà catalogués dans
+attribute_shards/critters/sea_creature_pools), **126 encore en attente**
+(majoritairement noms de créatures Fishing/Hunting obscurs ou items
+cosmétiques probablement déjà couverts, pas encore vérifiés un par un).
+
+**2 fermetures réelles issues de ce triage** :
+- **Foraging Fortune Booster** (item Anvil, renommé 4 août 2026, jamais vu
+  avant) — +20 FF Axe/+10 FF Armure/+5 FF Équipement, jamais câblé
+  contrairement au Sweep Booster (déjà correct depuis le 17 août). Ajouté
+  à `stat_bonus_sources`, vérifié en prod : +35 FF exact sur les 3 blocs
+  Foraging master (823→858, 792→827, 682→717).
+- **Drill Parts/Pesterminator/Hunting Fortune** re-vérifiés sur leur vraie
+  page source (jamais lue directement avant, seulement via des pages
+  dérivées) : Amber-Polished Drill Engine confirmé exact, Pesterminator
+  confirmé déjà inclus (FF via FARMING_FORTUNE_MAX_PERMANENT, BPC via
+  BONUS_PEST_CHANCE_MAX=551.5), Hunting Fortune reconfirmé bloqué (la page
+  dédiée documente COMMENT gagner le stat mais jamais la formule
+  stat→quantité de shards).
+
+**3 backlogs réels identifiés, pas fermés** (documentés
+`pluton_mechanic_coverage`) : **Bait** (19 items consommables Fishing,
+économie coût/bénéfice par capture jamais modélisée, même famille que
+Forge) ; **Critter Safari** (minigame de capture, 43 critters déjà
+catalogués mais jamais évalués comme activité money-making) ; **Heart of
+the Forest/List/Tier 1-8** (liste complète jamais relue en entier depuis
+le fix Center of the Forest du 23 août, potentiellement d'autres perks
+exploitables manqués).
+
+**Conclusion honnête sur "100%"** : la cartographie brute (`game_mechanics_
+misc`, ~184k `pluton_elements`) est large et le triage a confirmé qu'il
+n'y avait PAS de mécanique majeure manquante parmi les 414 candidats
+(surtout du bruit vanilla + du contenu déjà couvert) — mais le process
+n'était PAS à 100% avant cet audit, et le mécanisme de découverte reste
+bloqué tant que les crédits Haiku ne sont pas rechargés.
+
+### 2. Démo skill aléatoire — Farming (sélection SQL `random()`)
+
+Tiré au hasard parmi les 9 `activity_key` construits : **Farming**. Ce
+qu'on verrait en prod aujourd'hui (`pluton_rankings`/`pluton_setups`,
+13 cultures × 7 tiers) :
+
+- **starter/amateur** : 0 ligne, volontairement -- Garden est interdit à
+  ces 2 tiers (confirmé intentionnel, pas un bug, déjà documenté le 23 août).
+- **intermediate/skilled** : setup réel différencié par tier (armure
+  Tater→Squash, outil niveau 8→25, budget réel ~29M→83M), classement
+  cohérent (Mushroom toujours en tête, Melon Slice toujours en queue).
+- **expert/professional/master** : 🔴 **les 3 tiers donnent un résultat
+  BYTE-POUR-BYTE IDENTIQUE** (même armure Helianthus, même FF=2392, même
+  coins/h) -- seul `real_cost` diffère (300M/1B/9999999999), mais ce champ
+  n'est qu'un plafond de config, pas un total pièce-par-pièce recalculé.
+  Cause réelle : `farmingMaxLayerFor()` renvoie une constante UNIQUE
+  (`FARMING_FORTUNE_MAX_PERMANENT`, le "Theoretical Maximum" du wiki) sans
+  aucune différenciation par tier, alors que `INVESTMENT_MAX_TIERS`
+  regroupe 3 tiers réels (expert/professional=ancien "end", master=ancien
+  "late" -- voir doc `pluton-engine.ts`). Pas un bug introduit par la
+  migration 7-tiers -- la source elle-même (page wiki "Achieving Maximum
+  Farming Fortune") ne documente qu'UN SEUL maximum absolu, jamais de
+  palier intermédiaire "end" vs "late" -- fidèle à ce qui existait déjà
+  avant. Reste un vrai angle mort : 3 tiers Pluton sur 7 rendent le même
+  résultat pour Farming, plus qu'aucun autre skill vérifié cette session.
+- 🔴 **`accessories` toujours `[]` dans `pluton_setups`, à TOUS les
+  tiers** -- contrairement à Mining/Foraging/Fishing/Slayer qui listent le
+  détail (necklace/cloak/belt/bracelet/pet choisis), Farming ne stocke que
+  les totaux agrégés (`total_mining_fortune`=FF, `armor_set_prefix`). Le
+  code (`lib/pluton-farming.ts:693`) écrit `accessories: []` en dur. Un
+  vrai gap si un dashboard veut un jour afficher "voici votre collier/
+  cape/ceinture/bracelet optimal" pour Farming spécifiquement -- pas
+  inventé, trouvé en tirant les vraies lignes persistées.
+
+### 3. Audit système — le vrai goulot n'est plus le backend
+
+**🔴 Constat le plus important de cette session** : `pluton_rankings` et
+`pluton_setups` (9 activités, ~3600 lignes combinées, des semaines de
+travail de fermeture de gaps) ne sont consommés par **AUCUNE route
+frontend ni API produit** (`grep` sur tout `app/` hors `cron`/`debug` :
+0 résultat). Le Money Making actuel (`app/api/cron/money-making-agent`)
+et Evolve Skills (`app/api/cron/evolve-skills`) tournent en parallèle,
+totalement indépendants de Pluton, sans jamais le référencer.
+
+**Conséquence directe pour "conclure Pluton"** : le moteur de calcul est
+maintenant mature et exhaustivement vérifié (bugs réels trouvés et
+fermés à chaque skill, arbitrages réels par slot, découverte au-delà du
+chemin canonique confirmée en pratique sur Combat). Continuer à chercher
+des gaps isolés dans le backend a des rendements décroissants (confirmé
+cette session : la plupart des candidats explorés étaient soit déjà
+couverts, soit réellement bloqués faute de source). **Le vrai chantier
+restant pour "conclure une bonne fois pour toute" n'est plus l'extraction
+ni le calcul -- c'est le consommateur** : brancher `pluton_rankings`/
+`pluton_setups` dans le dashboard réel (remplacer ou augmenter Money
+Making + Evolve), exactement l'étape 3 de la Vision finale du 21 août
+("comparaison interne pour proposer les meilleures money making
+methods... pour Evolve, proposer le meilleur setup") jamais commencée.
+
+### 4. Automatisation — état réel, optimisation Haiku
+
+**11 des 12 crons `pluton-*-refresh` tournent quotidiennement à 100% de
+succès** (10 derniers jours, `sync_log`) -- Mining a eu 1 échec isolé le
+22 août (déjà documenté, incident chevauchement) puis 100% depuis.
+`pluton-classification-sync` (nouveau, lundi 6h10) n'a pas encore eu sa
+première fenêtre -- rien d'anormal. **Seul `pluton-weekly-sync` est cassé**,
+et seulement à cause des crédits Haiku (voir section 1) -- le code
+lui-même n'a pas de bug, il suffira de recharger les crédits.
+
+**Optimisation réelle trouvée** : le triage manuel du `discovery_queue`
+fait cette session (294/414 résolus par simple pattern SQL -- blocs
+vanilla, changelogs, travel scrolls, doublons déjà catalogués) prouve
+qu'une **grande partie du travail actuellement prévu pour Haiku
+(`pluton-weekly-sync` classification) pourrait être pré-filtrée par des
+règles SQL pures AVANT tout appel Haiku** -- exactement le même principe
+que `pluton_classification_rules` (déjà en place pour `pluton_elements.
+activity`), simplement pas encore étendu à `discovery_queue`. Recommandation
+concrète : ajouter une table `discovery_queue_noise_patterns` (ou
+réutiliser `pluton_classification_rules` avec un nouveau `rule_type`)
+appliquée automatiquement par `discovery-scan`, pour que seuls les ~20-30%
+de candidats VRAIMENT ambigus (comme "Brine Tonic"/"Bait" cette session)
+arrivent devant Haiku (ou devant Claude Code) -- pas les 70%+ qui sont du
+bruit vanilla reconnaissable par regex. Réduit le coût ET la charge de
+triage manuel futur.
+
+**Ce qui est déjà correctement pensé pour l'auto-entretien** (pas à
+refaire) : chaque activité Pluton a son cron dédié, idempotent (delete-
+puis-rebuild scopé), aucune dépendance croisée entre activités (confirmé
+par les incidents de chevauchement déjà documentés -- toujours résolus en
+isolant l'activité, jamais en introduisant un lock partagé fragile) ;
+`pluton_classification_rules`/`pluton_mechanic_coverage` sont rejouables
+et inspectables, pas des scripts one-shot.
+
+### Prochaines étapes concrètes, dans l'ordre
+
+1. Recharger les crédits Haiku -- débloque `pluton-weekly-sync` seul.
+2. Étendre le pré-filtrage SQL du `discovery_queue` (voir section 4) avant
+   de relancer une nouvelle vague de triage.
+3. Fermer les 3 backlogs identifiés section 1 si prioritaires (Bait,
+   Critter Safari, HOTF Tier List complet) -- sinon les laisser documentés.
+4. **Chantier prioritaire réel** : brancher le frontend sur `pluton_
+   rankings`/`pluton_setups` (section 3) -- c'est la seule chose qui
+   empêche de dire "Pluton est fini".
+
 ## Vision
 
 Plateforme SaaS d'intelligence économique gaming par abonnement, démarrage sur
