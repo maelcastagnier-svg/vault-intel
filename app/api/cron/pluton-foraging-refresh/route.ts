@@ -9,7 +9,11 @@ import { startSync, finishSync } from '../../../../lib/sync-log'
 
 // 120->180 (23 aout, migration 7-tiers) -- +75% de combos (4->7 tiers),
 // marge de securite, aucune formule changee.
-export const maxDuration = 180
+// 180->240 (25 aout, audit exhaustivite Collections officielles) -- 6 blocs
+// supplementaires (15->21, +40% de combos) apres qu'un appel equivalent sur
+// Mining ait timeout a 300s -- marge de securite augmentee par prudence,
+// aucune formule changee.
+export const maxDuration = 240
 
 export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {

@@ -23,7 +23,11 @@ import { startSync, finishSync } from '../../../../lib/sync-log'
 // rapport aux 4 tiers d'origine (deja documente comme proche de la limite
 // a 280s avec Forge inclus) -- marge de securite augmentee au max deja
 // valide sur ce projet, aucune formule changee.
-export const maxDuration = 300
+// 300->400 (25 aout, audit exhaustivite Collections officielles) -- 6 blocs
+// supplementaires (33->39, +18% de combos) apres qu'un appel de verification
+// isole ait timeout a 300s (FUNCTION_INVOCATION_TIMEOUT) -- marge de securite
+// augmentee en consequence, aucune formule changee.
+export const maxDuration = 400
 
 export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
