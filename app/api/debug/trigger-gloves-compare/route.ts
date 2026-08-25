@@ -2,10 +2,10 @@
 // Gauntlet (slot Gloves Combat) sur les 5 paliers top master. A supprimer
 // apres verification.
 import { NextResponse } from 'next/server'
-import { computeSlayerRanking } from '../../../../lib/pluton-slayer'
+import { computeSlayerRanking, computeAndPersistAllSlayerRankings } from '../../../../lib/pluton-slayer'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+export const maxDuration = 120
 
 const BLOCKS = ['ZOMBIE_T5', 'SPIDER_T5', 'WOLF_T4', 'ENDERMAN_T4', 'BLAZE_T1']
 
@@ -15,5 +15,6 @@ export async function GET() {
     const r = await computeSlayerRanking('master', block)
     results[block] = { weapon: r.top_setup?.weapon, dps: r.top_setup?.dps, gloves: r.top_setup?.gloves }
   }
-  return NextResponse.json(results)
+  const all = await computeAndPersistAllSlayerRankings()
+  return NextResponse.json({ results, combos: all.length, with_setup: all.filter((r: any) => r.has_setup).length })
 }
