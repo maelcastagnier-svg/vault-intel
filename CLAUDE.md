@@ -749,6 +749,56 @@ Farming Fortune, Sweep, Sea Creature/Treasure Chance, Bonus Pest Chance
 et les fortunes par culture, pas seulement le Combat), documentée dans
 `pluton_mechanic_coverage` plutôt que laissée implicite.
 
+### NEU-REPO/SkyHanni-REPO -- extraction reelle vs disponible, exhaustivite jusqu'a epuisement (25 aout)
+
+Mandat "exhaustivité jusqu'à épuisement des sources" -- audité les 2 repos
+GitHub jusqu'au bout, pas juste confirmé leur cron actif.
+
+**NEU-REPO : 17 771 fichiers réels, seulement `constants/` (40 fichiers)
+synchronisé** -- `items/` (8755) et `itemsOverlay/` (8652) redondants avec
+l'API officielle (déjà couverte) ; `mobs/` (279) vérifié être des données
+de SKIN cosmétique pour le mod, pas des stats de combat -- confirmé sans
+valeur, pas juste supposé. `mining/` (29 fichiers, `mining/blocks/*.json`,
+breakingPower+blockStrength par bloc) **jamais consulté avant, cross-
+vérifié bloc par bloc contre `pluton_target_blocks`** : Glacite/Sulphur/
+Hard Stone confirmés exacts, **Tungsten et Umber (breakingPower=9/
+blockStrength=5600 chacun) totalement absents comme cibles Mining
+directes** malgré que leurs sorties Forge le soient déjà -- prix Bazaar
+réels confirmés (~124/~135 coins), ajoutés et vérifiés en prod (0 doublon,
+progression cohérente, même profil de tiers que Sulphur Ore).
+
+**Découverte non fermée, documentée** : plusieurs ores ont de VRAIES
+variantes multiples avec des block_strength différents -- Mithril a 3
+paliers réels confirmés par 2 sources indépendantes (wiki + SkyHanni :
+LOW=500/MID=800/HIGH=1500) ; les ores basiques ont un variant "Pure"
+Crystal Hollows (block_strength=600) distinct du variant de surface (30).
+**Vérifié que ce n'est PAS une nouvelle activité manquante** (les variantes
+"Pure" ne sont pas des items tradeable séparés -- pas de PURE_COAL/
+PURE_DIAMOND dans `items_catalog`, même drop que le variant normal) --
+c'est une simplification de modèle déjà réelle (un seul variant assumé
+par bloc), documentée dans `pluton_mechanic_coverage`, pas fermée (scope :
+séparer chaque variante en target_block nécessiterait une pondération de
+spawn-rate non sourcée).
+
+**SkyHanni-REPO : 114 fichiers réels, 17/68 fichiers `constants/*.json`
+synchronisés.** Échantillon des non-synchronisés : `Enchants.json` (juste
+noms/niveaux max, pas de valeurs de bonus -- déjà couvert par la table
+`enchantments`) et `Pets.json` (uniquement métadonnées de skins
+cosmétiques) confirmés sans valeur. `Mining.json` a fourni la 3e source
+indépendante confirmant Mithril LOW/MID/HIGH ci-dessus. Reste ~50
+fichiers non échantillonnés individuellement (Bazaar/DianaDrops/
+DragonProfitTrackerItems/CrimsonIsleReputation/HoppityEgg* etc.) --
+majoritairement événementiel/cosmétique au vu des noms, pas vérifié un
+par un faute de temps, honnêtement laissé en `not_yet_audited`.
+
+**Bilan sources (4 confirmées, épuisées à un niveau raisonnable, pas à
+100% fichier-par-fichier)** : Wiki 99,83% (8132/8146 pages), API
+officielle Hypixel (bug majeur corrigé), NEU-REPO (`constants/`+`mining/`
+audités, `items/`/`itemsOverlay/`/`mobs/` confirmés sans valeur
+supplémentaire), SkyHanni-REPO (17/68 `constants/*.json` vérifiés
+pertinents, ~50 non échantillonnés individuellement -- gap honnête, pas
+un chantier fermé).
+
 ## Vision
 
 Plateforme SaaS d'intelligence économique gaming par abonnement, démarrage sur
