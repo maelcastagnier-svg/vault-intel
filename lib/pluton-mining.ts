@@ -112,6 +112,10 @@ export const MINING_TARGET_BLOCK_IDS = [
   'AQUAMARINE_GEMSTONE', 'ONYX_GEMSTONE', 'CITRINE_GEMSTONE', 'PERIDOT_GEMSTONE',
   'COBBLESTONE', 'NETHERRACK', 'ENDER_STONE', 'HARD_STONE', 'OBSIDIAN',
   'REDSTONE_ORE', 'EMERALD_ORE', 'QUARTZ_ORE', 'LAPIS_ORE', 'SULPHUR_ORE',
+  // Tungsten/Umber (25 aout, trouves via cross-verification NEU-REPO --
+  // materiaux Crystal Hollows/Mineshaft reels et priceables, jamais ajoutes
+  // comme cibles Mining directes malgre que leurs sorties Forge le soient.
+  'TUNGSTEN', 'UMBER',
 ] as const
 
 // 7 tiers reels (starter->master, 23 aout) -- voir doc pluton-engine.ts.
