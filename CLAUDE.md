@@ -331,6 +331,52 @@ vérification.
   floor-access-gate reconfirmé non-fermable (SkyBlock Guide donne une
   correspondance statique niveau↔tier mais aucun taux de progression).
 
+### ✅ Fishing — Rod Parts (Hooks/Lines/Sinkers) audité en entier, 1 fermeture réelle (25 août)
+
+Suite de l'investigation du gap "Junk Ring" (Treasure Chance, mal attribué
+à Foraging dans `pluton_mechanic_coverage` — corrigé au passage, c'est un
+item Fishing). En creusant le mécanisme réel de Junk Sinker ("replaces all
+caught Treasures with Junk while in the Backwater Bayou"), découverte
+d'une couche NBT entière jamais consommée par `lib/pluton-fishing.ts` :
+les **Rod Parts** (table `rod_parts`, 18 pièces réelles réparties en
+3 slots — Hooks/Lines/Sinkers), un système d'attachement de canne distinct
+des armures/rods eux-mêmes.
+
+**Slot Lines audité en entier (4 pièces)** : **Speedy Line** (+10 Fishing
+Speed, Fishing 5, aucune restriction de zone) — seule pièce avec une stat
+directement computable dans le modèle actuel, ajoutée à tous les tiers
+(`SPEEDY_LINE_FISHING_SPEED`). Les 3 autres écartées avec raison précise,
+pas ignorées : Shredded Line (Damage+250/Ferocity+50) ne s'applique pas —
+`lib/pluton-sea-creatures.ts` réutilise le gear Zombie Slayer pour le
+combat, pas la rod elle-même ; Titan Line (Double Hook Chance +2) n'a
+aucune formule sourcée pour ce que "Double Hook Chance" fait mécaniquement ;
+Trophy Line (Trophy Fish Chance +5) reste hors-scope (Trophy déjà exclu
+depuis la construction Fishing du 17 août).
+
+**Slot Sinkers audité en entier (8 pièces), rien fermé — gaps réels
+documentés** : Chum/Icy/Prismarine/Sponge Sinkers "matérialisent" un item
+gratuit à chaque capture, mais aucune quantité/formule n'est sourcée nulle
+part (juste "materializes X into your inventory whenever you catch
+something") — inventer une quantité violerait la règle #7. Junk/Hotspot/
+Festive Sinkers confirmés zone/événement-gatés (Backwater Bayou/Hotspot/
+Jerry's Workshop) — `WATER_POOL` (cible Fishing actuelle) est explicitement
+générique HORS Backwater Bayou, même statut que les pools `event_gated`
+déjà traitées ailleurs (pas fermé, nécessiterait une vraie activité Fishing
+dédiée à Backwater Bayou pour être intégré correctement).
+
+**Slot Hooks audité en entier (5 pièces), rien fermé** : toutes boostent
+des chances de capture spécifiques à des Sea Creatures/zones déjà
+hors-scope (Puddle Jumper déjà exclu du modèle HP/DPS standard, Hotspot/
+Spooky zone/événement-gatés, Treasure Hook restreint aux items+Treasure
+uniquement donc perd l'accès aux Fish/Sea Creature normaux — tradeoff non
+modélisable sans formule de valeur relative sourcée).
+
+Vérifié en base : master/WATER_POOL — Fishing Speed 210→220 (exact, +10),
+coins/h 386 365→418 911 (+8.4%), cohérent sur les 7 tiers (7 combos).
+5 nouvelles lignes `pluton_mechanic_coverage` (1 `wired` + 4 gaps
+documentés par catégorie). Route de debug temporaire supprimée après
+vérification.
+
 ### Ce qui reste, honnêtement, pour la suite
 
 6 skills `built` non encore audités selon cette méthode cette nuit :
