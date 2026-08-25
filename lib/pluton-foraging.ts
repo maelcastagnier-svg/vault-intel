@@ -85,8 +85,19 @@ const BONUS_LOGS_CAP = 35 // + 1 log garanti = 36 logs/swing max (wiki "Sweep")
 // Logs par swing = 1 (garanti) + bonus, formule reelle wiki "Sweep#Formula".
 // max(0, ...) avant l'exposant 1.9 -- evite un NaN si Sweep < Toughness (le
 // bonus est alors legitimement nul, pas une puissance de nombre negatif).
+// 🔴 Bug reel corrige (25 aout, trouve en ajoutant les arbres de base
+// Oak/Spruce/Birch/Jungle/Acacia/Dark Oak -- jamais testes avant car seuls
+// Fig/Mangrove/Helix, tous Toughness>0, etaient modelises). La branche
+// toughness<=0 retournait 1 log fixe, ignorant Sweep entierement -- faux :
+// wiki "Sweep#Formula" section "Basic Trees" confirme explicitement "Trees
+// in the Forest and The Park have Toughness 0. For these trees, Sweep
+// simply represents the number of extra logs that will be cut, but
+// players will always cut at least 1 and at most 36 logs" -- formule
+// lineaire simple (1+Sweep, plafond 36), pas le formule log10 des arbres
+// Galatea (Fig/Mangrove/Helix, Toughness>0, section "Galatea Trees"
+// distincte, formule inchangee).
 export function computeLogsPerSwing(sweep: number, toughness: number): number {
-  if (toughness <= 0) return 1
+  if (toughness <= 0) return 1 + Math.min(BONUS_LOGS_CAP, Math.max(0, sweep))
   const raw = (sweep + Math.sqrt(Math.max(0, sweep)) - toughness) / Math.pow(toughness, 0.511)
   if (raw <= 0) return 1
   const bonus = 4 * Math.log10(1 + Math.pow(raw, 1.9))
@@ -364,7 +375,13 @@ export async function computeForagingRanking(tier: SevenTier, blockId: string, t
 
   if (!block) throw new Error(`Unknown target block: ${blockId}`)
 
-  const toughness = Number(block.block_strength) || 1
+  // 🔴 Bug reel corrige (25 aout, meme decouverte que computeLogsPerSwing) :
+  // le fallback `|| 1` transformait un vrai Toughness=0 (arbres de base
+  // Oak/Spruce/Birch/Jungle/Acacia/Dark Oak, The Park/Forest) en 1,
+  // routant a tort vers la formule Galatea au lieu de la formule lineaire
+  // simple des arbres de base. `?? 0` prend le block_strength reel tel
+  // quel (0 est une valeur legitime, pas une absence de donnee).
+  const toughness = Number(block.block_strength ?? 0)
   const priceById = new Map<string, PricedItem>(priced.map(p => [p.item_id, p]))
   const armorMax = resolvedTierConfig.max_gear_cost * 3
   const toolMax = resolvedTierConfig.max_gear_cost * 3

@@ -116,6 +116,15 @@ export const MINING_TARGET_BLOCK_IDS = [
   // materiaux Crystal Hollows/Mineshaft reels et priceables, jamais ajoutes
   // comme cibles Mining directes malgre que leurs sorties Forge le soient.
   'TUNGSTEN', 'UMBER',
+  // Ice/Sand/Red Sand/Gravel/Mycelium/Glowstone Dust (25 aout, audit
+  // exhaustivite contre les Collections officielles Hypixel -- 6 items
+  // MINING collectionnables jamais ajoutes). Wiki Block Strength confirme
+  // ces blocs "Non reliant on Mining Speed" (vanilla Efficiency/Haste, pas
+  // la stat Mining Speed) -- block_strength=1/required_breaking_power=0
+  // choisis pour reproduire fidelement l'instamine reel (seuil Efficiency
+  // 2-4 trivialement atteint par tout Mining Speed reel a chaque tier) via
+  // la formule existante, sans inventer un mecanisme parallele.
+  'ICE', 'SAND', 'RED_SAND', 'GRAVEL', 'MYCELIUM', 'GLOWSTONE_DUST',
 ] as const
 
 // 7 tiers reels (starter->master, 23 aout) -- voir doc pluton-engine.ts.
