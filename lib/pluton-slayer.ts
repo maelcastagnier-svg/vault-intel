@@ -120,7 +120,7 @@ const WEAPON_RARITY: Record<string, string> = {
   UNDEAD_SWORD: 'COMMON', REVENANT_SWORD: 'RARE', REAPER_SWORD: 'EPIC', REAPER_SCYTHE: 'LEGENDARY', AXE_OF_THE_SHREDDED: 'LEGENDARY',
   SPIDER_SWORD: 'COMMON', RECLUSE_FANG: 'UNCOMMON', TARANTULA_FANG: 'RARE', SCORPION_FOIL: 'EPIC', STING: 'LEGENDARY',
   SHAMAN_SWORD: 'EPIC', POOCH_SWORD: 'LEGENDARY',
-  VOIDWALKER_KATANA: 'UNCOMMON', VOIDEDGE_KATANA: 'RARE', ATOMSPLIT_KATANA: 'LEGENDARY',
+  VOIDWALKER_KATANA: 'UNCOMMON', VOIDEDGE_KATANA: 'RARE', VORPAL_KATANA: 'EPIC', ATOMSPLIT_KATANA: 'LEGENDARY',
   MAWDUST_DAGGER: 'RARE', HEARTMAW_DAGGER: 'LEGENDARY',
 }
 const ARMOR_RARITY_BY_PREFIX: Record<string, string> = {
@@ -235,6 +235,7 @@ const JASPER_SLOTS_BY_WEAPON: Record<string, number> = {
   POOCH_SWORD: 1, // LEGENDARY, 1 emplacement Jasper-only
   ATOMSPLIT_KATANA: 1, // LEGENDARY, 1 emplacement Jasper (2 Sapphire ignores, sans effet DPS)
   VOIDEDGE_KATANA: 1, // RARE, 1 emplacement Jasper (1 Sapphire ignore)
+  VORPAL_KATANA: 1, // EPIC, 1 emplacement Jasper (1 Sapphire ignore, meme pattern que Voidedge/Atomsplit)
 }
 // Reaper Armor -- SEULE armure de ces 5 Slayers avec un vrai emplacement
 // Jasper confirme (1, Combat universel, LEGENDARY) -- Mastiff/Primordial
@@ -334,7 +335,14 @@ const GEAR_BY_SLAYER_TIER: Record<string, Record<'early' | 'mid' | 'end' | 'late
   },
   enderman: {
     early: { weapons: ['VOIDWALKER_KATANA'], armor: null, enrage: false },
-    mid: { weapons: ['VOIDEDGE_KATANA'], armor: 'FINAL_DESTINATION', enrage: false },
+    // Vorpal Katana (25 aout, trouve via verification directe contre le
+    // wiki live -- page jamais cartographiee avant, confirmee absente de
+    // pluton_slayer_weapon_stats) -- rareite reelle intermediaire entre
+    // Voidedge et Atomsplit dans la chaine d'upgrade reelle (Voidedge ->
+    // Vorpal -> Atomsplit, wiki "upgrades_from"/"upgrades_to"), Enderman
+    // Slayer 5. Ajoutee comme candidat reel, pas en remplacement force de
+    // Voidedge (le moteur de recherche tranche).
+    mid: { weapons: ['VOIDEDGE_KATANA', 'VORPAL_KATANA'], armor: 'FINAL_DESTINATION', enrage: false },
     end: { weapons: ['ATOMSPLIT_KATANA'], armor: 'FINAL_DESTINATION', enrage: false },
     // Vivacious Darkness (Final Destination, toggle continu cout Soulflow)
     // -- LATE uniquement, meme convention "investissement max" que Enrage
