@@ -170,18 +170,25 @@ function computeSecondsPerCatch(fishingSpeed: number, applyQuickBite: boolean, i
 // dedoublonnee depuis pluton_elements qui portait 4 copies identiques par ligne,
 // artefact de classification anterieur, non corrige ici -- hors scope de ce
 // chantier). "Total Chance" du wiki deja normalise a 100% par palier, utilise
-// tel quel comme poids. item_id=null => catch non pricee (Raw Salmon/Tropical
-// Fish/Pufferfish base, Enchanted Tropical Fish, pets Squid : aucun prix
-// Bazaar/AH fiable trouve ou hors scope -- jamais invente, contribue 0 a l'EV
-// plutot qu'une valeur devinee).
+// tel quel comme poids. item_id=null => catch non pricee (Enchanted Tropical
+// Fish, pets Squid : aucun prix Bazaar/AH fiable trouve ou hors scope --
+// jamais invente, contribue 0 a l'EV plutot qu'une valeur devinee).
+// 🔴 Bug reel corrige (25 aout, audit exhaustivite Collections officielles
+// FISHING) : Raw Salmon/Tropical Fish/Pufferfish (RAW_FISH:1/:2/:3) avaient
+// item_id=null avec la note "aucun prix Bazaar/AH fiable trouve" -- verifie
+// directement contre price_history, les 3 ont bel et bien un historique
+// Bazaar complet et actif (RAW_FISH:1 ~4-60, RAW_FISH:2 ~208 max, RAW_FISH:3
+// ~38.5 max) -- soit jamais cherches sous ce pattern d'item_id au moment de
+// la construction initiale (17 aout), soit un marche qui n'existait pas
+// encore a ce moment. Corrige avec les vrais item_id Bazaar.
 type LootRow = { itemId: string | null; qty: number; chancePct: number }
 const WATER_LOOT_GOOD: LootRow[] = [
   { itemId: 'RAW_FISH', qty: 16, chancePct: 22.00 },
-  { itemId: null, qty: 16, chancePct: 15.00 }, // Raw Salmon
-  { itemId: null, qty: 12, chancePct: 10.00 }, // Tropical Fish
+  { itemId: 'RAW_FISH:1', qty: 16, chancePct: 15.00 }, // Raw Salmon
+  { itemId: 'RAW_FISH:2', qty: 12, chancePct: 10.00 }, // Tropical Fish
   { itemId: 'CLAY_BALL', qty: 32, chancePct: 10.00 },
   { itemId: 'SPONGE', qty: 16, chancePct: 10.00 },
-  { itemId: null, qty: 12, chancePct: 8.00 }, // Pufferfish
+  { itemId: 'RAW_FISH:3', qty: 12, chancePct: 8.00 }, // Pufferfish
   { itemId: 'PRISMARINE_SHARD', qty: 8, chancePct: 5.00 },
   { itemId: 'PRISMARINE_CRYSTALS', qty: 8, chancePct: 5.00 },
   { itemId: 'GRAND_EXP_BOTTLE', qty: 4, chancePct: 5.00 },
@@ -216,9 +223,9 @@ const WATER_LOOT_OUTSTANDING: LootRow[] = [
 ]
 const WATER_LOOT_NORMAL: LootRow[] = [
   { itemId: 'RAW_FISH', qty: 1, chancePct: 40.00 },
-  { itemId: null, qty: 1, chancePct: 27.27 }, // Raw Salmon
-  { itemId: null, qty: 1, chancePct: 18.18 }, // Tropical Fish
-  { itemId: null, qty: 1, chancePct: 14.55 }, // Pufferfish
+  { itemId: 'RAW_FISH:1', qty: 1, chancePct: 27.27 }, // Raw Salmon
+  { itemId: 'RAW_FISH:2', qty: 1, chancePct: 18.18 }, // Tropical Fish
+  { itemId: 'RAW_FISH:3', qty: 1, chancePct: 14.55 }, // Pufferfish
 ]
 // Qualite Treasure : base 89%/10%/1% good/great/outstanding (wiki "Treasure"),
 // boosts (Blessed Bait/Blessing enchant/Hermit Crab Legendary+) non modelises --
