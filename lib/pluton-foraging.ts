@@ -68,7 +68,14 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export const FORAGING_TARGET_BLOCK_IDS = ['FIG_LOG', 'MANGROVE_LOG', 'HELIX_LOG'] as const
+export const FORAGING_TARGET_BLOCK_IDS = [
+  'FIG_LOG', 'MANGROVE_LOG', 'HELIX_LOG',
+  // Oak/Spruce/Birch/Jungle/Acacia/Dark Oak (The Park, Toughness=0) -- 25 aout,
+  // audit exhaustivite Collections officielles (15 items FORAGING reels,
+  // 3/15 couverts avant ce fix, pas 3/3 comme confirme a tort le 23 aout).
+  // Toughness=0 -> formule lineaire simple (voir computeLogsPerSwing).
+  'OAK_LOG', 'SPRUCE_LOG', 'BIRCH_LOG', 'JUNGLE_LOG', 'ACACIA_LOG', 'DARK_OAK_LOG',
+] as const
 // Basic foraging deja accessible des Starter (TIER_CONFIG.early.access),
 // contrairement a Farming ou Garden est explicitement interdit -- les 7
 // tiers reels sont eligibles, le filtre de budget suffit a exclure
