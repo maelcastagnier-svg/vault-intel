@@ -89,8 +89,9 @@ import {
   THUNDERLORD_PCT_BY_TIER, FIRE_ASPECT_PCT_PER_SEC_BY_TIER, FIRE_ASPECT_DURATION_S_BY_TIER,
   INFERNO_MULT_BY_TIER, HABANERO_TACTICS_SLAYER_DMG_PCT_BY_TIER, TABASCO_FLAT_DAMAGE_BY_TIER,
   SCAVENGER_FLAT_COINS_BY_TIER, INVESTMENT_MAX_TIERS,
-  COMBAT_ACCESSORIES_TOTAL_STRENGTH, COMBAT_ACCESSORIES_TOTAL_CRIT_CHANCE,
-  COMBAT_ACCESSORIES_TOTAL_CRIT_DAMAGE, COMBAT_ACCESSORIES_TOTAL_BONUS_ATTACK_SPEED,
+  COMBAT_ACCESSORIES_BASE_STRENGTH, COMBAT_ACCESSORIES_TOTAL_CRIT_CHANCE,
+  COMBAT_ACCESSORIES_TOTAL_CRIT_DAMAGE, COMBAT_ACCESSORIES_BASE_BONUS_ATTACK_SPEED,
+  GLOVES_VARIANTS,
 } from './pluton-engine'
 
 const supabase = createClient(
@@ -294,6 +295,7 @@ export type SlayerRankingResult = {
     enrage_applied: boolean
     weapon_reforge: string | null
     armor_reforge_x4: string | null
+    gloves: string | null
   } | null
 }
 
@@ -418,22 +420,22 @@ export async function computeSlayerRanking(tier: SevenTier, blockId: string): Pr
       (armorJasperSlots && armorRecombRarity ? armorJasperSlots * JASPER_PERFECT_BY_RARITY[armorRecombRarity] : 0)
     const potatoUses = POTATO_BOOK_USES_BY_TIER[tier]
     const potatoFlat = potatoUses * POTATO_BOOK_BONUS_PER_USE
-    let totalStrength = BASE_STRENGTH + Number(weapon.base_strength) + armorStrength + enrageStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH + WITHER_FORBIDDEN_STRENGTH_MAX
+    const baseStrengthBeforeAccessories = BASE_STRENGTH + Number(weapon.base_strength) + armorStrength + enrageStrength + gemstoneStrength + potatoFlat + ART_OF_WAR_STRENGTH + WITHER_FORBIDDEN_STRENGTH_MAX
     // Accessoires/pet Combat (23 aout, gap trouve en auditant -- aucun pet/
     // accessoire Strength/Crit Damage/Crit Chance/Bonus Attack Speed n'etait
     // jamais applique a Combat, contrairement a Mining/Foraging/Fishing).
     // Griffin (pet) + The Primordial (belt) + Annihilation Cloak (cloak) +
-    // Manticore Claw (bracelet) + Molten Necklace (necklace) + Red Claw
-    // Artifact (accessory_bag) -- meilleurs candidats reels par slot,
-    // gates eleves (Spider Slayer VIII/Blaze Slayer VII), applique aux
-    // tiers d'investissement max uniquement, voir doc des constantes.
-    let accessoryCritChance = 0
-    let accessoryBonusAttackSpeed = 0
-    if (INVESTMENT_MAX_TIERS.has(tier)) {
-      totalStrength += COMBAT_ACCESSORIES_TOTAL_STRENGTH
-      accessoryCritChance = COMBAT_ACCESSORIES_TOTAL_CRIT_CHANCE
-      accessoryBonusAttackSpeed = COMBAT_ACCESSORIES_TOTAL_BONUS_ATTACK_SPEED
-    }
+    // Molten Necklace (necklace) + Red Claw Artifact (accessory_bag) --
+    // meilleurs candidats reels par slot, gates eleves (Spider Slayer VIII/
+    // Blaze Slayer VII), applique aux tiers d'investissement max uniquement.
+    // Slot Gloves (Manticore Claw vs Demonslayer Gauntlet) arbitre a part
+    // ci-dessous -- test A/B reel du 25 aout a montre un resultat MIXTE par
+    // Slayer (quantification des paliers Attack Speed), pas un vainqueur
+    // universel, voir doc GLOVES_VARIANTS (pluton-engine.ts).
+    const accessoryCritChance = INVESTMENT_MAX_TIERS.has(tier) ? COMBAT_ACCESSORIES_TOTAL_CRIT_CHANCE : 0
+    const glovesOptions = INVESTMENT_MAX_TIERS.has(tier)
+      ? GLOVES_VARIANTS
+      : [{ name: null as string | null, strength: 0, crit_damage: 0, bonus_attack_speed: 0 }]
     const weaponMobTypeMult = 1 + Number(weapon.mob_type_damage_bonus_pct) / 100
 
     // Octodexterity (armure) -- deja fourni pre-moyenne par le wiki lui-meme
@@ -449,10 +451,12 @@ export async function computeSlayerRanking(tier: SevenTier, blockId: string): Pr
     // explicitement plutot que supposee.
     const packMentalityMult = (slayerKey === 'wolf' && weaponId === 'POOCH_SWORD' && armor?.set_prefix === 'MASTIFF') ? 2.0 : 1
 
+    for (const gloves of glovesOptions) {
+    const totalStrength = baseStrengthBeforeAccessories + (INVESTMENT_MAX_TIERS.has(tier) ? COMBAT_ACCESSORIES_BASE_STRENGTH : 0) + gloves.strength
     // Radioactive (casque Tarantula/Primordial) -- Crit Damage bonus
     // proportionnel a la Force totale, plafond reel documente. Mastiff
     // Armor (wolf) a un bonus Crit Damage plat separe (set_crit_damage).
-    let critDamage = BASE_CRIT_DAMAGE + Number(weapon.base_crit_damage || 0) + (armor ? Number(armor.set_crit_damage) : 0) + (INVESTMENT_MAX_TIERS.has(tier) ? COMBAT_ACCESSORIES_TOTAL_CRIT_DAMAGE : 0)
+    let critDamage = BASE_CRIT_DAMAGE + Number(weapon.base_crit_damage || 0) + (armor ? Number(armor.set_crit_damage) : 0) + (INVESTMENT_MAX_TIERS.has(tier) ? COMBAT_ACCESSORIES_TOTAL_CRIT_DAMAGE : 0) + gloves.crit_damage
     if (armor?.radioactive_cd_per_10_str) {
       const bonus = Math.min(Number(armor.radioactive_cd_cap), Number(armor.radioactive_cd_per_10_str) * (totalStrength / 10))
       critDamage += bonus
@@ -473,7 +477,7 @@ export async function computeSlayerRanking(tier: SevenTier, blockId: string): Pr
     // plus des multiplicateurs deja presents, meme principe que Pack
     // Mentality (facteur multiplicatif propre, jamais somme avec les autres).
     const enrageMobTypeMult = 1 + enrageMobTypeMultPct / 100
-    const bonusAttackSpeed = Number(weapon.base_attack_speed || 0) + enrageAttackSpeed + accessoryBonusAttackSpeed
+    const bonusAttackSpeed = Number(weapon.base_attack_speed || 0) + enrageAttackSpeed + (INVESTMENT_MAX_TIERS.has(tier) ? COMBAT_ACCESSORIES_BASE_BONUS_ATTACK_SPEED : 0) + gloves.bonus_attack_speed
 
     // Sharpness + enchant vs-type-de-mob specifique (meme bucket additif,
     // voir doc des constantes) + Critical (Crit Damage) -- couche NBT ajoutee
@@ -551,7 +555,9 @@ export async function computeSlayerRanking(tier: SevenTier, blockId: string): Pr
       best = {
         weapon: weapon.display_name, weapon_item_id: weapon.item_id, total_strength: finalStrength, dps, bonusAttackSpeed: finalAttackSpeed,
         weapon_reforge: bestWeaponReforge?.name ?? null, armor_reforge_x4: armorReforgeName,
+        gloves: gloves.name,
       }
+    }
     }
   }
   if (!best) return { target_block: boss.boss_name, target_block_id: targetBlock.id, tier, top_setup: null }
@@ -608,6 +614,7 @@ export async function computeSlayerRanking(tier: SevenTier, blockId: string): Pr
       enrage_applied: gearConfig.enrage,
       weapon_reforge: best.weapon_reforge,
       armor_reforge_x4: best.armor_reforge_x4,
+      gloves: best.gloves,
     },
   }
 }
@@ -657,7 +664,7 @@ export async function computeAndPersistAllSlayerRankings(): Promise<PersistedSla
           real_cost: 0, // gear gate par collection XP, pas par prix AH (voir doc)
           pet_id: null,
           pet_rarity: null,
-          accessories: [{ source_id: '__enrage_applied__', equip_slot: 'meta', enrage: s.enrage_applied, weapon_reforge: s.weapon_reforge, armor_reforge_x4: s.armor_reforge_x4, art_of_war: true, art_of_peace_x4: !!s.armor_set, recombobulated: true, thunderlord: true, fire_aspect: true, inferno_ultimate: true, habanero_tactics_ultimate: true, tabasco: true, scavenger: true }],
+          accessories: [{ source_id: '__enrage_applied__', equip_slot: 'meta', enrage: s.enrage_applied, weapon_reforge: s.weapon_reforge, armor_reforge_x4: s.armor_reforge_x4, gloves: s.gloves, art_of_war: true, art_of_peace_x4: !!s.armor_set, recombobulated: true, thunderlord: true, fire_aspect: true, inferno_ultimate: true, habanero_tactics_ultimate: true, tabasco: true, scavenger: true }],
         })
         .select('id')
         .single()

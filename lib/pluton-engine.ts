@@ -251,24 +251,51 @@ export const THE_PRIMORDIAL_BELT_CRIT_DAMAGE = 20
 // Annihilation Cloak (cloak, LEGENDARY, Blaze Slayer VII).
 export const ANNIHILATION_CLOAK_STRENGTH = 20
 export const ANNIHILATION_CLOAK_CRIT_DAMAGE = 20
-// TEMPORAIRE (25 aout) -- test A/B slot Gloves : Demonslayer Gauntlet
-// (CD+25%, wiki confirme) substitue a Manticore Claw (Str+20/BonusAS+2.5%)
-// pour comparer le DPS reel sur les 5 Slayers avant de trancher. A
-// revert ou confirmer apres verification en prod.
-// export const MANTICORE_CLAW_STRENGTH = 20
-// export const MANTICORE_CLAW_BONUS_ATTACK_SPEED = 2.5
+// Manticore Claw (Gloves, LEGENDARY, craftable -- Ferocity+4 non modelise,
+// computeCombatDps n'a pas de parametre Ferocity, gap documente) VS
+// Demonslayer Gauntlet (Gloves, LEGENDARY, Blaze Slayer IV, CD+25% wiki
+// confirme, + 1.15x degats vs Infernal non modelise ici -- multiplicateur
+// mob-type propre a Blaze uniquement, hors du bucket accessoire generique).
+// Test A/B reel le 25 aout (DPS calcule sur les 2 variantes, master, 5
+// Slayers) : resultat MIXTE, pas un vainqueur universel (ZOMBIE +24.9%
+// Demonslayer, ENDERMAN -6.4% Demonslayer, SPIDER/WOLF/BLAZE quasi-tie) --
+// signature de la quantification par palier de computeAttacksPerSecond
+// (+2.5% AS de Manticore ne franchit pas le meme seuil de tick selon
+// l'AS de base par Slayer). Consequence : ce slot est desormais arbitre
+// PAR SLAYER dans lib/pluton-slayer.ts (meme discipline "recherche reelle,
+// garde le meilleur" que les slots necklace/cloak/belt/bracelet de
+// Mining/Foraging/Fishing), pas une seule constante globale.
+export const MANTICORE_CLAW_STRENGTH = 20
+export const MANTICORE_CLAW_BONUS_ATTACK_SPEED = 2.5
 export const DEMONSLAYER_GAUNTLET_CRIT_DAMAGE = 25
+export const GLOVES_VARIANTS = [
+  { name: 'Manticore Claw', strength: MANTICORE_CLAW_STRENGTH, crit_damage: 0, bonus_attack_speed: MANTICORE_CLAW_BONUS_ATTACK_SPEED },
+  { name: 'Demonslayer Gauntlet', strength: 0, crit_damage: DEMONSLAYER_GAUNTLET_CRIT_DAMAGE, bonus_attack_speed: 0 },
+]
 // Molten Necklace (necklace, EPIC, Kuudra).
 export const MOLTEN_NECKLACE_STRENGTH = 20
 // Red Claw Artifact (accessory_bag, EPIC, chaine Wolf Slayer 5).
 export const RED_CLAW_ARTIFACT_CRIT_DAMAGE = 5
 
-export const COMBAT_ACCESSORIES_TOTAL_STRENGTH =
+// Totaux HORS slot Gloves (base commune, reutilisee par lib/pluton-slayer.ts
+// qui arbitre GLOVES_VARIANTS par-dessus, un Slayer/tier a la fois).
+export const COMBAT_ACCESSORIES_BASE_STRENGTH =
   GRIFFIN_PET_STRENGTH + THE_PRIMORDIAL_BELT_STRENGTH + ANNIHILATION_CLOAK_STRENGTH + MOLTEN_NECKLACE_STRENGTH
 export const COMBAT_ACCESSORIES_TOTAL_CRIT_CHANCE = GRIFFIN_PET_CRIT_CHANCE
 export const COMBAT_ACCESSORIES_TOTAL_CRIT_DAMAGE =
-  GRIFFIN_PET_CRIT_DAMAGE + THE_PRIMORDIAL_BELT_CRIT_DAMAGE + ANNIHILATION_CLOAK_CRIT_DAMAGE + RED_CLAW_ARTIFACT_CRIT_DAMAGE + DEMONSLAYER_GAUNTLET_CRIT_DAMAGE
-export const COMBAT_ACCESSORIES_TOTAL_BONUS_ATTACK_SPEED = GRIFFIN_PET_BONUS_ATTACK_SPEED
+  GRIFFIN_PET_CRIT_DAMAGE + THE_PRIMORDIAL_BELT_CRIT_DAMAGE + ANNIHILATION_CLOAK_CRIT_DAMAGE + RED_CLAW_ARTIFACT_CRIT_DAMAGE
+export const COMBAT_ACCESSORIES_BASE_BONUS_ATTACK_SPEED = GRIFFIN_PET_BONUS_ATTACK_SPEED
+
+// Totaux AVEC Manticore Claw par defaut -- compat lib/pluton-combat.ts
+// (Zombie Slayer v2)/lib/pluton-bestiary.ts/lib/pluton-sea-creatures.ts,
+// pas encore migres vers l'arbitrage par-Slayer ci-dessus. Defaut
+// raisonnable documente (pas invente) : le test A/B du 25 aout montre
+// Manticore superieur ou quasi-tie sur 4/5 Slayers (Spider/Wolf/Blaze
+// quasi-tie, Enderman -6.4% en sa faveur ; seul Zombie preferait
+// Demonslayer +24.9%) -- migrer ces 3 consommateurs vers un vrai
+// arbitrage par activite reste un gap honnete, pas fait le 25 aout.
+export const COMBAT_ACCESSORIES_TOTAL_STRENGTH = COMBAT_ACCESSORIES_BASE_STRENGTH + MANTICORE_CLAW_STRENGTH
+export const COMBAT_ACCESSORIES_TOTAL_BONUS_ATTACK_SPEED = COMBAT_ACCESSORIES_BASE_BONUS_ATTACK_SPEED + MANTICORE_CLAW_BONUS_ATTACK_SPEED
 
 // Charge le prix le plus recent de chaque item_id demande en 2 requetes
 // batchees (Bazaar d'abord, fallback AH nostar_norecomb) plutot qu'un
