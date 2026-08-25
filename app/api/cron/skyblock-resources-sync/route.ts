@@ -94,6 +94,24 @@ async function syncCollections(): Promise<number> {
 // ============================================================
 // /v2/resources/skyblock/items → item_stats (items avec un champ `stats` uniquement)
 // ============================================================
+// 🔴 Bug réel corrigé (25 août, trouvé en vérifiant les sources multi-net
+// demandées par l'utilisateur) : `item.stats` mélange des clés MAJUSCULES
+// (DAMAGE/STRENGTH/FEROCITY...) et minuscules (damage/strength/...) selon
+// l'item côté API Hypixel elle-même (confirmé en inspectant les 1376 items
+// avec stats -- ni un artefact de notre parsing ni une supposition). Le
+// code d'origine ne lisait QUE la casse minuscule -- chaque item exposant
+// ses stats en MAJUSCULES (Hyperion, Vorpal Katana, la plupart des armes/
+// armures haut de gamme) se retrouvait avec 0 partout, silencieusement,
+// depuis la création de ce cron. `readStat` lit les deux casses. Colonnes
+// `damage`/`ferocity` ajoutées (absentes avant, jamais aucune arme n'avait
+// son dégât de base capturé ici).
+function readStat(s: Record<string, unknown>, key: string): number {
+  const upper = Number(s[key.toUpperCase()])
+  if (!isNaN(upper) && s[key.toUpperCase()] !== undefined) return upper
+  const lower = Number(s[key.toLowerCase()])
+  return isNaN(lower) ? 0 : lower
+}
+
 export async function syncItemStats(): Promise<number> {
   const res  = await fetch(`https://api.hypixel.net/v2/resources/skyblock/items?key=${HYPIXEL_KEY}`)
   const data = await res.json()
@@ -106,13 +124,15 @@ export async function syncItemStats(): Promise<number> {
       return {
         item_id:      item.id,
         display_name: item.name,
-        health:       Math.round(s.health       || 0),
-        defense:      Math.round(s.defense      || 0),
-        strength:     Math.round(s.strength     || 0),
-        crit_damage:  Math.round(s.crit_damage  || 0),
-        crit_chance:  Math.round(s.crit_chance  || 0),
-        intelligence: Math.round(s.intelligence || 0),
-        speed:        Math.round(s.speed        || 0),
+        health:       Math.round(readStat(s, 'health')),
+        defense:      Math.round(readStat(s, 'defense')),
+        strength:     Math.round(readStat(s, 'strength')),
+        crit_damage:  Math.round(readStat(s, 'critical_damage')),
+        crit_chance:  Math.round(readStat(s, 'critical_chance')),
+        intelligence: Math.round(readStat(s, 'intelligence')),
+        speed:        Math.round(readStat(s, 'speed')),
+        damage:       Math.round(readStat(s, 'damage')),
+        ferocity:     Math.round(readStat(s, 'ferocity')),
         category:     item.category || 'OTHER',
         rarity:       item.tier || null,
         raw_lore:     (item.lore || []).join('\n') || null,
