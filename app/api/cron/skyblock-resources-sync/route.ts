@@ -133,6 +133,22 @@ export async function syncItemStats(): Promise<number> {
         speed:        Math.round(readStat(s, 'speed')),
         damage:       Math.round(readStat(s, 'damage')),
         ferocity:     Math.round(readStat(s, 'ferocity')),
+        // Colonnes etendues (25 aout, chantier "item_stats comme cross-
+        // verification systematique par skill") -- memes cles reelles API
+        // (confirmees en listant les cles de tous les items avec stats),
+        // meme lecture case-insensitive.
+        mining_speed:        Math.round(readStat(s, 'mining_speed')),
+        mining_fortune:      Math.round(readStat(s, 'mining_fortune')),
+        breaking_power:      Math.round(readStat(s, 'breaking_power')),
+        foraging_fortune:    Math.round(readStat(s, 'foraging_fortune')),
+        sweep:               Math.round(readStat(s, 'sweep')),
+        fishing_speed:       Math.round(readStat(s, 'fishing_speed')),
+        sea_creature_chance: readStat(s, 'sea_creature_chance'),
+        treasure_chance:     readStat(s, 'treasure_chance'),
+        pristine:            Math.round(readStat(s, 'pristine')),
+        gemstone_fortune:    Math.round(readStat(s, 'gemstone_fortune')),
+        true_defense:        Math.round(readStat(s, 'true_defense')),
+        bonus_attack_speed:  Math.round(readStat(s, 'attack_speed')),
         category:     item.category || 'OTHER',
         rarity:       item.tier || null,
         raw_lore:     (item.lore || []).join('\n') || null,
