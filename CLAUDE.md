@@ -222,17 +222,67 @@ code + les tables candidates déjà consommées par chaque moteur.
   jamais considérée. Gate ZS8 vérifiée réelle et atteignable (contenu
   wiki complet récupéré, table "Leveling Rewards" montre un niveau IX
   au-delà). Ajoutée au palier "late" de `GEAR_BY_SLAYER_TIER.zombie`,
-  évaluée par le moteur de recherche DPS déjà existant. 1 gap fermé le
-  25 août (voir ci-dessous), 1 gap toujours ouvert :
-  **correction d'une fausse alerte de l'agent** — il affirmait le slot
-  "Gloves" entièrement absent (Demonslayer Gauntlet, CD+25%, Blaze Slayer
-  4, comme "ajout gratuit") ; vérifié directement (contenu wiki complet)
-  que c'est faux — Manticore Claw occupe déjà ce slot (`type=Gloves`,
-  Str+20/BonusAS+2.5%, déjà dans `COMBAT_ACCESSORIES_TOTAL_*`). Demonslayer
-  est un vrai concurrent du MÊME slot (CD+25% universel + 1.15x dégâts vs
-  Infernal, Blaze uniquement, contre Str+20/AS+2.5% universel) — nécessite
-  un calcul DPS réel par Slayer/tier pour trancher, **pas fait le 24 août
-  (pas une simple substitution de constante)**.
+  évaluée par le moteur de recherche DPS déjà existant. 2 gaps fermés le
+  25 août (voir ci-dessous).
+
+### ✅ Combat/Slayer — slot Gloves arbitré réellement (Manticore Claw vs Demonslayer Gauntlet), 25 août
+
+Suite directe de la correction du 24 août ("fausse alerte de l'agent sur
+le slot Gloves entièrement absent" — Manticore Claw l'occupait déjà,
+Demonslayer Gauntlet en est un vrai concurrent, pas un ajout gratuit).
+Plutôt que deviner lequel des deux est le meilleur, calcul DPS réel des
+deux variantes sur les 5 paliers top master de `lib/pluton-slayer.ts`.
+
+**Résultat MIXTE confirmé — pas de vainqueur universel** : ZOMBIE +24.9%
+en faveur de Demonslayer, WOLF +0.03%, BLAZE +0.07% (quasi-tie côté
+Demonslayer), SPIDER -0.36%, ENDERMAN -6.4% (Manticore gagne nettement) —
+signature de la quantification par palier de `computeAttacksPerSecond`
+(le +2.5% Attack Speed de Manticore ne franchit pas le même seuil de tick
+selon l'Attack Speed de base propre à chaque Slayer). Conclusion honnête :
+un seul "meilleur choix" global aurait été faux dans au moins 2 cas sur 5.
+
+**Fermeture réelle, pas une simple substitution de constante** : le slot
+Gloves est désormais **arbitré par Slayer/tier** par le moteur de
+recherche DPS existant (`GLOVES_VARIANTS`, `lib/pluton-engine.ts` +
+boucle dans `lib/pluton-slayer.ts`) — même discipline que l'arbitrage
+par slot necklace/cloak/belt/bracelet déjà appliqué à Mining/Foraging/
+Fishing la nuit précédente. **Bug réel trouvé et corrigé pendant
+l'implémentation** : le premier refactor a fait disparaître le bonus
+Bonus Attack Speed du Pet Griffin (+25%, universel) en le remplaçant par
+erreur par le seul delta du slot Gloves — repéré en relisant le diff
+avant déploiement, corrigé avant tout persist. `lib/pluton-combat.ts`
+(Zombie Slayer v2)/`lib/pluton-bestiary.ts`/`lib/pluton-sea-creatures.ts`
+gardent Manticore par défaut (non régressés, pas encore migrés vers cet
+arbitrage réel — défaut raisonnable documenté puisque Manticore gagne ou
+quasi-tie sur 4/5 Slayers).
+
+**🔴 Incident opérationnel pendant la vérification, même famille que le
+13/24 août (invocations HTTP chevauchées)** : une route de debug side-
+effecting (delete-puis-insert) a été appelée en boucle par un poll
+`until` en arrière-plan EN MÊME TEMPS qu'un appel bloquant manuel — 2+
+invocations serveur concurrentes ont produit de vrais doublons
+(`pluton_rankings` passé de 154 à 196 lignes, jusqu'à 2x sur plusieurs
+combos) ET un persist partiel sur Wolf/Enderman/Blaze (5-6/7 tiers au
+lieu de 7, la fonction ayant probablement dépassé son `maxDuration=120`
+partagé entre les invocations concurrentes). Nettoyé (migration SQL,
+garde la ligne la plus récente par `(target_block_id, tier)`, 0 doublon
+restant), puis **une seule invocation propre et bloquante** (maxDuration
+augmenté à 280, poll de préparation redirigé vers une route non-side-
+effecting pour ne plus jamais interroger la route persistante elle-même)
+a retrouvé exactement les 138/154 combos attendus. Vérifié en base :
+master — Zombie/Wolf/Blaze→Demonslayer Gauntlet, Spider/Enderman→
+Manticore Claw, DPS exacts recoupés contre le calcul isolé fait avant
+persist. **Règle retenue** : ne jamais laisser un poll `until` en
+arrière-plan cibler la même route side-effecting qu'un appel bloquant en
+cours — rediriger le poll de préparation vers une route neutre (ex: page
+d'accueil) ou vérifier l'état du déploiement via l'API Vercel directement
+plutôt que de re-curler la route qui écrit en base.
+
+1 gap mineur documenté, pas fermé : le bonus propre de Demonslayer
+Gauntlet "+15% dégâts vs mobs Infernal" (Blaze uniquement, multiplicateur
+mob-type distinct du bucket accessoire générique) n'est pas inclus dans
+ce calcul — s'il l'était, il renforcerait encore le choix Demonslayer sur
+Blaze spécifiquement, jamais un renversement en faveur de Manticore.
 
 ### ✅ Blaze Slayer — bug réel trouvé et fermé (25 août) : dagues alternatives confirmées non pertinentes
 
@@ -286,10 +336,10 @@ vérification.
 6 skills `built` non encore audités selon cette méthode cette nuit :
 Enchanting/Alchemy/Taming/Necromancy/Carpentry/Runecrafting (déjà classés
 `excluded_low_value` ou hors-scope money-making par décision utilisateur
-antérieure — probablement pas prioritaires). Le slot "Gloves" Combat
-(Manticore Claw vs Demonslayer Gauntlet, comparaison DPS réelle en cours
-le 25 août) et les gaps Kuudra/Dungeons documentés ci-dessus restent à
-fermer. Le gap "dagues Blaze alternatives" est fermé (voir section dédiée
+antérieure — probablement pas prioritaires). Les gaps Kuudra/Dungeons
+documentés ci-dessus restent à fermer (aucune source chiffrée trouvée,
+pas une recherche insuffisante). Les gaps "dagues Blaze alternatives" et
+"slot Gloves Manticore vs Demonslayer" sont fermés (voir sections dédiées
 ci-dessus, 25 août).
 Toutes les fermetures de cette nuit vérifiées en base (persist réel,
 combos recalculés), y compris Combat/Slayer : Halberd correctement
