@@ -799,6 +799,117 @@ supplémentaire), SkyHanni-REPO (17/68 `constants/*.json` vérifiés
 pertinents, ~50 non échantillonnés individuellement -- gap honnête, pas
 un chantier fermé).
 
+## ✅ Audit exhaustivité via l'API Collections officielle Hypixel + wiki.hypixel.net fermé (25-26 août)
+
+**Mandat de l'utilisateur** (nuit du 25 au 26 août, full autonomie) : produire
+un état des lieux de la progression vers Pluton final, puis construire tout ce
+qui manque pour zéro trou/gap, activité par activité, avec pour exemple
+explicite le reproche que Tungsten/Umber aient été ajoutés "à la dernière
+minute" alors que la règle "toute ressource cartographiée sert directement aux
+skills" était déjà actée.
+
+**Méthode retenue** : la table `collections` (sync quotidien depuis l'API
+officielle `/v2/resources/skyblock/collections`, déjà en base) donne pour
+chaque skill la liste AUTHENTIQUE et complète des items collectionnables
+(COMBAT=11, FARMING=20, FISHING=12, FORAGING=15, MINING=25, RIFT=7) — un
+référentiel bien plus fiable que le parcours wiki ad hoc utilisé jusqu'ici pour
+juger de l'exhaustivité. Chaque skill diffé contre `pluton_target_blocks`/
+mécanique existante.
+
+**🔴 Découverte majeure, non-Pluton mais structurante pour tout le projet** :
+le wiki officiel Hypixel (`wiki.hypixel.net`) a fermé en juillet 2026 (redirige
+vers un thread d'annonce Hypixel Forums). Le contenu a migré vers
+`hypixelskyblock.minecraft.wiki` (Minecraft Wiki, confirmé actif via
+recherche) — **nouvelle source de référence pour toute vérification wiki
+future de ce projet**, `wiki.hypixel.net` ne doit plus être fetché en direct.
+
+### Fermetures réelles, vérifiées en base
+
+- **Mining (19/25 → 25/25)** : 6 blocs "Non reliant on Mining Speed" (wiki
+  Block Strength) jamais ajoutés comme cibles — Ice/Sand/Red Sand/Gravel/
+  Mycelium/Glowstone Dust. Mécanique vanilla (Efficiency/Haste), pas la stat
+  Mining Speed — `block_strength=1`/`required_breaking_power=0` reproduisent
+  fidèlement l'instamine réel via la formule existante, sans mécanisme
+  parallèle inventé. 42/42 combos vérifiés en base (progression cohérente,
+  plateau professional/master attendu — même Divan Drill aux 2 tiers).
+- **Foraging (3/15 → 9/15)** : 🔴 **2 bugs réels trouvés**, pas seulement un
+  gap de couverture. `computeLogsPerSwing()` retournait `1` fixe pour tout
+  arbre Toughness≤0, ignorant Sweep entièrement — jamais déclenché avant car
+  seuls Fig/Mangrove/Helix (Toughness>0) existaient. `computeForagingRanking()`
+  avait `Number(block.block_strength) || 1`, un fallback qui aurait de toute
+  façon confondu un vrai Toughness=0 avec une absence de donnée. Wiki
+  "Sweep#Formula" section "Basic Trees" confirme une formule linéaire simple
+  distincte (`1 + min(35, Sweep)`) pour les arbres de The Park/Forest — corrigé,
+  6 bois de base ajoutés (Oak/Spruce/Birch/Jungle/Acacia/Dark Oak).
+  **Correction du narratif du 23 août** : "Foraging 3/3 arbres réels" était
+  vrai seulement pour les arbres Galatea (scope trop étroit), pas 3/15 réels.
+  42/42 combos vérifiés (saut de Sweep 87→392 à `expert` confirmé cohérent —
+  c'est le premier tier de `INVESTMENT_MAX_TIERS`, comportement déjà établi
+  ailleurs, pas un bug).
+- **Fishing (9/12 → 12/12)** : Raw Salmon/Tropical Fish/Pufferfish
+  (`RAW_FISH:1/:2/:3`) documentés "aucun prix Bazaar/AH trouvé" depuis la
+  construction du 17 août — faux, vérifié directement contre `price_history` :
+  historique actif et complet pour les 3. Fishing était déjà substantiellement
+  couvert (5 items via la table de loot normale, 4 via les drops garantis Sea
+  Creature déjà ajoutés le 21 août) — ce fix ferme le seul résidu réel.
+  7/7 combos WATER_POOL vérifiés (master ~418K coins/h, cohérent avec le
+  dernier repère connu du 25 août).
+- **Combat/Bestiary (2 lignes `zone_mob_stats` ajoutées)** : en creusant les 7
+  items FARMING de la Collections API attribués à des mobs (pas des cultures),
+  2 manquaient — Sheep (Raw Mutton/White Wool) et Rabbit (Raw Rabbit), format
+  identique aux lignes Chicken/Cow/Pig déjà en base. 109 candidats (107+2),
+  65 viables (63+2) — les 2 nouvelles lignes produisent bien un HP parseable
+  + un drop garanti pricé, vérifié en base.
+
+### Gaps réels trouvés, documentés (`pluton_mechanic_coverage`), PAS construits
+
+- **Chili Pepper (Combat, 1/11 résiduel)** : n'est PAS un drop de mob (aucune
+  ligne `zone_mob_stats` ne le mentionne) — recherche live confirme que c'est
+  un produit d'**Inferno Minion + fuel Hypergolic-tier** (~0.735% chance par
+  item généré, ~5-30/minion/jour). Mécanique réelle et sourcée, mais
+  structurellement hors du modèle Bestiary/kill actuel — nécessiterait un
+  calculateur "économie de minions" entièrement nouveau (tiers, coût fuel,
+  slots), jamais construit dans Pluton. Pas forcé dans `zone_mob_stats`.
+- **Hemovibe (Rift, 1/7)** : seul item Rift avec un vrai prix Bazaar actif
+  (~16 000 coins) — les 6 autres confirmés hors-Bazaar (économie Motes isolée,
+  cohérent avec le hors-scope Rift déjà établi). Mécanisme d'obtention pas
+  encore recherché (Rift = dimension séparée jamais cartographiée pour
+  Pluton) — décision utilisateur à prendre avant d'investir dans une
+  cartographie Rift pour un seul item.
+- **Moonglade Marsh (Foraging, 6/15 résiduels)** : Honeycomb/Lushlilac/Ruby
+  Veilshroom/Sea Lumies/Tender Wood/Vinesap — 0 page wiki cachée. Recherche
+  live sur Lushlilac confirme une mécanique de **buisson à repousse
+  périodique** ("Harvesting grants 1x Lushlilac + 25 XP + 100 Forest
+  Whispers"), structurellement différente du modèle Sweep/logs-par-swing
+  actuel — aucun timer de repousse ni densité de buisson chiffrés trouvés.
+  Gap réel documenté, pas inventé.
+
+### maxDuration -- 2 crons ajustés par prudence (incident réel rencontré)
+
+Une 1re tentative de vérification Mining (recalcul complet des 39 blocs via
+`computeAndPersistAllMiningRankings()`) a **timeout à 300s**
+(`FUNCTION_INVOCATION_TIMEOUT`) -- +18% de combos (33→39) après l'ajout des 6
+nouveaux blocs. `pluton-mining-refresh` : 300→400. `pluton-foraging-refresh` :
+180→240 (même prudence, +40% de blocs 15→21, pas de timeout observé mais
+marge insuffisante jugée risquée). Vérification elle-même faite via des routes
+de debug scopées aux seuls blocs nouveaux (delete+insert restreint, pas la
+fonction complète) -- le cron nightly recalculera l'ensemble complet avec la
+marge augmentée à son prochain passage.
+
+### Bilan honnête
+
+Les 6 skills à Collections officielles sont désormais audités contre la
+source Hypixel authentique (pas seulement le wiki) : Mining 25/25, Fishing
+12/12, Foraging 9/15 (6 restants = Moonglade Marsh, mécanique non sourcée),
+Combat 10/11 (1 restant = Chili Pepper, mécanique minion hors-scope actuel),
+Farming 20/20 (déjà complet, cultures + 7 byproducts animaux tous couverts
+Combat/Bestiary), Rift 1/7 pertinent (6 hors-Bazaar par design du jeu). Aucun
+trou de couverture n'a été laissé sans être soit fermé, soit documenté avec sa
+raison réelle et sa source. Prochaine étape logique si l'utilisateur veut
+continuer à zéro-gap absolu : Moonglade Marsh (nécessite de sourcer un timer
+de repousse de buisson) et la décision Rift/Hemovibe/Chili Pepper (nouveaux
+calculateurs hors du périmètre actuel, à cadrer avant de construire).
+
 ## Vision
 
 Plateforme SaaS d'intelligence économique gaming par abonnement, démarrage sur
