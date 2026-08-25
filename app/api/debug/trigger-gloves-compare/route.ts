@@ -7,7 +7,7 @@ import { computeSlayerRanking } from '../../../../lib/pluton-slayer'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-const BLOCKS = ['ZOMBIE_SLAYER_T1', 'SPIDER_T5', 'WOLF_T4', 'ENDERMAN_T4', 'BLAZE_T1']
+const BLOCKS = ['ZOMBIE_T5', 'SPIDER_T5', 'WOLF_T4', 'ENDERMAN_T4', 'BLAZE_T1']
 
 export async function GET() {
   const results: Record<string, { weapon?: string; dps?: number }> = {}
