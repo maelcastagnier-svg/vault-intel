@@ -79,6 +79,28 @@ const PISCARY_FS_BY_TIER: Record<SevenTier, number> = {
 const EXPERTISE_SCC_BY_TIER: Record<SevenTier, number> = {
   starter: 0.6, amateur: 1.8, intermediate: 3.0, skilled: 4.2, expert: 5.4, professional: 6.0, master: 6.0,
 }
+// Rod Parts (Hooks/Lines/Sinkers, table `rod_parts`, 18 pieces reelles) --
+// NBT layer jamais consommee avant le 25 aout, trouvee en auditant le gap
+// "Junk Ring" (Sinker). Slot Lines audite en entier (4 pieces reelles) :
+// Speedy Line (+10 Fishing Speed, Fishing 5, aucune restriction de zone) --
+// seule piece avec une stat computable dans ce modele. Shredded Line
+// (Damage+250/Ferocity+50) ne s'applique pas ici -- pluton-sea-creatures.ts
+// reutilise le gear Zombie Slayer pour le combat, pas la rod. Titan Line
+// (Double Hook Chance +2) et Trophy Line (Trophy Fish Chance +5) restent
+// non modelisables : DHC n'a aucune formule sourcee (mecanisme meme pas
+// documente), Trophy deja hors-scope (voir construction Fishing du 17
+// aout). Speedy Line retenue comme seul candidat reel du slot Lines,
+// applique a TOUS les tiers (Fishing 5 = deblocage tres precoce, contrairement
+// aux autres bonus gates a INVESTMENT_MAX_TIERS).
+// Slot Sinkers audite aussi : Chum/Icy/Prismarine/Sponge Sinkers
+// "materialisent" un item gratuit par capture mais AUCUNE quantite/formule
+// n'est sourcee nulle part (juste "materializes X into your inventory") --
+// inventer une quantite violerait la regle #7, gap documente pas ferme.
+// Junk/Hotspot/Festive Sinkers confirmes zone/evenement-gates (Backwater
+// Bayou/Hotspot/Jerry's Workshop) -- meme statut que les pools event_gated
+// deja traitees ailleurs, non integres a WATER_POOL (cible generique,
+// explicitement hors Backwater Bayou).
+const SPEEDY_LINE_FISHING_SPEED = 10
 // Reforges rod (Salty/Treacherous/Stiff/Lucky) et armure (Submerged) --
 // 🔴 CORRIGE (24 aout, audit exhaustivite reforge_stones/star_upgrades) :
 // la version precedente affirmait "pas de table par rarete sourcee,
@@ -441,6 +463,12 @@ export async function computeFishingRanking(tier: SevenTier, blockId: string, ti
     finalScc += expertiseScc
     nbtModifiers.push(`Piscary (+${piscaryFs} Fishing Speed, sourcee wiki, palier ${tier})`)
     nbtModifiers.push(`Expertise (+${expertiseScc}% Sea Creature Chance, sourcee wiki, palier ${tier})`)
+
+    // Rod Part Speedy Line (25 aout, audit Rod Parts) -- +10 Fishing Speed,
+    // Fishing 5, applicable tous tiers, aucune alternative computable dans
+    // ce modele (voir doc de la constante).
+    finalFs += SPEEDY_LINE_FISHING_SPEED
+    nbtModifiers.push(`Rod Part Speedy Line (+${SPEEDY_LINE_FISHING_SPEED} Fishing Speed, sourcee table rod_parts, tous tiers)`)
 
     // Angler + Luck of the Sea (23 aout, audit exhaustivite enchants) --
     // additifs simples, memes valeurs sourcees wiki que Piscary/Expertise.
