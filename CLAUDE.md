@@ -222,18 +222,47 @@ code + les tables candidates déjà consommées par chaque moteur.
   jamais considérée. Gate ZS8 vérifiée réelle et atteignable (contenu
   wiki complet récupéré, table "Leveling Rewards" montre un niveau IX
   au-delà). Ajoutée au palier "late" de `GEAR_BY_SLAYER_TIER.zombie`,
-  évaluée par le moteur de recherche DPS déjà existant. 2 gaps
-  supplémentaires documentés, pas fermés cette nuit : **correction d'une
-  fausse alerte de l'agent** — il affirmait le slot "Gloves" entièrement
-  absent (Demonslayer Gauntlet, CD+25%, Blaze Slayer 4, comme "ajout
-  gratuit") ; vérifié directement (contenu wiki complet) que c'est faux —
-  Manticore Claw occupe déjà ce slot (`type=Gloves`, Str+20/BonusAS+2.5%,
-  déjà dans `COMBAT_ACCESSORIES_TOTAL_*`). Demonslayer est un vrai
-  concurrent du MÊME slot (CD+25% contre Str+20/AS+2.5%), pas un ajout —
-  nécessite un calcul DPS réel par Slayer/tier pour trancher, pas fait
-  cette nuit (pas une simple substitution de constante) ; 3 dagues Blaze
-  alternatives (Kindlebane/Mawdredge/Pyrochaos) à applicabilité "Infernal"
-  non confirmée, non plus.
+  évaluée par le moteur de recherche DPS déjà existant. 1 gap fermé le
+  25 août (voir ci-dessous), 1 gap toujours ouvert :
+  **correction d'une fausse alerte de l'agent** — il affirmait le slot
+  "Gloves" entièrement absent (Demonslayer Gauntlet, CD+25%, Blaze Slayer
+  4, comme "ajout gratuit") ; vérifié directement (contenu wiki complet)
+  que c'est faux — Manticore Claw occupe déjà ce slot (`type=Gloves`,
+  Str+20/BonusAS+2.5%, déjà dans `COMBAT_ACCESSORIES_TOTAL_*`). Demonslayer
+  est un vrai concurrent du MÊME slot (CD+25% universel + 1.15x dégâts vs
+  Infernal, Blaze uniquement, contre Str+20/AS+2.5% universel) — nécessite
+  un calcul DPS réel par Slayer/tier pour trancher, **pas fait le 24 août
+  (pas une simple substitution de constante)**.
+
+### ✅ Blaze Slayer — bug réel trouvé et fermé (25 août) : dagues alternatives confirmées non pertinentes
+
+Suite directe du gap documenté ci-dessus ("3 dagues Blaze alternatives à
+applicabilité Infernal non confirmée"). Contenu wiki complet relu pour
+Deathripper Dagger (`HEARTMAW_DAGGER`, choix canonique BS6 actuel),
+Twilight Dagger (BS2), et les 3 alternatives citées par l'agent
+(Kindlebane/Mawdredge/Pyrochaos).
+
+**🔴 Bug réel trouvé, pas un simple gap** : `pluton_slayer_weapon_stats.
+base_attack_speed` = 0 pour Deathripper Dagger alors que son infobox
+wiki réel confirme **+20% Attack Speed** (même valeur que Pyrochaos) —
+jamais câblé depuis la construction Blaze Slayer. Corrigé par `UPDATE`
+direct (source déjà en base, aucune valeur inventée) ; Twilight Dagger
+revérifiée correcte au passage (aucune stat Attack Speed dans son infobox
+réel, `base_attack_speed=0` déjà exact). Aucun changement de code
+nécessaire — `lib/pluton-slayer.ts` lit déjà `weapon.base_attack_speed`
+directement depuis la ligne DB.
+
+**Conclusion sur les 3 alternatives** : une fois ce bug corrigé,
+Deathripper (mob_type=3.5x vs Infernal, wiki confirme littéralement "Deal
+3.5x damage to Infernal mobs") domine strictement Pyrochaos (2x),
+Mawdredge (2.5x) et Kindlebane (1.5x vs Infernal) sur TOUTES les stats à
+rareté égale — ces 3 dagues ne seraient jamais retenues par une vraie
+recherche, ce n'était pas un gap à fermer par ajout de candidat, juste une
+donnée manquante sur le choix déjà canonique. Vérifié en base (route de
+debug temporaire) : master/BLAZE_T1 — arme=Deathripper Dagger (inchangé),
+DPS=263 149.558056 (en hausse par rapport à avant le fix, cohérent avec le
++20% Attack Speed désormais appliqué). Route de debug supprimée après
+vérification.
 - **Hunting** — ré-audité en entier (2e passe indépendante), **0 nouveau
   gap trouvé** : les 5 paliers Huntrap confirmés exhaustifs, `stat_bonus_
   sources` confirmé structurellement vide (rien à câbler), Forest/Water/
@@ -257,8 +286,11 @@ code + les tables candidates déjà consommées par chaque moteur.
 6 skills `built` non encore audités selon cette méthode cette nuit :
 Enchanting/Alchemy/Taming/Necromancy/Carpentry/Runecrafting (déjà classés
 `excluded_low_value` ou hors-scope money-making par décision utilisateur
-antérieure — probablement pas prioritaires). Le slot "Gloves" Combat et
-les 2 gaps Blaze/Kuudra/Dungeons documentés ci-dessus restent à fermer.
+antérieure — probablement pas prioritaires). Le slot "Gloves" Combat
+(Manticore Claw vs Demonslayer Gauntlet, comparaison DPS réelle en cours
+le 25 août) et les gaps Kuudra/Dungeons documentés ci-dessus restent à
+fermer. Le gap "dagues Blaze alternatives" est fermé (voir section dédiée
+ci-dessus, 25 août).
 Toutes les fermetures de cette nuit vérifiées en base (persist réel,
 combos recalculés), y compris Combat/Slayer : Halberd correctement
 sélectionné par le moteur de recherche DPS aux 5 paliers Zombie du tier
