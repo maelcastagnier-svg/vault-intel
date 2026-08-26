@@ -143,7 +143,20 @@ const ROD_RARITY: Record<string, string> = { FISHING_ROD: 'COMMON', CHALLENGE_RO
 // respectifs : "Swords and Armor" / "Weapons/Axes", aucune mention Rods) --
 // verifie explicitement, pas suppose. Non appliques ici, a dessein.
 
-export const FISHING_TARGET_BLOCK_IDS = ['WATER_POOL'] as const
+export const FISHING_TARGET_BLOCK_IDS = [
+  'WATER_POOL',
+  // Crimson Isle/Lava (25 aout, audit exhaustivite "toute activite active
+  // farm") -- ces 2 zones ont chacune leur PROPRE table de loot "Normal
+  // Catch" reelle (`pluton_elements` "Treasure/Loot/Crimson Isle" 64 lignes
+  // distinctes / "Treasure/Loot/Lava" 9 lignes distinctes, deja scrapees
+  // mais jamais consommees) -- WATER_POOL (generique) mispricait ces 2
+  // catches avec la mauvaise table depuis la construction du 17 aout (le
+  // pricing_note excluait deja Bayou/Lotus/Winter mais PAS Crimson Isle/
+  // Moonglade Marsh, bug reel trouve en auditant). WATER_POOL_CRIMSON_ISLE
+  // = pêche en eau normale sur l'ile, WATER_POOL_LAVA = pêche en lave
+  // (mecanique distincte, sourcee separement).
+  'WATER_POOL_CRIMSON_ISLE', 'WATER_POOL_LAVA',
+] as const
 // 7 tiers reels (starter->master, 23 aout).
 export const FISHING_TIER_KEYS: readonly SevenTier[] = SEVEN_TIER_KEYS
 
@@ -227,6 +240,112 @@ const WATER_LOOT_NORMAL: LootRow[] = [
   { itemId: 'RAW_FISH:2', qty: 1, chancePct: 18.18 }, // Tropical Fish
   { itemId: 'RAW_FISH:3', qty: 1, chancePct: 14.55 }, // Pufferfish
 ]
+
+// Crimson Isle -- table de loot reelle propre (`pluton_elements`
+// "Treasure/Loot/Crimson Isle", 64 lignes distinctes, meme structure que
+// WATER_LOOT_* -- "Total Chance" deja normalise par palier qualite).
+// item_id=null => les 5 variantes de Kuudra Key (Kuudra/Burning/Fiery/Hot/
+// Infernal) confirmees non-tradeable (aucune entree Bazaar/AH trouvee),
+// contribuent 0 a l'EV plutot qu'un prix invente.
+const CRIMSON_LOOT_GOOD: LootRow[] = [
+  { itemId: 'ENCHANTED_GLOWSTONE_DUST', qty: 6, chancePct: 14.56 },
+  { itemId: 'ENCHANTED_QUARTZ', qty: 6, chancePct: 14.56 },
+  { itemId: 'SULPHUR_ORE', qty: 48, chancePct: 19.42 },
+  { itemId: 'MAGMA_FISH_SILVER', qty: 3, chancePct: 2.91 },
+  { itemId: 'FLAMES', qty: 1, chancePct: 4.85 },
+  { itemId: 'GAZING_PEARL', qty: 1, chancePct: 4.85 },
+  { itemId: 'TENTACLE_MEAT', qty: 1, chancePct: 4.85 },
+  { itemId: 'GRAND_EXP_BOTTLE', qty: 6, chancePct: 4.85 },
+  { itemId: 'ENCHANTED_MYCELIUM', qty: 24, chancePct: 9.71 },
+  { itemId: 'COIN', qty: 37500, chancePct: 9.71 },
+  { itemId: 'ENCHANTED_RED_SAND', qty: 24, chancePct: 9.71 },
+]
+const CRIMSON_LOOT_GREAT: LootRow[] = [
+  { itemId: 'COIN', qty: 175000, chancePct: 0.34 },
+  { itemId: 'HEAVY_PEARL', qty: 3, chancePct: 0.34 },
+  { itemId: 'CORRUPTED_NETHER_STAR', qty: 1, chancePct: 1.36 },
+  { itemId: null, qty: 1, chancePct: 1.36 }, // Infernal Kuudra Key
+  { itemId: null, qty: 1, chancePct: 1.70 }, // Fiery Kuudra Key
+  { itemId: 'LAVA_SHELL', qty: 1, chancePct: 17.01 },
+  { itemId: 'LEATHER_CLOTH', qty: 1, chancePct: 2.04 },
+  { itemId: 'LUMINO_FIBER', qty: 1, chancePct: 2.04 },
+  { itemId: 'SPELL_POWDER', qty: 1, chancePct: 2.04 },
+  { itemId: 'HALLOWED_SKULL', qty: 1, chancePct: 2.04 },
+  { itemId: null, qty: 1, chancePct: 2.04 }, // Burning Kuudra Key
+  { itemId: 'REKINDLED_EMBER_FRAGMENT', qty: 1, chancePct: 2.04 },
+  { itemId: null, qty: 1, chancePct: 2.38 }, // Hot Kuudra Key
+  { itemId: null, qty: 1, chancePct: 2.72 }, // Kuudra Key
+  { itemId: 'WHIPPED_MAGMA_CREAM', qty: 1, chancePct: 2.72 },
+  { itemId: 'ENCHANTED_BLAZE_ROD', qty: 1, chancePct: 2.72 },
+  { itemId: 'ENCHANTED_SULPHUR', qty: 16, chancePct: 3.40 },
+  { itemId: 'FLAMES', qty: 6, chancePct: 3.40 },
+  { itemId: 'TITANIC_EXP_BOTTLE', qty: 1, chancePct: 3.40 },
+  { itemId: 'ENCHANTED_COAL', qty: 64, chancePct: 4.08 },
+  { itemId: 'ENCHANTED_GLOWSTONE_DUST', qty: 32, chancePct: 5.44 },
+  { itemId: 'ENCHANTED_BLAZE_POWDER', qty: 16, chancePct: 5.44 },
+  { itemId: 'ENCHANTED_MAGMA_CREAM', qty: 16, chancePct: 5.44 },
+  { itemId: 'ENCHANTED_QUARTZ', qty: 32, chancePct: 5.44 },
+  { itemId: 'ENCHANTED_NETHER_STALK', qty: 64, chancePct: 5.44 },
+  { itemId: 'ENCHANTED_RED_SAND', qty: 64, chancePct: 6.80 },
+  { itemId: 'ENCHANTED_MYCELIUM', qty: 64, chancePct: 6.80 },
+]
+const CRIMSON_LOOT_NORMAL: LootRow[] = [
+  { itemId: 'COAL', qty: 48, chancePct: 0.85 },
+  { itemId: 'MAGMAG', qty: 1, chancePct: 1.69 },
+  { itemId: 'KADA_LEAD', qty: 1, chancePct: 1.69 },
+  { itemId: 'SULPHUR_ORE', qty: 3, chancePct: 1.69 },
+  { itemId: 'QUARTZ', qty: 24, chancePct: 10.17 },
+  { itemId: 'GLOWSTONE_DUST', qty: 24, chancePct: 10.17 },
+  { itemId: 'MAGMA_CREAM', qty: 24, chancePct: 10.17 },
+  { itemId: 'MAGMA_FISH', qty: 3, chancePct: 16.95 },
+  { itemId: 'BLAZE_ROD', qty: 6, chancePct: 2.54 },
+  { itemId: 'MAGMA_CHUNK', qty: 1, chancePct: 3.39 },
+  { itemId: 'SPECTRE_DUST', qty: 1, chancePct: 3.39 },
+  { itemId: 'MUTATED_BLAZE_ASHES', qty: 1, chancePct: 3.39 },
+  { itemId: 'BURNING_EYE', qty: 1, chancePct: 3.39 },
+  { itemId: 'WITHER_SOUL', qty: 1, chancePct: 3.39 },
+  { itemId: 'DIGESTED_MUSHROOMS', qty: 1, chancePct: 3.39 },
+  { itemId: 'NETHERRACK', qty: 48, chancePct: 3.39 },
+  { itemId: 'BEZOS', qty: 1, chancePct: 3.39 },
+  { itemId: 'BLAZE_ASHES', qty: 1, chancePct: 3.39 },
+  { itemId: 'MYCEL', qty: 24, chancePct: 6.78 },
+  { itemId: 'SAND:1', qty: 24, chancePct: 6.78 },
+]
+const CRIMSON_LOOT_OUTSTANDING: LootRow[] = [
+  { itemId: 'LAVA_WATER_ORB', qty: 1, chancePct: 1.48 },
+  { itemId: 'COIN', qty: 750000, chancePct: 12.32 },
+  { itemId: 'CORRUPTED_NETHER_STAR', qty: 4, chancePct: 12.32 },
+  { itemId: 'HEAVY_PEARL', qty: 9, chancePct: 24.63 },
+  { itemId: 'FLAMES', qty: 16, chancePct: 24.63 },
+  { itemId: 'LAVA_SHELL', qty: 4, chancePct: 24.63 },
+]
+
+// Lava (fishing en lave, mecanique distincte de l'eau normale de Crimson
+// Isle) -- `pluton_elements` "Treasure/Loot/Lava", 9 lignes distinctes.
+const LAVA_LOOT_GOOD: LootRow[] = [
+  { itemId: 'GRAND_EXP_BOTTLE', qty: 3, chancePct: 25.00 },
+  { itemId: 'COIN', qty: 75000, chancePct: 33.33 },
+  { itemId: 'ENCHANTED_NETHER_STALK', qty: 12, chancePct: 33.33 },
+  { itemId: 'ENCHANTED_COAL', qty: 12, chancePct: 8.33 },
+]
+const LAVA_LOOT_GREAT: LootRow[] = [
+  { itemId: 'TITANIC_EXP_BOTTLE', qty: 1, chancePct: 25.00 },
+  { itemId: 'COIN', qty: 375000, chancePct: 75.00 },
+]
+const LAVA_LOOT_NORMAL: LootRow[] = [
+  { itemId: 'COAL', qty: 24, chancePct: 20.00 },
+  { itemId: 'NETHERRACK', qty: 24, chancePct: 80.00 },
+]
+const LAVA_LOOT_OUTSTANDING: LootRow[] = [
+  { itemId: 'COIN', qty: 750000, chancePct: 100.00 },
+]
+
+const LOOT_TABLES_BY_BLOCK: Record<string, { good: LootRow[]; great: LootRow[]; outstanding: LootRow[]; normal: LootRow[] }> = {
+  WATER_POOL: { good: WATER_LOOT_GOOD, great: WATER_LOOT_GREAT, outstanding: WATER_LOOT_OUTSTANDING, normal: WATER_LOOT_NORMAL },
+  WATER_POOL_CRIMSON_ISLE: { good: CRIMSON_LOOT_GOOD, great: CRIMSON_LOOT_GREAT, outstanding: CRIMSON_LOOT_OUTSTANDING, normal: CRIMSON_LOOT_NORMAL },
+  WATER_POOL_LAVA: { good: LAVA_LOOT_GOOD, great: LAVA_LOOT_GREAT, outstanding: LAVA_LOOT_OUTSTANDING, normal: LAVA_LOOT_NORMAL },
+}
+
 // Qualite Treasure : base 89%/10%/1% good/great/outstanding (wiki "Treasure"),
 // boosts (Blessed Bait/Blessing enchant/Hermit Crab Legendary+) non modelises --
 // bonus conditionnel a un consommable/enchant specifique non encore integre a
@@ -391,15 +510,20 @@ export async function applyFishingPetsAndAccessories(
 }
 
 export async function computeFishingRanking(tier: SevenTier, blockId: string, tierConfig?: SevenTierConfig): Promise<FishingRankingResult> {
+  // 25 aout -- table de loot selectionnee par blockId (WATER_POOL generique
+  // vs Crimson Isle/Lava, chacun sa vraie table sourcee) au lieu du
+  // WATER_LOOT_* fixe -- fermait le bug de mispricing Crimson Isle/Moonglade
+  // Marsh (voir doc FISHING_TARGET_BLOCK_IDS).
+  const lootTables = LOOT_TABLES_BY_BLOCK[blockId] ?? LOOT_TABLES_BY_BLOCK.WATER_POOL
   const [{ data: block }, { data: rodStats }, { data: armorStats }, priced, treasureGoodEV, treasureGreatEV, treasureOutstandingEV, fishEV, resolvedTierConfig] = await Promise.all([
     supabase.from('pluton_target_blocks').select('*').eq('activity_key', 'fishing').eq('block_id', blockId).single(),
     supabase.from('pluton_fishing_rod_stats').select('*').eq('verified', true),
     supabase.from('pluton_fishing_armor_stats').select('*'),
     loadPricedItems(),
-    computeLootTableEV(WATER_LOOT_GOOD),
-    computeLootTableEV(WATER_LOOT_GREAT),
-    computeLootTableEV(WATER_LOOT_OUTSTANDING),
-    computeLootTableEV(WATER_LOOT_NORMAL),
+    computeLootTableEV(lootTables.good),
+    computeLootTableEV(lootTables.great),
+    computeLootTableEV(lootTables.outstanding),
+    computeLootTableEV(lootTables.normal),
     tierConfig ? Promise.resolve(tierConfig) : loadSevenTierConfig().then(cfg => cfg[tier]),
   ])
 
