@@ -156,6 +156,9 @@ export const FISHING_TARGET_BLOCK_IDS = [
   // = pêche en eau normale sur l'ile, WATER_POOL_LAVA = pêche en lave
   // (mecanique distincte, sourcee separement).
   'WATER_POOL_CRIMSON_ISLE', 'WATER_POOL_LAVA',
+  // 26 aout -- 5 dernieres zones fermees (meme bug de mispricing par table
+  // generique, meme discipline : chaque zone a sa vraie table sourcee).
+  'WATER_POOL_FAIRY_POND', 'WATER_POOL_JUNK', 'WATER_POOL_LOTUS_ATOLL', 'WATER_POOL_WINTER',
 ] as const
 // 7 tiers reels (starter->master, 23 aout).
 export const FISHING_TIER_KEYS: readonly SevenTier[] = SEVEN_TIER_KEYS
@@ -340,10 +343,176 @@ const LAVA_LOOT_OUTSTANDING: LootRow[] = [
   { itemId: 'COIN', qty: 750000, chancePct: 100.00 },
 ]
 
+// 26 aout -- 5 zones restantes fermees (`pluton_elements` "Treasure/Loot/*",
+// deja scrapees, jamais consommees -- meme bug de mispricing que Crimson
+// Isle/Lava, WATER_POOL generique les remplacait par la mauvaise table).
+// Fairy Pond -- zone Rift distincte de Water (structure proche mais table
+// source separee, verifiee wiki -- pas un doublon).
+const FAIRY_POND_LOOT_GOOD: LootRow[] = [
+  { itemId: 'COIN', qty: 37500, chancePct: 6.25 },
+  { itemId: 'CLAY_BALL', qty: 32, chancePct: 6.25 },
+  { itemId: 'FAIRY_HELMET', qty: 1, chancePct: 9.38 },
+  { itemId: 'FAIRY_BOOTS', qty: 1, chancePct: 9.38 },
+  { itemId: 'FAIRY_CHESTPLATE', qty: 1, chancePct: 9.38 },
+  { itemId: 'FAIRY_LEGGINGS', qty: 1, chancePct: 9.38 },
+  { itemId: 'GRAND_EXP_BOTTLE', qty: 4, chancePct: 3.13 },
+  { itemId: 'PRISMARINE_CRYSTALS', qty: 8, chancePct: 3.13 },
+  { itemId: 'PRISMARINE_SHARD', qty: 8, chancePct: 3.13 },
+  { itemId: 'RAW_FISH:3', qty: 12, chancePct: 5.00 },
+  { itemId: 'RAW_FISH', qty: 16, chancePct: 13.75 },
+  { itemId: 'RAW_FISH:1', qty: 16, chancePct: 9.38 },
+  { itemId: 'SPONGE', qty: 16, chancePct: 6.25 },
+  { itemId: 'RAW_FISH:2', qty: 12, chancePct: 6.25 },
+]
+const FAIRY_POND_LOOT_GREAT: LootRow[] = [
+  { itemId: 'COIN', qty: 175000, chancePct: 8.93 },
+  { itemId: null, qty: 1, chancePct: 6.70 }, // Common Squid Pet
+  { itemId: 'ENCHANTED_CLAY_BALL', qty: 8, chancePct: 8.93 },
+  { itemId: 'ENCHANTED_PUFFERFISH', qty: 3, chancePct: 8.93 },
+  { itemId: 'ENCHANTED_RAW_FISH', qty: 4, chancePct: 19.64 },
+  { itemId: 'ENCHANTED_RAW_SALMON', qty: 4, chancePct: 13.39 },
+  { itemId: 'ENCHANTED_SPONGE', qty: 1, chancePct: 8.93 },
+  { itemId: null, qty: 3, chancePct: 8.93 }, // Enchanted Tropical Fish
+  { itemId: null, qty: 1, chancePct: 2.23 }, // Rare Squid Pet
+  { itemId: 'TITANIC_EXP_BOTTLE', qty: 1, chancePct: 8.93 },
+  { itemId: null, qty: 1, chancePct: 4.46 }, // Uncommon Squid Pet
+]
+const FAIRY_POND_LOOT_NORMAL: LootRow[] = [
+  { itemId: 'RAW_FISH:3', qty: 1, chancePct: 14.55 },
+  { itemId: 'RAW_FISH', qty: 1, chancePct: 40.00 },
+  { itemId: 'RAW_FISH:1', qty: 1, chancePct: 27.27 },
+  { itemId: 'RAW_FISH:2', qty: 1, chancePct: 18.18 },
+]
+const FAIRY_POND_LOOT_OUTSTANDING: LootRow[] = [
+  { itemId: 'COIN', qty: 750000, chancePct: 7.91 },
+  { itemId: 'ENCHANTED_CLAY_BALL', qty: 64, chancePct: 7.91 },
+  { itemId: 'ENCHANTED_PUFFERFISH', qty: 24, chancePct: 7.91 },
+  { itemId: 'ENCHANTED_RAW_FISH', qty: 32, chancePct: 17.39 },
+  { itemId: 'ENCHANTED_RAW_SALMON', qty: 32, chancePct: 11.86 },
+  { itemId: 'ENCHANTED_SPONGE', qty: 8, chancePct: 7.91 },
+  { itemId: null, qty: 24, chancePct: 7.91 }, // Enchanted Tropical Fish
+  { itemId: 'ENCHANTED_WET_SPONGE', qty: 1, chancePct: 1.98 },
+  { itemId: null, qty: 1, chancePct: 15.81 }, // Epic Squid Pet
+  { itemId: null, qty: 1, chancePct: 7.91 }, // Legendary Squid Pet
+  { itemId: 'TITANIC_EXP_BOTTLE', qty: 1, chancePct: 3.95 },
+  { itemId: 'WATER_ORB', qty: 1, chancePct: 1.58 },
+]
+
+// Backwater Bayou (Junk Sinker equipe) -- `pluton_elements` "Treasure/Loot/
+// Junk". "good junk"/"great junk" = paliers 100% dedies au mecanisme Junk ;
+// "outstanding"/"outstanding junk" se partagent le meme palier (Moby-Duck
+// 16.67% + Old Leather Boot 83.33%, somme=100%, verifie).
+const JUNK_LOOT_GOOD: LootRow[] = [
+  { itemId: 'RUSTY_COIN', qty: 1, chancePct: 100.00 },
+]
+const JUNK_LOOT_GREAT: LootRow[] = [
+  { itemId: 'BUSTED_BELT_BUCKLE', qty: 1, chancePct: 100.00 },
+]
+const JUNK_LOOT_NORMAL: LootRow[] = [
+  { itemId: 'RAW_FISH:3', qty: 1, chancePct: 14.55 },
+  { itemId: 'RAW_FISH', qty: 1, chancePct: 40.00 },
+  { itemId: 'RAW_FISH:1', qty: 1, chancePct: 27.27 },
+  { itemId: 'RAW_FISH:2', qty: 1, chancePct: 18.18 },
+]
+const JUNK_LOOT_OUTSTANDING: LootRow[] = [
+  { itemId: 'MOBY_DUCK', qty: 1, chancePct: 16.67 },
+  { itemId: 'OLD_LEATHER_BOOT', qty: 1, chancePct: 83.33 },
+]
+
+// Lotus Atoll -- `pluton_elements` "Treasure/Loot/Lotus Atoll".
+const LOTUS_ATOLL_LOOT_GOOD: LootRow[] = [
+  { itemId: 'CLAY_BALL', qty: 24, chancePct: 14.81 },
+  { itemId: 'RAW_FISH:3', qty: 24, chancePct: 11.85 },
+  { itemId: 'RAW_FISH', qty: 24, chancePct: 32.59 },
+  { itemId: 'RAW_FISH:1', qty: 24, chancePct: 22.22 },
+  { itemId: 'LOTUS_SILVER', qty: 1, chancePct: 3.70 },
+  { itemId: 'RAW_FISH:2', qty: 24, chancePct: 14.81 },
+]
+const LOTUS_ATOLL_LOOT_GREAT: LootRow[] = [
+  { itemId: null, qty: 1, chancePct: 11.43 }, // Common Squid Pet
+  { itemId: 'ENCHANTED_CLAY_BALL', qty: 6, chancePct: 11.43 },
+  { itemId: 'ENCHANTED_PUFFERFISH', qty: 6, chancePct: 9.14 },
+  { itemId: 'ENCHANTED_RAW_FISH', qty: 6, chancePct: 25.14 },
+  { itemId: 'ENCHANTED_RAW_SALMON', qty: 6, chancePct: 17.14 },
+  { itemId: null, qty: 6, chancePct: 11.43 }, // Enchanted Tropical Fish
+  { itemId: null, qty: 1, chancePct: 2.86 }, // Rare Squid Pet
+  { itemId: 'LOTUS_SILVER', qty: 12, chancePct: 5.71 },
+  { itemId: null, qty: 1, chancePct: 5.71 }, // Uncommon Squid Pet
+]
+const LOTUS_ATOLL_LOOT_NORMAL: LootRow[] = [
+  { itemId: 'LOTUS', qty: 1, chancePct: 15.38 },
+  { itemId: 'RAW_FISH:3', qty: 1, chancePct: 12.31 },
+  { itemId: 'RAW_FISH', qty: 1, chancePct: 33.85 },
+  { itemId: 'RAW_FISH:1', qty: 1, chancePct: 23.08 },
+  { itemId: 'RAW_FISH:2', qty: 1, chancePct: 15.38 },
+]
+const LOTUS_ATOLL_LOOT_OUTSTANDING: LootRow[] = [
+  { itemId: 'ENCHANTED_CLAY_BALL', qty: 48, chancePct: 10.26 },
+  { itemId: 'ENCHANTED_PUFFERFISH', qty: 48, chancePct: 8.21 },
+  { itemId: 'ENCHANTED_RAW_FISH', qty: 48, chancePct: 22.56 },
+  { itemId: 'ENCHANTED_RAW_SALMON', qty: 48, chancePct: 15.38 },
+  { itemId: null, qty: 48, chancePct: 10.26 }, // Enchanted Tropical Fish
+  { itemId: null, qty: 1, chancePct: 20.51 }, // Epic Squid Pet
+  { itemId: 'LOTUS_GOLD', qty: 1, chancePct: 2.56 },
+  { itemId: null, qty: 1, chancePct: 10.26 }, // Legendary Squid Pet
+]
+
+// Winter Island / Jerry's Workshop -- `pluton_elements` "Treasure/Loot/Winter"
+// (event-gate, coins/h a lire "pendant l'evenement actif" -- meme convention
+// deja etablie pour les pools Sea Creature event_gated). Ice Essence
+// confirme non-tradeable (aucun item_id trouve), contribue 0. Flake the Fish
+// (Trophy Fish, weight="Unknown" cote wiki) exclu, pas invente.
+const WINTER_LOOT_GOOD: LootRow[] = [
+  { itemId: 'COIN', qty: 37500, chancePct: 15.38 },
+  { itemId: 'ENCHANTED_ICE', qty: 4, chancePct: 15.38 },
+  { itemId: 'ENCHANTED_SNOW_BLOCK', qty: 1, chancePct: 15.38 },
+  { itemId: 'GREEN_GIFT', qty: 1, chancePct: 3.85 },
+  { itemId: 'BLUE_ICE_HUNK', qty: 1, chancePct: 3.85 },
+  { itemId: 'ICE_HUNK', qty: 8, chancePct: 3.85 },
+  { itemId: null, qty: 5, chancePct: 7.69 }, // Ice Essence, non-tradeable
+  { itemId: 'PACKED_ICE', qty: 24, chancePct: 30.77 },
+  { itemId: 'WHITE_GIFT', qty: 2, chancePct: 3.85 },
+]
+const WINTER_LOOT_GREAT: LootRow[] = [
+  { itemId: 'COIN', qty: 175000, chancePct: 12.90 },
+  { itemId: 'ENCHANTED_ICE', qty: 8, chancePct: 25.81 },
+  { itemId: 'ENCHANTED_PACKED_ICE', qty: 1, chancePct: 3.23 },
+  { itemId: 'ENCHANTED_SNOW_BLOCK', qty: 8, chancePct: 25.81 },
+  { itemId: 'GREEN_GIFT', qty: 4, chancePct: 6.45 },
+  { itemId: 'BLUE_ICE_HUNK', qty: 4, chancePct: 6.45 },
+  { itemId: null, qty: 25, chancePct: 6.45 }, // Ice Essence
+  { itemId: 'RED_GIFT', qty: 1, chancePct: 6.45 },
+  { itemId: 'WHITE_GIFT', qty: 8, chancePct: 6.45 },
+]
+const WINTER_LOOT_NORMAL: LootRow[] = [
+  { itemId: 'ICE_HUNK', qty: 1, chancePct: 4.76 },
+  { itemId: null, qty: 1, chancePct: 9.52 }, // Ice Essence
+  { itemId: 'ICE', qty: 32, chancePct: 38.10 },
+  { itemId: 'PACKED_ICE', qty: 8, chancePct: 19.05 },
+  { itemId: 'RAW_FISH:1', qty: 1, chancePct: 4.76 },
+  { itemId: 'SNOW_BLOCK', qty: 16, chancePct: 19.05 },
+  { itemId: 'WHITE_GIFT', qty: 1, chancePct: 4.76 },
+]
+const WINTER_LOOT_OUTSTANDING: LootRow[] = [
+  { itemId: 'COIN', qty: 750000, chancePct: 13.16 },
+  { itemId: 'ENCHANTED_PACKED_ICE', qty: 4, chancePct: 26.32 },
+  { itemId: 'ENCHANTED_SNOW_BLOCK', qty: 64, chancePct: 26.32 },
+  { itemId: 'GREEN_GIFT', qty: 16, chancePct: 6.58 },
+  { itemId: 'BLUE_ICE_HUNK', qty: 16, chancePct: 6.58 },
+  { itemId: null, qty: 12.5, chancePct: 6.58 }, // Ice Essence
+  { itemId: 'RED_GIFT', qty: 4, chancePct: 6.58 },
+  { itemId: 'WHITE_GIFT', qty: 32, chancePct: 6.58 },
+  { itemId: 'WINTER_WATER_ORB', qty: 1, chancePct: 1.32 },
+]
+
 const LOOT_TABLES_BY_BLOCK: Record<string, { good: LootRow[]; great: LootRow[]; outstanding: LootRow[]; normal: LootRow[] }> = {
   WATER_POOL: { good: WATER_LOOT_GOOD, great: WATER_LOOT_GREAT, outstanding: WATER_LOOT_OUTSTANDING, normal: WATER_LOOT_NORMAL },
   WATER_POOL_CRIMSON_ISLE: { good: CRIMSON_LOOT_GOOD, great: CRIMSON_LOOT_GREAT, outstanding: CRIMSON_LOOT_OUTSTANDING, normal: CRIMSON_LOOT_NORMAL },
   WATER_POOL_LAVA: { good: LAVA_LOOT_GOOD, great: LAVA_LOOT_GREAT, outstanding: LAVA_LOOT_OUTSTANDING, normal: LAVA_LOOT_NORMAL },
+  WATER_POOL_FAIRY_POND: { good: FAIRY_POND_LOOT_GOOD, great: FAIRY_POND_LOOT_GREAT, outstanding: FAIRY_POND_LOOT_OUTSTANDING, normal: FAIRY_POND_LOOT_NORMAL },
+  WATER_POOL_JUNK: { good: JUNK_LOOT_GOOD, great: JUNK_LOOT_GREAT, outstanding: JUNK_LOOT_OUTSTANDING, normal: JUNK_LOOT_NORMAL },
+  WATER_POOL_LOTUS_ATOLL: { good: LOTUS_ATOLL_LOOT_GOOD, great: LOTUS_ATOLL_LOOT_GREAT, outstanding: LOTUS_ATOLL_LOOT_OUTSTANDING, normal: LOTUS_ATOLL_LOOT_NORMAL },
+  WATER_POOL_WINTER: { good: WINTER_LOOT_GOOD, great: WINTER_LOOT_GREAT, outstanding: WINTER_LOOT_OUTSTANDING, normal: WINTER_LOOT_NORMAL },
 }
 
 // Qualite Treasure : base 89%/10%/1% good/great/outstanding (wiki "Treasure"),
