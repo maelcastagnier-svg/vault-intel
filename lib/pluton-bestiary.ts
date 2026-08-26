@@ -26,7 +26,7 @@
 // discipline que le gap RNG deja documente sur Slayer/Mining/Fishing.
 import { createClient } from '@supabase/supabase-js'
 import {
-  computeCombatDps, fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH, WITHER_FORBIDDEN_STRENGTH_MAX,
+  computeCombatDps, computeAttacksPerSecond, fetchReforges, pickBestReforge, recombobulatedRarity, JASPER_PERFECT_BY_RARITY, ART_OF_WAR_STRENGTH, WITHER_FORBIDDEN_STRENGTH_MAX,
   SEVEN_TIER_KEYS, type SevenTier, oldTierBucket, INVESTMENT_MAX_TIERS,
   SHARPNESS_PCT_BY_TIER, SMITE_PCT_BY_TIER, CRITICAL_PCT_BY_TIER, POTATO_BOOK_USES_BY_TIER,
   THUNDERLORD_PCT_BY_TIER, FIRE_ASPECT_PCT_PER_SEC_BY_TIER, FIRE_ASPECT_DURATION_S_BY_TIER,
@@ -70,6 +70,22 @@ const GEMSTONE_JASPER_SLOTS_ARMOR: Record<string, number> = { REAPER: 1 } // Rea
 
 // Parse un champ hp/damage brut en nombre, ou null si non parseable de
 // facon fiable (multi-niveau, "Hits", "?", "(Abilities)"...).
+// "N Hits" (25 aout, audit exhaustivite Collections officielles) -- mecanique
+// reelle distincte confirmee sur 4 mobs (Worm/Scatha/Star Sentry/Powder
+// Ghast, Crystal Hollows/Dwarven Mines) : le kill se resout par un NOMBRE DE
+// COUPS fixe, pas par HP/DPS -- les degats par coup n'ont aucune incidence,
+// seule la vitesse d'attaque compte. TTK = hits / computeAttacksPerSecond().
+// Simplification documentee : reutilise le MEME gear/reforge deja choisi par
+// la recherche DPS-optimale existante (pas une recherche parallele
+// "vitesse d'attaque pure") -- le vrai optimum pourrait differer legerement,
+// gap mineur documente plutot qu'un chantier de recherche separe construit
+// pour 3 mobs.
+function parseHitsRequired(raw: string | null): number | null {
+  if (!raw) return null
+  const m = raw.match(/^(\d+)\s*hits?$/i)
+  return m ? parseInt(m[1], 10) : null
+}
+
 function parseSimpleNumeric(raw: string | null): number | null {
   if (!raw) return null
   const lower = raw.toLowerCase()
@@ -109,7 +125,11 @@ function parseGuaranteedDrops(raw: string | null): DropEntry[] {
   }
   for (const part of raw.split(';')) {
     const seg = part.trim()
-    const m = seg.match(/^(\d+)(?:-(\d+))?x\s+(.+)$/)
+    // x optionnel (25 aout) -- Voidling Fanatic/Extremist utilisent "4 Ender
+    // Pearl"/"32 Ender Pearl" (pas de "x"), format jamais rencontre avant --
+    // ces 2 mobs remontaient guaranteed_ev=0 (aucun drop parse) malgre un HP
+    // parseable, silencieusement exclus. Bug reel trouve en diagnostiquant.
+    const m = seg.match(/^(\d+)(?:-(\d+))?x?\s+(.+)$/)
     if (!m) continue
     const min = parseInt(m[1], 10)
     const max = m[2] ? parseInt(m[2], 10) : min
@@ -132,6 +152,7 @@ export type BestiaryMobResult = {
   zone_page: string
   name: string
   hp: number
+  hitsRequired: number | null
   is_undead: boolean
   guaranteed_ev: number
   skipped_reason?: string
@@ -145,9 +166,10 @@ export async function computeBestiaryCandidates(): Promise<BestiaryMobResult[]> 
   const allPriceIds = new Set<string>()
   const parsed = (mobs as { id: number; zone_page: string; name: string; hp: string | null; drops: string | null }[]).map(m => {
     const hp = parseSimpleNumeric(m.hp)
+    const hitsRequired = parseHitsRequired(m.hp)
     const drops = parseGuaranteedDrops(m.drops).map(d => ({ ...d, item_id: nameMap.get(d.itemName.toLowerCase()) || null }))
     for (const d of drops) if (d.item_id) allPriceIds.add(d.item_id)
-    return { id: m.id, zone_page: m.zone_page, name: m.name, hp, drops }
+    return { id: m.id, zone_page: m.zone_page, name: m.name, hp, hitsRequired, drops }
   })
 
   const since = new Date(Date.now() - 5 * 86_400_000).toISOString().split('T')[0]
@@ -163,19 +185,19 @@ export async function computeBestiaryCandidates(): Promise<BestiaryMobResult[]> 
 
   const results: BestiaryMobResult[] = []
   for (const m of parsed) {
-    if (m.hp == null) { results.push({ id: m.id, zone_page: m.zone_page, name: m.name, hp: 0, is_undead: false, guaranteed_ev: 0, skipped_reason: 'hp_unparseable' }); continue }
+    if (m.hp == null && m.hitsRequired == null) { results.push({ id: m.id, zone_page: m.zone_page, name: m.name, hp: 0, hitsRequired: null, is_undead: false, guaranteed_ev: 0, skipped_reason: 'hp_unparseable' }); continue }
     const pricedDrops = m.drops.filter(d => d.item_id && priceCache.has(d.item_id))
-    if (pricedDrops.length === 0) { results.push({ id: m.id, zone_page: m.zone_page, name: m.name, hp: m.hp, is_undead: false, guaranteed_ev: 0, skipped_reason: 'no_priced_guaranteed_drop' }); continue }
+    if (pricedDrops.length === 0) { results.push({ id: m.id, zone_page: m.zone_page, name: m.name, hp: m.hp ?? 0, hitsRequired: m.hitsRequired, is_undead: false, guaranteed_ev: 0, skipped_reason: 'no_priced_guaranteed_drop' }); continue }
     const ev = pricedDrops.reduce((sum, d) => sum + d.qty * (priceCache.get(d.item_id!) || 0), 0)
     const isUndead = /zombie|skeleton|wither|husk|ghoul/i.test(m.name)
-    results.push({ id: m.id, zone_page: m.zone_page, name: m.name, hp: m.hp, is_undead: isUndead, guaranteed_ev: ev })
+    results.push({ id: m.id, zone_page: m.zone_page, name: m.name, hp: m.hp ?? 0, hitsRequired: m.hitsRequired, is_undead: isUndead, guaranteed_ev: ev })
   }
   return results
 }
 
 export async function computeAndPersistBestiaryRankings(): Promise<{ candidates: number; viable: number }> {
   const candidates = await computeBestiaryCandidates()
-  const viable = candidates.filter(c => c.hp > 0 && c.guaranteed_ev > 0)
+  const viable = candidates.filter(c => (c.hp > 0 || (c.hitsRequired ?? 0) > 0) && c.guaranteed_ev > 0)
 
   const { data: existingBlocks } = await supabase
     .from('pluton_target_blocks').select('id').eq('activity_key', 'combat').like('block_id', 'BESTIARY_%')
@@ -211,7 +233,7 @@ export async function computeAndPersistBestiaryRankings(): Promise<{ candidates:
         required_breaking_power: 0,
         sell_item_id: 'NONE',
         base_drop_count: 1,
-        pricing_note: `Grind mob generique (21 aout, couche NBT completee 22 aout). HP reel=${c.hp} (source zone_mob_stats, sourcage wiki). EV=${c.guaranteed_ev.toFixed(2)} = somme des drops GARANTIS uniquement (Bazaar sell_price reel) -- les drops "0-Nx" (chance non chiffree cote wiki) sont exclus, meme discipline que le gap RNG deja documente sur Slayer/Mining/Fishing. Gear Zombie Slayer reutilise pour le DPS/TTK, bonus Undead applique si le nom du mob correspond a un type non-mort (Zombie/Skeleton/Wither/Husk/Ghoul). Setup complet : Sharpness+Smite(si Undead)+Critical, reforge arme+armure (recherche reelle), Recombobulator 3000, gemme Jasper (Reaper uniquement), Hot/Fuming Potato Book, The Art of War -- memes valeurs sourcees que lib/pluton-slayer.ts.`,
+        pricing_note: `Grind mob generique (21 aout, couche NBT completee 22 aout, mecanique "N Hits" ajoutee 25 aout). ${c.hitsRequired != null ? `Kill par ${c.hitsRequired} coups fixes (pas HP/DPS)` : `HP reel=${c.hp}`} (source zone_mob_stats, sourcage wiki). EV=${c.guaranteed_ev.toFixed(2)} = somme des drops GARANTIS uniquement (Bazaar sell_price reel) -- les drops "0-Nx" (chance non chiffree cote wiki) sont exclus, meme discipline que le gap RNG deja documente sur Slayer/Mining/Fishing. Gear Zombie Slayer reutilise pour le DPS/TTK, bonus Undead applique si le nom du mob correspond a un type non-mort (Zombie/Skeleton/Wither/Husk/Ghoul). Setup complet : Sharpness+Smite(si Undead)+Critical, reforge arme+armure (recherche reelle), Recombobulator 3000, gemme Jasper (Reaper uniquement), Hot/Fuming Potato Book, The Art of War -- memes valeurs sourcees que lib/pluton-slayer.ts.`,
       })
       .select('id')
       .single()
@@ -293,8 +315,12 @@ export async function computeAndPersistBestiaryRankings(): Promise<{ candidates:
       const finalCD = criticalPct + accCritDamage + (bestWeaponReforge?.delta.crit_damage || 0) + armorDelta.crit_damage
       const finalAS = accBonusAttackSpeed + (bestWeaponReforge?.delta.bonus_attack_speed || 0) + armorDelta.bonus_attack_speed
 
-      const dps = computeCombatDps(baseDamage, finalStrength, multsWithEnchants, additivePct, finalCD, finalCC, finalAS)
-      const ttk = c.hp / dps
+      // Mecanique "N Hits" (25 aout) -- kill par nombre de coups fixe, pas
+      // HP/DPS (voir doc parseHitsRequired). Reutilise le meme gear/reforge
+      // deja choisi ci-dessus par la recherche DPS-optimale.
+      const ttk = c.hitsRequired != null
+        ? c.hitsRequired / computeAttacksPerSecond(finalAS)
+        : c.hp / computeCombatDps(baseDamage, finalStrength, multsWithEnchants, additivePct, finalCD, finalCC, finalAS)
       return { tier, ttk, weaponName: weapon.display_name, armorName: armor?.set_name ?? null }
     }))
     const entriesFiltered = entries.filter((e): e is NonNullable<typeof e> => e !== null)
