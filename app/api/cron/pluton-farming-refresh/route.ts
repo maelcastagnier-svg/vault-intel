@@ -4,12 +4,15 @@
 // pluton_rankings (activity_key='farming') figes depuis le 5 aout, jamais recroises sur des prix
 // recents. Rejoue exactement la meme fonction deja validee, aucune formule modifiee.
 import { NextResponse } from 'next/server'
-import { computeAndPersistAllFarmingRankings } from '../../../../lib/pluton-farming'
+import { computeAndPersistAllFarmingRankings, computeAndPersistComposterRanking } from '../../../../lib/pluton-farming'
 import { startSync, finishSync } from '../../../../lib/sync-log'
 
 // 120->220 (23 aout, migration 7-tiers) -- +75% de combos (4->7 tiers),
 // marge de securite, aucune formule changee.
-export const maxDuration = 220
+// 220->260 (26 aout) -- Composter (methode additive, marge crafting_margin,
+// meme discipline que Forge/Ruby Veilshroom) rappelee apres le calcul
+// principal, meme pattern que pluton-foraging-refresh/pluton-slayer-refresh.
+export const maxDuration = 260
 
 export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -20,7 +23,8 @@ export async function GET(request: Request) {
   try {
     const results = await computeAndPersistAllFarmingRankings()
     const withSetup = results.filter(r => r.has_setup).length
-    const result = { success: true, combos: results.length, with_setup: withSetup, without_setup: results.length - withSetup }
+    const composter = await computeAndPersistComposterRanking()
+    const result = { success: true, combos: results.length, with_setup: withSetup, without_setup: results.length - withSetup, composter }
     await finishSync(logId, 'success', withSetup, result)
     return NextResponse.json(result)
   } catch (e: any) {

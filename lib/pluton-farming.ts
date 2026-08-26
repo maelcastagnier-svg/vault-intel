@@ -717,3 +717,127 @@ export async function computeAndPersistAllFarmingRankings(): Promise<PersistedFa
 
   return out
 }
+
+// ============================================================
+// Composter (26 aout) -- Phase B du plan "pipeline finale v3", methode
+// additive independante (target_block COMPOSTER dedie, meme discipline
+// multi-methodes que Forge/Ruby Veilshroom) -- PAS un rendement Sweep/
+// Fortune, c'est une marge crafting_margin (achat Organic Matter+Machine
+// Fuel au Bazaar, vente du Compost produit), meme famille que Forge.
+//
+// Cadence de base sourcee wiki "Composter" : 1 Compost produit toutes les
+// 10 minutes, consommant 4000 Organic Matter + 2000 Machine Fuel par
+// Compost ("Items cannot be taken out of the Composter once inserted").
+//
+// Cout reel : moins cher candidat de la table "Compost/Organic Matter
+// Table" (deja en base, pluton_elements) pour l'Organic Matter -- Box of
+// Seeds domine (0.157 Box of Seeds = 4000 OM, ~12 146 coins/4000 OM au
+// prix Bazaar buy_price courant) -- et de la table "Machine Fuel" (colonne
+// Composter=Yes, sourcee live wiki le 26 aout, l'extraction pluton_elements
+// ayant perdu cette colonne -- corruption confirmee, meme classe que les
+// bugs d'extraction deja documentes) pour le Machine Fuel -- Oil Barrel
+// domine (10 000 fuel/item, ~792.50 coins/2000 fuel au prix Bazaar
+// courant).
+//
+// Composter Speed (+20% production/tier d'upgrade Copper, jusqu'a +500%
+// au tier 25 max) et Cost Reduction (-1% consommation/tier, jusqu'a -25%
+// max) sources de la table d'upgrades Composter (Copper 100->4000,
+// wiki confirme). Interpole proportionnellement sur les 7 tiers Pluton --
+// MEME schema exact que SHARPNESS_PCT_BY_TIER/SMITE_PCT_BY_TIER (23 aout,
+// lib/pluton-engine.ts) : 0% a starter (aucun Copper investi), ratios
+// [0, 0.2, 0.4, 0.6, 0.8, 1, 1] du maximum reel -- rien invente au-dela de
+// cette distribution deja retenue par le projet, seules les 2 vraies
+// ancres (0% et le maximum sourcee) sont reelles, la granularite
+// intermediaire est une interpolation lineaire documentee.
+const COMPOSTER_CYCLE_MINUTES = 10
+const COMPOSTER_OM_PER_COMPOST = 4000
+const COMPOSTER_FUEL_PER_COMPOST = 2000
+const COMPOSTER_SPEED_PCT_MAX = 500
+const COMPOSTER_COST_REDUCTION_PCT_MAX = 25
+const COMPOSTER_TIER_FRACTION: Record<SevenTier, number> = {
+  starter: 0, amateur: 0.2, intermediate: 0.4, skilled: 0.6, expert: 0.8, professional: 1, master: 1,
+}
+// Moins cher candidat sourcee (26 aout) -- Compost/Organic Matter Table.
+const COMPOSTER_CHEAPEST_OM_ITEM_ID = 'BOX_OF_SEEDS'
+const COMPOSTER_CHEAPEST_OM_AMOUNT_PER_4000 = 0.157
+// Moins cher candidat sourcee (26 aout, colonne Composter=Yes, table
+// Machine Fuel live wiki -- extraction pluton_elements corrompue sur
+// cette colonne, verifiee en direct).
+const COMPOSTER_CHEAPEST_FUEL_ITEM_ID = 'OIL_BARREL'
+const COMPOSTER_CHEAPEST_FUEL_AMOUNT = 10000
+
+export async function computeAndPersistComposterRanking(): Promise<{ tiers: number; coins_per_hour_master: number }> {
+  const { data: block } = await supabase
+    .from('pluton_target_blocks').select('id, effective_sell_price').eq('activity_key', 'farming').eq('block_id', 'COMPOSTER').single()
+  if (!block) throw new Error('COMPOSTER target block not found')
+
+  const compostSellPrice = Number(block.effective_sell_price) || 0
+
+  const { data: prices } = await supabase
+    .from('price_history')
+    .select('item_id, buy_price')
+    .in('item_id', [COMPOSTER_CHEAPEST_OM_ITEM_ID, COMPOSTER_CHEAPEST_FUEL_ITEM_ID])
+    .order('bucket_date', { ascending: false })
+  const priceByItem = new Map<string, number>()
+  for (const p of (prices || [])) {
+    if (!priceByItem.has(p.item_id)) priceByItem.set(p.item_id, Number(p.buy_price) || 0)
+  }
+  const omUnitPrice = priceByItem.get(COMPOSTER_CHEAPEST_OM_ITEM_ID) || 0
+  const fuelUnitPrice = priceByItem.get(COMPOSTER_CHEAPEST_FUEL_ITEM_ID) || 0
+
+  const omCostFor4000 = COMPOSTER_CHEAPEST_OM_AMOUNT_PER_4000 * omUnitPrice
+  const fuelCostFor2000 = (fuelUnitPrice / COMPOSTER_CHEAPEST_FUEL_AMOUNT) * COMPOSTER_FUEL_PER_COMPOST
+  const baseCostPerCompost = omCostFor4000 + fuelCostFor2000
+
+  await supabase.from('pluton_rankings').delete().eq('target_block_id', block.id)
+  const staleSetups = await supabase.from('pluton_setups').select('id').eq('activity_key', 'farming').contains('accessories', [{ source_id: '__composter_method__' }])
+  const staleIds = (staleSetups.data || []).map(s => s.id)
+  if (staleIds.length > 0) await supabase.from('pluton_setups').delete().in('id', staleIds)
+
+  let coinsPerHourMaster = 0
+  for (const tier of ALL_FARMING_TIER_KEYS) {
+    const frac = COMPOSTER_TIER_FRACTION[tier]
+    const speedPct = COMPOSTER_SPEED_PCT_MAX * frac
+    const costReductionPct = COMPOSTER_COST_REDUCTION_PCT_MAX * frac
+
+    const compostsPerHour = (60 / COMPOSTER_CYCLE_MINUTES) * (1 + speedPct / 100)
+    const costPerCompost = baseCostPerCompost * (1 - costReductionPct / 100)
+    const marginPerCompost = compostSellPrice - costPerCompost
+    const coinsPerHour = marginPerCompost * compostsPerHour
+    if (tier === 'master') coinsPerHourMaster = coinsPerHour
+
+    const { data: setupRow, error: setupErr } = await supabase
+      .from('pluton_setups')
+      .insert({
+        activity_key: 'farming',
+        tier,
+        investment_level: 'optimal',
+        armor_set_prefix: `Aucune (Composter -- Speed +${speedPct.toFixed(0)}%, Cost Reduction -${costReductionPct.toFixed(1)}%)`,
+        tool_item_id: 'COMPOSTER_NO_TOOL',
+        total_mining_speed: 0,
+        total_mining_fortune: 0,
+        total_breaking_power: 0,
+        real_cost: costPerCompost,
+        accessories: [{ source_id: '__composter_method__', speed_pct: speedPct, cost_reduction_pct: costReductionPct }],
+      })
+      .select('id').single()
+    if (setupErr || !setupRow) throw new Error(`Composter setup insert failed for ${tier}: ${setupErr?.message}`)
+
+    const { error: rankErr } = await supabase
+      .from('pluton_rankings')
+      .insert({
+        activity_key: 'farming',
+        tier,
+        target_block_id: block.id,
+        setup_id: setupRow.id,
+        rank: 1,
+        mining_time_seconds: 3600 / compostsPerHour,
+        actions_per_hour: compostsPerHour,
+        yield_per_hour: compostsPerHour,
+        coins_per_hour_raw_block_only: coinsPerHour,
+      })
+    if (rankErr) throw new Error(`Composter ranking insert failed for ${tier}: ${rankErr.message}`)
+  }
+
+  return { tiers: ALL_FARMING_TIER_KEYS.length, coins_per_hour_master: coinsPerHourMaster }
+}
