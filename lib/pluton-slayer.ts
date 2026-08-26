@@ -699,3 +699,131 @@ export async function computeAndPersistAllSlayerRankings(): Promise<PersistedSla
 
   return out
 }
+
+// Couche RNG-Meter reelle (26 aout, Phase B du plan pipeline v3) -- methode
+// additive independante (meme discipline multi-methodes que Sea Creature
+// kills sur Fishing), ne touche pas au calcul guaranti-seul ci-dessus.
+//
+// Formule reelle sourcee live wiki "RNG Meter" (jamais cachee avant, page
+// absente de tout cache existant) :
+//   NewWeight = ItemWeight x (1 + min(2 x StoredXP/RequiredXP, 2))
+//   RequiredXP = SlayerMultiplier x 100 / HighestBaseDropRate%  (Vampire=250, autres=500)
+// -- d'ou BaseDropRate% = SlayerMultiplier x 100 / RequiredXP, une simple
+// inversion algebrique de la formule sourcee, pas une valeur inventee.
+// `slayer_rng_scores.rng_score` = RequiredXP par item (confirme par
+// recoupement : DYE_FLAME (Inferno, tres rare) = 75 000 000, coherent avec
+// un item ultra-rare).
+//
+// 🔴 Simplification documentee, pas cachee : le RNG Meter RESET A ZERO
+// apres chaque proc (confirme live wiki, meme page -- "repetitions set to
+// 0 for that target"), donc le vrai multiplicateur moyen sur une session de
+// farm reelle oscille entre x1 (juste reset) et x3 (plafond), et depend du
+// taux d'XP Combat/heure du joueur relatif au RequiredXP de CHAQUE item
+// (processus de renouvellement, pas une constante) -- aucune source ne
+// documente ce taux d'accumulation. Modeliser le vrai multiplicateur moyen
+// necessiterait une donnee non sourcee (violerait la regle #7). Ce calcul
+// utilise donc le PLANCHER reel et defendable : poids de base SEUL (meter a
+// 0, multiplicateur=1x) -- sous-estime le vrai revenu RNG (comme
+// `coins_per_hour_boss_phase_only` sous-estime deja le revenu Slayer total
+// pour d'autres raisons documentees plus haut), jamais une valeur moyenne
+// inventee. Quantite par drop assumee =1 (aucune quantite par item
+// sourcee dans `slayer_drop_items`/`slayer_rng_scores` -- la grande
+// majorite des items RNG Slayer sont des drops unitaires -- documente,
+// pas verifie item par item).
+const SLAYER_RNG_MULTIPLIER = 500 // Vampire=250, non applicable ici (5 boss existants seulement)
+const SLAYER_BOSS_TO_BLOCK_PREFIX: Record<string, string> = {
+  'Revenant Horror': 'ZOMBIE', 'Tarantula Broodfather': 'SPIDER', 'Sven Packmaster': 'WOLF',
+  'Voidgloom Seraph': 'ENDERMAN', 'Inferno Demonlord': 'BLAZE',
+}
+
+function resolveSlayerRngItemId(rawItemId: string): string {
+  const m = rawItemId.match(/^([A-Z_]+);(\d+)$/)
+  if (!m) return rawItemId
+  return `ENCHANTMENT_${m[1]}_${m[2]}`
+}
+
+export async function computeAndPersistSlayerRngPoolRankings(): Promise<{ combos: number; with_ev: number }> {
+  const { data: rngRows } = await supabase.from('slayer_rng_scores').select('slayer_category, item_id, rng_score')
+  const allItemIds = Array.from(new Set((rngRows || []).map(r => resolveSlayerRngItemId(r.item_id))))
+
+  const { data: priceRows } = await supabase
+    .from('price_history').select('item_id, sell_price').in('item_id', allItemIds).gt('sell_price', 0)
+    .order('bucket_date', { ascending: false })
+  const priceMap = new Map<string, number>()
+  for (const p of priceRows || []) if (!priceMap.has(p.item_id)) priceMap.set(p.item_id, Number(p.sell_price))
+
+  // EV RNG par kill, par boss (poids de base seul, voir doc ci-dessus).
+  const evPerKillByBoss = new Map<string, number>()
+  for (const row of rngRows || []) {
+    const boss = row.slayer_category
+    const resolvedId = resolveSlayerRngItemId(row.item_id)
+    const price = priceMap.get(resolvedId)
+    if (!price || !row.rng_score || Number(row.rng_score) <= 0) continue
+    const baseDropRatePct = (SLAYER_RNG_MULTIPLIER * 100) / Number(row.rng_score)
+    const evContribution = (baseDropRatePct / 100) * 1 * price // qty=1, documente ci-dessus
+    evPerKillByBoss.set(boss, (evPerKillByBoss.get(boss) || 0) + evContribution)
+  }
+
+  const newBlockIds = SLAYER_TARGET_BLOCK_IDS.map(b => `${b}_RNG_POOL`)
+  const { data: existingBlocks } = await supabase
+    .from('pluton_target_blocks').select('id').eq('activity_key', 'slayer').in('block_id', newBlockIds)
+  const existingIds = (existingBlocks || []).map(b => b.id)
+  if (existingIds.length > 0) {
+    await supabase.from('pluton_rankings').delete().in('target_block_id', existingIds)
+    await supabase.from('pluton_setups').delete().eq('activity_key', 'slayer').contains('accessories', [{ source_id: '__slayer_rng_pool__' }])
+    await supabase.from('pluton_target_blocks').delete().in('id', existingIds)
+  }
+
+  let combos = 0
+  let withEv = 0
+  for (const bossBlockId of SLAYER_TARGET_BLOCK_IDS) {
+    const bossPrefix = bossBlockId.split('_T')[0]
+    const bossName = Object.entries(SLAYER_BOSS_TO_BLOCK_PREFIX).find(([, prefix]) => prefix === bossPrefix)?.[0]
+    const evPerKill = bossName ? (evPerKillByBoss.get(bossName) || 0) : 0
+
+    const { data: block, error: blockErr } = await supabase
+      .from('pluton_target_blocks')
+      .insert({
+        activity_key: 'slayer',
+        block_id: `${bossBlockId}_RNG_POOL`,
+        block_name: `${bossBlockId} -- pool RNG (poids de base seul, meter a 0x -- plancher documente)`,
+        block_strength: 0,
+        required_breaking_power: 0,
+        sell_item_id: 'NONE',
+        base_drop_count: 1,
+        pricing_note: `RNG Meter (wiki, jamais cache avant) -- BaseDropRate%=500x100/RequiredXP, RequiredXP=slayer_rng_scores.rng_score. Meter reset a chaque proc (source live wiki) -- plancher multiplicateur=1x utilise, pas la moyenne reelle (non sourcee). EV/kill=${evPerKill.toFixed(2)}.`,
+      })
+      .select('id').single()
+    if (blockErr || !block) continue
+
+    for (const tier of SLAYER_TIER_KEYS) {
+      combos++
+      const guaranteedResult = await computeSlayerRanking(tier, bossBlockId)
+      const killsPerHour = guaranteedResult.top_setup?.kills_per_hour
+      if (!killsPerHour) continue
+      const coinsPerHour = killsPerHour * evPerKill
+      if (coinsPerHour > 0) withEv++
+
+      const { data: setupRow, error: setupErr } = await supabase
+        .from('pluton_setups')
+        .insert({
+          activity_key: 'slayer', tier, investment_level: 'optimal',
+          armor_set_prefix: `Meme gear que ${bossBlockId} garanti (pool RNG additif)`,
+          tool_item_id: guaranteedResult.top_setup?.weapon_item_id ?? 'NONE',
+          total_mining_speed: 0, total_mining_fortune: 0, total_breaking_power: 0, real_cost: 0,
+          accessories: [{ source_id: '__slayer_rng_pool__', boss_block: bossBlockId }],
+        })
+        .select('id').single()
+      if (setupErr || !setupRow) continue
+
+      await supabase.from('pluton_rankings').insert({
+        activity_key: 'slayer', tier, target_block_id: block.id, setup_id: setupRow.id, rank: 1,
+        mining_time_seconds: guaranteedResult.top_setup?.time_to_kill_seconds ?? 0,
+        actions_per_hour: killsPerHour, yield_per_hour: killsPerHour,
+        coins_per_hour_raw_block_only: coinsPerHour,
+      })
+    }
+  }
+
+  return { combos, with_ev: withEv }
+}

@@ -4,12 +4,14 @@
 // prod le 18 aout) pour garder guaranteed_drop_value recroise sur des prix
 // Bazaar recents. Aucune formule modifiee ici.
 import { NextResponse } from 'next/server'
-import { computeAndPersistAllSlayerRankings } from '../../../../lib/pluton-slayer'
+import { computeAndPersistAllSlayerRankings, computeAndPersistSlayerRngPoolRankings } from '../../../../lib/pluton-slayer'
 import { startSync, finishSync } from '../../../../lib/sync-log'
 
 // 120->220 (23 aout, migration 7-tiers) -- +75% de combos (4->7 tiers),
 // marge de securite, aucune formule changee.
-export const maxDuration = 220
+// 220->320 (26 aout) -- couche RNG-Meter additive rappelle computeSlayerRanking()
+// une 2e fois par combo (23 combos), double approximativement le travail.
+export const maxDuration = 320
 
 export async function GET(request: Request) {
   if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -20,7 +22,10 @@ export async function GET(request: Request) {
   try {
     const results = await computeAndPersistAllSlayerRankings()
     const withSetup = results.filter(r => r.has_setup).length
-    const result = { success: true, combos: results.length, with_setup: withSetup, without_setup: results.length - withSetup }
+    // Couche RNG-Meter (26 aout) -- methode additive independante (target_blocks
+    // distincts *_RNG_POOL, meme discipline que Sea Creature kills sur Fishing).
+    const rngPool = await computeAndPersistSlayerRngPoolRankings()
+    const result = { success: true, combos: results.length, with_setup: withSetup, without_setup: results.length - withSetup, rng_pool: rngPool }
     await finishSync(logId, 'success', withSetup, result)
     return NextResponse.json(result)
   } catch (e: any) {
