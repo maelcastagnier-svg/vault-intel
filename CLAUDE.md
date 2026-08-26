@@ -4,6 +4,34 @@
 > Basé sur la session la plus récente disponible. En cas de divergence avec une
 > session antérieure sur le même sujet, cette version fait foi.
 
+## ✅ Pluton — pipeline finale v3, Phase B terminée (26 août)
+
+Suite du mandat du 26 août (reformulation stricte des 3 phases + distinction
+"faisable"/"money-making", voir plan `joyful-shimmying-finch.md`). Phase A
+(reparation classement 7-tiers, 73,7% de `pluton_elements` sans tier) reste
+un chantier de fond multi-session (moteur `pluton_tier_rules`/
+`runTierClassification()` construit, pas encore peuple -- exige un vrai
+jugement page par page, pas une formule mecanique). **Phase B (2 vrais gaps
+de cablage, pas des trous de donnee) terminee et verifiee en prod** :
+
+- **Slayer — RNG Meter additif** (`lib/pluton-slayer.ts`) : verification
+  live wiki (avant codage) a revele que le RNG Meter reset a zero apres
+  chaque proc -- invalide l'hypothese initiale "meter au max". Ferme avec le
+  plancher reel (`BaseDropRate% = 500×100/RequiredXP`, `slayer_rng_scores.
+  rng_score` deja en base) plutot qu'une moyenne inventee, sous-estime le
+  vrai revenu, documente. 154 combos verifies, 138 avec EV.
+- **Farming — Composter** (`lib/pluton-farming.ts`) : marge crafting_margin
+  (meme famille que Forge) sur la cadence 1 Compost/10min, cout 4000 Organic
+  Matter (Box of Seeds, moins cher)/2000 Machine Fuel (Oil Barrel, moins
+  cher -- colonne "Composter" de la table Machine Fuel corrompue a
+  l'extraction `pluton_elements`, resourcee en direct). Speed/Cost
+  Reduction interpoles sur 7 tiers (meme schema que Sharpness/Smite/
+  Critical). 7/7 tiers verifies, 2 829→133 415 coins/h.
+
+Prochaine etape actee (plan) : Phase C (pont vers Milestones/Evolve pour la
+couche "faisable", pas un doublon de `milestone_tasks`) puis reprise de
+Phase A/D.
+
 ## 🎯 Vision finale et définitive de Pluton (dictée par l'utilisateur, 21 août)
 
 Cette section est la référence permanente pour toute construction Pluton —
