@@ -4,7 +4,7 @@
 // prod le 17 aout) pour garder real_cost/coins_per_hour recroises sur des prix
 // AH recents. Aucune formule modifiee ici.
 import { NextResponse } from 'next/server'
-import { computeAndPersistAllForagingRankings } from '../../../../lib/pluton-foraging'
+import { computeAndPersistAllForagingRankings, computeAndPersistRubyVeilshroomRanking } from '../../../../lib/pluton-foraging'
 import { startSync, finishSync } from '../../../../lib/sync-log'
 
 // 120->180 (23 aout, migration 7-tiers) -- +75% de combos (4->7 tiers),
@@ -24,7 +24,10 @@ export async function GET(request: Request) {
   try {
     const results = await computeAndPersistAllForagingRankings()
     const withSetup = results.filter(r => r.has_setup).length
-    const result = { success: true, combos: results.length, with_setup: withSetup, without_setup: results.length - withSetup }
+    // Ruby Veilshroom (26 aout) -- methode additive independante (target_block
+    // distinct, meme discipline que Sea Creature kills sur Fishing).
+    const rubyVeilshroom = await computeAndPersistRubyVeilshroomRanking()
+    const result = { success: true, combos: results.length, with_setup: withSetup, without_setup: results.length - withSetup, ruby_veilshroom: rubyVeilshroom }
     await finishSync(logId, 'success', withSetup, result)
     return NextResponse.json(result)
   } catch (e: any) {

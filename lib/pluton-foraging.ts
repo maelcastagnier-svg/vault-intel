@@ -586,3 +586,68 @@ export async function computeAndPersistAllForagingRankings(): Promise<PersistedF
 
   return out
 }
+
+// Ruby Veilshroom (Torrhus Springs, 26 aout) -- methode additive independante
+// (meme discipline "multi-methodes" que Sea Creature kills sur Fishing) :
+// node clicke a cadence de repousse fixe, PAS le chopping Sweep -- ne touche
+// pas au moteur de recherche gear ci-dessus. Explicitement non affecte par
+// la Foraging Fortune (source live wiki) -- gear-independant, meme valeur a
+// tous les tiers, documente plutot que cache. drop=4-8 (moy. 6), respawn=
+// 50-55s (moy. 52.5s).
+const RUBY_VEILSHROOM_QTY_AVG = 6
+const RUBY_VEILSHROOM_RESPAWN_S = 52.5
+
+export async function computeAndPersistRubyVeilshroomRanking(): Promise<{ tiers: number; coins_per_hour: number }> {
+  const { data: block } = await supabase
+    .from('pluton_target_blocks').select('id').eq('activity_key', 'foraging').eq('block_id', 'RUBY_VEILSHROOM_NODE').single()
+  if (!block) throw new Error('RUBY_VEILSHROOM_NODE target block not found')
+
+  const { data: priceRow } = await supabase
+    .from('price_history').select('sell_price').eq('item_id', 'RUBY_VEILSHROOM').gt('sell_price', 0)
+    .order('bucket_date', { ascending: false }).limit(1).maybeSingle()
+  const sellPrice = Number(priceRow?.sell_price) || 0
+
+  const harvestsPerHour = 3600 / RUBY_VEILSHROOM_RESPAWN_S
+  const coinsPerHour = harvestsPerHour * RUBY_VEILSHROOM_QTY_AVG * sellPrice
+
+  await supabase.from('pluton_rankings').delete().eq('target_block_id', block.id)
+  const staleSetups = await supabase.from('pluton_setups').select('id').eq('activity_key', 'foraging').contains('accessories', [{ source_id: '__ruby_veilshroom_node__' }])
+  const staleIds = (staleSetups.data || []).map(s => s.id)
+  if (staleIds.length > 0) await supabase.from('pluton_setups').delete().in('id', staleIds)
+
+  for (const tier of FORAGING_TIER_KEYS) {
+    const { data: setupRow, error: setupErr } = await supabase
+      .from('pluton_setups')
+      .insert({
+        activity_key: 'foraging',
+        tier,
+        investment_level: 'optimal',
+        armor_set_prefix: 'Aucune (gear-independant, non affecte par Foraging Fortune)',
+        tool_item_id: 'NONE',
+        total_mining_speed: 0,
+        total_mining_fortune: 0,
+        total_breaking_power: 0,
+        real_cost: 0,
+        accessories: [{ source_id: '__ruby_veilshroom_node__' }],
+      })
+      .select('id').single()
+    if (setupErr || !setupRow) throw new Error(`Ruby Veilshroom setup insert failed for ${tier}: ${setupErr?.message}`)
+
+    const { error: rankErr } = await supabase
+      .from('pluton_rankings')
+      .insert({
+        activity_key: 'foraging',
+        tier,
+        target_block_id: block.id,
+        setup_id: setupRow.id,
+        rank: 1,
+        mining_time_seconds: RUBY_VEILSHROOM_RESPAWN_S,
+        actions_per_hour: harvestsPerHour,
+        yield_per_hour: harvestsPerHour * RUBY_VEILSHROOM_QTY_AVG,
+        coins_per_hour_raw_block_only: coinsPerHour,
+      })
+    if (rankErr) throw new Error(`Ruby Veilshroom ranking insert failed for ${tier}: ${rankErr.message}`)
+  }
+
+  return { tiers: FORAGING_TIER_KEYS.length, coins_per_hour: coinsPerHour }
+}
