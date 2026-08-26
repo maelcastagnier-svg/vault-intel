@@ -116,6 +116,68 @@ export async function runActivityClassification(): Promise<ClassificationRunRepo
   }
 }
 
+export type TierRule = {
+  id: number
+  rule_type: 'page_prefix' | 'element_type_bulk'
+  pattern: string
+  tier: number
+  priority: number
+  confidence: 'VERIFIED' | 'DERIVED'
+  notes: string | null
+  active: boolean
+}
+
+export type TierClassificationRunReport = {
+  rules_applied: number
+  rows_tiered: number
+  still_null_before: number
+  still_null_after: number
+}
+
+// Phase A (26 aout, audit qui a trouve 73,7% de pluton_elements sans tier --
+// aucun moteur de classement par tier n'existait avant ce fichier, seule la
+// classification `activity` etait rejouable). Meme discipline exacte que
+// runActivityClassification() ci-dessus : regles dans une table dediee
+// (`pluton_tier_rules`, jamais un mapping cache dans le code), idempotent
+// (`WHERE tier IS NULL`), rejouable a chaque sync futur. Le tier assigne
+// DOIT venir d'un gate reel du jeu verifie (niveau skill/collection/HOTM
+// requis pour acceder au contenu de la page) -- jamais devine, meme
+// discipline que le reste du projet (regle #7). Beaucoup de pages
+// n'auront jamais de regle ici si leur contenu n'est pas single-tierable
+// (ex: une page qui couvre les 7 tiers a la fois, comme les paliers de
+// Huntrap) -- documente comme non-classifiable au niveau page plutot que
+// force.
+export async function runTierClassification(): Promise<TierClassificationRunReport> {
+  const { count: beforeCount } = await supabase
+    .from('pluton_elements').select('id', { count: 'exact', head: true }).is('tier', null)
+
+  const { data: rules } = await supabase
+    .from('pluton_tier_rules')
+    .select('*')
+    .eq('active', true)
+    .order('priority', { ascending: true })
+
+  let tiered = 0
+  for (const rule of (rules || [])) {
+    let query = supabase.from('pluton_elements').update({ tier: rule.tier }).is('tier', null)
+    query = rule.rule_type === 'element_type_bulk'
+      ? query.eq('element_type', rule.pattern)
+      : query.ilike('element_name', `${rule.pattern}%`)
+    const { data } = await query.select('id')
+    tiered += data?.length || 0
+  }
+
+  const { count: afterCount } = await supabase
+    .from('pluton_elements').select('id', { count: 'exact', head: true }).is('tier', null)
+
+  return {
+    rules_applied: (rules || []).length,
+    rows_tiered: tiered,
+    still_null_before: beforeCount || 0,
+    still_null_after: afterCount || 0,
+  }
+}
+
 // Stub pour la voie "avec Haiku plus tard" mentionnee par l'utilisateur --
 // pas encore appelee en prod. Retourne un echantillon de page_title
 // (prefixe avant " / ", format dominant wiki_table_extract) encore non
