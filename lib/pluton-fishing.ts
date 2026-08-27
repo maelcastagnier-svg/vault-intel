@@ -50,6 +50,7 @@ import type { SevenTierConfig } from './money-making-constants'
 import {
   recombobulatedRarity, SEVEN_TIER_KEYS, type SevenTier, loadSevenTierConfig, INVESTMENT_MAX_TIERS,
   ANGLER_SCC_PCT_BY_TIER, LUCK_OF_THE_SEA_TC_PCT_BY_TIER, ULTIMATE_FLASH_INSTANT_CHANCE_PCT_BY_TIER,
+  loadPriceCache, loadGeorgePetPriceCache,
 } from './pluton-engine'
 
 const supabase = createClient(
@@ -213,27 +214,27 @@ const WATER_LOOT_GOOD: LootRow[] = [
 const WATER_LOOT_GREAT: LootRow[] = [
   { itemId: 'ENCHANTED_RAW_FISH', qty: 4, chancePct: 19.64 },
   { itemId: 'ENCHANTED_RAW_SALMON', qty: 4, chancePct: 13.39 },
-  { itemId: null, qty: 3, chancePct: 8.93 }, // Enchanted Tropical Fish
+  { itemId: 'ENCHANTED_CLOWNFISH', qty: 3, chancePct: 8.93 }, // Enchanted Tropical Fish
   { itemId: 'ENCHANTED_PUFFERFISH', qty: 3, chancePct: 8.93 },
   { itemId: 'ENCHANTED_CLAY_BALL', qty: 8, chancePct: 8.93 },
   { itemId: 'ENCHANTED_SPONGE', qty: 1, chancePct: 8.93 },
   { itemId: 'TITANIC_EXP_BOTTLE', qty: 1, chancePct: 8.93 },
-  { itemId: null, qty: 1, chancePct: 6.70 }, // Common Squid Pet
-  { itemId: null, qty: 1, chancePct: 4.46 }, // Uncommon Squid Pet
-  { itemId: null, qty: 1, chancePct: 2.23 }, // Rare Squid Pet
+  { itemId: 'PET_SQUID_0', qty: 1, chancePct: 6.70 }, // Common Squid Pet
+  { itemId: 'PET_SQUID_1', qty: 1, chancePct: 4.46 }, // Uncommon Squid Pet
+  { itemId: 'PET_SQUID_2', qty: 1, chancePct: 2.23 }, // Rare Squid Pet
   { itemId: 'COIN', qty: 175000, chancePct: 8.93 },
 ]
 const WATER_LOOT_OUTSTANDING: LootRow[] = [
   { itemId: 'ENCHANTED_RAW_FISH', qty: 32, chancePct: 17.39 },
   { itemId: 'ENCHANTED_RAW_SALMON', qty: 32, chancePct: 11.86 },
-  { itemId: null, qty: 24, chancePct: 7.91 }, // Enchanted Tropical Fish
+  { itemId: 'ENCHANTED_CLOWNFISH', qty: 24, chancePct: 7.91 }, // Enchanted Tropical Fish
   { itemId: 'ENCHANTED_PUFFERFISH', qty: 24, chancePct: 7.91 },
   { itemId: 'ENCHANTED_CLAY_BALL', qty: 64, chancePct: 7.91 },
   { itemId: 'ENCHANTED_SPONGE', qty: 8, chancePct: 7.91 },
   { itemId: 'ENCHANTED_WET_SPONGE', qty: 1, chancePct: 1.98 },
   { itemId: 'TITANIC_EXP_BOTTLE', qty: 1, chancePct: 3.95 },
-  { itemId: null, qty: 1, chancePct: 15.81 }, // Epic Squid Pet
-  { itemId: null, qty: 1, chancePct: 7.91 }, // Legendary Squid Pet
+  { itemId: 'PET_SQUID_3', qty: 1, chancePct: 15.81 }, // Epic Squid Pet
+  { itemId: 'PET_SQUID_4', qty: 1, chancePct: 7.91 }, // Legendary Squid Pet
   { itemId: 'WATER_ORB', qty: 1, chancePct: 1.58 },
   { itemId: 'COIN', qty: 750000, chancePct: 7.91 },
 ]
@@ -366,16 +367,16 @@ const FAIRY_POND_LOOT_GOOD: LootRow[] = [
 ]
 const FAIRY_POND_LOOT_GREAT: LootRow[] = [
   { itemId: 'COIN', qty: 175000, chancePct: 8.93 },
-  { itemId: null, qty: 1, chancePct: 6.70 }, // Common Squid Pet
+  { itemId: 'PET_SQUID_0', qty: 1, chancePct: 6.70 }, // Common Squid Pet
   { itemId: 'ENCHANTED_CLAY_BALL', qty: 8, chancePct: 8.93 },
   { itemId: 'ENCHANTED_PUFFERFISH', qty: 3, chancePct: 8.93 },
   { itemId: 'ENCHANTED_RAW_FISH', qty: 4, chancePct: 19.64 },
   { itemId: 'ENCHANTED_RAW_SALMON', qty: 4, chancePct: 13.39 },
   { itemId: 'ENCHANTED_SPONGE', qty: 1, chancePct: 8.93 },
-  { itemId: null, qty: 3, chancePct: 8.93 }, // Enchanted Tropical Fish
-  { itemId: null, qty: 1, chancePct: 2.23 }, // Rare Squid Pet
+  { itemId: 'ENCHANTED_CLOWNFISH', qty: 3, chancePct: 8.93 }, // Enchanted Tropical Fish
+  { itemId: 'PET_SQUID_2', qty: 1, chancePct: 2.23 }, // Rare Squid Pet
   { itemId: 'TITANIC_EXP_BOTTLE', qty: 1, chancePct: 8.93 },
-  { itemId: null, qty: 1, chancePct: 4.46 }, // Uncommon Squid Pet
+  { itemId: 'PET_SQUID_1', qty: 1, chancePct: 4.46 }, // Uncommon Squid Pet
 ]
 const FAIRY_POND_LOOT_NORMAL: LootRow[] = [
   { itemId: 'RAW_FISH:3', qty: 1, chancePct: 14.55 },
@@ -390,10 +391,10 @@ const FAIRY_POND_LOOT_OUTSTANDING: LootRow[] = [
   { itemId: 'ENCHANTED_RAW_FISH', qty: 32, chancePct: 17.39 },
   { itemId: 'ENCHANTED_RAW_SALMON', qty: 32, chancePct: 11.86 },
   { itemId: 'ENCHANTED_SPONGE', qty: 8, chancePct: 7.91 },
-  { itemId: null, qty: 24, chancePct: 7.91 }, // Enchanted Tropical Fish
+  { itemId: 'ENCHANTED_CLOWNFISH', qty: 24, chancePct: 7.91 }, // Enchanted Tropical Fish
   { itemId: 'ENCHANTED_WET_SPONGE', qty: 1, chancePct: 1.98 },
-  { itemId: null, qty: 1, chancePct: 15.81 }, // Epic Squid Pet
-  { itemId: null, qty: 1, chancePct: 7.91 }, // Legendary Squid Pet
+  { itemId: 'PET_SQUID_3', qty: 1, chancePct: 15.81 }, // Epic Squid Pet
+  { itemId: 'PET_SQUID_4', qty: 1, chancePct: 7.91 }, // Legendary Squid Pet
   { itemId: 'TITANIC_EXP_BOTTLE', qty: 1, chancePct: 3.95 },
   { itemId: 'WATER_ORB', qty: 1, chancePct: 1.58 },
 ]
@@ -429,15 +430,15 @@ const LOTUS_ATOLL_LOOT_GOOD: LootRow[] = [
   { itemId: 'RAW_FISH:2', qty: 24, chancePct: 14.81 },
 ]
 const LOTUS_ATOLL_LOOT_GREAT: LootRow[] = [
-  { itemId: null, qty: 1, chancePct: 11.43 }, // Common Squid Pet
+  { itemId: 'PET_SQUID_0', qty: 1, chancePct: 11.43 }, // Common Squid Pet
   { itemId: 'ENCHANTED_CLAY_BALL', qty: 6, chancePct: 11.43 },
   { itemId: 'ENCHANTED_PUFFERFISH', qty: 6, chancePct: 9.14 },
   { itemId: 'ENCHANTED_RAW_FISH', qty: 6, chancePct: 25.14 },
   { itemId: 'ENCHANTED_RAW_SALMON', qty: 6, chancePct: 17.14 },
-  { itemId: null, qty: 6, chancePct: 11.43 }, // Enchanted Tropical Fish
-  { itemId: null, qty: 1, chancePct: 2.86 }, // Rare Squid Pet
+  { itemId: 'ENCHANTED_CLOWNFISH', qty: 6, chancePct: 11.43 }, // Enchanted Tropical Fish
+  { itemId: 'PET_SQUID_2', qty: 1, chancePct: 2.86 }, // Rare Squid Pet
   { itemId: 'LOTUS_SILVER', qty: 12, chancePct: 5.71 },
-  { itemId: null, qty: 1, chancePct: 5.71 }, // Uncommon Squid Pet
+  { itemId: 'PET_SQUID_1', qty: 1, chancePct: 5.71 }, // Uncommon Squid Pet
 ]
 const LOTUS_ATOLL_LOOT_NORMAL: LootRow[] = [
   { itemId: 'LOTUS', qty: 1, chancePct: 15.38 },
@@ -451,10 +452,10 @@ const LOTUS_ATOLL_LOOT_OUTSTANDING: LootRow[] = [
   { itemId: 'ENCHANTED_PUFFERFISH', qty: 48, chancePct: 8.21 },
   { itemId: 'ENCHANTED_RAW_FISH', qty: 48, chancePct: 22.56 },
   { itemId: 'ENCHANTED_RAW_SALMON', qty: 48, chancePct: 15.38 },
-  { itemId: null, qty: 48, chancePct: 10.26 }, // Enchanted Tropical Fish
-  { itemId: null, qty: 1, chancePct: 20.51 }, // Epic Squid Pet
+  { itemId: 'ENCHANTED_CLOWNFISH', qty: 48, chancePct: 10.26 }, // Enchanted Tropical Fish
+  { itemId: 'PET_SQUID_3', qty: 1, chancePct: 20.51 }, // Epic Squid Pet
   { itemId: 'LOTUS_GOLD', qty: 1, chancePct: 2.56 },
-  { itemId: null, qty: 1, chancePct: 10.26 }, // Legendary Squid Pet
+  { itemId: 'PET_SQUID_4', qty: 1, chancePct: 10.26 }, // Legendary Squid Pet
 ]
 
 // Winter Island / Jerry's Workshop -- `pluton_elements` "Treasure/Loot/Winter"
@@ -521,18 +522,19 @@ const LOOT_TABLES_BY_BLOCK: Record<string, { good: LootRow[]; great: LootRow[]; 
 // la couche investissement max, gap documente plutot qu'invente.
 const TREASURE_QUALITY_CHANCE = { good: 0.89, great: 0.10, outstanding: 0.01 }
 
+// 27 aout -- corrige un vrai trou structurel : cette fonction ne
+// consultait QUE price_history (Bazaar), jamais price_history_ah_variant_base
+// (AH) -- tout item de loot rare/gear uniquement tradeable via AH (pas
+// Bazaar) contribuait silencieusement 0 a l'esperance sur les 7 zones
+// (WATER_POOL/Fairy Pond/Junk/Lotus Atoll/Winter/Crimson Isle/Lava).
+// Reutilise desormais loadPriceCache() (meme fallback Bazaar->AH deja
+// valide sur Slayer/Sea Creatures) + loadGeorgePetPriceCache() (prix
+// plancher NPC George pour les drops de pet, jamais consomme avant --
+// voir lib/pluton-engine.ts pour le detail complet des deux sources).
 async function computeLootTableEV(rows: LootRow[]): Promise<number> {
   const realItemIds = Array.from(new Set(rows.map(r => r.itemId).filter((id): id is string => !!id && id !== 'COIN')))
-  const { data: prices } = await supabase
-    .from('price_history')
-    .select('item_id, sell_price, bucket_date')
-    .in('item_id', realItemIds)
-    .gt('sell_price', 0)
-    .order('bucket_date', { ascending: false })
-  const priceMap = new Map<string, number>()
-  for (const p of prices || []) {
-    if (!priceMap.has(p.item_id)) priceMap.set(p.item_id, Number(p.sell_price))
-  }
+  const [priceMap, petPriceMap] = await Promise.all([loadPriceCache(realItemIds), loadGeorgePetPriceCache()])
+  for (const [k, v] of petPriceMap) if (!priceMap.has(k)) priceMap.set(k, v)
   let ev = 0
   for (const row of rows) {
     if (!row.itemId) continue // catch non pricee, contribue 0

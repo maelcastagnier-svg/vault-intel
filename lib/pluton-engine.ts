@@ -341,6 +341,26 @@ export async function loadPriceCache(itemIds: string[]): Promise<Map<string, num
   return cache
 }
 
+// Prix plancher reel pour les drops de PET dans une table de loot (aucune
+// source Bazaar/AH par espece -- les pets se vendent au marche joueur sans
+// item_id Bazaar/AH standard). `george_pet_prices` (deja en base, jamais
+// consommee par Pluton avant le 27 aout) donne le prix de rachat NPC
+// George par espece x rarete (`pet_rarity_id`='ESPECE;RARETE', 0=Common..
+// 5=Mythic) -- un vrai plancher sourcee, jamais invente, meme discipline
+// que le plancher RNG Meter de Slayer (sous-estime le vrai prix marche,
+// documente). Cle synthetique retournee : `PET_<ESPECE>_<RARETE>` (ex.
+// `PET_SQUID_0`=Common), a utiliser comme item_id dans les tables de loot
+// existantes -- fusionner ce cache dans le price cache local de l'appelant.
+export async function loadGeorgePetPriceCache(): Promise<Map<string, number>> {
+  const { data } = await supabase.from('george_pet_prices').select('pet_rarity_id, npc_sell_price')
+  const cache = new Map<string, number>()
+  for (const row of (data || [])) {
+    const key = `PET_${String(row.pet_rarity_id).replace(';', '_')}`
+    cache.set(key, Number(row.npc_sell_price))
+  }
+  return cache
+}
+
 // Une ligne generique de table de loot ponderee : chance% -> qty*price en
 // esperance, plus un cout additionnel conditionnel optionnel (ex: "Added
 // Cost" des coffres Dungeons/Kuudra -- paye seulement si l'item roll).

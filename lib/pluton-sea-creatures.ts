@@ -232,7 +232,7 @@ const POOLS: Record<string, Pool> = {
         { entry_item_id: 'WATER_LILY', entry_qty: 1, chance_pct: 100 },
         { entry_item_id: 'BONE', entry_qty: 8 + 5 * 0.5, chance_pct: 100 },
         { entry_item_id: 'ENCHANTED_BONE', entry_qty: 1, chance_pct: 1 },
-        { entry_item_id: null, entry_qty: 1, chance_pct: 100 / 3_000_000 }, // Bone Dye -- aucun prix Bazaar/AH trouve, 0 en esperance (documente)
+        { entry_item_id: 'DYE_BONE', entry_qty: 1, chance_pct: 100 / 3_000_000 }, // Bone Dye -- prix AH reel confirme 27 aout (~92M, absent au 21 aout), corrige le gap documente
       ]},
       { name: 'Rider of the Deep', hp: 20000, isUndead: true, weight: 400, loot: [
         { entry_item_id: 'WATER_LILY', entry_qty: 2, chance_pct: 100 },
