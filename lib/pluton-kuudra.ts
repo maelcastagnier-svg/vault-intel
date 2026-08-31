@@ -240,64 +240,111 @@ export async function computeAndPersistKuudraRankings(): Promise<KuudraResult[]>
 }
 
 // ============================================================
-// Pool RNG Kuudra -- armures (27 aout) -- methode additive independante,
-// meme discipline multi-methodes que le RNG Meter Slayer/Sea Creature kills
+// Pool RNG Kuudra -- armures (27 aout), ETENDU (31 aout, nuit) au tier
+// Infernal + residus (Wheel of Fate/Tentacle Dye/Aurora Staff/Enchanted
+// Books/Attribute Shards) -- methode additive independante, meme
+// discipline multi-methodes que le RNG Meter Slayer/Sea Creature kills
 // (target_blocks *_RNG_POOL dedies, coins/h s'ajoute au loot garanti deja
 // persiste, ne le remplace pas).
 //
-// Decouverte : page pluton_elements "Kuudra/Loot" (296 lignes, jamais
-// consommee) contient la table de loot COMPLETE par tier (Basic/Hot/
-// Burning/Fiery -- Infernal EXCLU, voir plus bas) avec les vrais % de
-// chaque "Chest Slot 1" (armure Aurora/Crimson/Fervor/Hollow/Terror,
-// accessoires Molten, Hollow Wand, Tentacle Dye). Verifie ligne par ligne
-// contre les 4 sous-tables sequentielles de la page (bornes identifiees
-// via l'ancre "1 Kraken Shard slot 5 100%" qui cloture chaque tier).
-// Item_id tier-prefixe confirme reel (pas un artefact d'extraction --
-// app/api/cron/ah-collect/route.ts:112 montre base_item_id=item_id brut
-// Hypixel) : Basic="" (aucun prefixe), Hot=HOT_, Burning=BURNING_,
-// Fiery=FIERY_ -- confirme via items_catalog pour les 4 tiers x 5 sets x
-// 4 pieces (80 items, presque tous reellement prices AH).
+// Decouverte 27 aout : page pluton_elements "Kuudra/Loot" (296 lignes,
+// jamais consommee) contient la table de loot COMPLETE par tier avec les
+// vrais % de chaque slot. Item_id tier-prefixe confirme reel (pas un
+// artefact d'extraction -- app/api/cron/ah-collect/route.ts:112 montre
+// base_item_id=item_id brut Hypixel) : Basic="" (aucun prefixe), Hot=HOT_,
+// Burning=BURNING_, Fiery=FIERY_, Infernal=INFERNAL_.
 //
-// **Scope de cette 1re passe, documente pas cache** : seule l'armure +
-// Molten (necklace/cloak/belt/bracelet, item_id UNIQUE et tier-invariant,
-// confirme via items_catalog) + Hollow Wand (idem, tier-invariant) sont
-// integres -- de tres loin la plus grosse part de l'EV (6M-80M coins/piece
-// contre quelques milliers pour les Attribute Shards/Enchanted Books du
-// meme pool). Wheel of Fate/Tentacle Dye/Aurora Staff (aucun item_id trouve
-// en base malgre la recherche)/Enchanted Books (Ferocious/Hardened/Mana
-// Vampire/Strong Mana I-V, Fatal Tempo, Inferno)/Attribute Shards (Bezal/
-// Magma Slug/Kada Knight/Wither Specter/Matcho/Lava Flame/Fire Eel/Flare/
-// Barbarian Duke X/Hellwisp/XYZ) restent un residu reel non integre --
-// backlog documente dans pluton_mechanic_coverage, pas invente.
+// **31 aout, nuit -- Infernal et le residu fermes** (agent de recherche
+// dedie + wikitext brut relu directement, game_mechanics_misc id=2834) :
+// le blocage documente le 27 aout etait un problema de PARSING (le tabber
+// Infernal utilise un format wikitext imbrique que l'extraction automatique
+// a casse en cellules illisibles dans pluton_elements), PAS une absence de
+// source -- le wikitext BRUT lu directement donne la meme semantique
+// poids/total que les 4 autres tiers (verifie par recalcul manuel exact :
+// Bezal Shard slot1 Infernal = 4.5/97.2 = 4.63% = valeur publiee). Item_id
+// residuels tous confirmes reels et prices (items_catalog + attribute_
+// shards.bazaar_name) : Aurora Staff=RUNIC_STAFF (nom d'affichage != item_id,
+// cause du blocage initial), Wheel of Fate=WHEEL_OF_FATE, Tentacle
+// Dye=TENTACLE_DYE, Enchanted Books "Vitality" (alias wiki historique) =
+// canonique FEROCIOUS_MANA/HARDENED_MANA/MANA_VAMPIRE/STRONG_MANA (confirme
+// enchantments + price_history, memes % par variante a chaque tier),
+// Fatal Tempo/Inferno = ENCHANTMENT_ULTIMATE_FATAL_TEMPO_1/_ULTIMATE_
+// INFERNO_1, 11 Attribute Shards (SHARD_BEZAL et consorts, table
+// attribute_shards.bazaar_name).
 //
-// **Infernal EXCLU explicitement** : la page source bascule vers un format
-// de table totalement different (pipe-delimited "Item || qty || pct ||
-// chests || chests", semantique de dénominateur non confirmee -- % par
-// coffre ouvert toutes tiers confondues ? table generique du site ?) --
-// plutot que de deviner la correspondance, le tier Infernal reste sans
-// couche RNG armure (gap honnete, meme discipline regle #7).
+// Chaque Shard/Enchanted Book/Wheel of Fate apparait sur 2 "Chest Slots"
+// independants par tier (ex Bezal Basic : slot1=6.76% + slot2=11.93%) --
+// les 2 probabilites sont SOMMEES (2 chances independantes du meme coffre
+// de gagner le meme item), pas une erreur de double-compte.
+//
+// **Scope encore hors de cette passe, documente pas cache** : les items
+// Infernal-only du 2e tableau qui n'apparaissent PAS aux 4 autres tiers
+// (Ananke Shard/Feather, Hellstorm Wand, Tormentor, Daemon Shard, Lord
+// Jawbus Shard, Moltenfish Shard, Cinderbat Shard, Taurus Shard, Dusty
+// Travel Scroll, Kuudra Mandible) restent un residu reel non integre --
+// necessiteraient une verification de prix individuelle non faite ce soir,
+// backlog documente plutot qu'invente.
 const KUUDRA_ARMOR_SETS = ['AURORA', 'CRIMSON', 'FERVOR', 'HOLLOW', 'TERROR'] as const
 const KUUDRA_ARMOR_PIECES = ['HELMET', 'CHESTPLATE', 'LEGGINGS', 'BOOTS'] as const
-type KuudraRngTier = 'basic' | 'hot' | 'burning' | 'fiery'
-const KUUDRA_RNG_TIERS: readonly KuudraRngTier[] = ['basic', 'hot', 'burning', 'fiery']
-const KUUDRA_RNG_TIER_PREFIX: Record<KuudraRngTier, string> = { basic: '', hot: 'HOT_', burning: 'BURNING_', fiery: 'FIERY_' }
+type KuudraRngTier = 'basic' | 'hot' | 'burning' | 'fiery' | 'infernal'
+const KUUDRA_RNG_TIERS: readonly KuudraRngTier[] = ['basic', 'hot', 'burning', 'fiery', 'infernal']
+const KUUDRA_RNG_TIER_PREFIX: Record<KuudraRngTier, string> = { basic: '', hot: 'HOT_', burning: 'BURNING_', fiery: 'FIERY_', infernal: 'INFERNAL_' }
 // % par piece d'armure (identique pour les 4 pieces d'un meme set, source
-// Kuudra/Loot -- ex Basic 4.31%, Hot 4.06%, Burning 3.43%, Fiery 3.09%).
-const KUUDRA_RNG_ARMOR_PIECE_PCT: Record<KuudraRngTier, number> = { basic: 4.31, hot: 4.06, burning: 3.43, fiery: 3.09 }
+// Kuudra/Loot -- Infernal = base "Chance" du wikitext brut, hors variante
+// "Wings of Destiny X" non modelisee ailleurs).
+const KUUDRA_RNG_ARMOR_PIECE_PCT: Record<KuudraRngTier, number> = { basic: 4.31, hot: 4.06, burning: 3.43, fiery: 3.09, infernal: 2.96 }
 // % par accessoire Molten (4 lignes independantes, meme % chacune).
-const KUUDRA_RNG_MOLTEN_PCT: Record<KuudraRngTier, number> = { basic: 1.20, hot: 1.27, burning: 1.19, fiery: 1.18 }
-// % Hollow Wand (seul item d'arme avec un item_id reel trouve -- Aurora
-// Staff n'existe pas en base malgre la recherche, exclu).
-const KUUDRA_RNG_WAND_PCT: Record<KuudraRngTier, number> = { basic: 1.05, hot: 0.99, burning: 0.84, fiery: 0.75 }
+const KUUDRA_RNG_MOLTEN_PCT: Record<KuudraRngTier, number> = { basic: 1.20, hot: 1.27, burning: 1.19, fiery: 1.18, infernal: 1.23 }
+// % Hollow Wand ET Aurora Staff -- valeurs IDENTIQUES confirmees aux 5
+// tiers (meme poids Infernal=0.7 pour les deux), reutilise pour les deux.
+const KUUDRA_RNG_WAND_STAFF_PCT: Record<KuudraRngTier, number> = { basic: 1.05, hot: 0.99, burning: 0.84, fiery: 0.75, infernal: 0.72 }
+const KUUDRA_RNG_WHEEL_OF_FATE_PCT: Record<KuudraRngTier, number> = { basic: 0.53, hot: 1.19, burning: 1.25, fiery: 1.40, infernal: 2.68 }
+const KUUDRA_RNG_TENTACLE_DYE_PCT: Record<KuudraRngTier, number> = { basic: 0.001, hot: 0.00125, burning: 0.00167, fiery: 0.0025, infernal: 0.005 }
+// Enchanted Book "Vitality" (alias wiki historique de Ferocious/Hardened/
+// Mana Vampire/Strong Mana) -- 4 variantes, meme % chacune par tier, niveau
+// = rang du tier (Basic=I...Infernal=V).
+const KUUDRA_RNG_VITALITY_BOOK_PCT: Record<KuudraRngTier, number> = { basic: 21.87, hot: 19.71, burning: 12.81, fiery: 10.47, infernal: 9.62 }
+const KUUDRA_VITALITY_BOOK_LEVEL: Record<KuudraRngTier, number> = { basic: 1, hot: 2, burning: 3, fiery: 4, infernal: 5 }
+const KUUDRA_VITALITY_ENCHANTS = ['FEROCIOUS_MANA', 'HARDENED_MANA', 'MANA_VAMPIRE', 'STRONG_MANA'] as const
+const KUUDRA_RNG_FATAL_TEMPO_PCT: Record<KuudraRngTier, number> = { basic: 0.03, hot: 0.13, burning: 0.16, fiery: 0.18, infernal: 0.22 }
+const KUUDRA_RNG_INFERNO_ENCH_PCT: Record<KuudraRngTier, number> = { basic: 0.03, hot: 0.13, burning: 0.16, fiery: 0.18, infernal: 0.22 }
+// Attribute Shards -- somme des 2 Chest Slots ou l'item apparait, 0 si le
+// shard n'est pas encore debloque a ce tier (source wikitext brut id=2834).
+const KUUDRA_RNG_SHARD_PCT: Record<string, Record<KuudraRngTier, number>> = {
+  SHARD_BEZAL: { basic: 18.69, hot: 17.11, burning: 12.42, fiery: 10.55, infernal: 9.88 },
+  SHARD_MAGMA_SLUG: { basic: 0, hot: 14.26, burning: 10.35, fiery: 8.79, infernal: 8.23 },
+  SHARD_KADA_KNIGHT: { basic: 0, hot: 0, burning: 8.41, fiery: 7.15, infernal: 6.70 },
+  SHARD_WITHER_SPECTER: { basic: 0, hot: 0, burning: 8.41, fiery: 7.15, infernal: 6.70 },
+  SHARD_MATCHO: { basic: 0, hot: 0, burning: 8.41, fiery: 7.15, infernal: 6.70 },
+  SHARD_LAVA_FLAME: { basic: 0, hot: 0, burning: 6.90, fiery: 5.86, infernal: 5.48 },
+  SHARD_FIRE_EEL: { basic: 0, hot: 0, burning: 0, fiery: 4.45, infernal: 4.16 },
+  SHARD_FLARE: { basic: 0, hot: 0, burning: 0, fiery: 4.45, infernal: 4.16 },
+  SHARD_BARBARIAN_DUKE_X: { basic: 0, hot: 0, burning: 0, fiery: 4.45, infernal: 4.16 },
+  SHARD_HELLWISP: { basic: 0, hot: 0, burning: 0, fiery: 3.64, infernal: 3.40 },
+  SHARD_XYZ: { basic: 0, hot: 0, burning: 0, fiery: 2.93, infernal: 2.75 },
+}
 const KUUDRA_MOLTEN_ITEM_IDS = ['MOLTEN_NECKLACE', 'MOLTEN_CLOAK', 'MOLTEN_BELT', 'MOLTEN_BRACELET']
 
 export async function computeAndPersistKuudraRngPoolRankings(): Promise<{ combos: number; with_ev: number }> {
   const armorItemIds = KUUDRA_RNG_TIERS.flatMap(t =>
     KUUDRA_ARMOR_SETS.flatMap(s => KUUDRA_ARMOR_PIECES.map(p => `${KUUDRA_RNG_TIER_PREFIX[t]}${s}_${p}`))
   )
-  const priceCache = await loadPriceCache([...armorItemIds, ...KUUDRA_MOLTEN_ITEM_IDS, 'HOLLOW_WAND'])
+  const vitalityBookIds = KUUDRA_RNG_TIERS.flatMap(t =>
+    KUUDRA_VITALITY_ENCHANTS.map(e => `ENCHANTMENT_${e}_${KUUDRA_VITALITY_BOOK_LEVEL[t]}`)
+  )
+  const allItemIds = [
+    ...armorItemIds, ...KUUDRA_MOLTEN_ITEM_IDS, 'HOLLOW_WAND', 'RUNIC_STAFF', 'WHEEL_OF_FATE', 'TENTACLE_DYE',
+    ...vitalityBookIds, 'ENCHANTMENT_ULTIMATE_FATAL_TEMPO_1', 'ENCHANTMENT_ULTIMATE_INFERNO_1',
+    ...Object.keys(KUUDRA_RNG_SHARD_PCT),
+  ]
+  const priceCache = await loadPriceCache(allItemIds)
   const moltenTotal = KUUDRA_MOLTEN_ITEM_IDS.reduce((sum, id) => sum + (priceCache.get(id) || 0), 0)
   const wandPrice = priceCache.get('HOLLOW_WAND') || 0
+  const staffPrice = priceCache.get('RUNIC_STAFF') || 0
+  const wheelPrice = priceCache.get('WHEEL_OF_FATE') || 0
+  const tentacleDyePrice = priceCache.get('TENTACLE_DYE') || 0
+  const fatalTempoPrice = priceCache.get('ENCHANTMENT_ULTIMATE_FATAL_TEMPO_1') || 0
+  const infernoPrice = priceCache.get('ENCHANTMENT_ULTIMATE_INFERNO_1') || 0
 
   const evByTier = new Map<KuudraRngTier, number>()
   for (const t of KUUDRA_RNG_TIERS) {
@@ -309,7 +356,20 @@ export async function computeAndPersistKuudraRngPoolRankings(): Promise<{ combos
       }
     }
     ev += (KUUDRA_RNG_MOLTEN_PCT[t] / 100) * moltenTotal
-    ev += (KUUDRA_RNG_WAND_PCT[t] / 100) * wandPrice
+    ev += (KUUDRA_RNG_WAND_STAFF_PCT[t] / 100) * wandPrice
+    ev += (KUUDRA_RNG_WAND_STAFF_PCT[t] / 100) * staffPrice
+    ev += (KUUDRA_RNG_WHEEL_OF_FATE_PCT[t] / 100) * wheelPrice
+    ev += (KUUDRA_RNG_TENTACLE_DYE_PCT[t] / 100) * tentacleDyePrice
+    ev += (KUUDRA_RNG_FATAL_TEMPO_PCT[t] / 100) * fatalTempoPrice
+    ev += (KUUDRA_RNG_INFERNO_ENCH_PCT[t] / 100) * infernoPrice
+    for (const enchant of KUUDRA_VITALITY_ENCHANTS) {
+      const bookPrice = priceCache.get(`ENCHANTMENT_${enchant}_${KUUDRA_VITALITY_BOOK_LEVEL[t]}`) || 0
+      ev += (KUUDRA_RNG_VITALITY_BOOK_PCT[t] / 100) * bookPrice
+    }
+    for (const [shardId, pctByTier] of Object.entries(KUUDRA_RNG_SHARD_PCT)) {
+      const shardPrice = priceCache.get(shardId) || 0
+      ev += (pctByTier[t] / 100) * shardPrice
+    }
     evByTier.set(t, ev)
   }
 
@@ -332,12 +392,12 @@ export async function computeAndPersistKuudraRngPoolRankings(): Promise<{ combos
       .insert({
         activity_key: 'kuudra',
         block_id: `KUUDRA_${t.toUpperCase()}_RNG_POOL`,
-        block_name: `Kuudra -- ${KUUDRA_TIER_LABEL[t]} Tier (pool RNG armure)`,
+        block_name: `Kuudra -- ${KUUDRA_TIER_LABEL[t]} Tier (pool RNG armure + residu)`,
         block_strength: 0,
         required_breaking_power: 0,
         sell_item_id: 'NONE',
         base_drop_count: 1,
-        pricing_note: `Pool RNG armure (27 aout) -- EV=${evByTier.get(t)!.toFixed(0)} coins/run, source page Kuudra/Loot (296 lignes, ${KUUDRA_TIER_LABEL[t]}). Couvre armure Aurora/Crimson/Fervor/Hollow/Terror (${KUUDRA_RNG_ARMOR_PIECE_PCT[t]}%/piece) + Molten necklace/cloak/belt/bracelet (${KUUDRA_RNG_MOLTEN_PCT[t]}% chacun) + Hollow Wand (${KUUDRA_RNG_WAND_PCT[t]}%). Residu non integre (Wheel of Fate/Tentacle Dye/Aurora Staff/Enchanted Books/Attribute Shards) documente dans pluton_mechanic_coverage -- backlog reel, pas invente.`,
+        pricing_note: `Pool RNG (27 aout, etendu 31 aout nuit) -- EV=${evByTier.get(t)!.toFixed(0)} coins/run, source wikitext brut Kuudra/Loot (game_mechanics_misc id=2834, ${KUUDRA_TIER_LABEL[t]}). Couvre armure Aurora/Crimson/Fervor/Hollow/Terror (${KUUDRA_RNG_ARMOR_PIECE_PCT[t]}%/piece) + Molten x4 (${KUUDRA_RNG_MOLTEN_PCT[t]}% chacun) + Hollow Wand/Aurora Staff (${KUUDRA_RNG_WAND_STAFF_PCT[t]}% chacun) + Wheel of Fate (${KUUDRA_RNG_WHEEL_OF_FATE_PCT[t]}%) + Tentacle Dye (${KUUDRA_RNG_TENTACLE_DYE_PCT[t]}%) + 4x Enchanted Book Vitality niveau ${KUUDRA_VITALITY_BOOK_LEVEL[t]} (${KUUDRA_RNG_VITALITY_BOOK_PCT[t]}% chacun) + Fatal Tempo/Inferno I (${KUUDRA_RNG_FATAL_TEMPO_PCT[t]}% chacun) + 11 Attribute Shards (% variable par tier, voir KUUDRA_RNG_SHARD_PCT). Residu Infernal-only non integre (Ananke/Hellstorm/Tormentor/Daemon/Lord Jawbus/Moltenfish/Cinderbat/Taurus/Dusty Travel Scroll/Kuudra Mandible) documente, pas invente.`,
       })
       .select('id')
       .single()
@@ -348,7 +408,6 @@ export async function computeAndPersistKuudraRngPoolRankings(): Promise<{ combos
   let combos = 0
   let withEv = 0
   for (const r of guaranteedResults) {
-    if (r.kuudraTier === 'infernal') continue // gap honnete, voir commentaire d'en-tete
     const ev = evByTier.get(r.kuudraTier as KuudraRngTier) || 0
     const coinsPerHour = ev * r.runsPerHour
 
