@@ -74,15 +74,63 @@ qui reste — même réduit à 53k lignes — un gros chantier à faible ROI pro
 immédiat (les vues `pluton_tier_*` ont 0 consommateur de code, confirmé 25
 août, toujours vrai). Documenté honnêtement plutôt que forcé ou ignoré.
 
-### En cours (agents de recherche lancés en arrière-plan)
+### ✅ Kuudra — pool RNG étendu : tier Infernal + 39 items résidus fermés
 
-2 agents dédiés (lecture seule) creusent en parallèle : (1) le format de
-table Infernal de `Kuudra/Loot` + les ~18 résidus RNG pool non intégrés
-(Wheel of Fate, Enchanted Books, Attribute Shards) ; (2) l'ambiguïté
-gemstone_quality_flip (16 vs 80) + ender_dragon_armor_drop +
-spooky_festival_event_drop + cosmetic_dye_unsourced + dungeons_perfect_
-armor_progression + confirmation pet_equipment_accessory. Résultats et
-fermetures à documenter à leur retour.
+Les 2 agents de recherche sont revenus avec des trouvailles majeures.
+**Le blocage Infernal documenté le 27 août était un problème de PARSING**,
+pas une absence de source : le wikitext brut (`game_mechanics_misc`
+id=2834, relu directement plutôt que via `pluton_elements` dont
+l'extraction automatique avait cassé le tabber imbriqué) donne la MÊME
+sémantique poids/total que les 4 autres tiers — vérifié par recalcul
+manuel exact (Bezal Shard slot1 Infernal = 4.5/97.2 = 4.63%, identique à
+la valeur publiée par le wiki). `lib/pluton-kuudra.ts` réécrit : Infernal
+n'est plus exclu, et 19 items résidus (Basic→Fiery, déjà documentés comme
+non intégrés) sont fermés au passage — Wheel of Fate, Tentacle Dye, Aurora
+Staff (item_id réel `RUNIC_STAFF`, le nom d'affichage ≠ item_id était la
+cause du blocage initial), 20 Enchanted Books "Vitality" (alias wiki
+historique de Ferocious/Hardened/Mana Vampire/Strong Mana, confirmé via
+`enchantments`+`price_history`), Fatal Tempo/Inferno I, 11 Attribute
+Shards (Bezal/Magma Slug/Kada Knight/Wither Spectre/Matcho/Lava Flame/
+Fire Eel/Flare/Barbarian Duke X/Hellwisp/XYZ, item_id réels confirmés via
+`attribute_shards.bazaar_name`). **Vérifié en prod** : 35/35 combos (7
+tiers joueur × 5 tiers Kuudra) avec EV réelle, EV/run 1,1M→14,6M coins
+selon tier — cohérent. 39 lignes `pluton_item_coverage_audit` fermées.
+Résidu documenté, pas fermé : ~10 items Infernal-only du 2e tableau
+(Ananke Shard/Feather, Hellstorm Wand, Tormentor, Daemon/Lord Jawbus/
+Moltenfish/Cinderbat/Taurus Shard, Dusty Travel Scroll, Kuudra Mandible)
+nécessiteraient une vérification de prix individuelle non faite ce soir.
+
+### 🔎 6 backlogs audités par le 2e agent — 1 recatégorisation, 2 reconfirmations, 1 arbitrage, 2 gaps réels confirmés
+
+- **`spooky_festival_event_drop` (56) → recatégorisé `dungeons_mob_drop_
+  unmodeled`** : mal étiqueté depuis le début — ce sont en réalité des
+  drops de mobs de Donjons (Zombie Soldier/Skeleton Grunt, Catacombs Floor
+  III+, HP+taux de drop % réels sourcés), pas Spooky Festival. Même gap
+  structurel déjà connu (Dungeons ne modélise que le score de clear).
+- **`ender_dragon_armor_drop` (48) — reconfirmé non-fermable**, avec une
+  découverte au passage : Holy Dragon Fragment (la 8e variante putative)
+  n'a rien à voir avec l'Ender Dragon — c'est un drop du mob "Lost
+  Adventurer" en Donjons. Mécanique multi-joueurs à contribution partagée
+  (Dragon Weight), structurellement hors du modèle HP/DPS solo actuel.
+- **`pet_equipment_accessory` (41) — reconfirmé correct**, rien à construire.
+- **`gemstone_quality_flip` (48) — arbitrage documenté, pas une certitude
+  absolue** : 2 nouvelles sources croisées (NEU-REPO, page Gemstone Mixture)
+  confirment que la table structurée "16" (36 occurrences identiques) est
+  plus fiable que la prose "80" (résidu d'un mécanisme retiré en 2021,
+  remplacé par le Forge). Décision : retenir 16 si construit un jour, avec
+  cette réserve explicite (aucune ligne d'historique "réduit de 80 à 16"
+  trouvée).
+- **`dungeons_perfect_armor_progression` (46) — GAP FERMABLE, pas encore
+  construit** : Perfect Armor n'est pas un drop, c'est un craft 100%
+  déterministe (Tier I=24 Enchanted Diamond Block, +4/tier jusqu'à XII,
+  puis Perfectly Cut Diamond). Même famille que Forge/Composter — backlog
+  prioritaire pour la suite de la nuit si le temps le permet.
+- **`cosmetic_dye_unsourced` (66) — catégorie hétérogène, pas un bloc
+  homogène** : ~8/15 échantillonnés sont du cash-shop pur (Fire Sale,
+  aucun mécanisme de farm), ~6/15 ont une vraie source RNG chiffrée
+  (Celeste Dye — drop Sven Packmaster, rentre directement dans le moteur
+  Wolf Slayer déjà construit ; Pelt/Periwinkle/Celadon/Nyanza Dye — mobs/
+  mécaniques non encore modélisés). Re-triage nécessaire, pas fait ce soir.
 
 ## 🌇 Après-midi 27 août (jusqu'à 20h15) — audit vision + pont Pluton→Money Making construit
 
