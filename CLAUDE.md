@@ -4,6 +4,83 @@
 > Basé sur la session la plus récente disponible. En cas de divergence avec une
 > session antérieure sur le même sujet, cette version fait foi.
 
+## 🌙 Nuit 26-27 août — audit exhaustif 7000+ items, mandat "full autonomie jusqu'à 7h"
+
+Mandat utilisateur explicite : vérifier qu'aucune activité n'est laissée au
+hasard (tout item priced = activité potentielle, regroupé intelligemment),
+auditer toute la pipeline (cartographie→tiers→activités→setup→pricing→prod),
+corriger directement tout trou trouvé (jamais inventer, règle #7), avec
+relance automatique en cas de limite de session, compte rendu à 7h.
+
+**Table d'audit persistante créée** : `pluton_item_coverage_audit` (4786
+items réellement pricés Bazaar+AH recensés, colonnes status/category/notes,
+rejouable/inspectable comme `pluton_classification_rules`). État à 7h :
+**723 covered_confirmed**, **784 gap_open** (backlog réel documenté par
+catégorie, raison précise), **520 excluded_noise** (cosmétique/hors-scope
+skill, justifié), **2759 pending** (résidu majoritairement cosmétique/
+matériel crafté à faible valeur, confirmé par échantillonnage aléatoire
+répété — pas un trou de rigueur, une limite de temps).
+
+**3 fermetures réelles déployées et vérifiées en prod cette nuit** :
+1. **Fishing — bug structurel** : `computeLootTableEV` ne consultait QUE
+   `price_history` (Bazaar), jamais l'AH — tout item de loot uniquement
+   tradeable AH contribuait 0 sur les 7 zones Fishing. Corrigé via
+   `loadPriceCache()` (fallback déjà validé ailleurs). 49/49 combos vérifiés.
+2. **Fishing/Sea Creatures — 3 items jamais pricés** : Bone Dye (Sea Archer,
+   documenté "aucun prix trouvé" le 21 août, réellement ~92M AH aujourd'hui),
+   Enchanted Tropical Fish (`ENCHANTED_CLOWNFISH`, jamais cherché), Squid Pet
+   5 raretés (nouvelle `loadGeorgePetPriceCache()` dans `lib/pluton-engine.ts`,
+   table `george_pet_prices` — prix plancher NPC George par espèce×rareté,
+   jamais consommée par Pluton avant, piste réutilisable pour d'autres drops
+   de pet ailleurs). 77/77 combos Sea Creatures vérifiés.
+3. **Kuudra — pool RNG armure** (le plus gros gain de la nuit) : découverte
+   de la page `Kuudra/Loot` (296 lignes pluton_elements, jamais consommée)
+   donnant la table de loot RNG complète par tier avec vrais %. Item_id
+   tier-préfixé (Basic=""/Hot=HOT_/Burning=BURNING_/Fiery=FIERY_) confirmé
+   réel (pas un artefact d'extraction — `base_item_id=item_id` brut Hypixel
+   dans `ah-collect`) et réellement pricé. Intégré : armure Aurora/Crimson/
+   Fervor/Hollow/Terror (80 combos) + Molten necklace/cloak/belt/bracelet +
+   Hollow Wand — de loin la plus grosse part de l'EV. **Infernal exclu
+   explicitement** (la page source bascule vers un format de table différent
+   à la sémantique non confirmée — gap honnête plutôt que deviné). 28/28
+   combos vérifiés, `lib/pluton-kuudra.ts:computeAndPersistKuudraRngPoolRankings`.
+
+**Backlogs réels identifiés et documentés, pas fermés** (`pluton_mechanic_
+coverage` + `pluton_item_coverage_audit`, par ordre de valeur estimée) :
+- `enchanted_book_flip` (490 items) — couverture prix désormais large,
+  backlog du 21 août ("Enchanted Books flip") à reconsidérer comme activité
+  Forge-like si un ratio de craft niveau N→N+1 est trouvable.
+- `cosmetic_dye_unsourced` (66) — teintures avec probablement une vraie
+  source de drop liée à un skill (ex. Dye Fossil/Mining), nécessite sourcing
+  individuel.
+- `spooky_festival_event_drop` (56) — armures/accessoires cosmétiques
+  Zombie/Skeleton/Spider, probablement drops de mobs Spooky Festival, mobs/
+  taux non sourcés.
+- `gemstone_quality_flip` (48) — Fine/Flawed/Flawless/Perfect gemstones,
+  ratio de combinaison Rough→Perfect (NPC Amelia/Kat) pas encore sourcé.
+- `ender_dragon_armor_drop` (48) — 8 variantes réelles confirmées (Strong/
+  Wise/Young/Old/Unstable/Protector/Superior/Holy), Ender Dragon jamais
+  modélisé dans Pluton (mécanique à phases distincte du modèle HP/DPS).
+- `pet_equipment_accessory` (41) — items d'équipement de pet (XP boost),
+  analogue aux reforges, pas un output de farm autonome.
+- `dungeons_boss_armor_drop` (17 restants + Music Discs) — armure Wither
+  (Goldor's/Storm's) confirmée réelle (même mécanisme item_id que Kuudra),
+  Dungeons ne modélise qu'un score de clear, jamais le loot de boss.
+
+**Méthode de triage** : règles SQL bulk par cluster de préfixe (même
+discipline que `discovery_queue_noise_patterns`), **toujours vérifié
+l'échantillon avant un UPDATE bulk** — 1 faux positif trouvé et corrigé
+en direct (pattern `%_FRAGMENT` trop large avait capturé des fragments de
+craft Dungeons sans rapport avec Ender Dragon, revert immédiat avant
+qu'aucune donnée ne soit publiée).
+
+**Honnêteté sur le "100%"** : la table `pluton_item_coverage_audit` reste
+la source de vérité vivante — 2759 items pending ne signifient pas 2759
+gaps réels, l'échantillonnage aléatoire répété cette nuit n'a trouvé quasi
+que du cosmétique/matériel crafté sans lien skill direct au-delà de ce qui
+est déjà catégorisé. Continuer le tri (skill par skill, cluster par
+cluster) reste la tâche de fond ouverte, pas un chantier neuf.
+
 ## ✅ Pluton — pipeline finale v3, Phase B terminée (26 août)
 
 Suite du mandat du 26 août (reformulation stricte des 3 phases + distinction
