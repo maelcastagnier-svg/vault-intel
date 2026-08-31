@@ -4,6 +4,95 @@
 > Basé sur la session la plus récente disponible. En cas de divergence avec une
 > session antérieure sur le même sujet, cette version fait foi.
 
+## 🌇 Après-midi 27 août (jusqu'à 20h15) — audit vision + pont Pluton→Money Making construit
+
+Mandat : *"prend la vision finale pluton dans son ensemble audit generale du
+produit complet tu dois me dire si on respcete cette vision et ce qu'il
+manque, travail sur ce qu'il manque jusqu'a 20h15"*.
+
+**Verdict d'audit livré à l'utilisateur avant de construire quoi que ce soit**
+(vérifié en base, pas supposé) : Pilier 1 (cartographie) ✅ respecté. Pilier 2
+(classement 7-tiers) 🔴 cassé — `pluton_elements` toujours 135 887/184 416
+lignes (73,7%) sans `tier`, `pluton_tier_rules` toujours 0 ligne (Phase A du
+plan jamais reprise depuis le 26 août). **Pilier 3 🔴 le vrai manque
+produit** : le backend Pluton est solide (10 `activity_key`, 4 674 lignes
+`pluton_rankings`, 19 330 `pluton_setups`, vérifié en direct) mais **zéro
+consommateur frontend** (`grep` sur `app/` hors cron : 0 référence à
+`pluton_rankings`/`pluton_setups`/`pluton_target_blocks`) — Money Making
+tourne encore intégralement sur `app/api/cron/money-making-agent/route.ts`,
+un agent Claude qui **invente** ses coins/h par raisonnement LLM et écrit
+dans `claude_analysis` section `money_making_<tier>`, lu par
+`app/api/market-data/route.ts` pour le dashboard réel. Evolve n'a aucun pont
+vers Pluton (Phase C jamais commencée).
+
+### ✅ Pont Pluton → Money Making construit, vérifié en prod, PAS fusionné au flux live
+
+Nouveau `lib/pluton-money-making-bridge.ts`
+(`computeAndPersistPlutonMoneyMakingSections()`) — **100% déterministe,
+aucun appel LLM** (Pluton a déjà calculé les vrais coins/h, cohérent avec la
+mémoire `feedback_budget_api_claude`). Lit `pluton_rankings` JOIN
+`pluton_target_blocks`/`pluton_setups`, retient la meilleure méthode par
+activité et par tier (évite qu'une activité à fort volume — Hunting 320
+shards, Enchanting ~300 paires — monopolise le top N), formate dans le
+**même schéma JSON** que `money-making-agent` (`active[]`/`vault[]`,
+`vault` volontairement vide — Pluton calcule des méthodes réelles, il n'a
+pas de couche "opportunités non-évidentes", nature de contenu différente,
+pas un gap Pluton).
+
+**Sécurité produit appliquée sans qu'on le demande** (mémoire
+`feedback_approval_avant_modification`) : écrit dans une section **séparée**
+`claude_analysis.pmm_<tier>`, jamais dans `money_making_<tier>` (flux LIVE
+Pro+/Elite) — fusionner reste une décision produit à valider explicitement
+avec l'utilisateur, pas prise ici.
+
+**🔴 Bug réel trouvé et fermé, même classe que le 17 août** : le premier
+déploiement retournait `{"success":true}` alors qu'aucune ligne n'était
+écrite en base (`error` de l'upsert Supabase jamais vérifiée — même
+signature que `update-catalog`/`data-retention` documentés le 17 août).
+Corrigé (vérification explicite de `error`, `throw` si échec) — ce qui a
+immédiatement révélé la **vraie cause racine, jamais visible avant** :
+`claude_analysis.section` est `varchar(20)`, et `pluton_money_making_<tier>`
+(28-33 caractères) dépassait la contrainte, rejeté silencieusement par
+Postgres. Renommé en `pmm_<tier>` (17 caractères max sur `professional`),
+colonne non touchée. **Vérifié en base** après un cycle debug-route
+standard : 7/7 sections peuplées (`pmm_starter`...`pmm_master`, 4,5-4,9 Ko
+de JSON chacune, contenu inspecté manuellement sur `pmm_master` — schéma
+conforme, 10 méthodes réelles, ex. Forge Perfect Chisel ~8,3Md/h, Farming
+Pumpkin ~25,9M/h). Route de debug supprimée après validation. Cron
+`pluton-money-making-bridge-refresh` créé (quotidien 5h58, après tous les
+`pluton-*-refresh`, `vercel.json`).
+
+**🔴 Gap réel trouvé en vérifiant le contenu, documenté, PAS fermé** : 3 des
+10 méthodes top `master` affichent des coins/h aberrants (Bestiary Zealot
+~320Md/h, Slayer Zombie pool RNG ~145Md/h, Kuudra Fiery pool RNG ~51Md/h).
+**Ce ne sont pas de nouveaux bugs du pont** — ce sont des artefacts déjà
+documentés dans l'historique du projet sur les données sources elles-mêmes
+(TTK quasi-nul sur Combat/Slayer déjà noté à plusieurs reprises, plafond
+`runsPerHour=3600` sur Kuudra déjà documenté) : le pont ne fait que lire et
+formater fidèlement `pluton_rankings`, il n'invente rien. **Mais c'est un
+vrai point bloquant avant toute fusion avec le flux live** — un utilisateur
+payant ne doit jamais voir "320 milliards coins/h" affiché comme méthode
+recommandée. Pas corrigé ici (corriger nécessiterait de retravailler le
+calcul TTK/cadence des activités Combat/Slayer/Kuudra elles-mêmes, hors
+scope du pont) — documenté explicitement comme prérequis à trancher avant
+toute décision de fusion.
+
+**Décision explicite requise de l'utilisateur, pas prise ici** : fusionner
+`pmm_<tier>` dans `money_making_<tier>` (remplacer ou augmenter le flux
+live) — et si oui, comment traiter les 3 valeurs aberrantes ci-dessus
+(filtre de sanity, exclusion de ces 3 activités du top N, ou correction en
+amont des formules Combat/Slayer/Kuudra) avant toute mise en prod visible
+utilisateur.
+
+**Reste non traité cet après-midi** (backlog honnête, pas un oubli) : Phase
+C (pont Evolve → Pluton, `milestone_optimal_setups`) — seulement une
+reconnaissance préparatoire faite (`app/api/player/milestones/route.ts` lu
+en partie, inventaire des primitives réutilisables de `lib/pluton-engine.ts`
+confirmé) — pas commencée. Phase A (peuplement `pluton_tier_rules`, 0 ligne)
+— pas touchée. Résidu `pluton_item_coverage_audit` (2 319 `pending`) — pas
+retriage cet après-midi, priorité donnée au pont produit (le vrai manque
+identifié par l'audit du jour).
+
 ## ☀️ Matinée 27 août (jusqu'à 13h) — 2 fermetures majeures, correction d'une fausse alerte
 
 Suite directe de la nuit ci-dessous. Mandat : trouver la route la plus optimisée
