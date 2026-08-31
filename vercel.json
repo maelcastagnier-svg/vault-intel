@@ -31,6 +31,7 @@
     { "path": "/api/cron/pluton-combat-refresh", "schedule": "45 5 * * *" },
     { "path": "/api/cron/pluton-kuudra-refresh", "schedule": "50 5 * * *" },
     { "path": "/api/cron/pluton-enchanting-refresh", "schedule": "55 5 * * *" },
+    { "path": "/api/cron/pluton-dungeons-boss-armor-refresh", "schedule": "27 5 * * *" },
     { "path": "/api/cron/pluton-money-making-bridge-refresh", "schedule": "58 5 * * *" },
     { "path": "/api/cron/pluton-classification-sync", "schedule": "10 6 * * 1" }
   ]
