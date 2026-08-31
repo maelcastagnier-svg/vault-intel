@@ -133,18 +133,25 @@ export async function computeAndPersistPlutonMoneyMakingSections(): Promise<{ ti
       vault: [], // Pluton n'a pas de couche "opportunites non-evidentes" -- gap documente, pas un manque a combler ici (nature de contenu differente)
     }
 
-    const { data: old } = await supabase.from('claude_analysis').select('content').eq('section', `pluton_money_making_${tier}`).single()
-    if (old) await supabase.from('claude_memory').insert({ section: `pluton_money_making_${tier}`, content: old.content, archived_at: new Date().toISOString() })
+    // Section courte -- claude_analysis.section est varchar(20) (contrainte
+    // de schema existante, jamais elargie ici) ; `pluton_money_making_<tier>`
+    // (28-33 caracteres selon le tier) la depassait, ce qui causait le rejet
+    // Postgres derriere le bug d'upsert silencieux corrige le 27 aout.
+    // `pmm_<tier>` tient sur 20 chars meme pour le plus long ("pmm_professional"=17).
+    const section = `pmm_${tier}`
+    const { data: old } = await supabase.from('claude_analysis').select('content').eq('section', section).single()
+    if (old) await supabase.from('claude_memory').insert({ section, content: old.content, archived_at: new Date().toISOString() })
     // Bug reel trouve (27 aout) : cet upsert echouait silencieusement (aucune
     // ligne ecrite, aucune erreur remontee) car `error` n'etait jamais
     // verifiee -- meme classe de bug "status=success trompeur" deja
     // documentee sur update-catalog/data-retention le 17 aout. Verifie
-    // desormais explicitement.
+    // desormais explicitement -- a revele la vraie cause racine : section
+    // trop longue pour la colonne varchar(20) (voir commentaire ci-dessus).
     const { error: upsertErr } = await supabase.from('claude_analysis').upsert(
-      { section: `pluton_money_making_${tier}`, content: JSON.stringify(sectionContent), updated_at: new Date().toISOString() },
+      { section, content: JSON.stringify(sectionContent), updated_at: new Date().toISOString() },
       { onConflict: 'section' }
     )
-    if (upsertErr) throw new Error(`claude_analysis upsert failed for pluton_money_making_${tier}: ${upsertErr.message}`)
+    if (upsertErr) throw new Error(`claude_analysis upsert failed for ${section}: ${upsertErr.message}`)
 
     results.push({ tier, methods: active.length })
   }
