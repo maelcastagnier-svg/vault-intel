@@ -135,10 +135,16 @@ export async function computeAndPersistPlutonMoneyMakingSections(): Promise<{ ti
 
     const { data: old } = await supabase.from('claude_analysis').select('content').eq('section', `pluton_money_making_${tier}`).single()
     if (old) await supabase.from('claude_memory').insert({ section: `pluton_money_making_${tier}`, content: old.content, archived_at: new Date().toISOString() })
-    await supabase.from('claude_analysis').upsert(
+    // Bug reel trouve (27 aout) : cet upsert echouait silencieusement (aucune
+    // ligne ecrite, aucune erreur remontee) car `error` n'etait jamais
+    // verifiee -- meme classe de bug "status=success trompeur" deja
+    // documentee sur update-catalog/data-retention le 17 aout. Verifie
+    // desormais explicitement.
+    const { error: upsertErr } = await supabase.from('claude_analysis').upsert(
       { section: `pluton_money_making_${tier}`, content: JSON.stringify(sectionContent), updated_at: new Date().toISOString() },
       { onConflict: 'section' }
     )
+    if (upsertErr) throw new Error(`claude_analysis upsert failed for pluton_money_making_${tier}: ${upsertErr.message}`)
 
     results.push({ tier, methods: active.length })
   }
