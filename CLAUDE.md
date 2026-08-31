@@ -120,17 +120,36 @@ nécessiteraient une vérification de prix individuelle non faite ce soir.
   remplacé par le Forge). Décision : retenir 16 si construit un jour, avec
   cette réserve explicite (aucune ligne d'historique "réduit de 80 à 16"
   trouvée).
-- **`dungeons_perfect_armor_progression` (46) — GAP FERMABLE, pas encore
-  construit** : Perfect Armor n'est pas un drop, c'est un craft 100%
-  déterministe (Tier I=24 Enchanted Diamond Block, +4/tier jusqu'à XII,
-  puis Perfectly Cut Diamond). Même famille que Forge/Composter — backlog
-  prioritaire pour la suite de la nuit si le temps le permet.
+- **`dungeons_perfect_armor_progression` (46) — ✅ FERMÉ** (voir section
+  dédiée ci-dessous).
 - **`cosmetic_dye_unsourced` (66) — catégorie hétérogène, pas un bloc
   homogène** : ~8/15 échantillonnés sont du cash-shop pur (Fire Sale,
   aucun mécanisme de farm), ~6/15 ont une vraie source RNG chiffrée
   (Celeste Dye — drop Sven Packmaster, rentre directement dans le moteur
   Wolf Slayer déjà construit ; Pelt/Periwinkle/Celadon/Nyanza Dye — mobs/
   mécaniques non encore modélisés). Re-triage nécessaire, pas fait ce soir.
+
+### ✅ Dungeons — Perfect Armor craft margin fermé (Tiers I-XII, 4 pièces)
+
+Ferme `dungeons_perfect_armor_progression` (46 items). Perfect Armor
+n'est pas un drop, c'est un craft 100% déterministe (`game_mechanics_misc
+key='perfect_armor'`) : Tier I coûte un nombre d'Enchanted Diamond Block
+différent par pièce (recompté exact depuis la grille de craft wikitext,
+somme=24 confirmée par la table "Materials Needed" du wiki — Helmet=5,
+Chestplate=8, Leggings=7, Boots=4), chaque palier suivant (II→XII) coûte
++4 EDB/pièce. **Tier XIII explicitement hors scope** : nécessite 4x
+Perfectly Cut Diamond/pièce, un craft imbriqué (Refined Diamond + Diamond
+Essence) dont aucun prix Bazaar/AH n'a été trouvé — plutôt que deviner ce
+coût, seuls les tiers I-XII sont évalués. Même méthodologie AH sale-
+velocity que Boss Armor (ci-dessus) : cadence de vente réelle via
+`price_history_ah.sold_count` (aucun Bazaar sur Perfect Armor, confirmé).
+**Recherche réelle du meilleur tier par pièce** (1 à 12, pas un tier
+supposé optimal) — nouveau fichier `lib/pluton-dungeons-perfect-armor.ts`,
+cron `pluton-dungeons-perfect-armor-refresh` (5h28). **Vérifié en prod** :
+4/4 pièces priceables, coins/h modestes voire négatifs à `master` (Perfect
+Chestplate : -807 coins/h au meilleur tier trouvé) — honnête, faible
+liquidité AH sur cet item de fin de jeu peu recherché, pas caché (même
+discipline que les 12 recettes Forge à marge négative déjà documentées).
 
 ## 🌇 Après-midi 27 août (jusqu'à 20h15) — audit vision + pont Pluton→Money Making construit
 
