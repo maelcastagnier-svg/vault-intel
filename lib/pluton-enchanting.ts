@@ -99,56 +99,80 @@ export async function computeAndPersistEnchantedBookFlipRankings(): Promise<{ pa
     await supabase.from('pluton_target_blocks').delete().in('id', existingIds)
   }
 
-  for (const p of pricedPairs) {
-    const { data: block, error: blockErr } = await supabase
-      .from('pluton_target_blocks')
-      .insert({
-        activity_key: 'enchanting',
-        block_id: `ENCHBOOK_${p.enchantName.toUpperCase()}_${p.levelLow}_${p.levelHigh}`,
-        block_name: `Enchanted Book -- ${p.enchantName} ${p.levelLow}->${p.levelHigh} (combine Enclume)`,
-        block_strength: 0,
-        required_breaking_power: 0,
-        sell_item_id: p.itemHigh,
-        base_drop_count: 1,
-        effective_sell_price: p.sellHigh,
-        pricing_note: `Marge crafting_margin (27 aout) : combine 2x ${p.itemLow} (buy_price=${p.buyLow.toFixed(0)}) -> 1x ${p.itemHigh} (sell_price=${p.sellHigh.toFixed(0)}) a l'Enclume, cout reel=0 coin/0 XP (source game_mechanics_misc key='anvil'). Marge=${p.margin.toFixed(0)}/craft. Cadence : plafond moteur 20 actions/sec reutilise (Farming/Foraging, 5 aout) -- legitime ici, cycle buy+combine+sell 100% Bazaar instantane, aucune attente de marche AH.`,
-      })
-      .select('id').single()
-    if (blockErr || !block) throw new Error(`Enchanted book block insert failed for ${p.enchantName} ${p.levelLow}->${p.levelHigh}: ${blockErr?.message}`)
+  // Insere en lots (chunks) -- 447 paires x 7 tiers = ~3100 lignes setups/
+  // rankings, un insert-par-ligne timeoutait systematiquement (meme piege
+  // deja documente sur Dungeons le 18 aout : "1 requete par item x ligne de
+  // loot x combo tier/etage... timeout 60s systematique"). Insert bulk par
+  // lots de 200, aucun aller-retour DB dans une boucle par-ligne.
+  const chunks = <T,>(arr: T[], size: number): T[][] => {
+    const out: T[][] = []
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+    return out
+  }
 
+  const blockRows = pricedPairs.map(p => ({
+    activity_key: 'enchanting',
+    block_id: `ENCHBOOK_${p.enchantName.toUpperCase()}_${p.levelLow}_${p.levelHigh}`,
+    block_name: `Enchanted Book -- ${p.enchantName} ${p.levelLow}->${p.levelHigh} (combine Enclume)`,
+    block_strength: 0,
+    required_breaking_power: 0,
+    sell_item_id: p.itemHigh,
+    base_drop_count: 1,
+    effective_sell_price: p.sellHigh,
+    pricing_note: `Marge crafting_margin (27 aout) : combine 2x ${p.itemLow} (buy_price=${p.buyLow.toFixed(0)}) -> 1x ${p.itemHigh} (sell_price=${p.sellHigh.toFixed(0)}) a l'Enclume, cout reel=0 coin/0 XP (source game_mechanics_misc key='anvil'). Marge=${p.margin.toFixed(0)}/craft. Cadence : plafond moteur 20 actions/sec reutilise (Farming/Foraging, 5 aout) -- legitime ici, cycle buy+combine+sell 100% Bazaar instantane, aucune attente de marche AH.`,
+  }))
+
+  const insertedBlocks: { id: number }[] = []
+  for (const batch of chunks(blockRows, 200)) {
+    const { data, error } = await supabase.from('pluton_target_blocks').insert(batch).select('id')
+    if (error || !data) throw new Error(`Enchanted book blocks batch insert failed: ${error?.message}`)
+    insertedBlocks.push(...data)
+  }
+
+  const setupRows: any[] = []
+  for (let i = 0; i < pricedPairs.length; i++) {
+    const p = pricedPairs[i]
     for (const tier of SEVEN_TIER_KEYS) {
-      const { data: setupRow, error: setupErr } = await supabase
-        .from('pluton_setups')
-        .insert({
-          activity_key: 'enchanting',
-          tier,
-          investment_level: 'optimal',
-          armor_set_prefix: 'Aucune (combine Enclume, gear-independant)',
-          tool_item_id: 'ANVIL_NO_TOOL',
-          total_mining_speed: 0,
-          total_mining_fortune: 0,
-          total_breaking_power: 0,
-          real_cost: p.cost,
-          accessories: [{ source_id: '__enchanted_book_flip__', enchant: p.enchantName, level_low: p.levelLow, level_high: p.levelHigh }],
-        })
-        .select('id').single()
-      if (setupErr || !setupRow) throw new Error(`Enchanted book setup insert failed: ${setupErr?.message}`)
-
-      const { error: rankErr } = await supabase
-        .from('pluton_rankings')
-        .insert({
-          activity_key: 'enchanting',
-          tier,
-          target_block_id: block.id,
-          setup_id: setupRow.id,
-          rank: 1,
-          mining_time_seconds: 1 / CRAFT_ACTIONS_PER_SECOND_CAP,
-          actions_per_hour: CYCLES_PER_HOUR,
-          yield_per_hour: CYCLES_PER_HOUR,
-          coins_per_hour_raw_block_only: p.margin * CYCLES_PER_HOUR,
-        })
-      if (rankErr) throw new Error(`Enchanted book ranking insert failed: ${rankErr.message}`)
+      setupRows.push({
+        activity_key: 'enchanting',
+        tier,
+        investment_level: 'optimal',
+        armor_set_prefix: 'Aucune (combine Enclume, gear-independant)',
+        tool_item_id: 'ANVIL_NO_TOOL',
+        total_mining_speed: 0,
+        total_mining_fortune: 0,
+        total_breaking_power: 0,
+        real_cost: p.cost,
+        accessories: [{ source_id: '__enchanted_book_flip__', enchant: p.enchantName, level_low: p.levelLow, level_high: p.levelHigh }],
+        _blockIdx: i, // retire avant insert, garde l'alignement setup<->block
+      })
     }
+  }
+  const insertedSetups: { id: number }[] = []
+  for (const batch of chunks(setupRows, 200)) {
+    const clean = batch.map(({ _blockIdx, ...rest }) => rest)
+    const { data, error } = await supabase.from('pluton_setups').insert(clean).select('id')
+    if (error || !data) throw new Error(`Enchanted book setups batch insert failed: ${error?.message}`)
+    insertedSetups.push(...data)
+  }
+
+  const rankingRows = setupRows.map((s, i) => {
+    const p = pricedPairs[s._blockIdx]
+    return {
+      activity_key: 'enchanting',
+      tier: s.tier,
+      target_block_id: insertedBlocks[s._blockIdx].id,
+      setup_id: insertedSetups[i].id,
+      rank: 1,
+      mining_time_seconds: 1 / CRAFT_ACTIONS_PER_SECOND_CAP,
+      actions_per_hour: CYCLES_PER_HOUR,
+      yield_per_hour: CYCLES_PER_HOUR,
+      coins_per_hour_raw_block_only: p.margin * CYCLES_PER_HOUR,
+    }
+  })
+  for (const batch of chunks(rankingRows, 200)) {
+    const { error } = await supabase.from('pluton_rankings').insert(batch)
+    if (error) throw new Error(`Enchanted book rankings batch insert failed: ${error.message}`)
   }
 
   return { pairs_evaluated: candidates.length, pairs_priced: pricedPairs.length }
