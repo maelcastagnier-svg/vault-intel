@@ -238,3 +238,155 @@ export async function computeAndPersistKuudraRankings(): Promise<KuudraResult[]>
 
   return results
 }
+
+// ============================================================
+// Pool RNG Kuudra -- armures (27 aout) -- methode additive independante,
+// meme discipline multi-methodes que le RNG Meter Slayer/Sea Creature kills
+// (target_blocks *_RNG_POOL dedies, coins/h s'ajoute au loot garanti deja
+// persiste, ne le remplace pas).
+//
+// Decouverte : page pluton_elements "Kuudra/Loot" (296 lignes, jamais
+// consommee) contient la table de loot COMPLETE par tier (Basic/Hot/
+// Burning/Fiery -- Infernal EXCLU, voir plus bas) avec les vrais % de
+// chaque "Chest Slot 1" (armure Aurora/Crimson/Fervor/Hollow/Terror,
+// accessoires Molten, Hollow Wand, Tentacle Dye). Verifie ligne par ligne
+// contre les 4 sous-tables sequentielles de la page (bornes identifiees
+// via l'ancre "1 Kraken Shard slot 5 100%" qui cloture chaque tier).
+// Item_id tier-prefixe confirme reel (pas un artefact d'extraction --
+// app/api/cron/ah-collect/route.ts:112 montre base_item_id=item_id brut
+// Hypixel) : Basic="" (aucun prefixe), Hot=HOT_, Burning=BURNING_,
+// Fiery=FIERY_ -- confirme via items_catalog pour les 4 tiers x 5 sets x
+// 4 pieces (80 items, presque tous reellement prices AH).
+//
+// **Scope de cette 1re passe, documente pas cache** : seule l'armure +
+// Molten (necklace/cloak/belt/bracelet, item_id UNIQUE et tier-invariant,
+// confirme via items_catalog) + Hollow Wand (idem, tier-invariant) sont
+// integres -- de tres loin la plus grosse part de l'EV (6M-80M coins/piece
+// contre quelques milliers pour les Attribute Shards/Enchanted Books du
+// meme pool). Wheel of Fate/Tentacle Dye/Aurora Staff (aucun item_id trouve
+// en base malgre la recherche)/Enchanted Books (Ferocious/Hardened/Mana
+// Vampire/Strong Mana I-V, Fatal Tempo, Inferno)/Attribute Shards (Bezal/
+// Magma Slug/Kada Knight/Wither Specter/Matcho/Lava Flame/Fire Eel/Flare/
+// Barbarian Duke X/Hellwisp/XYZ) restent un residu reel non integre --
+// backlog documente dans pluton_mechanic_coverage, pas invente.
+//
+// **Infernal EXCLU explicitement** : la page source bascule vers un format
+// de table totalement different (pipe-delimited "Item || qty || pct ||
+// chests || chests", semantique de dénominateur non confirmee -- % par
+// coffre ouvert toutes tiers confondues ? table generique du site ?) --
+// plutot que de deviner la correspondance, le tier Infernal reste sans
+// couche RNG armure (gap honnete, meme discipline regle #7).
+const KUUDRA_ARMOR_SETS = ['AURORA', 'CRIMSON', 'FERVOR', 'HOLLOW', 'TERROR'] as const
+const KUUDRA_ARMOR_PIECES = ['HELMET', 'CHESTPLATE', 'LEGGINGS', 'BOOTS'] as const
+type KuudraRngTier = 'basic' | 'hot' | 'burning' | 'fiery'
+const KUUDRA_RNG_TIERS: readonly KuudraRngTier[] = ['basic', 'hot', 'burning', 'fiery']
+const KUUDRA_RNG_TIER_PREFIX: Record<KuudraRngTier, string> = { basic: '', hot: 'HOT_', burning: 'BURNING_', fiery: 'FIERY_' }
+// % par piece d'armure (identique pour les 4 pieces d'un meme set, source
+// Kuudra/Loot -- ex Basic 4.31%, Hot 4.06%, Burning 3.43%, Fiery 3.09%).
+const KUUDRA_RNG_ARMOR_PIECE_PCT: Record<KuudraRngTier, number> = { basic: 4.31, hot: 4.06, burning: 3.43, fiery: 3.09 }
+// % par accessoire Molten (4 lignes independantes, meme % chacune).
+const KUUDRA_RNG_MOLTEN_PCT: Record<KuudraRngTier, number> = { basic: 1.20, hot: 1.27, burning: 1.19, fiery: 1.18 }
+// % Hollow Wand (seul item d'arme avec un item_id reel trouve -- Aurora
+// Staff n'existe pas en base malgre la recherche, exclu).
+const KUUDRA_RNG_WAND_PCT: Record<KuudraRngTier, number> = { basic: 1.05, hot: 0.99, burning: 0.84, fiery: 0.75 }
+const KUUDRA_MOLTEN_ITEM_IDS = ['MOLTEN_NECKLACE', 'MOLTEN_CLOAK', 'MOLTEN_BELT', 'MOLTEN_BRACELET']
+
+export async function computeAndPersistKuudraRngPoolRankings(): Promise<{ combos: number; with_ev: number }> {
+  const armorItemIds = KUUDRA_RNG_TIERS.flatMap(t =>
+    KUUDRA_ARMOR_SETS.flatMap(s => KUUDRA_ARMOR_PIECES.map(p => `${KUUDRA_RNG_TIER_PREFIX[t]}${s}_${p}`))
+  )
+  const priceCache = await loadPriceCache([...armorItemIds, ...KUUDRA_MOLTEN_ITEM_IDS, 'HOLLOW_WAND'])
+  const moltenTotal = KUUDRA_MOLTEN_ITEM_IDS.reduce((sum, id) => sum + (priceCache.get(id) || 0), 0)
+  const wandPrice = priceCache.get('HOLLOW_WAND') || 0
+
+  const evByTier = new Map<KuudraRngTier, number>()
+  for (const t of KUUDRA_RNG_TIERS) {
+    let ev = 0
+    for (const s of KUUDRA_ARMOR_SETS) {
+      for (const p of KUUDRA_ARMOR_PIECES) {
+        const price = priceCache.get(`${KUUDRA_RNG_TIER_PREFIX[t]}${s}_${p}`) || 0
+        ev += (KUUDRA_RNG_ARMOR_PIECE_PCT[t] / 100) * price
+      }
+    }
+    ev += (KUUDRA_RNG_MOLTEN_PCT[t] / 100) * moltenTotal
+    ev += (KUUDRA_RNG_WAND_PCT[t] / 100) * wandPrice
+    evByTier.set(t, ev)
+  }
+
+  // Reutilise runsPerHour deja calcule par computeKuudraRankings() (route
+  // Cannoneer, tier-invariant en %) -- pas de recalcul de combat dupliquee.
+  const guaranteedResults = await computeKuudraRankings()
+
+  const { data: existingBlocks } = await supabase.from('pluton_target_blocks').select('id').eq('activity_key', 'kuudra').like('block_id', '%_RNG_POOL')
+  const existingIds = (existingBlocks || []).map(b => b.id)
+  if (existingIds.length > 0) {
+    await supabase.from('pluton_rankings').delete().in('target_block_id', existingIds)
+    await supabase.from('pluton_setups').delete().eq('activity_key', 'kuudra').contains('accessories', [{ source_id: '__kuudra_armor_rng_pool__' }])
+    await supabase.from('pluton_target_blocks').delete().in('id', existingIds)
+  }
+
+  const blockByTier = new Map<KuudraRngTier, number>()
+  for (const t of KUUDRA_RNG_TIERS) {
+    const { data: block, error: blockErr } = await supabase
+      .from('pluton_target_blocks')
+      .insert({
+        activity_key: 'kuudra',
+        block_id: `KUUDRA_${t.toUpperCase()}_RNG_POOL`,
+        block_name: `Kuudra -- ${KUUDRA_TIER_LABEL[t]} Tier (pool RNG armure)`,
+        block_strength: 0,
+        required_breaking_power: 0,
+        sell_item_id: 'NONE',
+        base_drop_count: 1,
+        pricing_note: `Pool RNG armure (27 aout) -- EV=${evByTier.get(t)!.toFixed(0)} coins/run, source page Kuudra/Loot (296 lignes, ${KUUDRA_TIER_LABEL[t]}). Couvre armure Aurora/Crimson/Fervor/Hollow/Terror (${KUUDRA_RNG_ARMOR_PIECE_PCT[t]}%/piece) + Molten necklace/cloak/belt/bracelet (${KUUDRA_RNG_MOLTEN_PCT[t]}% chacun) + Hollow Wand (${KUUDRA_RNG_WAND_PCT[t]}%). Residu non integre (Wheel of Fate/Tentacle Dye/Aurora Staff/Enchanted Books/Attribute Shards) documente dans pluton_mechanic_coverage -- backlog reel, pas invente.`,
+      })
+      .select('id')
+      .single()
+    if (blockErr || !block) throw new Error(`Kuudra RNG pool block insert failed for ${t}: ${blockErr?.message}`)
+    blockByTier.set(t, block.id)
+  }
+
+  let combos = 0
+  let withEv = 0
+  for (const r of guaranteedResults) {
+    if (r.kuudraTier === 'infernal') continue // gap honnete, voir commentaire d'en-tete
+    const ev = evByTier.get(r.kuudraTier as KuudraRngTier) || 0
+    const coinsPerHour = ev * r.runsPerHour
+
+    const { data: setupRow, error: setupErr } = await supabase
+      .from('pluton_setups')
+      .insert({
+        activity_key: 'kuudra',
+        tier: r.playerTier,
+        investment_level: 'optimal',
+        armor_set_prefix: `Aucune (pool RNG armure Kuudra ${KUUDRA_TIER_LABEL[r.kuudraTier]})`,
+        tool_item_id: 'KUUDRA_CANNON',
+        total_mining_speed: 0,
+        total_mining_fortune: 0,
+        total_breaking_power: 0,
+        real_cost: 0,
+        accessories: [{ source_id: '__kuudra_armor_rng_pool__', kuudra_tier: r.kuudraTier, ev_per_run: ev }],
+      })
+      .select('id').single()
+    if (setupErr || !setupRow) throw new Error(`Kuudra RNG pool setup insert failed for ${r.playerTier}/${r.kuudraTier}: ${setupErr?.message}`)
+
+    const { error: rankErr } = await supabase
+      .from('pluton_rankings')
+      .insert({
+        activity_key: 'kuudra',
+        tier: r.playerTier,
+        target_block_id: blockByTier.get(r.kuudraTier as KuudraRngTier)!,
+        setup_id: setupRow.id,
+        rank: 1,
+        mining_time_seconds: r.combatSeconds,
+        actions_per_hour: r.runsPerHour,
+        yield_per_hour: r.runsPerHour,
+        coins_per_hour_raw_block_only: coinsPerHour,
+      })
+    if (rankErr) throw new Error(`Kuudra RNG pool ranking insert failed for ${r.playerTier}/${r.kuudraTier}: ${rankErr.message}`)
+
+    combos++
+    if (ev > 0) withEv++
+  }
+
+  return { combos, with_ev: withEv }
+}
