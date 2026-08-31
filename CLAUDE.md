@@ -4,6 +4,86 @@
 > Basé sur la session la plus récente disponible. En cas de divergence avec une
 > session antérieure sur le même sujet, cette version fait foi.
 
+## 🌙 Nuit 31 août → 1er septembre (jusqu'à 10h) — mandat "boucler Pluton au plus vite", en cours
+
+Mandat : *"travail en full autonomie, avance un grand coup dans la pipeline
+pluton... finis de peupler les activités, verifie qu'on utilise 100% des
+extract pour pluton et 100% des elements pour tout les skills... audit
+complet a partir de 10h demain sur tout le produit vault hypixel."*
+
+### ✅ Dungeons — Boss Armor craft margin fermé (Goldor/Storm/Maxor/Necron, 16 pièces)
+
+Ferme le backlog `dungeons_boss_armor_craft` documenté depuis le 27 août
+("marge crafting déjà confirmée réelle et positive, bloquée par l'absence
+de cadence de vente AH sourcée"). **Nouvelle méthodologie, réutilisable
+ailleurs** : `price_history_ah.sold_count` (déjà collecté quotidiennement,
+jamais exploité comme cadence avant) donne le nombre RÉEL de ventes AH
+complétées par jour — moyenne historique de marché sur 90 jours glissants,
+jamais une supposition. C'est le bottleneck réel (l'achat Bazaar des 8
+fragments + le craft à la Table 3x3 sont quasi-instantanés), donc
+`actions_per_hour` = taux de vente réel observé.
+
+Mapping item_id confirmé via `items_catalog` (pas deviné depuis le nom
+d'affichage) : Goldor's (`TANK_WITHER_*`) ← 8x `GIANT_FRAGMENT_BOULDER`
+("Jolly Pink Rock") ; Storm's (`WISE_WITHER_*`) ← `GIANT_FRAGMENT_LASER`
+("L.A.S.R.'s Eye") ; Maxor's (`SPEED_WITHER_*`) ← `GIANT_FRAGMENT_BIGFOOT`
+("Bigfoot's Bola") ; Necron's (`POWER_WITHER_*`) ← `GIANT_FRAGMENT_DIAMOND`
+("Diamante's Handle"). Coût = fragments (Bazaar buy_price) + pièce Wither
+de base (AH avg_sold_price 90j, pas un buy_price de listing isolé
+potentiellement outlier) ; revenu = pièce finale (même métrique AH 90j,
+cohérence méthodologique). Nouveau fichier `lib/pluton-dungeons-boss-armor.
+ts`, cron `pluton-dungeons-boss-armor-refresh` (5h27). **Vérifié en prod** :
+16/16 pièces, coins/h sains 185K→25,7M à master (aucune valeur aberrante,
+contrairement aux artefacts TTK déjà documentés sur Combat/Slayer/Kuudra).
+
+### ✅ Fishing — Salmon Armor ajoutée (gate Fishing niveau 13), Challenger's Armor recorrigée
+
+Trouvaille en creusant `fishing_armor_uncatalogued` (16 items) : deux sets
+distincts y étaient mélangés. **Salmon Armor** confirmée réelle (SCC+1,5%/
+pièce=6% total, gate `{{Skill|Fishing|13}}`, source `game_mechanics_misc
+key=salmon_armor`) — ajoutée à `pluton_fishing_armor_stats` (id=9), aucune
+modification du moteur nécessaire (compétition déjà budget-based). **Perd
+honnêtement** face à Backwater/Abyssal (SCC inférieure) sur les 7 tiers —
+résultat attendu d'une vraie recherche, pas un échec. **Challenger's
+Armor** (8 pièces) était mal classée Fishing — c'est en réalité un set
+Combat/Diana (Mythological Ritual, craft Enchanted Gold Ingot/Ancient
+Claw/Griffin Feather, bonus "2x stats dans The Hub pendant le rituel") —
+recatégorisée `mythological_ritual_armor`, backlog réel documenté (nature
+d'activité différente, situationnelle, nécessiterait son propre
+calculateur), pas fermée.
+
+### 🔎 Réévaluation Phase A (classement 7-tiers) — le vrai gap est 53 204 lignes, pas 135 887
+
+En creusant pour "vérifier qu'on utilise 100% des éléments par skill",
+échantillonnage de chaque grand type de contenu non-tiéré (au lieu de
+prendre le chiffre `tier IS NULL`=135 887/184 416 au pied de la lettre).
+**Trouvaille structurante** : 82 683 de ces lignes (61%) ont
+`activity='__none__'` — déjà confirmées non-skill (cosmétique/événementiel/
+dialogue NPC/musique) par le travail de classification du 24-25 août,
+et RESTENT correctement sans tier (un item cosmétique ou un texte de
+dialogue n'a pas de "palier de progression"). Ce n'est PAS un gap, c'est
+la classification faisant exactement ce qu'elle doit faire. **Le vrai
+résidu à traiter est 53 204 lignes** classées dans un skill réel mais sans
+tier : items (17 958), mécaniques formula/general (17 010, majoritairement
+des tables de référence cross-tier déjà consommées via `stat_bonus_
+sources`/`pluton_mechanic_coverage`, pas des gates single-tier), mob_zone_
+data (16 128, tiérable par zone), progression_milestone (1 894).
+**Décision explicite prise cette nuit** : ne pas sacrifier le reste du
+mandat (peuplement d'activités, audit produit 10h) à un chantier Phase A
+qui reste — même réduit à 53k lignes — un gros chantier à faible ROI produit
+immédiat (les vues `pluton_tier_*` ont 0 consommateur de code, confirmé 25
+août, toujours vrai). Documenté honnêtement plutôt que forcé ou ignoré.
+
+### En cours (agents de recherche lancés en arrière-plan)
+
+2 agents dédiés (lecture seule) creusent en parallèle : (1) le format de
+table Infernal de `Kuudra/Loot` + les ~18 résidus RNG pool non intégrés
+(Wheel of Fate, Enchanted Books, Attribute Shards) ; (2) l'ambiguïté
+gemstone_quality_flip (16 vs 80) + ender_dragon_armor_drop +
+spooky_festival_event_drop + cosmetic_dye_unsourced + dungeons_perfect_
+armor_progression + confirmation pet_equipment_accessory. Résultats et
+fermetures à documenter à leur retour.
+
 ## 🌇 Après-midi 27 août (jusqu'à 20h15) — audit vision + pont Pluton→Money Making construit
 
 Mandat : *"prend la vision finale pluton dans son ensemble audit generale du
