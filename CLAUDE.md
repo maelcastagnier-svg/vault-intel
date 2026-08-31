@@ -4,6 +4,53 @@
 > Basé sur la session la plus récente disponible. En cas de divergence avec une
 > session antérieure sur le même sujet, cette version fait foi.
 
+## ☀️ Matinée 27 août (jusqu'à 13h) — 2 fermetures majeures, correction d'une fausse alerte
+
+Suite directe de la nuit ci-dessous. Mandat : trouver la route la plus optimisée
+pour avancer vite et bien sur la phase finale Pluton, 5h full autonomie.
+
+**Kuudra pool RNG armure FERMÉ** (voir détail dans la nuit ci-dessous) — 80 combos
+armure Aurora/Crimson/Fervor/Hollow/Terror + Molten + Hollow Wand, 28/28 vérifiés.
+
+**Enchanted Books flip FERMÉ** (`lib/pluton-enchanting.ts`, nouvel `activity_key=
+'enchanting'`) — agent de recherche dédié a confirmé le coût réel (0 coin/0 XP,
+combine 2 livres niveau N → 1 niveau N+1 à l'Enclume, source `game_mechanics_misc
+key='anvil'`). 303 paires candidates, 94 avec prix Bazaar frais des 2 niveaux
+(filtre de fraîcheur strict — ~9% des candidats initiaux avaient un prix
+périmé/nul). Cadence : plafond moteur 20 actions/seconde réutilisé (Farming/
+Foraging) — légitime ici car le cycle achat+combine+vente est 100% Bazaar
+instantané, contrairement à un flip AH qui attend un acheteur. **Piège
+opérationnel rencontré et corrigé** : 1 insert par ligne (~3100 lignes) a
+timeout systématiquement (même piège déjà documenté sur Dungeons le 18 août) —
+corrigé en bulk insert par lots de 200.
+
+**🔴 Correction majeure d'une fausse alerte de la nuit précédente** : `pluton_
+dungeons_chest_loot` (déjà peuplée, ~230 lignes) EST déjà consommée par
+`lib/pluton-dungeons.ts` avec fallback Bazaar+AH complet — la quasi-totalité des
+items Wither/Necromancer Lord/Shadow Assassin/Adaptive/Bonzo (94 items) étaient
+DÉJÀ pricés, contrairement à l'affirmation de la nuit ("Dungeons ne price aucun
+loot"). Corrigé en base. Le vrai résidu confirmé (agent de recherche) : Goldor's/
+Storm's/Maxor's/Necron's Armor ne sont PAS des drops RNG — ce sont des items
+CRAFTÉS (1x Wither Armor base + 8x Giant Fragment spécifique, coût=0 coin) —
+marge vérifiée réelle et positive sur les 4 sets, mais PAS construit en
+`pluton_rankings` : aucune cadence de vente sourcée (sortie AH-only, attente
+d'acheteur, contrairement à Enchanted Books). Backlog réel documenté (marge
+confirmée, gap sur la seule dimension cadence), pas inventé.
+
+**Gemstone quality flip — ambiguïté réelle non tranchée** : ratio de combinaison
+trouvé dans la source elle-même (`game_mechanics_misc key='gemstone'`) mais
+CONTRADICTOIRE (table structurée dit 16, prose de la même page dit 80) — aucune
+3e source pour arbitrer. Pas construit (règle #7), backlog documenté avec
+l'ambiguïté explicite plutôt qu'un choix deviné.
+
+**État `pluton_item_coverage_audit` à 13h** : 1100 covered_confirmed, 766
+gap_open (documenté par catégorie, résidu dominant : enchanted_book_flip 354
+restants non-frais, cosmetic_dye_unsourced 66, spooky_festival_event_drop 56,
+dungeons_boss_armor_drop 51, gemstone_quality_flip 48, ender_dragon_armor_drop
+48, dungeons_perfect_armor_progression 46, pet_equipment_accessory 41), 601
+excluded_noise, 2319 pending (résidu très majoritairement cosmétique/matériel
+crafté à faible valeur, confirmé par échantillonnage répété).
+
 ## 🌙 Nuit 26-27 août — audit exhaustif 7000+ items, mandat "full autonomie jusqu'à 7h"
 
 Mandat utilisateur explicite : vérifier qu'aucune activité n'est laissée au
