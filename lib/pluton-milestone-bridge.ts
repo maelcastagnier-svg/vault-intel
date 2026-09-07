@@ -47,11 +47,22 @@ const supabase = createClient(
 // EXACTEMENT le meme parsing de drops que pluton-bestiary.ts
 // (getBestiaryMobDropItemIds(), source de verite unique, rien redevine) --
 // si l'item cherche est un drop GARANTI d'un mob deja modelise, retrouve
-// le target_block de ce mob par son block_id (meme formule de sanitization
-// que pluton-bestiary.ts:225) et copie son ranking/setup deja calcule,
-// exactement comme le chemin sell_item_id normal.
-function bestiaryBlockId(zone_page: string, name: string, id: number): string {
-  return `BESTIARY_${zone_page}_${name}_${id}`.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+// le target_block de ce mob.
+//
+// **Bug reel trouve en verifiant en base (1er sept), pas suppose** : un
+// premier essai matchait par block_id EXACT (`BESTIARY_${zone}_${name}_
+// ${zone_mob_stats.id}`) -- 0/94 matches. Diagnostic : `zone_mob_stats.id`
+// est un id serial qui a change entre le moment ou pluton-bestiary.ts a
+// persiste ses target_blocks et maintenant (107 lignes, meme volume,
+// mais ids differents -- confirme par requete directe : id=5906 "Miner
+// Skeleton" existe dans zone_mob_stats aujourd'hui, mais le target_block
+// persiste porte l'id=5799 pour le meme mob). L'id n'est PAS une identite
+// stable inter-cycle (il ne l'a jamais ete, seul (zone_page,name) l'est
+// reellement) -- corrige en matchant par PREFIXE `BESTIARY_${zone}_
+// ${name}_` (sans le suffixe id), stable meme quand le nombre exact
+// change entre 2 syncs de zone_mob_stats.
+function bestiaryBlockPrefix(zone_page: string, name: string): string {
+  return `BESTIARY_${zone_page}_${name}_`.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
 }
 
 // Alias de nom d'affichage verifies un par un contre items_catalog (jamais
@@ -130,9 +141,19 @@ export async function computeAndPersistMilestoneOptimalSetups(): Promise<Milesto
     supabase.from('pluton_target_blocks').select('id, activity_key, block_id, sell_item_id').range(from, to)
   )
   const blocksBySellItemId = new Map<string, { id: number; activity_key: string }[]>()
-  const blockByBlockId = new Map<string, { id: number; activity_key: string }>()
+  // Index BESTIARY_* par PREFIXE (zone+nom, sans le suffixe id volatil --
+  // voir doc bestiaryBlockPrefix()), pas par block_id exact.
+  const bestiaryBlocksByPrefix = new Map<string, { id: number; activity_key: string }[]>()
   for (const b of blocks) {
-    blockByBlockId.set(b.block_id, { id: b.id, activity_key: b.activity_key })
+    if (b.block_id.startsWith('BESTIARY_')) {
+      const m = b.block_id.match(/^(.*_)(\d+)$/)
+      if (m) {
+        const prefix = m[1]
+        const list = bestiaryBlocksByPrefix.get(prefix) || []
+        list.push({ id: b.id, activity_key: b.activity_key })
+        bestiaryBlocksByPrefix.set(prefix, list)
+      }
+    }
     if (!b.sell_item_id) continue
     const list = blocksBySellItemId.get(b.sell_item_id) || []
     list.push({ id: b.id, activity_key: b.activity_key })
@@ -140,11 +161,11 @@ export async function computeAndPersistMilestoneOptimalSetups(): Promise<Milesto
   }
 
   const mobDropRows = await getBestiaryMobDropItemIds()
-  const mobCandidatesByItemId = new Map<string, { id: number; zone_page: string; name: string }[]>()
+  const mobCandidatesByItemId = new Map<string, { zone_page: string; name: string }[]>()
   for (const m of mobDropRows) {
     for (const itemId of m.itemIds) {
       const list = mobCandidatesByItemId.get(itemId) || []
-      list.push({ id: m.id, zone_page: m.zone_page, name: m.name })
+      list.push({ zone_page: m.zone_page, name: m.name })
       mobCandidatesByItemId.set(itemId, list)
     }
   }
@@ -201,13 +222,11 @@ export async function computeAndPersistMilestoneOptimalSetups(): Promise<Milesto
     let candidateBlocks = blocksBySellItemId.get(itemId) || []
     let viaBestiary = false
     if (candidateBlocks.length === 0) {
-      // Fallback Bestiary -- voir doc de bestiaryBlockId() en tete de
+      // Fallback Bestiary -- voir doc de bestiaryBlockPrefix() en tete de
       // fichier. N'active ce chemin QUE si le sell_item_id normal n'a rien
       // trouve, jamais en concurrence avec un vrai target_block direct.
       const mobCandidates = mobCandidatesByItemId.get(itemId) || []
-      const bestiaryBlocks = mobCandidates
-        .map(m => blockByBlockId.get(bestiaryBlockId(m.zone_page, m.name, m.id)))
-        .filter((b): b is { id: number; activity_key: string } => !!b)
+      const bestiaryBlocks = mobCandidates.flatMap(m => bestiaryBlocksByPrefix.get(bestiaryBlockPrefix(m.zone_page, m.name)) || [])
       if (bestiaryBlocks.length > 0) { candidateBlocks = bestiaryBlocks; viaBestiary = true }
     }
     if (candidateBlocks.length === 0) {
