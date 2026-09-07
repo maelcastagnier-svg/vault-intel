@@ -25,11 +25,21 @@
 // (forge_recipes), pas duplique ici.
 //
 // Craft instantane (Table 3x3, aucun forge_time mentionne) + les 4 paliers
-// sont TOUS Bazaar-tradeable (verifie price_history) -- cycle 100% Bazaar
-// instantane (achat+combine+vente), meme methodologie que Enchanted Books
-// (27 aout) : plafond moteur 20 actions/seconde reutilise, pas une AH
-// sale-velocity (contrairement a Boss Armor/Perfect Armor du meme soir,
-// qui eux sont AH-only).
+// sont TOUS Bazaar-tradeable (verifie price_history).
+//
+// **Correction avant meme premiere publication** : la 1re version utilisait
+// le plafond moteur 20 actions/sec (comme Enchanted Books) -- correct pour
+// Rough->Flawed/Flawed->Fine (marge modeste), mais produit un artefact
+// absurde sur Fine->Flawless (marge tres elevee x 72 000 cycles/h suppose
+// = 85-275 milliards coins/h, meme classe d'artefact que Combat/Slayer/
+// Kuudra corriges plus tot ce soir -- suppose une liquidite Bazaar
+// illimitee, jamais vraie a ce volume). Corrige en reutilisant le VRAI
+// volume Bazaar quotidien deja collecte (price_history.volume, moyenne 7j
+// glissants) comme plafond de cadence reel -- jamais invente, seulement
+// lu depuis les donnees de marche deja en base (meme discipline que
+// price_history_ah.sold_count reutilise plus tot ce soir pour Boss Armor/
+// Perfect Armor). cycles/heure = min(plafond moteur 72000/h, volume moyen
+// de l'input/16/24h, volume moyen de l'output/24h).
 import { createClient } from '@supabase/supabase-js'
 import { SEVEN_TIER_KEYS } from './pluton-engine'
 
@@ -43,23 +53,35 @@ const QUALITY_CHAIN = ['ROUGH', 'FLAWED', 'FINE', 'FLAWLESS'] as const
 const COMBINE_RATIO = 16 // table de craft structuree, pas la prose "80" -- voir doc en-tete
 
 const CRAFT_ACTIONS_PER_SECOND_CAP = 20
-const CYCLES_PER_HOUR = CRAFT_ACTIONS_PER_SECOND_CAP * 3600
+const ENGINE_CAP_CYCLES_PER_HOUR = CRAFT_ACTIONS_PER_SECOND_CAP * 3600
 
-type StepCalc = { gem: string; fromQ: string; toQ: string; margin: number; coinsPerHour: number }
+type StepCalc = { gem: string; fromQ: string; toQ: string; margin: number; cyclesPerHour: number; coinsPerHour: number }
 
 export async function computeAndPersistGemstoneQualityFlipRankings(): Promise<{ steps_evaluated: number; steps_priced: number }> {
   const allItemIds = GEM_TYPES.flatMap(g => QUALITY_CHAIN.map(q => `${q}_${g}_GEM`))
+  const since7 = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0]
   const { data: priceRows } = await supabase
     .from('price_history')
-    .select('item_id, buy_price, sell_price, bucket_date')
+    .select('item_id, buy_price, sell_price, volume, bucket_date')
     .in('item_id', allItemIds)
+    .gte('bucket_date', since7)
     .order('bucket_date', { ascending: false })
 
   const buyCache = new Map<string, number>()
   const sellCache = new Map<string, number>()
+  const volumeSum = new Map<string, { sum: number; n: number }>()
   for (const row of (priceRows || [])) {
     if (Number(row.buy_price) > 0 && !buyCache.has(row.item_id)) buyCache.set(row.item_id, Number(row.buy_price))
     if (Number(row.sell_price) > 0 && !sellCache.has(row.item_id)) sellCache.set(row.item_id, Number(row.sell_price))
+    if (row.volume != null) {
+      const cur = volumeSum.get(row.item_id) || { sum: 0, n: 0 }
+      cur.sum += Number(row.volume); cur.n += 1
+      volumeSum.set(row.item_id, cur)
+    }
+  }
+  const avgDailyVolume = (id: string): number => {
+    const v = volumeSum.get(id)
+    return v && v.n > 0 ? v.sum / v.n : 0
   }
 
   const calcs: StepCalc[] = []
@@ -74,7 +96,13 @@ export async function computeAndPersistGemstoneQualityFlipRankings(): Promise<{ 
       if (!buyFrom || !sellTo) continue
       const cost = COMBINE_RATIO * buyFrom
       const margin = sellTo - cost
-      calcs.push({ gem, fromQ, toQ, margin, coinsPerHour: margin * CYCLES_PER_HOUR })
+      // Cadence reelle plafonnee par le volume Bazaar reel (moyenne 7j) --
+      // jamais le plafond moteur seul si le marche est plus etroit.
+      const fromVolCyclesPerHour = (avgDailyVolume(fromId) / COMBINE_RATIO) / 24
+      const toVolCyclesPerHour = avgDailyVolume(toId) / 24
+      const cyclesPerHour = Math.min(ENGINE_CAP_CYCLES_PER_HOUR, fromVolCyclesPerHour, toVolCyclesPerHour)
+      if (cyclesPerHour <= 0) continue // pas de volume reel observe -- gap honnete, pas invente
+      calcs.push({ gem, fromQ, toQ, margin, cyclesPerHour, coinsPerHour: margin * cyclesPerHour })
     }
   }
   if (calcs.length === 0) throw new Error('Aucun palier gemstone priceable -- verifier price_history')
@@ -103,7 +131,7 @@ export async function computeAndPersistGemstoneQualityFlipRankings(): Promise<{ 
     sell_item_id: `${c.toQ}_${c.gem}_GEM`,
     base_drop_count: 1,
     effective_sell_price: c.margin > 0 ? c.margin : 0,
-    pricing_note: `Marge crafting_margin (1er sept) : combine ${COMBINE_RATIO}x ${c.fromQ}_${c.gem}_GEM (Bazaar buy_price) -> 1x ${c.toQ}_${c.gem}_GEM (Bazaar sell_price). Ratio=${COMBINE_RATIO} (table de craft structuree, PAS la prose "80" de la meme page -- contradiction documentee, arbitrage explicite voir lib source). Marge=${c.margin.toFixed(2)}/craft. Cadence : plafond moteur 20 actions/sec (cycle 100% Bazaar instantane, meme convention Enchanted Books).`,
+    pricing_note: `Marge crafting_margin (1er sept) : combine ${COMBINE_RATIO}x ${c.fromQ}_${c.gem}_GEM (Bazaar buy_price) -> 1x ${c.toQ}_${c.gem}_GEM (Bazaar sell_price). Ratio=${COMBINE_RATIO} (table de craft structuree, PAS la prose "80" de la meme page -- contradiction documentee, arbitrage explicite voir lib source). Marge=${c.margin.toFixed(2)}/craft. Cadence=${c.cyclesPerHour.toFixed(2)} cycles/h -- min(plafond moteur 72000/h, volume Bazaar reel 7j glissants de l'input/16/24h, volume reel de l'output/24h) -- jamais le plafond moteur seul si le marche est plus etroit (correction avant publication, voir doc source).`,
   }))
   const insertedBlocks: { id: number }[] = []
   for (const batch of chunks(blockRows, 200)) {
@@ -140,8 +168,8 @@ export async function computeAndPersistGemstoneQualityFlipRankings(): Promise<{ 
       activity_key: 'mining', tier: s.tier,
       target_block_id: insertedBlocks[s._idx].id,
       setup_id: insertedSetups[i].id, rank: 1,
-      mining_time_seconds: 1 / CRAFT_ACTIONS_PER_SECOND_CAP,
-      actions_per_hour: CYCLES_PER_HOUR, yield_per_hour: CYCLES_PER_HOUR,
+      mining_time_seconds: c.cyclesPerHour > 0 ? 3600 / c.cyclesPerHour : 0,
+      actions_per_hour: c.cyclesPerHour, yield_per_hour: c.cyclesPerHour,
       coins_per_hour_raw_block_only: c.coinsPerHour,
     }
   })
