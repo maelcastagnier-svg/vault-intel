@@ -58,6 +58,7 @@ export async function computeAndPersistPlutonMoneyMakingSections(): Promise<{ ti
     .from('pluton_rankings')
     .select('tier, activity_key, coins_per_hour_raw_block_only, actions_per_hour, target_block_id, setup_id')
     .gt('coins_per_hour_raw_block_only', 0) // methodes economiquement negatives (deja documentees, ex Zombie Slayer) exclues d'une liste "money making"
+    .is('bridge_exclude_reason', null) // artefacts TTK sous 1 tick moteur + cadence Kuudra boss-phase-only (1er sept) -- voir migration add_pluton_rankings_bridge_exclude_reason, colonne documentee, jamais invente
   if (!rankings || rankings.length === 0) throw new Error('pluton_rankings vide')
 
   const blockIds = Array.from(new Set(rankings.map(r => r.target_block_id)))
