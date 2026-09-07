@@ -169,6 +169,22 @@ modélise), 12 `no_ranking_for_tier` (target block trouvé mais pas de
 ranking non-exclu pour ce tier précis). Chaque ligne non matchée reste
 tracée avec sa raison exacte, aucune n'est perdue.
 
+**Diagnostic du résidu `no_target_block` (94), pas fermé ce soir, cause
+structurelle identifiée** : échantillon vérifié en base — Bone/Rotten
+Flesh/Spider Eye/String/Ender Pearl/Feather/Leather/Raw Chicken/Raw
+Rabbit/Raw Mutton/Gunpowder/Slimeball/etc. sont tous des drops de mobs
+déjà modélisés par `lib/pluton-bestiary.ts`, mais leurs `pluton_target_
+blocks` (`activity_key='combat'`, préfixe `BESTIARY_*`) ont
+`sell_item_id='NONE'` **par construction** (décision du 21 août : l'EV
+Bestiary est agrégée sur PLUSIEURS drops garantis par mob, pas un item
+unique — un mob peut dropper 2-3 items différents dans le même calcul).
+Le pont actuel (join `sell_item_id` 1:1) ne peut structurellement pas
+matcher ces jalons sans une refonte du join (résoudre item→mob via les
+tables `zone_mob_stats`/`game_drops` plutôt que via `sell_item_id`) — un
+chantier réel mais plus lourd qu'un alias de nom, volontairement pas
+entrepris ce soir sans validation explicite (hors du scope V1 annoncé
+dans le plan). Documenté comme prochaine étape possible, pas un oubli.
+
 **Pas de câblage frontend Evolve dans ce V1** — décision explicite du plan
 approuvé : la donnée réelle et calculée dans la table suffit pour clore
 "le backend existe et fonctionne", le branchement visuel (`MilestonesTab.
