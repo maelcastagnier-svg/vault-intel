@@ -101,6 +101,93 @@ visiteurs de jardin couvrant des étapes de progression très différentes)
 — aucune règle bulk sûre supplémentaire trouvée ce soir. Documenté
 honnêtement comme limite réelle, pas comme un abandon d'effort.
 
+## ✅ 1er septembre — Phase C V1 : pont Pluton → Evolve (`milestone_optimal_setups`, scope collection)
+
+Dernière partie du plan de clôture (`joyful-shimmying-finch.md`, Partie 3).
+Nouvelle table `milestone_optimal_setups` (jamais `pluton_setups`, dont les
+colonnes pricing `NOT NULL` seraient hors-sujet) + `lib/pluton-milestone-
+bridge.ts` (`computeAndPersistMilestoneOptimalSetups()`) + cron quotidien
+`pluton-milestone-bridge-refresh` (5h59, après tous les autres crons
+Pluton).
+
+**Scope volontairement réduit, décision explicite documentée** :
+UNIQUEMENT `milestone_tasks.requirement->>'type'='collection'` (231
+lignes réelles). `type='skill'` (61 lignes, `{level, skill}`) et tous les
+autres types (`boss_kill`/`dungeon_floor_played`/`bank_tier`/etc.) restent
+explicitement HORS SCOPE — Pluton ne calcule un rendement qu'en coins/h,
+jamais en XP/heure ou en progression de jalon générique, nulle part dans
+le projet. Construire ce modèle pour `type='skill'` aurait nécessité
+d'inventer un ratio stat→XP/h qu'aucune source ne fournit — violation
+directe de la règle #7. Documenté comme limite réelle du V1, pas caché.
+
+**Fonctionnement** : pour chaque jalon collection, résout `item_name` →
+`items_catalog.item_id` → `pluton_target_blocks.sell_item_id` → meilleur
+`pluton_rankings` non-exclu (`bridge_exclude_reason IS NULL`) déjà
+persisté pour CE tier précis, copie ce setup tel quel comme "chemin le
+plus rapide connu vers cette collection" — aucune formule recalculée,
+aucune valeur inventée. `match_status` documente honnêtement chaque étape
+du funnel qui échoue (`item_id_unresolved`/`no_target_block`/`no_ranking_
+for_tier`/`matched`) plutôt que d'omettre silencieusement une ligne.
+
+**🔴 Bug réel trouvé et corrigé avant de considérer ce chantier terminé** :
+le premier déploiement affichait `tool_item_id`/`armor_set_prefix` à NULL
+sur un cas pourtant `matched` (Cobblestone/starter) alors que la ligne
+`pluton_setups` source les porte bien. Cause : PostgREST/Supabase plafonne
+chaque réponse à 1000 lignes par défaut — les fetches `items_catalog`
+(~5600 lignes)/`pluton_rankings` (4637 lignes)/`pluton_setups` étaient
+tronqués silencieusement sans erreur. Corrigé par pagination complète
+(`fetchAllPages()`, boucle `.range()` jusqu'à épuisement) + chunking de
+la clause `.in()` sur `pluton_setups` (lots de 300, URL trop longue sinon
+avec ~4000+ ids). Même classe de piège que les inserts un-par-un déjà
+documentés ailleurs dans ce projet (Dungeons/Enchanted Books), sous sa
+forme lecture cette fois — trouvé en vérifiant manuellement le cas connu
+AVANT de clore, pas après un signalement utilisateur.
+
+**Vérifié en base après correction** : Cobblestone/starter exact
+(`BANDAGED_MITHRIL_PICKAXE`/`Flamebreaker Armor`/13 754,74 coins/h — même
+valeurs que le calcul manuel de référence fait avant d'écrire le
+fichier). Funnel final sur 231 jalons collection réels : **91 matched**
+(setup réel copié), 35 `item_id_unresolved` (nom ne correspond à aucune
+ligne `items_catalog`), 94 `no_target_block` (item résolu mais aucune
+activité Pluton ne le modélise), 11 `no_ranking_for_tier` (target block
+trouvé mais pas de ranking non-exclu pour ce tier précis). Chaque ligne
+non matchée reste tracée avec sa raison exacte, aucune n'est perdue.
+
+**Pas de câblage frontend Evolve dans ce V1** — décision explicite du plan
+approuvé : la donnée réelle et calculée dans la table suffit pour clore
+"le backend existe et fonctionne", le branchement visuel (`MilestonesTab.
+tsx`) peut suivre sans que l'absence actuelle soit un mensonge sur l'état
+du système.
+
+## ✅ 1er septembre — bilan des 3 parties du plan de clôture Pluton V1
+
+**Mandat rempli en full autonomie** (utilisateur absent, retour prévu
+19h30) : les 3 parties du plan `joyful-shimmying-finch.md` sont closes.
+
+- **Partie 1 (Pilier 3 — délivrance dashboard)** : FERMÉE. Pluton alimente
+  désormais réellement `money_making_<tier>`, le flux lu par de vrais
+  utilisateurs payants. Bug indépendant critique trouvé et corrigé au
+  passage (`claude_analysis.section` varchar(20), 2 tiers sur 7 recevaient
+  0 méthode depuis des semaines).
+- **Partie 2 (Phase A — dette d'architecture)** : FERMÉE au sens
+  architectural. `pluton_tier_rules` passe de 0 à 4 règles réelles,
+  rejouables, inspectables — le moteur `runTierClassification()` existait
+  depuis le 26 août sans jamais avoir été utilisé. Le résidu chiffré
+  (36 194 lignes `unclassified`) reste réel et documenté honnêtement,
+  reconfirmé non réductible ce soir sans jugement page-par-page — jamais
+  forcé par une règle inventée.
+- **Partie 3 (Phase C — pont Evolve)** : FERMÉE au scope V1 annoncé
+  (collection uniquement, 231 jalons, 91 matched réels). `type='skill'`
+  et tous les autres types de jalons restent un backlog honnête, pas un
+  oubli — aucune source Pluton ne permet de les calculer sans inventer.
+
+**Constante sur toute la session** : chaque fermeture a suivi le cycle
+standard (route de debug → vérifié en base réelle → route supprimée →
+commit), et au moins un bug réel indépendant a été trouvé à CHAQUE partie
+en vérifiant activement plutôt qu'en supposant que le code neuf marchait
+du premier coup (varchar(20) en Partie 1, garde d'idempotence en Partie 2,
+plafond 1000-lignes PostgREST en Partie 3).
+
 ## 🎯 1er septembre — mandat "0 trou, 0 écart, architecture idéale, complétion totale"
 
 Mandat de l'utilisateur, verbatim : *"finis pluton 0 trou, 0 ecart au plan
