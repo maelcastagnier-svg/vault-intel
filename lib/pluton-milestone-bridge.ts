@@ -47,12 +47,16 @@ export type MilestoneBridgeReport = {
 }
 
 export async function computeAndPersistMilestoneOptimalSetups(): Promise<MilestoneBridgeReport> {
-  const { data: tasks, error: tasksErr } = await supabase
+  // Filtre en JS (pas un filtre PostgREST sur le JSON) -- meme convention
+  // deja etablie par app/api/player/milestones/route.ts (`row.requirement.
+  // type === 'collection'`), evite toute ambiguite de syntaxe d'operateur
+  // JSON cote supabase-js.
+  const { data: allTasks, error: tasksErr } = await supabase
     .from('milestone_tasks')
     .select('id, tier, requirement')
-    .eq('requirement->>type', 'collection')
   if (tasksErr) throw new Error(`milestone_tasks fetch failed: ${tasksErr.message}`)
-  if (!tasks || tasks.length === 0) throw new Error('Aucune ligne milestone_tasks type=collection -- verifier la source')
+  const tasks = (allTasks || []).filter(t => (t.requirement as any)?.type === 'collection')
+  if (tasks.length === 0) throw new Error('Aucune ligne milestone_tasks type=collection -- verifier la source')
 
   const { data: catalog } = await supabase.from('items_catalog').select('item_id, item_name')
   const itemIdByName = new Map<string, string>()
