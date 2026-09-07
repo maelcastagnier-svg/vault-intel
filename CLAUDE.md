@@ -159,31 +159,84 @@ Mushroom" (`BROWN_MUSHROOM`, le vrai drop de la culture, déjà target block
 farming). Simple résolution de synonyme d'affichage, aucune donnée de jeu
 inventée.
 
-Funnel final sur 231 jalons collection réels : **104 matched** (setup réel
-copié, +13 après les alias), 21 `item_id_unresolved` (résidu confirmé
-légitime : 7 noms de BOSS de Donjons — Bonzo/Livid/Necron/Sadan/Scarf/The
-Professor/Thorn — pas des items tradeable, `type='collection'` mal nommé
-pour ces lignes précises, rien à résoudre sans inventer un mapping),
-94 `no_target_block` (item résolu mais aucune activité Pluton ne le
-modélise), 12 `no_ranking_for_tier` (target block trouvé mais pas de
-ranking non-exclu pour ce tier précis). Chaque ligne non matchée reste
-tracée avec sa raison exacte, aucune n'est perdue.
+Funnel V1 initial sur 231 jalons collection réels : 104 matched, 21
+`item_id_unresolved` (résidu confirmé légitime : 7 noms de BOSS de
+Donjons — Bonzo/Livid/Necron/Sadan/Scarf/The Professor/Thorn — pas des
+items tradeable, `type='collection'` mal nommé pour ces lignes précises,
+rien à résoudre sans inventer un mapping), 94 `no_target_block`, 12
+`no_ranking_for_tier`.
 
-**Diagnostic du résidu `no_target_block` (94), pas fermé ce soir, cause
-structurelle identifiée** : échantillon vérifié en base — Bone/Rotten
-Flesh/Spider Eye/String/Ender Pearl/Feather/Leather/Raw Chicken/Raw
-Rabbit/Raw Mutton/Gunpowder/Slimeball/etc. sont tous des drops de mobs
-déjà modélisés par `lib/pluton-bestiary.ts`, mais leurs `pluton_target_
-blocks` (`activity_key='combat'`, préfixe `BESTIARY_*`) ont
-`sell_item_id='NONE'` **par construction** (décision du 21 août : l'EV
-Bestiary est agrégée sur PLUSIEURS drops garantis par mob, pas un item
-unique — un mob peut dropper 2-3 items différents dans le même calcul).
-Le pont actuel (join `sell_item_id` 1:1) ne peut structurellement pas
-matcher ces jalons sans une refonte du join (résoudre item→mob via les
-tables `zone_mob_stats`/`game_drops` plutôt que via `sell_item_id`) — un
-chantier réel mais plus lourd qu'un alias de nom, volontairement pas
-entrepris ce soir sans validation explicite (hors du scope V1 annoncé
-dans le plan). Documenté comme prochaine étape possible, pas un oubli.
+## ✅ 1er septembre (suite, même soirée) — pont milestone étendu : fallback Bestiary + 2 bugs de doublon fermés, 141/231 matched (61%)
+
+Mandat direct de l'utilisateur : *"finis ce qu'il y a a finir, on continue
+sur cette lancer !"* — poursuite immédiate sur le résidu `no_target_block`
+diagnostiqué ci-dessus plutôt que de le laisser en l'état.
+
+**Fallback Bestiary construit** (`lib/pluton-bestiary.ts:
+getBestiaryMobDropItemIds()`, nouvelle fonction exportée qui réutilise
+EXACTEMENT le même parsing de drops que le calculateur Bestiary — aucune
+formule redevinée) : quand le join `sell_item_id` échoue, le pont cherche
+maintenant si l'item est un drop GARANTI d'un mob déjà modélisé par
+`lib/pluton-bestiary.ts`, et copie le ranking/setup de ce mob.
+
+**🔴 Bug réel trouvé et fermé en vérifiant (0/94 matches au premier essai,
+pas supposé correct)** : le 1er essai matchait par `block_id` EXACT
+(reconstruit avec `zone_mob_stats.id`) — 0 résultat. Diagnostic direct en
+base : `zone_mob_stats.id` a changé entre le moment où `pluton-bestiary.ts`
+a persisté ses `pluton_target_blocks` et maintenant (107 lignes, même
+volume, mais ids différents — confirmé par exemple sur "Miner Skeleton",
+id=5906 aujourd'hui vs id=5799 dans le target_block déjà persisté).
+L'id n'a jamais été une identité stable inter-cycle, seul `(zone_page,
+name)` l'est réellement. Corrigé en matchant par **préfixe**
+`BESTIARY_<zone>_<nom>_` (sans le suffixe id) plutôt que par id exact —
+33 jalons supplémentaires résolus (`match_status='matched_via_bestiary_
+drop'`, distinct de `matched` pour la traçabilité), `no_target_block`
+94→55.
+
+**🔴 2e bug réel trouvé, indépendant, en creusant le résidu restant** :
+`items_catalog` porte un vrai doublon de nom d'affichage — `CARROT` et
+`CARROT_ITEM` (idem `POTATO`/`POTATO_ITEM`) ont TOUS LES DEUX
+`item_name`="Carrot"/"Potato" (vérifié par requête directe, pas supposé).
+Le `Map` de lookup par nom ne gardait que le dernier des deux rencontrés
+à l'insertion — résultat non déterministe, et dans les faits le mauvais
+gagnant (`CARROT`/`POTATO`, jamais référencé par aucun `pluton_target_
+blocks.sell_item_id`) l'emportait sur le bon (`CARROT_ITEM`/`POTATO_ITEM`,
+le vrai `sell_item_id` des target_blocks farming/CARROT et
+farming/POTATO). Corrigé par override explicite (`ITEM_ID_OVERRIDES`),
++4 jalons résolus. Starter/amateur restent honnêtement `no_ranking_for_
+tier` pour Carrot/Potato — cohérent avec la règle déjà connue "Garden
+interdit aux 2 premiers tiers", pas un nouveau bug.
+
+**Résultat final vérifié en base** : **141/231 matched (61%)** — 108
+`matched` + 33 `matched_via_bestiary_drop`, 21 `item_id_unresolved`
+(boss de donjon, confirmé non-fermable), 47 `no_target_block`, 22
+`no_ranking_for_tier`. Bone/Rotten Flesh/String vérifiés manuellement :
+gear cohérent (Undead Sword→Revenant Armor→Reaper Armor selon le tier),
+coins/h plausibles.
+
+**Résidu `no_target_block` (47) restant, pas fermé, causes réelles
+identifiées par échantillonnage** : Raw Salmon/Tropical Fish/Pufferfish
+sont des loots Fishing (agrégés par `WATER_POOL`, même limitation
+structurelle que Bestiary — pas de `sell_item_id` par item individuel) ;
+Ink Sac/Slimeball/Sponge/Prismarine Shard/Crystals/Lily Pad/Clay Ball sont
+des drops Sea Creature (`lib/pluton-sea-creatures.ts`, même famille de
+limitation) ; Chili Pepper déjà confirmé hors-scope (produit Inferno
+Minion, aucun modèle Pluton) ; "Gemstone" (`GEMSTONE_COLLECTION`) est une
+collection-ombrelle sans item réel unique, ambiguë entre 12 types de
+gemme — correctement non résolue plutôt que de deviner laquelle. Un
+fallback Fishing/Sea-Creature symétrique au fallback Bestiary est
+possible (même pattern), pas construit ce soir — backlog réel documenté.
+
+**🔎 Trouvaille indépendante non fermée, documentée pour une session
+future** : les 2 lignes `zone_mob_stats` ajoutées le 24-25 août pour
+Sheep (Raw Mutton/White Wool) et Rabbit (Raw Rabbit) ont disparu de la
+table (0 résultat sur une recherche directe "rabbit"/"mutton" dans
+`zone_mob_stats.drops` ce soir) — cohérent avec la découverte ci-dessus
+qu'un resync de `zone_mob_stats` a réattribué les ids sans préserver ces
+2 lignes ajoutées hors pipeline de sync. Pas re-sourcé ce soir (nécessite
+une revérification wiki, pas une simple ré-insertion de mémoire — règle
+#7) — Raw Mutton/Raw Rabbit restent dans le résidu `no_target_block`
+jusqu'à cette revérification.
 
 **Pas de câblage frontend Evolve dans ce V1** — décision explicite du plan
 approuvé : la donnée réelle et calculée dans la table suffit pour clore
@@ -209,7 +262,9 @@ du système.
   reconfirmé non réductible ce soir sans jugement page-par-page — jamais
   forcé par une règle inventée.
 - **Partie 3 (Phase C — pont Evolve)** : FERMÉE au scope V1 annoncé
-  (collection uniquement, 231 jalons, 104 matched réels). `type='skill'`
+  (collection uniquement, 231 jalons, 141 matched réels au final apres
+  extension du meme soir -- fallback Bestiary + 2 bugs de doublon fermes).
+  `type='skill'`
   et tous les autres types de jalons restent un backlog honnête, pas un
   oubli — aucune source Pluton ne permet de les calculer sans inventer.
 
