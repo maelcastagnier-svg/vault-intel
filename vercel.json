@@ -33,6 +33,7 @@
     { "path": "/api/cron/pluton-dungeons-perfect-armor-refresh", "schedule": "28 5 * * *" },
     { "path": "/api/cron/pluton-gemstone-flip-refresh", "schedule": "29 5 * * *" },
     { "path": "/api/cron/pluton-money-making-bridge-refresh", "schedule": "58 5 * * *" },
+    { "path": "/api/cron/pluton-milestone-bridge-refresh", "schedule": "59 5 * * *" },
     { "path": "/api/cron/pluton-classification-sync", "schedule": "10 6 * * 1" }
   ]
 }

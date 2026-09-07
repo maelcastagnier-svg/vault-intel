@@ -58,6 +58,49 @@ du dashboard" — était réellement à 0% de délivrance jusqu'à maintenant
 (confirmé par grep direct sur `app/` : zéro référence à Pluton dans le
 frontend avant ce jour). C'est fermé.
 
+## ✅ 1er septembre — Phase A : moteur `pluton_tier_rules` construit et peuplé (dette d'architecture fermée)
+
+Suite directe du plan de clôture (`joyful-shimmying-finch.md`, Partie 2).
+`runTierClassification()` existait depuis le 26 août mais n'avait jamais
+été appelé en prod faute de règles dans `pluton_tier_rules` (0 ligne) — les
+décisions de classification de la nuit du 31 août (non_client/cross_tier_
+reference/not_applicable_non_progression) avaient été appliquées par UPDATE
+SQL direct, pas via ce moteur, donc non rejouables/non inspectables (même
+défaut que celui déjà corrigé pour `pluton_classification_rules`/`activity`
+le 24 août).
+
+**Fermé** : nouvelle colonne `pluton_tier_rules.target_status` (une règle à
+`tier=NULL` + `target_status` rempli assigne UNIQUEMENT un statut, jamais un
+tier numérique — pour les 3 catégories qui doivent rester `tier=NULL` à
+jamais) ; contrainte `tier` rendue nullable ; nouveau `rule_type=
+'activity_bulk'` ajouté au CHECK constraint. `runTierClassification()`
+réécrit pour gérer ces règles status-only avec le bon garde d'idempotence
+(`tier_classification_status='unclassified'`, pas `tier IS NULL`). 4 règles
+réelles insérées, encodant les décisions déjà prises cette nuit (admin_
+excluded→non_client, mechanic_formula→cross_tier_reference, general_
+mechanic→cross_tier_reference, activity=__none__→not_applicable_non_
+progression).
+
+**Vérifié en prod** (route de debug temporaire, un seul appel) :
+`{rules_applied:4, rows_tiered:0, rows_status_only:0, still_unclassified_
+before:36194, still_unclassified_after:36194}` — résultat CORRECT et
+attendu : les 4 règles ciblent des catégories déjà entièrement reclassées
+hors `unclassified` par l'UPDATE SQL direct de la nuit précédente, donc le
+moteur ne retrouve (à raison) aucune ligne à toucher. Ça valide que le
+garde d'idempotence fonctionne exactement comme prévu (ne re-touche jamais
+une ligne déjà jugée), pas que le moteur ne sert à rien — la valeur
+ajoutée est que ces 4 décisions sont désormais rejouables/inspectables via
+une table de règles au lieu d'un script SQL jeté, exactement le trou
+d'architecture identifié par l'audit du jour.
+
+**Résidu 36 194 lignes `unclassified` reconfirmé non réductible ce soir
+sans jugement page-par-page** : échantillonnage direct de `progression_
+milestone` (le plus gros contributeur restant) confirme un contenu
+réellement hétérogène (chapitres de quête, paliers HOTF, requêtes de
+visiteurs de jardin couvrant des étapes de progression très différentes)
+— aucune règle bulk sûre supplémentaire trouvée ce soir. Documenté
+honnêtement comme limite réelle, pas comme un abandon d'effort.
+
 ## 🎯 1er septembre — mandat "0 trou, 0 écart, architecture idéale, complétion totale"
 
 Mandat de l'utilisateur, verbatim : *"finis pluton 0 trou, 0 ecart au plan
