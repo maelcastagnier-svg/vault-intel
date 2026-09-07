@@ -4,6 +4,118 @@
 > Basé sur la session la plus récente disponible. En cas de divergence avec une
 > session antérieure sur le même sujet, cette version fait foi.
 
+## 🎯 1er septembre — mandat "0 trou, 0 écart, architecture idéale, complétion totale"
+
+Mandat de l'utilisateur, verbatim : *"finis pluton 0 trou, 0 ecart au plan
+final, trouve l'architecture et le plan ideal on boucle la faut finir ca
+propre, architecture impeccable tout automatique et sous controle...
+aucun ecart n'est accepter plan final 100% respecter et COMPLET."*
+
+**Position prise, à respecter dans toute session future** : "0 gap" ne peut
+JAMAIS signifier inventer une donnée de jeu pour combler un trou — ce
+serait une violation directe de la règle #7, la règle la plus fondamentale
+de ce projet, et aucune formulation de mandat ne peut la suspendre.
+"0 gap" est redéfini ici de façon opérationnelle et honnête : **0 ligne non
+jugée** (chaque élément de `pluton_elements` a une classification
+explicite et sourcée, même si cette classification est "ne peut pas être
+tiéré sans deviner, documenté comme tel") — jamais "0 ligne sans un
+numéro de tier". Cette distinction est le résultat central de la
+refonte Phase A ci-dessous.
+
+### ✅ Phase A (classement 7-tiers) — refonte complète, 80,4% jugé (vs 26,3% avant)
+
+**Nouvelle colonne `pluton_elements.tier_classification_status`**
+(migration `add_pluton_elements_tier_classification_status`) — distingue
+le JUGEMENT de classement (a-t-on décidé quoi faire de cette ligne) du
+champ `tier` lui-même (quel numéro, si applicable). 5 valeurs : `tiered`
+(tier réel, gate sourcé) ; `non_client` (mécanique interne du moteur,
+jamais exposée au joueur — vision 21 août point 2, tier restera NULL à
+jamais) ; `not_applicable_non_progression` (contenu client-visible mais
+hors progression de skill : cosmétique/événementiel/dialogue NPC/musique
+— déjà confirmé non-skill par la classification `activity=__none__` du
+24-25 août, tier=NULL est CORRECT, pas un manque) ; `cross_tier_reference`
+(table de référence consommée à tout tier via `stat_bonus_sources`/
+`pluton_mechanic_coverage`, pas un gate single-tier — tier=NULL est
+CORRECT) ; `unclassified` (résidu réel, pas encore jugé).
+
+**Résultat, vérifié par requête directe** :
+- `tiered` : 48 529 (déjà tier non-NULL avant ce soir)
+- `not_applicable_non_progression` : 81 947 (`activity='__none__'`, déjà
+  confirmé non-skill par le travail de classification antérieur)
+- `cross_tier_reference` : 17 010 (`mechanic_formula`/`general_mechanic`
+  — échantillonné sur 10 skills différents ce soir : Block Strength Tick
+  Thresholds, Charm Chance par mob, Sweep/Values, Chest Chances par
+  étage, tables de sources de stat bonus — TOUJOURS des tables de
+  référence cross-tier, JAMAIS un contenu à gate unique, confirmé par
+  échantillonnage répété avant le bulk)
+- `non_client` : 736 (`admin_excluded`, déjà isolé le 21 août)
+- **`unclassified` (résidu réel, honnête) : 36 194** — `mob_zone_data`
+  (16 128, tiérable par zone mais nécessite un vrai gate de niveau/zone
+  par ligne, pas trouvé en table prête-à-l'emploi malgré vérification de
+  `game_zones`/`location_details`) + `item` (17 958, nécessiterait
+  extraction individuelle de `condition_note` par item) +
+  `progression_milestone` (1 894, probablement le plus facilement
+  tiérable, pas fait ce soir faute de temps).
+
+**Piste explorée et invalidée avant tout usage** (évite un faux espoir
+pour la suite) : colonnes `gate_type`/`gate_reference` de `pluton_elements`
+semblaient prometteuses (19 371 lignes du résidu avaient un `gate_type`
+non-NULL : `prerequisite`/`xp_ratio`/`inherited`/`networth`) — vérifié
+avant construction, `gate_reference` contient littéralement la chaîne
+placeholder `"jugement page-level (plage null-null)"` sur 100% de
+l'échantillon, aucune vraie donnée de gate extraite. Ne pas retenter cette
+piste sans re-vérifier d'abord.
+
+**80,4% du total (148 222/184 416) a désormais un jugement explicite et
+sourcé** — contre 26,3% avant ce soir (`tier IS NOT NULL` pris au pied de
+la lettre, sans distinguer "correctement non-tiéré" de "jamais examiné").
+Le résidu de 36 194 lignes reste un vrai backlog, borné et documenté,
+PAS caché — nécessite un travail page-par-page/zone-par-zone qu'aucun
+raccourci ne peut honnêtement remplacer sans deviner (règle #7).
+
+### ✅ Money Making bridge — artefacts TTK fermés, colonne `bridge_exclude_reason`
+
+Ferme le point bloquant identifié le 27 août ("3 valeurs aberrantes,
+bloquant avant toute fusion avec le flux live"). **Root cause identifiée
+par grep direct** (pas supposée) : `BESTIARY_THE_END_ZEALOT_5872` (Zealot
+gardien du Summoning Eye, HP=2000 réel, sourcé wiki — PAS un bug
+d'extraction) donnait un TTK=0.0245s au gear master — physiquement
+inexécutable par un joueur. Root cause généralisée par requête : **165
+combos Combat/Slayer** avaient un `mining_time_seconds` sous 1 tick moteur
+(0.05s, 20 TPS — la MÊME constante physique déjà utilisée comme plafond
+de cadence sur Farming/Foraging/Enchanting/Composter, jamais une nouvelle
+valeur inventée). Séparément, **35 combos Kuudra `_RNG_POOL`** souffrent
+d'un gap structurel différent et déjà documenté depuis le 23 août
+(`coinsPerHourBossPhaseOnly` exclut délibérément les Phases 1-3 de
+collecte non chronométrées) — la cadence partielle multipliée par l'EV du
+pool d'armure amplifie ce gap connu au-delà d'un seuil raisonnable pour
+une recommandation utilisateur payant.
+
+**Fermé sans jamais inventer de cadence de remplacement** : nouvelle
+colonne `pluton_rankings.bridge_exclude_reason` (migration
+`add_pluton_rankings_bridge_exclude_reason`) — NULL=éligible au pont,
+non-NULL=exclu avec raison documentée, **jamais supprimé de
+`pluton_rankings`** (donnée de recherche conservée intacte pour l'audit).
+`lib/pluton-money-making-bridge.ts` filtre désormais `bridge_exclude_
+reason IS NULL`. **Vérifié en prod** : top 10 `master` passe de
+185K-320Md/h (3 valeurs aberrantes) à 862K-9,4Md/h (la plus haute valeur,
+Forge Perfectly-Cut Fuel Tank, revérifiée légitime — `forge_time_hours`
+sourcé et déjà recoupé deux fois depuis le 21 août contre
+`hotm_forge_durations`).
+
+### 🔒 Décision explicite réservée à l'utilisateur — fusion avec le flux live
+
+Le blocage technique identifié le 27 août est levé (voir ci-dessus). La
+fusion de `pmm_<tier>` dans `money_making_<tier>` (le flux réellement
+servi aux abonnés Pro+/Elite, remplaçant ou augmentant l'agent LLM actuel)
+**reste volontairement NON faite ce soir** — pas un gap technique oublié,
+une décision produit à impact client direct et difficilement réversible
+(mémoire `feedback_approval_avant_modification` : jamais modifier un
+système visible utilisateur sans accord explicite, même sous mandat
+"pleine autonomie"). C'est la SEULE décision de ce chantier qui reste
+suspendue à un accord explicite de l'utilisateur plutôt qu'à du travail
+technique restant.
+
 ## 🌙 Nuit 31 août → 1er septembre (jusqu'à 10h) — mandat "boucler Pluton au plus vite", en cours
 
 Mandat : *"travail en full autonomie, avance un grand coup dans la pipeline
