@@ -82,6 +82,22 @@ const ITEM_NAME_ALIASES: Record<string, string> = {
   'mushroom': 'brown mushroom',
 }
 
+// Override direct par item_id (1er sept, distinct des alias de nom
+// ci-dessus) -- `items_catalog` porte un VRAI doublon de nom d'affichage :
+// `CARROT` et `CARROT_ITEM` (idem `POTATO`/`POTATO_ITEM`) ont TOUS LES
+// DEUX item_name="Carrot"/"Potato" (verifie par requete directe, pas
+// suppose). Le Map `itemIdByName` ne garde que le dernier des deux
+// rencontres a l'insertion -- resultat non deterministe, et dans les
+// faits le mauvais gagnant (`CARROT`/`POTATO`, jamais reference par aucun
+// pluton_target_blocks.sell_item_id) l'emportait sur le bon
+// (`CARROT_ITEM`/`POTATO_ITEM`, le vrai sell_item_id du target_block
+// farming/CARROT et farming/POTATO). Force explicitement vers le bon
+// item_id, verifie contre pluton_target_blocks avant d'etre code.
+const ITEM_ID_OVERRIDES: Record<string, string> = {
+  'carrot': 'CARROT_ITEM',
+  'potato': 'POTATO_ITEM',
+}
+
 // PostgREST/Supabase plafonne chaque reponse a 1000 lignes par defaut --
 // piege deja documente ailleurs dans ce projet sous d'autres formes
 // (inserts un-par-un qui timeout, etc.), ici sous sa forme lecture : un
@@ -211,7 +227,7 @@ export async function computeAndPersistMilestoneOptimalSetups(): Promise<Milesto
     const itemName = req.item_name || ''
     const tier = String(task.tier).toLowerCase()
     const normalizedName = itemName.toLowerCase()
-    const itemId = itemIdByName.get(normalizedName) ?? itemIdByName.get(ITEM_NAME_ALIASES[normalizedName] ?? '')
+    const itemId = ITEM_ID_OVERRIDES[normalizedName] ?? itemIdByName.get(normalizedName) ?? itemIdByName.get(ITEM_NAME_ALIASES[normalizedName] ?? '')
 
     if (!itemId) {
       rows.push({ milestone_task_id: task.id, tier, item_name: itemName, item_id: null, activity_key: null, target_block_id: null, setup_id: null, actions_per_hour: null, yield_per_hour: null, coins_per_hour_raw_block_only: null, tool_item_id: null, armor_set_prefix: null, match_status: 'item_id_unresolved' })
