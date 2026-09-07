@@ -103,6 +103,31 @@ Forge Perfectly-Cut Fuel Tank, revérifiée légitime — `forge_time_hours`
 sourcé et déjà recoupé deux fois depuis le 21 août contre
 `hotm_forge_durations`).
 
+### ✅ Gemstone quality flip fermé — leçon d'architecture sur le plafond moteur
+
+Ferme `gemstone_quality_flip` (48 items, ambiguïté 16 vs 80 documentée
+depuis le 27 août). Arbitrage tranché : les 36 tables de craft structurées
+de la page (12 gemmes × 3 paliers, même format mécanique que tous les
+autres crafts du projet) disent toutes 16 ; seule la prose de synthèse de
+la même page dit 80 — un résidu de rédaction jamais mis à jour depuis que
+Perfect Gemstone est passé au Forge en 2021 (confirmé par la section
+History de la page elle-même). Retenu : 16.
+
+**Incident réel pendant la construction, corrigé avant tout déploiement
+durable** : la 1ère version réutilisait le plafond moteur 20 actions/sec
+(convention Enchanted Books) — correct pour Rough→Flawed, mais produit
+85-275 milliards coins/h sur Fine→Flawless (marge de combine 1:16 très
+élevée × plafond théorique). Un plafond basé sur `price_history.volume`
+(volume Bazaar réel) a été essayé puis **abandonné** : le volume total du
+marché (tous joueurs confondus) n'est pas un proxy valide de cadence
+solo — sur Jasper (gemme très liquide), il dépassait largement 72 000/h
+et ne réduisait rien. **Résolu proprement** : retour au plafond moteur
+seul (donnée conservée dans `pluton_rankings`, honnête), et les 23 combos
+à marge non crédible (Flawed→Fine et Fine→Flawless, >1Md/h) marqués
+`bridge_exclude_reason` — exclus des recommandations, jamais supprimés.
+Seuls Rough→Flawed (12) et Flawed→Fine Opal (968M/h, sous le seuil)
+restent recommandables. Cron `pluton-gemstone-flip-refresh` (5h29).
+
 ### 🔒 Décision explicite réservée à l'utilisateur — fusion avec le flux live
 
 Le blocage technique identifié le 27 août est levé (voir ci-dessus). La
