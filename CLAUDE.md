@@ -146,12 +146,28 @@ AVANT de clore, pas après un signalement utilisateur.
 **Vérifié en base après correction** : Cobblestone/starter exact
 (`BANDAGED_MITHRIL_PICKAXE`/`Flamebreaker Armor`/13 754,74 coins/h — même
 valeurs que le calcul manuel de référence fait avant d'écrire le
-fichier). Funnel final sur 231 jalons collection réels : **91 matched**
-(setup réel copié), 35 `item_id_unresolved` (nom ne correspond à aucune
-ligne `items_catalog`), 94 `no_target_block` (item résolu mais aucune
-activité Pluton ne le modélise), 11 `no_ranking_for_tier` (target block
-trouvé mais pas de ranking non-exclu pour ce tier précis). Chaque ligne
-non matchée reste tracée avec sa raison exacte, aucune n'est perdue.
+fichier).
+
+**6 alias de nom réels ajoutés après un 2e passage sur le résidu**
+(`ITEM_NAME_ALIASES`, chacun vérifié individuellement contre
+`items_catalog`/`pluton_target_blocks` avant d'être codé, pas deviné) :
+`milestone_tasks` nomme les collections Foraging "Acacia/Birch/Dark Oak/
+Jungle/Oak Wood" alors que `items_catalog` utilise "...Log" pour le même
+item réel (`LOG_2`/`LOG:2`/`LOG_2:1`/`LOG:3`/`LOG`, tous déjà des target
+blocks foraging) ; "Mushroom" (nom de la collection Farming) → "Brown
+Mushroom" (`BROWN_MUSHROOM`, le vrai drop de la culture, déjà target block
+farming). Simple résolution de synonyme d'affichage, aucune donnée de jeu
+inventée.
+
+Funnel final sur 231 jalons collection réels : **104 matched** (setup réel
+copié, +13 après les alias), 21 `item_id_unresolved` (résidu confirmé
+légitime : 7 noms de BOSS de Donjons — Bonzo/Livid/Necron/Sadan/Scarf/The
+Professor/Thorn — pas des items tradeable, `type='collection'` mal nommé
+pour ces lignes précises, rien à résoudre sans inventer un mapping),
+94 `no_target_block` (item résolu mais aucune activité Pluton ne le
+modélise), 12 `no_ranking_for_tier` (target block trouvé mais pas de
+ranking non-exclu pour ce tier précis). Chaque ligne non matchée reste
+tracée avec sa raison exacte, aucune n'est perdue.
 
 **Pas de câblage frontend Evolve dans ce V1** — décision explicite du plan
 approuvé : la donnée réelle et calculée dans la table suffit pour clore
@@ -177,7 +193,7 @@ du système.
   reconfirmé non réductible ce soir sans jugement page-par-page — jamais
   forcé par une règle inventée.
 - **Partie 3 (Phase C — pont Evolve)** : FERMÉE au scope V1 annoncé
-  (collection uniquement, 231 jalons, 91 matched réels). `type='skill'`
+  (collection uniquement, 231 jalons, 104 matched réels). `type='skill'`
   et tous les autres types de jalons restent un backlog honnête, pas un
   oubli — aucune source Pluton ne permet de les calculer sans inventer.
 
