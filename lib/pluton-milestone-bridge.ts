@@ -38,6 +38,32 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// PostgREST/Supabase plafonne chaque reponse a 1000 lignes par defaut --
+// piege deja documente ailleurs dans ce projet sous d'autres formes
+// (inserts un-par-un qui timeout, etc.), ici sous sa forme lecture : un
+// simple .select() sur items_catalog/pluton_rankings/pluton_setups (qui
+// depassent tous 1000 lignes) tronquerait silencieusement le resultat --
+// trouve en verifiant manuellement Cobblestone/starter (tool_item_id/
+// armor_set_prefix ressortaient NULL alors que la ligne pluton_setups
+// source les a bien) AVANT tout deploiement du cron. Pagine explicitement
+// par lots de 1000 jusqu'a epuisement.
+async function fetchAllPages<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>
+): Promise<T[]> {
+  const pageSize = 1000
+  const out: T[] = []
+  let from = 0
+  while (true) {
+    const { data, error } = await build(from, from + pageSize - 1)
+    if (error) throw new Error(`Pagination fetch failed: ${error.message}`)
+    if (!data || data.length === 0) break
+    out.push(...data)
+    if (data.length < pageSize) break
+    from += pageSize
+  }
+  return out
+}
+
 export type MilestoneBridgeReport = {
   total_collection_tasks: number
   matched: number
@@ -58,38 +84,57 @@ export async function computeAndPersistMilestoneOptimalSetups(): Promise<Milesto
   const tasks = (allTasks || []).filter(t => (t.requirement as any)?.type === 'collection')
   if (tasks.length === 0) throw new Error('Aucune ligne milestone_tasks type=collection -- verifier la source')
 
-  const { data: catalog } = await supabase.from('items_catalog').select('item_id, item_name')
+  const catalog = await fetchAllPages<{ item_id: string; item_name: string | null }>((from, to) =>
+    supabase.from('items_catalog').select('item_id, item_name').range(from, to)
+  )
   const itemIdByName = new Map<string, string>()
-  for (const row of (catalog || [])) {
+  for (const row of catalog) {
     if (row.item_name) itemIdByName.set(row.item_name.toLowerCase(), row.item_id)
   }
 
-  const { data: blocks } = await supabase.from('pluton_target_blocks').select('id, activity_key, sell_item_id')
+  const blocks = await fetchAllPages<{ id: number; activity_key: string; sell_item_id: string | null }>((from, to) =>
+    supabase.from('pluton_target_blocks').select('id, activity_key, sell_item_id').range(from, to)
+  )
   const blocksBySellItemId = new Map<string, { id: number; activity_key: string }[]>()
-  for (const b of (blocks || [])) {
+  for (const b of blocks) {
     if (!b.sell_item_id) continue
     const list = blocksBySellItemId.get(b.sell_item_id) || []
     list.push({ id: b.id, activity_key: b.activity_key })
     blocksBySellItemId.set(b.sell_item_id, list)
   }
 
-  const targetBlockIds = (blocks || []).map(b => b.id)
-  const { data: rankings } = await supabase
-    .from('pluton_rankings')
-    .select('target_block_id, tier, setup_id, actions_per_hour, yield_per_hour, coins_per_hour_raw_block_only, rank')
-    .in('target_block_id', targetBlockIds)
-    .is('bridge_exclude_reason', null)
-  type RankingRow = NonNullable<typeof rankings>[number]
+  const targetBlockIds = blocks.map(b => b.id)
+  type RankingRow = { target_block_id: number; tier: string; setup_id: number; actions_per_hour: number; yield_per_hour: number; coins_per_hour_raw_block_only: number; rank: number }
+  const rankings = await fetchAllPages<RankingRow>((from, to) =>
+    supabase.from('pluton_rankings')
+      .select('target_block_id, tier, setup_id, actions_per_hour, yield_per_hour, coins_per_hour_raw_block_only, rank')
+      .in('target_block_id', targetBlockIds)
+      .is('bridge_exclude_reason', null)
+      .range(from, to)
+  )
   const bestRankingByBlockTier = new Map<string, RankingRow>()
-  for (const r of (rankings || [])) {
+  for (const r of rankings) {
     const key = `${r.target_block_id}__${r.tier}`
     const existing = bestRankingByBlockTier.get(key)
     if (!existing || r.rank < existing.rank) bestRankingByBlockTier.set(key, r)
   }
 
-  const setupIds = (rankings || []).map(r => r.setup_id)
-  const { data: setups } = await supabase.from('pluton_setups').select('id, tool_item_id, armor_set_prefix').in('id', setupIds)
-  const setupById = new Map((setups || []).map(s => [s.id, s]))
+  // setupIds peut depasser 4000 entrees -- un seul .in() avec une liste
+  // aussi longue produirait une URL demesuree (risque de troncature cote
+  // serveur HTTP, distinct du plafond 1000-lignes ci-dessus). Chunk par
+  // lots de 300, meme discipline que les inserts par lots de 200 deja
+  // etablie ailleurs dans ce projet (Enchanted Books, gemstone flip...).
+  const setupIds = Array.from(new Set(rankings.map(r => r.setup_id)))
+  type SetupRow = { id: number; tool_item_id: string | null; armor_set_prefix: string | null }
+  const setups: SetupRow[] = []
+  for (let i = 0; i < setupIds.length; i += 300) {
+    const idBatch = setupIds.slice(i, i + 300)
+    const batchRows = await fetchAllPages<SetupRow>((from, to) =>
+      supabase.from('pluton_setups').select('id, tool_item_id, armor_set_prefix').in('id', idBatch).range(from, to)
+    )
+    setups.push(...batchRows)
+  }
+  const setupById = new Map(setups.map(s => [s.id, s]))
 
   const rows: any[] = []
   const report: MilestoneBridgeReport = { total_collection_tasks: tasks.length, matched: 0, item_id_unresolved: 0, no_target_block: 0, no_ranking_for_tier: 0 }
@@ -116,7 +161,7 @@ export async function computeAndPersistMilestoneOptimalSetups(): Promise<Milesto
     // Plusieurs target_blocks peuvent partager le meme sell_item_id (ex:
     // methodes multiples). Retient le meilleur coins_per_hour reel parmi
     // tous les candidats pour ce tier precis -- jamais le premier trouve.
-    let best: { block: { id: number; activity_key: string }; ranking: NonNullable<typeof rankings>[number]; setup: { tool_item_id: string; armor_set_prefix: string } | undefined } | null = null
+    let best: { block: { id: number; activity_key: string }; ranking: RankingRow; setup: SetupRow | undefined } | null = null
     for (const block of candidateBlocks) {
       const ranking = bestRankingByBlockTier.get(`${block.id}__${tier}`)
       if (!ranking) continue
