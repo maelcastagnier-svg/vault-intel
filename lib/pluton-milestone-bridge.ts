@@ -32,11 +32,27 @@
 // funnel qui echoue est enregistree dans `match_status`, jamais une ligne
 // disparue sans trace.
 import { createClient } from '@supabase/supabase-js'
+import { getBestiaryMobDropItemIds } from './pluton-bestiary'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+// Fallback Bestiary (1er sept, suite du diagnostic "no_target_block") --
+// les target_blocks BESTIARY_* ont sell_item_id='NONE' PAR CONSTRUCTION
+// (lib/pluton-bestiary.ts : l'EV agrege plusieurs drops garantis par mob,
+// pas un item unique -- voir doc de ce fichier). Le join sell_item_id 1:1
+// ne peut donc jamais les trouver. Resolution alternative : reutilise
+// EXACTEMENT le meme parsing de drops que pluton-bestiary.ts
+// (getBestiaryMobDropItemIds(), source de verite unique, rien redevine) --
+// si l'item cherche est un drop GARANTI d'un mob deja modelise, retrouve
+// le target_block de ce mob par son block_id (meme formule de sanitization
+// que pluton-bestiary.ts:225) et copie son ranking/setup deja calcule,
+// exactement comme le chemin sell_item_id normal.
+function bestiaryBlockId(zone_page: string, name: string, id: number): string {
+  return `BESTIARY_${zone_page}_${name}_${id}`.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+}
 
 // Alias de nom d'affichage verifies un par un contre items_catalog (jamais
 // devine) : milestone_tasks nomme la collection ("Wood") differemment de
@@ -84,6 +100,7 @@ async function fetchAllPages<T>(
 export type MilestoneBridgeReport = {
   total_collection_tasks: number
   matched: number
+  matched_via_bestiary_drop: number
   item_id_unresolved: number
   no_target_block: number
   no_ranking_for_tier: number
@@ -109,15 +126,27 @@ export async function computeAndPersistMilestoneOptimalSetups(): Promise<Milesto
     if (row.item_name) itemIdByName.set(row.item_name.toLowerCase(), row.item_id)
   }
 
-  const blocks = await fetchAllPages<{ id: number; activity_key: string; sell_item_id: string | null }>((from, to) =>
-    supabase.from('pluton_target_blocks').select('id, activity_key, sell_item_id').range(from, to)
+  const blocks = await fetchAllPages<{ id: number; activity_key: string; block_id: string; sell_item_id: string | null }>((from, to) =>
+    supabase.from('pluton_target_blocks').select('id, activity_key, block_id, sell_item_id').range(from, to)
   )
   const blocksBySellItemId = new Map<string, { id: number; activity_key: string }[]>()
+  const blockByBlockId = new Map<string, { id: number; activity_key: string }>()
   for (const b of blocks) {
+    blockByBlockId.set(b.block_id, { id: b.id, activity_key: b.activity_key })
     if (!b.sell_item_id) continue
     const list = blocksBySellItemId.get(b.sell_item_id) || []
     list.push({ id: b.id, activity_key: b.activity_key })
     blocksBySellItemId.set(b.sell_item_id, list)
+  }
+
+  const mobDropRows = await getBestiaryMobDropItemIds()
+  const mobCandidatesByItemId = new Map<string, { id: number; zone_page: string; name: string }[]>()
+  for (const m of mobDropRows) {
+    for (const itemId of m.itemIds) {
+      const list = mobCandidatesByItemId.get(itemId) || []
+      list.push({ id: m.id, zone_page: m.zone_page, name: m.name })
+      mobCandidatesByItemId.set(itemId, list)
+    }
   }
 
   const targetBlockIds = blocks.map(b => b.id)
@@ -154,7 +183,7 @@ export async function computeAndPersistMilestoneOptimalSetups(): Promise<Milesto
   const setupById = new Map(setups.map(s => [s.id, s]))
 
   const rows: any[] = []
-  const report: MilestoneBridgeReport = { total_collection_tasks: tasks.length, matched: 0, item_id_unresolved: 0, no_target_block: 0, no_ranking_for_tier: 0 }
+  const report: MilestoneBridgeReport = { total_collection_tasks: tasks.length, matched: 0, matched_via_bestiary_drop: 0, item_id_unresolved: 0, no_target_block: 0, no_ranking_for_tier: 0 }
 
   for (const task of tasks) {
     const req = task.requirement as { item_name?: string }
@@ -169,7 +198,18 @@ export async function computeAndPersistMilestoneOptimalSetups(): Promise<Milesto
       continue
     }
 
-    const candidateBlocks = blocksBySellItemId.get(itemId) || []
+    let candidateBlocks = blocksBySellItemId.get(itemId) || []
+    let viaBestiary = false
+    if (candidateBlocks.length === 0) {
+      // Fallback Bestiary -- voir doc de bestiaryBlockId() en tete de
+      // fichier. N'active ce chemin QUE si le sell_item_id normal n'a rien
+      // trouve, jamais en concurrence avec un vrai target_block direct.
+      const mobCandidates = mobCandidatesByItemId.get(itemId) || []
+      const bestiaryBlocks = mobCandidates
+        .map(m => blockByBlockId.get(bestiaryBlockId(m.zone_page, m.name, m.id)))
+        .filter((b): b is { id: number; activity_key: string } => !!b)
+      if (bestiaryBlocks.length > 0) { candidateBlocks = bestiaryBlocks; viaBestiary = true }
+    }
     if (candidateBlocks.length === 0) {
       rows.push({ milestone_task_id: task.id, tier, item_name: itemName, item_id: itemId, activity_key: null, target_block_id: null, setup_id: null, actions_per_hour: null, yield_per_hour: null, coins_per_hour_raw_block_only: null, tool_item_id: null, armor_set_prefix: null, match_status: 'no_target_block' })
       report.no_target_block++
@@ -177,8 +217,9 @@ export async function computeAndPersistMilestoneOptimalSetups(): Promise<Milesto
     }
 
     // Plusieurs target_blocks peuvent partager le meme sell_item_id (ex:
-    // methodes multiples). Retient le meilleur coins_per_hour reel parmi
-    // tous les candidats pour ce tier precis -- jamais le premier trouve.
+    // methodes multiples), ou plusieurs mobs Bestiary peuvent tous dropper
+    // le meme item. Retient le meilleur coins_per_hour reel parmi tous les
+    // candidats pour ce tier precis -- jamais le premier trouve.
     let best: { block: { id: number; activity_key: string }; ranking: RankingRow; setup: SetupRow | undefined } | null = null
     for (const block of candidateBlocks) {
       const ranking = bestRankingByBlockTier.get(`${block.id}__${tier}`)
@@ -200,9 +241,10 @@ export async function computeAndPersistMilestoneOptimalSetups(): Promise<Milesto
       actions_per_hour: best.ranking.actions_per_hour, yield_per_hour: best.ranking.yield_per_hour,
       coins_per_hour_raw_block_only: best.ranking.coins_per_hour_raw_block_only,
       tool_item_id: best.setup?.tool_item_id ?? null, armor_set_prefix: best.setup?.armor_set_prefix ?? null,
-      match_status: 'matched',
+      match_status: viaBestiary ? 'matched_via_bestiary_drop' : 'matched',
     })
-    report.matched++
+    if (viaBestiary) report.matched_via_bestiary_drop++
+    else report.matched++
   }
 
   await supabase.from('milestone_optimal_setups').delete().neq('id', 0)

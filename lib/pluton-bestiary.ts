@@ -147,6 +147,22 @@ async function buildItemNameMap(): Promise<Map<string, string>> {
   return map
 }
 
+// Expose le mapping item_id -> mobs qui le droppent GARANTI (1er sept,
+// pont milestone -- lib/pluton-milestone-bridge.ts). Reutilise EXACTEMENT
+// le meme parsing que computeBestiaryCandidates() (source de verite
+// unique, jamais duplique/redevine) -- necessaire car BestiaryMobResult
+// n'expose pas la liste de drops individuelle, seulement l'EV agregee.
+export async function getBestiaryMobDropItemIds(): Promise<{ id: number; zone_page: string; name: string; itemIds: string[] }[]> {
+  const { data: mobs } = await supabase.from('zone_mob_stats').select('id, zone_page, name, drops')
+  if (!mobs) return []
+  const nameMap = await buildItemNameMap()
+  return (mobs as { id: number; zone_page: string; name: string; drops: string | null }[]).map(m => {
+    const drops = parseGuaranteedDrops(m.drops)
+    const itemIds = drops.map(d => nameMap.get(d.itemName.toLowerCase())).filter((x): x is string => !!x)
+    return { id: m.id, zone_page: m.zone_page, name: m.name, itemIds }
+  })
+}
+
 export type BestiaryMobResult = {
   id: number
   zone_page: string
