@@ -38,6 +38,23 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Alias de nom d'affichage verifies un par un contre items_catalog (jamais
+// devine) : milestone_tasks nomme la collection ("Wood") differemment de
+// items_catalog ("Log"), meme item reel des deux cotes -- confirme par
+// requete directe le 1er sept (ex: "Acacia Wood" -> items_catalog.item_id=
+// LOG_2 "Acacia Log", target block foraging ACACIA_LOG existant). "Mushroom"
+// (nom de la collection Farming) -> items_catalog "Brown Mushroom"
+// (BROWN_MUSHROOM), le drop reel de la culture, deja target block
+// farming/MUSHROOM. Resolution de synonyme, pas une donnee de jeu inventee.
+const ITEM_NAME_ALIASES: Record<string, string> = {
+  'acacia wood': 'acacia log',
+  'birch wood': 'birch log',
+  'dark oak wood': 'dark oak log',
+  'jungle wood': 'jungle log',
+  'oak wood': 'oak log',
+  'mushroom': 'brown mushroom',
+}
+
 // PostgREST/Supabase plafonne chaque reponse a 1000 lignes par defaut --
 // piege deja documente ailleurs dans ce projet sous d'autres formes
 // (inserts un-par-un qui timeout, etc.), ici sous sa forme lecture : un
@@ -143,7 +160,8 @@ export async function computeAndPersistMilestoneOptimalSetups(): Promise<Milesto
     const req = task.requirement as { item_name?: string }
     const itemName = req.item_name || ''
     const tier = String(task.tier).toLowerCase()
-    const itemId = itemIdByName.get(itemName.toLowerCase())
+    const normalizedName = itemName.toLowerCase()
+    const itemId = itemIdByName.get(normalizedName) ?? itemIdByName.get(ITEM_NAME_ALIASES[normalizedName] ?? '')
 
     if (!itemId) {
       rows.push({ milestone_task_id: task.id, tier, item_name: itemName, item_id: null, activity_key: null, target_block_id: null, setup_id: null, actions_per_hour: null, yield_per_hour: null, coins_per_hour_raw_block_only: null, tool_item_id: null, armor_set_prefix: null, match_status: 'item_id_unresolved' })
