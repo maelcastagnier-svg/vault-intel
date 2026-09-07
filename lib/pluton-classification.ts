@@ -118,9 +118,10 @@ export async function runActivityClassification(): Promise<ClassificationRunRepo
 
 export type TierRule = {
   id: number
-  rule_type: 'page_prefix' | 'element_type_bulk'
+  rule_type: 'page_prefix' | 'element_type_bulk' | 'activity_bulk'
   pattern: string
-  tier: number
+  tier: number | null
+  target_status: string | null
   priority: number
   confidence: 'VERIFIED' | 'DERIVED'
   notes: string | null
@@ -130,26 +131,41 @@ export type TierRule = {
 export type TierClassificationRunReport = {
   rules_applied: number
   rows_tiered: number
-  still_null_before: number
-  still_null_after: number
+  rows_status_only: number
+  still_unclassified_before: number
+  still_unclassified_after: number
 }
 
 // Phase A (26 aout, audit qui a trouve 73,7% de pluton_elements sans tier --
 // aucun moteur de classement par tier n'existait avant ce fichier, seule la
 // classification `activity` etait rejouable). Meme discipline exacte que
 // runActivityClassification() ci-dessus : regles dans une table dediee
-// (`pluton_tier_rules`, jamais un mapping cache dans le code), idempotent
-// (`WHERE tier IS NULL`), rejouable a chaque sync futur. Le tier assigne
-// DOIT venir d'un gate reel du jeu verifie (niveau skill/collection/HOTM
-// requis pour acceder au contenu de la page) -- jamais devine, meme
-// discipline que le reste du projet (regle #7). Beaucoup de pages
-// n'auront jamais de regle ici si leur contenu n'est pas single-tierable
-// (ex: une page qui couvre les 7 tiers a la fois, comme les paliers de
-// Huntrap) -- documente comme non-classifiable au niveau page plutot que
-// force.
+// (`pluton_tier_rules`, jamais un mapping cache dans le code), idempotent,
+// rejouable a chaque sync futur. Le tier assigne DOIT venir d'un gate reel
+// du jeu verifie (niveau skill/collection/HOTM requis pour acceder au
+// contenu de la page) -- jamais devine, meme discipline que le reste du
+// projet (regle #7). Beaucoup de pages n'auront jamais de regle "tier" ici
+// si leur contenu n'est pas single-tierable (ex: une page qui couvre les 7
+// tiers a la fois, comme les paliers de Huntrap) -- documente comme non-
+// classifiable au niveau page plutot que force.
+//
+// **1er septembre -- refonte** : le seul champ `tier` ne suffisait pas a
+// distinguer "pas encore juge" de "juge et correctement non-tierable"
+// (mecanique interne du moteur, contenu hors-progression comme cosmetique/
+// evenementiel, ou table de reference cross-tier) -- ces 3 categories
+// doivent rester tier=NULL A JAMAIS, pas "en attente". Nouvelle colonne
+// `pluton_elements.tier_classification_status` (5 valeurs : tiered/
+// non_client/not_applicable_non_progression/cross_tier_reference/
+// unclassified) porte ce jugement separement. Une regle avec `tier` NON-
+// NULL assigne ce tier ET force status='tiered'. Une regle avec `tier`
+// NULL et `target_status` rempli assigne UNIQUEMENT le statut (jamais un
+// tier numerique) -- pour les 3 categories permanentes ci-dessus. Le garde
+// d'idempotence est desormais `tier_classification_status='unclassified'`
+// (PAS `tier IS NULL`, qui matcherait aussi les lignes deja correctement
+// jugees non-tierables et les re-toucherait a tort).
 export async function runTierClassification(): Promise<TierClassificationRunReport> {
   const { count: beforeCount } = await supabase
-    .from('pluton_elements').select('id', { count: 'exact', head: true }).is('tier', null)
+    .from('pluton_elements').select('id', { count: 'exact', head: true }).eq('tier_classification_status', 'unclassified')
 
   const { data: rules } = await supabase
     .from('pluton_tier_rules')
@@ -158,23 +174,32 @@ export async function runTierClassification(): Promise<TierClassificationRunRepo
     .order('priority', { ascending: true })
 
   let tiered = 0
+  let statusOnly = 0
   for (const rule of (rules || [])) {
-    let query = supabase.from('pluton_elements').update({ tier: rule.tier }).is('tier', null)
-    query = rule.rule_type === 'element_type_bulk'
-      ? query.eq('element_type', rule.pattern)
-      : query.ilike('element_name', `${rule.pattern}%`)
+    const isStatusOnly = rule.tier == null
+    const updatePayload = isStatusOnly
+      ? { tier_classification_status: rule.target_status }
+      : { tier: rule.tier, tier_classification_status: 'tiered' }
+
+    let query = supabase.from('pluton_elements').update(updatePayload).eq('tier_classification_status', 'unclassified')
+    if (rule.rule_type === 'element_type_bulk') query = query.eq('element_type', rule.pattern)
+    else if (rule.rule_type === 'activity_bulk') query = query.eq('activity', rule.pattern)
+    else query = query.ilike('element_name', `${rule.pattern}%`)
+
     const { data } = await query.select('id')
-    tiered += data?.length || 0
+    if (isStatusOnly) statusOnly += data?.length || 0
+    else tiered += data?.length || 0
   }
 
   const { count: afterCount } = await supabase
-    .from('pluton_elements').select('id', { count: 'exact', head: true }).is('tier', null)
+    .from('pluton_elements').select('id', { count: 'exact', head: true }).eq('tier_classification_status', 'unclassified')
 
   return {
     rules_applied: (rules || []).length,
     rows_tiered: tiered,
-    still_null_before: beforeCount || 0,
-    still_null_after: afterCount || 0,
+    rows_status_only: statusOnly,
+    still_unclassified_before: beforeCount || 0,
+    still_unclassified_after: afterCount || 0,
   }
 }
 
