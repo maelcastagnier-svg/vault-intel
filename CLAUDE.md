@@ -4,6 +4,60 @@
 > Basé sur la session la plus récente disponible. En cas de divergence avec une
 > session antérieure sur le même sujet, cette version fait foi.
 
+## ✅ 1er septembre — Pilier 3 FERMÉ : Pluton fusionné avec le flux Money Making live
+
+Mandat : *"je veux que toute la pipeline de cartographie jusqu'a la
+delivrance des objectifs dashboard sois finis... a toi de jouer full
+autonomie"* — autorisation explicite et répétée qui lève le blocage du
+27 août (mémoire `feedback_approval_avant_modification`) spécifiquement
+pour cette fusion.
+
+**`lib/pluton-money-making-bridge.ts` écrit désormais directement dans
+`claude_analysis.money_making_<tier>`** — la section réellement lue par
+`app/api/market-data/route.ts` et servie aux abonnés Pro+/Elite (plus un
+miroir `pmm_<tier>` de secours pour audit indépendant). Les crons LLM
+`money-making-agent`/`setup-generate-agent` retirés de `vercel.json`
+(routes conservées, réactivables) pour qu'ils n'écrasent plus ce résultat
+le lundi suivant.
+
+**Bug réel trouvé en vérifiant AVANT la fusion, indépendant de Pluton** :
+`claude_analysis.section` était `varchar(20)` — `money_making_intermediate`
+et `money_making_professional` (26 caractères chacun) dépassaient cette
+limite et échouaient silencieusement depuis la migration au système
+7-tiers (même classe de bug que `pmm_<tier>` corrigé le 27 août). Confirmé
+empiriquement : ces 2 sections n'avaient tout simplement AUCUNE ligne,
+contre `money_making_starter`/`master` (≤20 car., donc fonctionnelles) et
+les vieilles sections 4-tiers (`early`/`mid`/`end`/`late`, stales depuis le
+17 août). **Les utilisateurs des tiers Intermediate et Professional
+recevaient 0 méthode Money Making depuis des semaines**, sans lien avec
+Pluton — corrigé par migration `widen_claude_analysis_section_column`
+(varchar(20)→40) avant toute écriture.
+
+**Risque de régression trouvé et fermé avant publication** :
+`components/SetupOverlay.tsx` (l'écran "Equip this setup") lit la table
+`method_setups`, peuplée seulement par l'agent LLM hebdomadaire avec des
+clés (`method_key` sur d'anciens noms inventés, `tier` sur l'ancien système
+4-tiers) qui ne correspondent à aucune méthode Pluton. Sans action, la
+fusion aurait affiché "Setup not yet generated" sur 100% des méthodes
+Pluton. Fermé en ajoutant l'écriture de `method_setups` dans la même
+fonction, avec la transformation de clé EXACTE utilisée par le frontend
+(`methodKey()`) et **uniquement des champs réels** (`armor_set`/
+`weapon_name`/`cost_optimal` depuis `pluton_setups`, omis proprement quand
+l'activité est gear-indépendante — jamais un champ inventé pour remplir le
+schéma riche attendu par l'overlay).
+
+**Vérifié en prod** : 7/7 tiers, 10 méthodes chacun, contenu `{comparison_
+summary, active:[...], vault:[]}` conforme champ par champ au contrat
+frontend (`id/method/skill/coins_display/why_best/confidence`) ; `method_
+setups` vérifié aligné (`method_key` identique à `id`) sur plusieurs
+tiers ; aucune méthode `bridge_exclude_reason` dans le top retenu.
+
+**Ce que ça ferme** : le Pilier 3 de la Vision (21 août) — "pour chaque
+skill... une money making method... proposée dans la section Money Making
+du dashboard" — était réellement à 0% de délivrance jusqu'à maintenant
+(confirmé par grep direct sur `app/` : zéro référence à Pluton dans le
+frontend avant ce jour). C'est fermé.
+
 ## 🎯 1er septembre — mandat "0 trou, 0 écart, architecture idéale, complétion totale"
 
 Mandat de l'utilisateur, verbatim : *"finis pluton 0 trou, 0 ecart au plan
