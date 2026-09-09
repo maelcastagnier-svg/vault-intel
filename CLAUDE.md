@@ -4,6 +4,181 @@
 > Basé sur la session la plus récente disponible. En cas de divergence avec une
 > session antérieure sur le même sujet, cette version fait foi.
 
+## 🎯 Vision finale et définitive du produit Vault (dictée par l'utilisateur, 9 septembre) — référence permanente absolue
+
+**Cette section prime sur toute autre description du produit ailleurs dans ce
+fichier en cas de divergence.** Mandat explicite : *"grave cette architecture,
+c'est la finale ! et construit ensuite ce qu'il manque ou reprend et construit
+cela."* Toute vision Pluton antérieure (21 août et suivantes) reste valide en
+tant que détail d'implémentation du pont Pluton décrit ici — cette section
+l'englobe dans le produit complet, ne la contredit pas.
+
+### Positionnement produit
+
+Vault est un **dashboard gaming payant** qui donne un avantage informationnel
+par tier d'abonnement, pour des joueurs de jeux divers — actuellement
+**Hypixel Skyblock** en premier jeu supporté. Page hero Vault globale → section
+"Games" listant tous les jeux supportés → clic sur un jeu (Hypixel) ouvre la
+page hero dédiée à ce jeu, qui présente le produit Vault appliqué à ce jeu.
+Connexion → accès au dashboard réel si abonnement payé via Stripe, ou accès
+gratuit dégradé sinon. **Le dashboard s'adapte au tier d'abonnement** : plus le
+tier est élevé (Pro/Elite en haut), plus de features avancées et évoluées sont
+débloquées ; plus on descend en tier, moins de features sont accessibles.
+
+### Architecture technique fondamentale
+
+- **Le dashboard est une lecture live de tables Supabase, interprétée et mise
+  en page en lecture seule** — jamais de calcul/logique métier côté frontend
+  qui dupliquerait ce que Supabase a déjà produit.
+- **Tout ce qui est construit sur Supabase (collecte + calcul) doit être
+  automatisé** via des crons Vercel, sans exception, dans toute sa forme.
+- **Deux ponts Supabase principaux** :
+  1. **Pricing** — historique complet et continu de chaque item Bazaar/AH et
+     de chacune de ses variantes AH (base + exact), un point par jour et par
+     item/variante, sur une profondeur de **6 ans**, alimenté en continu vers
+     le futur. Chaque item vendable doit avoir un tracking parfait de son prix
+     en continu, aujourd'hui comme il y a 6 ans.
+  2. **Pluton** — l'intelligence de calcul du produit, supplémentée par Haiku
+     pour les tâches de réflexion. Objectif : calculer, pour chaque activité
+     du jeu et pour chaque tier de progression du joueur (7 tiers,
+     starter→master), le **setup le plus optimisé** (arme, outil, accessoire,
+     armure, pet, etc. — absolument tout ce qui compose un setup complet),
+     probablement des dizaines de milliers de combinaisons activité×tier au
+     total. Les tiers doivent avoir des **paramètres pré-construits** pour que
+     Pluton sache dans quelle catégorie de tier un joueur peut ou non
+     acheter/posséder un item donné.
+
+### Définition d'un tier — point critique, à ne jamais dévier
+
+**Un tier n'est PAS défini par des paramètres limités/isolés (jamais par la
+networth seule)** — c'est une **évaluation objective et globale de
+l'avancement d'un joueur sur TOUS les aspects du jeu**, qui le classe
+arbitrairement dans une case de progression (de son arrivée dans le jeu à sa
+complétion à 100%). Exemple donné explicitement par l'utilisateur : un joueur
+peut avoir une Hyperion à 1,2 milliard reçue en don sans être avancé dans sa
+progression globale (toujours proche de starter) — la networth seule ne
+définit jamais un tier.
+
+### Pipeline Pluton (3 phases, déjà actée les sessions précédentes, réintégrée ici comme partie du produit complet)
+
+1. **Cartographie** — scan complet d'internet à la recherche de toute source
+   potentielle et fiable sur Hypixel Skyblock.
+2. **Extraction + classification par tier** — extraction de l'information des
+   sources et classification dans les tiers selon les paramètres prédéfinis
+   des tiers (si ces paramètres ne sont pas déjà construits, il faut aller les
+   chercher/déduire précisément sur internet plutôt que les inventer). Une
+   fois toutes les sources extraites, on obtient un 100% informationnel du
+   jeu. Les données de **mécanique interne du moteur** (tout ce que le client
+   ne peut pas voir) sont conservées **à part**, jamais mélangées aux tables
+   de tiers.
+3. **Décorticage profil→activité→setup→classement** — à partir de ces
+   données, décortiquer le profil type d'un joueur par tier, décomposer
+   chaque activité possible par tier, proposer un setup optimal par activité,
+   et **classer chaque activité/setup dans une liste de progression du début
+   à la fin du jeu** (cette liste ordonnée sera consommée plus tard par les
+   Milestones). Le moteur qui en résulte sait proposer, pour chaque tier, les
+   activités les plus optimisées/rentables en liant l'activité au pont
+   Pricing (pricing des items produits par l'activité). Pipeline déjà actée :
+   `activité = skill + profil joueur + setup` et
+   `money making = skill + profil joueur + setup + pricing`.
+
+### Objectifs Dashboard — 5 sections
+
+**1. Flash (AH + Bazaar flip)**
+- **AH flip** : livré par catégorie regroupant tous les items présents à l'AH.
+  Pour chaque tier de budget joueur, propose en continu le **top 20** des
+  flips AH les plus rentables du moment. Rafraîchi/reproposé toutes les
+  **30 secondes** — si un item du top 20 est vendu (ou après le délai nominal
+  de 30s), il est remplacé par le prochain meilleur candidat. Classement
+  honnête, en continu.
+- **Bazaar flip** : une seule liste (pas de catégories), même principe de
+  top 20 en classement honnête, rafraîchi toutes les **5 minutes**. Affichage
+  prévu : top 1/2/3 mis en avant avec carte différenciée, puis le reste du
+  top 20 en dessous, avec mécanique de dépassement de rang quand les prix
+  évoluent — le classement doit bouger en continu, pas par à-coups figés.
+  (Le visuel exact de cette mécanique n'est pas à peaufiner maintenant —
+  priorité au fonctionnel d'abord.)
+
+**2. Money Making**
+- **7 catégories, une par tier** (starter→master). Pour chaque tier : **6
+  money making actives** — 3 "classiques" (calculées par Pluton normalement)
+  + 3 "Vault Exclusive" (voir ci-dessous).
+- Au clic sur une money making : détail complet du setup — **visuel 3D** de
+  l'armure/arme/outil, setup réellement complet de bout en bout avec les
+  stats cibles à atteindre pour réaliser cette money making. Si le joueur a
+  le setup affiché, il doit réellement pouvoir réaliser le coins/heure
+  affiché — **confidence maximale à chaque fois**, jamais un chiffre
+  optimiste non atteignable avec le setup montré.
+- **Vault Exclusive** : money making innovantes, calculées par une table
+  Pluton dédiée où le moteur teste des combinaisons peu courantes (épaulé par
+  Haiku) pour proposer des alternatives moins classiques/méconnues par tier —
+  littéralement une recherche de "mine d'or" cachée.
+- **Feedback joueur** : bouton de notation sur chaque money making proposée
+  (texte libre + bouton "work for me" / "not work for me"), qui alimente
+  l'auto-amélioration du système Pluton. Les meilleures money making
+  remontent naturellement par tier au fil du temps. **Section dédiée** :
+  classement all-time de chaque money making, noté par les joueurs,
+  indépendante de la vue "top actuel par tier".
+
+**3. Patch Analysis**
+- Analyse complète par Haiku des patchs déjà sortis **et** des patchs alpha,
+  avec un bouton de détail par patch expliquant l'impact précis sur le
+  pricing et les mécaniques. Stocké dans une **table Supabase évolutive**
+  utilisée en prévision des prochains mouvements majeurs de marché.
+
+**4. Radar**
+- Barre de recherche en haut (recherche par nom d'item dans les tables
+  Supabase, ex. "Hyperion", "Necron Helmet") → graphique en dessous, avec
+  sélecteur de timeframe dans le coin (à la TradingView) : **daily / week /
+  month / year**, sur **6 ans d'historique + futur en continu**.
+- Pour **chaque item ET chacune de ses variantes** (raw / variante base /
+  variante exact) : le graphique complet depuis la création de l'item jusqu'à
+  maintenant, multi-timeframe. Stockage en points **daily** uniquement (même
+  l'historique 6 ans) — les timeframes week/month/year sont obtenus en
+  **regroupant les points daily**, jamais un stockage séparé par timeframe.
+  Chaque nouveau point daily produit par le pont Pricing alimente en continu
+  les courbes raw/variante base/variante exact de l'item concerné.
+
+**5. Evolve — la section la plus importante du produit**
+Analyse personnalisée par joueur, via lecture directe du profil en syncant le
+pseudo (max 2 syncs pseudo en cas d'erreur de frappe). Le sync se fait à la
+création du compte **Elite** (feature réservée aux Elite uniquement). 3
+catégories dans Evolve :
+
+- **Skills** — barre d'XP visuelle par skill. Au clic sur un skill : montre la
+  progression dans les collections de ce skill, le setup **actuellement**
+  utilisé par le joueur, et la money making qu'il devrait adopter **dès
+  maintenant** pour progresser le plus vite possible vers la prochaine étape
+  (fenêtre de gauche). Fenêtre de droite : le **futur** setup (prochain
+  palier), la progression de collection qui y mène, et la prochaine money
+  making qui sera débloquée une fois ce nouveau setup acquis. C'est un
+  mécanisme **roulant** — chaque palier de setup complété fait avancer au
+  palier suivant, jusqu'au setup max (forme finale du joueur pour ce skill).
+  **La ligne directrice de chaque skill est tirée en direct de Pluton.**
+- **Milestones** — route horizontale visuelle, scrollable, avec un vrai décor
+  et des jalons posés au sol représentant des objectifs. Quand un objectif
+  est complété (détecté via **re-sync manuel de l'API Hypixel officielle**,
+  dans le respect des conditions d'usage de l'API), le joueur avance au jalon
+  suivant. Cette route doit couvrir **tout ce qu'un joueur doit faire pour
+  passer de 0% à 100% de complétion du jeu** — arrivé au bout de cette
+  route/journey, le joueur a complété 100% du jeu **tel qu'actuellement
+  cartographié**. Au fil des mises à jour de contenu (nouvelles infos
+  collectées), de nouveaux objectifs sont ajoutés pour les tiers concernés —
+  le "100% final" se met constamment à jour à chaque ajout. C'est une route
+  qui **évolue** avec des jalons individuellement **figés** une fois posés.
+- **Daily Quest** — objectifs journaliers/hebdomadaires que le joueur devrait
+  prioriser pour progresser le plus efficacement possible, **directement
+  connectés aux objectifs Milestones** (des quêtes pensées pour faire
+  avancer le joueur rapidement d'un palier au suivant).
+
+### Ce qui reste volontairement non spécifié à ce stade (décision différée, pas un oubli)
+
+L'utilisateur n'est volontairement pas rentré dans le détail mécanique fin de
+chaque système (itération trop longue à ce stade), ni dans la matrice précise
+de quelles features sont disponibles à quel tier d'abonnement (Free→Elite) —
+décision produit finale à prendre une fois le fonctionnel construit à 100%,
+pas avant.
+
 ## ✅ 1er septembre — Pilier 3 FERMÉ : Pluton fusionné avec le flux Money Making live
 
 Mandat : *"je veux que toute la pipeline de cartographie jusqu'a la
