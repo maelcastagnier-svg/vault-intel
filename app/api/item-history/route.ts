@@ -15,8 +15,13 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// '6Y' ajouté le 9 sept -- la vision produit demande explicitement "6 ans
+// d'historique complet" (Radar, multi-timeframe). Plafonner à 3Y bloquait
+// structurellement toute lecture au-delà, alors que price_history (Bazaar)
+// remonte déjà à 2020-08-18 (~6 ans, vérifié en base) et que la purge AH
+// blended vient d'être étendue de 3 à 6 ans (voir data-retention/route.ts).
 const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1, '1W': 7, '1M': 30, '1Y': 365, '3Y': 1095,
+  '1D': 1, '1W': 7, '1M': 30, '1Y': 365, '3Y': 1095, '6Y': 2190,
 }
 
 export async function GET(req: NextRequest) {

@@ -50,9 +50,21 @@ export async function runDataRetention() {
   if (scanErr) errors.push('scan_deleted: ' + scanErr.message)
   results.scan_deleted = scanDeleted || 0
 
-  // 2. Purge DAILY/DAILY_EXACT > 3 ans -- table volumineuse, purge par lots
-  const threeYearsAgo = new Date(Date.now() - 3 * 365 * 86_400_000).toISOString().split('T')[0]
-  const daily = await purgeBatched('delete_old_price_history_ah', threeYearsAgo, deadline)
+  // 2. Purge DAILY/DAILY_EXACT > 6 ans -- table volumineuse, purge par lots.
+  // Corrigé le 9 sept (vision produit : "historique complet 6 ans" pour
+  // chaque item ET variante AH, pas seulement Bazaar) -- ce seuil était à
+  // 3 ans depuis la construction de ce cron, contredisant la vision. Vérifié
+  // en base avant correction : `price_history_ah` (table blended) descend
+  // déjà jusqu'à 2023-08-29 (~3 ans, cohérent avec l'ancien seuil qui l'a
+  // déjà tronquée) -- les données antérieures à 3 ans sont déjà perdues,
+  // ce fix n'y ramène rien, mais empêche la perte continue au-delà de 3 ans
+  // à partir de maintenant. `price_history_ah_variants`/`_variant_base`
+  // (variantes exact/base) n'ont aucune fonction de purge dédiée (confirmé
+  // par `pg_get_functiondef` -- seule `price_history_ah` est ciblée) donc
+  // déjà conformes par défaut (rétention illimitée, tables trop récentes
+  // pour que ça pose un jour question avant longtemps).
+  const sixYearsAgoAh = new Date(Date.now() - 6 * 365 * 86_400_000).toISOString().split('T')[0]
+  const daily = await purgeBatched('delete_old_price_history_ah', sixYearsAgoAh, deadline)
   if (daily.error) errors.push('daily_deleted: ' + daily.error)
   results.daily_deleted = daily.total
 

@@ -11,10 +11,21 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Corrigé le 9 sept -- ces 3 priceId n'existaient PAS dans le compte Stripe
+// live (vérifié directement via l'API Stripe : "No such price" sur les 3),
+// probablement un reliquat d'un compte/mode Stripe antérieur. Résultat réel :
+// tout checkout.session.completed retombait sur le plan 'alert' par défaut
+// (ligne "|| 'alert'" plus bas) quel que soit le plan réellement acheté et
+// payé -- bug critique d'intégrité revenu, jamais déclenché par un vrai client
+// (aucune ligne `subscriptions` ne provient d'un checkout live réel à ce jour,
+// vérifié). Ces 3 valeurs sont désormais les vrais priceId actifs du compte
+// Stripe live (mêmes valeurs que `PRICES` dans app/hypixel-skyblock/page.tsx,
+// vérifiées via GET /v1/prices/:id -- Vault Alert 4.99€, Vault Pro 19.99€,
+// Vault Elite 39.99€, tous `active:true`).
 const PLAN_MAP: Record<string, string> = {
-  'price_1TqY7aBngq0kxKkEbZqcwFZu': 'alert',
-  'price_1TqY7mBngq0kxKkE2SBQjygJ': 'pro',
-  'price_1TqY86Bngq0kxKkEdD00nNtx': 'elite',
+  'price_1TqXC5BmtpUo4AHWVzbSPY0e': 'alert',
+  'price_1TxkeXBmtpUo4AHWAlz7jGFt': 'pro',
+  'price_1TxkeXBmtpUo4AHW48EymVji': 'elite',
 }
 
 
